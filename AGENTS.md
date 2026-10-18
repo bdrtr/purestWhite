@@ -1,5 +1,31 @@
 # CrossPoint Reader agent guide
 
+## Bembeyaz fork
+
+This checkout is the Bembeyaz fork of CrossPoint. Nothing is sent upstream:
+there are no PRs to CrossPoint, and the fork's owner maintains the code. Where
+this section conflicts with the rest of this guide, this section wins.
+
+- Target: X4 Pro only (ESP32-S3 with 8 MB PSRAM, `pio run -e x4pro`). Other
+  board profiles may stop building, and the C3 is not the resource baseline.
+  Internal RAM is still limited: check where a large allocation lands.
+- The move to Rust follows [rust/README.md](rust/README.md).
+- Every firmware change: affected host tests, `cargo test` and
+  `cargo clippy --all-targets` in `rust/`, `pio run -e x4pro`, and
+  `emu/compare.sh` against unmodified CrossPoint. Report the results.
+- Run [firmware-handoff](.agents/skills/firmware-handoff/SKILL.md)'s four
+  independent reviews (and at most one follow-up round) only for: porting a
+  module to Rust or deleting its C++ implementation, memory ownership or
+  allocation strategy, unsafe or FFI contracts, and the build system. Other
+  changes get the main agent's self-review.
+- Handoff: explain the behavior, the tradeoffs and the checks in plain
+  language. The owner's go-ahead ("commit", "devam") after that summary is
+  enough for a local commit; there is no separate maintenance-ownership
+  question. Push only on an explicit instruction to push.
+- Hardware testing on the X4 Pro is the owner's, before a release.
+
+## Upstream guide
+
 CrossPoint Reader is open-source e-reader firmware for Xteink and other FreeInk-supported devices. Its mission is a lightweight, high-performance reading experience focused on EPUB rendering. The X3/X4's ESP32-C3 remains the resource baseline: roughly 380 KB usable RAM, no PSRAM, and a single framebuffer sized for the selected panel. Other board profiles have different CPUs, display sizes, input, and memory capabilities; check the selected profile before assuming them.
 
 ## FreeInk SDK
