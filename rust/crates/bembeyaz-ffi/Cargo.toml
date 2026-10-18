@@ -1,0 +1,17 @@
+[package]
+name = "bembeyaz-ffi"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+# The single static library linked into the C++ firmware and host tests.
+# Every Rust module is exported through here: two Rust staticlibs in one
+# link would each carry their own copy of core/alloc.
+[lib]
+crate-type = ["staticlib"]
+test = false
+bench = false
+
+[dependencies]
+bembeyaz-utf8 = { path = "../bembeyaz-utf8" }

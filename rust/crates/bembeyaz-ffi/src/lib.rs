@@ -1,0 +1,8 @@
+//! C ABI over the Rust modules. Each C++ module that moves to Rust keeps its
+//! header and becomes a thin shim over the `bb_*` functions exported here;
+//! the matching declarations live in `rust/include/bembeyaz/`.
+#![cfg_attr(target_os = "none", no_std)]
+
+#[cfg(target_os = "none")]
+mod device;
+mod utf8;

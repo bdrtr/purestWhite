@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = ["crates/*"]
+
+[workspace.package]
+edition = "2024"
+license = "MIT"
+publish = false
+
+[profile.release]
+opt-level = "s"
+lto = true
+codegen-units = 1
+panic = "abort"
+# Keep symbols so firmware.elf stays addr2line-able; the flashed .bin has none.
+debug = true
+
+[profile.dev]
+panic = "abort"

@@ -1,10 +1,17 @@
 """Run with python3 test/test_clipping_selection_text.py (requires a host C/C++ compiler)."""
 
 from pathlib import Path
+import os
 import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
+# Utf8 is implemented in Rust. CTest passes the library it built; a standalone
+# run builds it with cargo.
+rust_lib = os.environ.get("BEMBEYAZ_RUST_LIB")
+if not rust_lib:
+    subprocess.run(["cargo", "build", "--release", "--quiet", "-p", "bembeyaz-ffi"], cwd=ROOT / "rust", check=True)
+    rust_lib = str(ROOT / "rust/target/release/libbembeyaz_ffi.a")
 source = (ROOT / "src/activities/reader/ClipSelectionActivity.cpp").read_text()
 reader_source = (ROOT / "src/activities/reader/EpubReaderActivity.cpp").read_text()
 header = (ROOT / "src/activities/reader/ClipSelectionActivity.h").read_text()
@@ -420,9 +427,9 @@ with tempfile.TemporaryDirectory() as directory:
         "-I", str(ROOT / "src"), "-I", str(ROOT / "lib/Memory"),
         "-I", str(ROOT / "test/minibidi_arabic/stubs"),
         "-I", str(ROOT / "lib/MiniBidi"), "-I", str(ROOT / "lib/Utf8"),
-        "-I", str(ROOT / "lib/Epub"),
+        "-I", str(ROOT / "lib/Epub"), "-I", str(ROOT / "rust/include"),
         str(cpp), str(bidi_object), str(ROOT / "lib/MiniBidi/BidiUtils.cpp"),
-        str(ROOT / "lib/Utf8/Utf8.cpp"), "-o", str(executable),
+        str(ROOT / "lib/Utf8/Utf8.cpp"), rust_lib, "-lpthread", "-ldl", "-lm", "-o", str(executable),
     ], check=True)
     subprocess.run([str(executable)], check=True)
 print("Clipping selection text regression checks passed")

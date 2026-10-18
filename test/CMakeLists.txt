@@ -24,11 +24,28 @@ FetchContent_MakeAvailable(googletest)
 
 set(REPO_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/..")
 
+# Rust modules (rust/) are linked into every test, as in the firmware. Cargo
+# runs on each build and returns quickly when nothing changed.
+find_program(CARGO cargo REQUIRED)
+find_package(Threads REQUIRED)
+set(BEMBEYAZ_RUST_TARGET_DIR "${CMAKE_CURRENT_BINARY_DIR}/rust")
+set(BEMBEYAZ_RUST_LIB "${BEMBEYAZ_RUST_TARGET_DIR}/release/libbembeyaz_ffi.a")
+add_custom_target(bembeyaz_rust_build
+  COMMAND ${CARGO} build --release --quiet -p bembeyaz-ffi --target-dir ${BEMBEYAZ_RUST_TARGET_DIR}
+  WORKING_DIRECTORY ${REPO_ROOT}/rust
+  BYPRODUCTS ${BEMBEYAZ_RUST_LIB}
+)
+add_library(bembeyaz_rust INTERFACE)
+add_dependencies(bembeyaz_rust bembeyaz_rust_build)
+target_include_directories(bembeyaz_rust INTERFACE ${REPO_ROOT}/rust/include)
+target_link_libraries(bembeyaz_rust INTERFACE ${BEMBEYAZ_RUST_LIB} Threads::Threads ${CMAKE_DL_LIBS} m)
+
 add_library(crosspoint_test_common INTERFACE)
 target_include_directories(crosspoint_test_common INTERFACE
   ${REPO_ROOT}
   ${REPO_ROOT}/lib
 )
+target_link_libraries(crosspoint_test_common INTERFACE bembeyaz_rust)
 target_compile_options(crosspoint_test_common INTERFACE
   -Wall
   -Wextra
@@ -102,3 +119,4 @@ add_test(NAME selection_buttons COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SO
 add_test(NAME list_viewport COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_list_viewport.py)
 add_test(NAME clipping_highlight_planes COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_clipping_highlight_planes.py)
 add_test(NAME clipping_selection_text COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_clipping_selection_text.py)
+set_tests_properties(clipping_selection_text PROPERTIES ENVIRONMENT "BEMBEYAZ_RUST_LIB=${BEMBEYAZ_RUST_LIB}")
