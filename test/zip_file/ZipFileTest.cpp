@@ -48,7 +48,18 @@ class ZipBuilder {
   }
 
   ZipBuilder& addDeflated(const std::string& name, const std::vector<uint8_t>& raw, uint32_t uncompressedSize) {
-    entries.push_back({name, raw, uncompressedSize, METHOD_DEFLATED, "", "", 0});
+    return addRaw(name, raw, uncompressedSize, METHOD_DEFLATED);
+  }
+
+  // Data and size fields as given, consistent or not.
+  ZipBuilder& addRaw(const std::string& name, const std::vector<uint8_t>& raw, uint32_t uncompressedSize,
+                     uint16_t method) {
+    entries.push_back({name, raw, uncompressedSize, method, "", "", 0});
+    return *this;
+  }
+
+  ZipBuilder& setArchiveComment(const std::string& text) {
+    archiveComment = text;
     return *this;
   }
 
@@ -100,7 +111,8 @@ class ZipBuilder {
     putLe16(out, static_cast<uint16_t>(entries.size()));
     putLe32(out, centralDirSize);
     putLe32(out, centralDirOffset);
-    putLe16(out, 0);  // comment length
+    putLe16(out, static_cast<uint16_t>(archiveComment.size()));
+    putBytes(out, archiveComment);
     return out;
   }
 
@@ -117,6 +129,7 @@ class ZipBuilder {
     uint32_t localOffset;
   };
   std::vector<Entry> entries;
+  std::string archiveComment;
 };
 
 class VectorSink : public Print {
@@ -143,8 +156,6 @@ class ZipFileTest : public ::testing::Test {
   void install(ZipBuilder& builder) {
     std::vector<uint8_t> bytes = builder.build();
     centralDirOffset = builder.centralDirOffset;
-    // the end-of-central-directory record is the last 22 bytes
-    endOfDirectoryOffset = static_cast<uint32_t>(bytes.size()) - 22;
     Storage.setFile(path, std::move(bytes));
   }
 
@@ -173,7 +184,6 @@ class ZipFileTest : public ::testing::Test {
   }
 
   uint32_t centralDirOffset = 0;
-  uint32_t endOfDirectoryOffset = 0;
 };
 
 TEST_F(ZipFileTest, ReportsSizesForStoredAndDeflatedEntries) {
@@ -261,9 +271,15 @@ TEST_F(ZipFileTest, AlternatingLookupsWrapAroundTheDirectoryCursor) {
   EXPECT_EQ(sizeOf(zip, "four"), 4u);
   HalFile::readOffsets.clear();
   EXPECT_EQ(sizeOf(zip, "one"), 1u);
-  // The scan resumed after "four", hit the end record, and only then wrapped.
+  // The scan resumed after "four", the last entry, so it wrapped to the start
+  // without reading past the directory.
   ASSERT_FALSE(HalFile::readOffsets.empty());
-  EXPECT_EQ(HalFile::readOffsets.front(), endOfDirectoryOffset);
+  EXPECT_EQ(HalFile::readOffsets.front(), centralDirOffset);
+  HalFile::readOffsets.clear();
+  // After "one" the scan starts at the next entry, not at the directory start.
+  EXPECT_EQ(sizeOf(zip, "two"), 2u);
+  ASSERT_FALSE(HalFile::readOffsets.empty());
+  EXPECT_GT(HalFile::readOffsets.front(), centralDirOffset);
   EXPECT_EQ(sizeOf(zip, "three"), 3u);
   EXPECT_EQ(sizeOf(zip, "two"), 2u);
   EXPECT_EQ(sizeOf(zip, "four"), 4u);
@@ -290,7 +306,7 @@ TEST_F(ZipFileTest, MissingNamesFailWithoutBreakingLaterLookups) {
   EXPECT_EQ(nullptr, zip.readFileToMemory("missing.txt"));
 }
 
-TEST_F(ZipFileTest, SkipsOversizedNamesAndEntriesWithExtraFieldsAndComments) {
+TEST_F(ZipFileTest, FindsLongNamesAndEntriesWithExtraFieldsAndComments) {
   const std::string longName(300, 'n');
   ZipBuilder builder;
   builder.addStored(longName, "long")
@@ -300,8 +316,7 @@ TEST_F(ZipFileTest, SkipsOversizedNamesAndEntriesWithExtraFieldsAndComments) {
 
   ZipFile zip(path);
   ASSERT_TRUE(zip.open());
-  size_t size = 0;
-  EXPECT_FALSE(zip.getInflatedFileSize(longName.c_str(), &size));
+  EXPECT_EQ(sizeOf(zip, longName.c_str()), 4u);
   EXPECT_EQ(sizeOf(zip, "plain"), 6u);
   EXPECT_EQ(sizeOf(zip, "with-extra"), 5u);
   EXPECT_EQ(extract(zip, "with-extra"), "extra");
@@ -330,6 +345,59 @@ TEST_F(ZipFileTest, RejectsArchivesWithoutAnEndOfCentralDirectoryRecord) {
   Storage.setFile(path, std::vector<uint8_t>(8, 'P'));
   ZipFile tiny(path);
   EXPECT_FALSE(tiny.getInflatedFileSize("anything", &size));
+}
+
+// The C++ reader only searched the last 1 KiB for the end record.
+TEST_F(ZipFileTest, OpensArchivesWithALongComment) {
+  ZipBuilder builder;
+  builder.addStored("mimetype", "application/epub+zip").setArchiveComment(std::string(4000, 'c'));
+  install(builder);
+
+  ZipFile zip(path);
+  EXPECT_EQ(extract(zip, "mimetype"), "application/epub+zip");
+}
+
+// uncompressedSize + 1 wrapped to 0: malloc(0) followed by a 4 GiB write.
+TEST_F(ZipFileTest, RejectsAMaximumSizeEntryWithATerminator) {
+  ZipBuilder builder;
+  builder.addDeflated("huge", DEFLATED_BYTES, UINT32_MAX);
+  install(builder);
+
+  ZipFile zip(path);
+  size_t size = 0;
+  EXPECT_EQ(nullptr, zip.readFileToMemory("huge", &size, true));
+}
+
+// A stored entry is read as uncompressedSize bytes; a larger value than the
+// data holds would read into the next entry.
+TEST_F(ZipFileTest, RejectsStoredEntriesWhoseSizesDiffer) {
+  ZipBuilder builder;
+  builder.addRaw("short", {'a', 'b'}, 40, METHOD_STORED).addStored("next", "next entry");
+  install(builder);
+
+  ZipFile zip(path);
+  EXPECT_EQ(nullptr, zip.readFileToMemory("short"));
+  VectorSink sink;
+  EXPECT_FALSE(zip.readFileToStream("short", sink, 16));
+  EXPECT_EQ(extract(zip, "next"), "next entry");
+}
+
+// A broken entry used to end the walk silently, after caching whatever its
+// garbage fields held; now the walk reports the archive as malformed.
+TEST_F(ZipFileTest, ReportsAMalformedCentralDirectory) {
+  ZipBuilder builder;
+  builder.addStored("a.txt", "aaaa").addStored("b.txt", "bb");
+  std::vector<uint8_t> bytes = builder.build();
+  // Corrupt the second central header's signature.
+  const size_t second = builder.centralDirOffset + 46 + 5;
+  bytes[second] = 0;
+  Storage.setFile(path, std::move(bytes));
+
+  ZipFile zip(path);
+  EXPECT_FALSE(zip.loadAllFileStatSlims());
+  int seen = 0;
+  EXPECT_FALSE(zip.enumerateFileEntries([&seen](std::string_view, uint32_t, uint32_t) { seen++; }));
+  EXPECT_EQ(seen, 1);
 }
 
 }  // namespace

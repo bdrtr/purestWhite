@@ -1,0 +1,13 @@
+# Open the only book on the card and wait for the screen to settle, whether
+# the book opens or fails. For malformed books, where "Page render" may never come.
+ready
+touch:240,348
+wait-screen
+shot:files
+touch:240,138
+wait-quiet:8
+shot:after-open
+heap:after-open
+press:home
+wait-quiet:3
+shot:home-again

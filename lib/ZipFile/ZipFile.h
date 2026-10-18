@@ -1,24 +1,23 @@
 #pragma once
 #include <HalStorage.h>
+#include <bembeyaz/zip.h>
 
 #include <deque>
 #include <string>
 #include <string_view>
 #include <unordered_map>
 
+// ZIP container access for EPUB files. The container format is parsed in
+// Rust (rust/crates/bembeyaz-zip); this class adds the HAL file, lookup caches
+// and decompression.
 class ZipFile {
  public:
   struct FileStatSlim {
     uint16_t method;             // Compression method
+    uint16_t flags;              // General purpose bit flags
     uint32_t compressedSize;     // Compressed size
     uint32_t uncompressedSize;   // Uncompressed size
     uint32_t localHeaderOffset;  // Offset of local file header
-  };
-
-  struct ZipDetails {
-    uint32_t centralDirOffset;
-    uint16_t totalEntries;
-    bool isSet;
   };
 
   // Target for batch uncompressed size lookup (sorted by hash, then len)
@@ -39,23 +38,29 @@ class ZipFile {
   }
 
  private:
+  using EntryVisitor = bool (*)(const char* name, size_t nameLen, const bb_zip_entry* entry, void* context);
+
   const std::string& filePath;
   HalFile file;
-  ZipDetails zipDetails = {0, 0, false};
+  bb_zip_directory directory = {};
+  bool directoryLoaded = false;
   std::unordered_map<std::string, FileStatSlim> fileStatSlimCache;
 
-  // Cursor for sequential central-dir scanning optimization
-  uint32_t lastCentralDirPos = 0;
-  bool lastCentralDirPosValid = false;
+  // Sequential lookups resume where the previous one matched.
+  bb_zip_cursor cursor = {};
   // Reuse the lookup when extraction follows a size query for the same entry
   // while the archive stays open
   std::string lastLookupName;
   FileStatSlim lastLookup = {};
   bool lastLookupValid = false;
 
+  bb_zip_source source();
   bool loadFileStatSlim(const char* filename, FileStatSlim* fileStat);
   long getDataOffset(const FileStatSlim& fileStat);
   bool loadZipDetails();
+  // Visits every central directory entry; false when the archive cannot be
+  // opened or its directory is malformed.
+  bool forEachEntry(EntryVisitor visit, void* context);
 
  public:
   explicit ZipFile(const std::string& filePath) : filePath(filePath) {}
@@ -96,54 +101,14 @@ class ZipFile {
   // hold CRCs.
   template <typename F>
   bool enumerateFileEntries(F&& callback) {
-    const bool wasOpen = isOpen();
-    if (!wasOpen && !open()) {
-      return false;
-    }
-
-    if (!loadZipDetails()) {
-      if (!wasOpen) {
-        close();
-      }
-      return false;
-    }
-
-    file.seek(zipDetails.centralDirOffset);
-
-    uint32_t sig;
-    char itemName[256];
-
-    while (file.available()) {
-      file.read(&sig, 4);
-      if (sig != 0x02014b50) {
-        break;
-      }
-
-      file.seekCur(12);
-      uint32_t crc32, compressedSize;
-      file.read(&crc32, 4);
-      file.read(&compressedSize, 4);
-      file.seekCur(4);
-      uint16_t nameLen, m, k;
-      file.read(&nameLen, 2);
-      file.read(&m, 2);
-      file.read(&k, 2);
-      file.seekCur(12);
-
-      if (nameLen < sizeof(itemName)) {
-        file.read(itemName, nameLen);
-        itemName[nameLen] = '\0';
-        callback(std::string_view{itemName, nameLen}, crc32, compressedSize);
-      } else {
-        file.seekCur(nameLen);
-      }
-
-      file.seekCur(m + k);
-    }
-
-    if (!wasOpen) {
-      close();
-    }
-    return true;
+    auto invoke = [&callback](const char* name, const size_t nameLen, const bb_zip_entry* entry) {
+      callback(std::string_view{name, nameLen}, entry->crc32, static_cast<uint32_t>(entry->compressed_size));
+    };
+    return forEachEntry(
+        [](const char* name, const size_t nameLen, const bb_zip_entry* entry, void* context) {
+          (*static_cast<decltype(invoke)*>(context))(name, nameLen, entry);
+          return true;
+        },
+        &invoke);
   }
 };

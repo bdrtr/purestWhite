@@ -37,7 +37,11 @@ aynı senaryoyla yan yana çalıştırır: ekran görüntüsü farkı, heap, ren
 
 ```sh
 pio run -e x4pro && emu/compare.sh            # emu/reading.txt senaryosu
-emu/compare.sh emu/baska-senaryo.txt x4pro
+emu/compare.sh emu/baska-senaryo.txt x4pro kitap.epub
+
+# Bozuk EPUB'lar (her biri kendi kartında):
+python3 emu/make_bad_epubs.py emu/books/bad
+emu/compare.sh emu/open-book.txt x4pro emu/books/bad/max-size-cover/max-size-cover.epub
 ```
 
 Davranışı korumak için yapılan taşımada beklenen sonuç "N of N screenshots
@@ -60,6 +64,9 @@ açıklanır.
 - Sınırda veri: dilim (`ptr` + `len`) girer; çıktı ya çağıranın tamponuna yazılır
   ya da `emit` geri çağrısıyla `std::string`'e eklenir. Rust, C++'a
   sahipliği devredilmiş bellek döndürmez.
+- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`) `clippy::indexing_slicing`,
+  `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla bellek ayırmaz. Her
+  kesme ve tek bayt bozulması için panik olmadığını test eden bir mini-fuzz testi taşır.
 - Henüz yalnızca tam sayı ve işaretçi geçiyor. Sınırdan `float` geçmeye başlamadan
   önce Xtensa'da float ABI uyumu doğrulanmalı.
 
@@ -70,7 +77,7 @@ Bağımlılıklara göre (önce yapraklar):
 | Aşama | Modüller | Not |
 | --- | --- | --- |
 | 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, XmlParserUtils, MiniBidi, JsonParser | Donanım yok, testleri var |
-| 2 — sıkıştırma/veri | uzlib, InflateReader, miniz, ZipFile, Serialization | `ZipFile`, HAL dosya API'sine bağlı; sınırda okuma geri çağrısı |
+| 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, InflateStream (miniz/uzlib), Serialization | Inflate, framebuffer ödünç alma (`buildscratch`) ile birlikte taşınacak |
 | 3 — EPUB çekirdeği | Epub: CSS ayrıştırıcı, OPF, heceleme, ParsedText, Section | En büyük parça (~19k satır); alt modül alt modül |
 | 4 — görüntü/font | Png/JpegToBmp, EpdFont, GfxRenderer | Çerçeve tamponu sınırı |
 | 5 — uygulama | LibraryIndex, Txt, Xtc, KOReaderSync, `src/` activity'leri | UI |
