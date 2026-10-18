@@ -419,16 +419,14 @@ int main() {
 with tempfile.TemporaryDirectory() as directory:
     cpp = Path(directory) / "selection.cpp"
     executable = Path(directory) / "selection"
-    bidi_object = Path(directory) / "minibidi.o"
     cpp.write_text(harness)
-    subprocess.run(["cc", "-c", str(ROOT / "lib/MiniBidi/minibidi.c"), "-o", str(bidi_object)], check=True)
     subprocess.run([
         "c++", "-std=c++20", "-Wall", "-Wextra", "-Werror",
         "-I", str(ROOT / "src"), "-I", str(ROOT / "lib/Memory"),
         "-I", str(ROOT / "test/minibidi_arabic/stubs"),
         "-I", str(ROOT / "lib/MiniBidi"), "-I", str(ROOT / "lib/Utf8"),
         "-I", str(ROOT / "lib/Epub"), "-I", str(ROOT / "rust/include"),
-        str(cpp), str(bidi_object), str(ROOT / "lib/MiniBidi/BidiUtils.cpp"),
+        str(cpp), str(ROOT / "lib/MiniBidi/BidiUtils.cpp"),
         str(ROOT / "lib/Utf8/Utf8.cpp"), rust_lib, "-lpthread", "-ldl", "-lm", "-o", str(executable),
     ], check=True)
     subprocess.run([str(executable)], check=True)

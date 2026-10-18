@@ -21,7 +21,7 @@ UI_FONT_SIZES=(10 12)
 UI_FONT_STYLES=("Regular" "Bold")
 
 # Arabic glyphs for UI text (menus, file browser titles). The built-in fonts
-# must cover the *output* of MiniBidi's do_shape() — contextual presentation
+# must cover the *output* of BidiUtils' shaping — contextual presentation
 # forms — not base letters, or shaped UI text silently drops glyphs.
 # Curated for firmware-size budget: core Arabic (Presentation Forms-B,
 # incl. the Lam-Alef ligature forms) plus the Farsi/Urdu extra letters'

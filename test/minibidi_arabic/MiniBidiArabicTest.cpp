@@ -2,7 +2,7 @@
 //
 // Exercises the full BidiUtils::applyBidiVisual() pipeline (the single code
 // path shared by GfxRenderer::getTextWidth() and drawText()): UAX#9
-// reordering (do_bidi) followed by mintty-ported Arabic shaping (do_shape).
+// reordering followed by Arabic contextual shaping (rust/crates/bembeyaz-bidi).
 //
 // Inputs are built from codepoint arrays in LOGICAL order; expectations are
 // codepoint arrays in VISUAL order (left to right, as drawn on screen).

@@ -18,9 +18,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "bembeyaz-bidi"
+version = "0.1.0"
+dependencies = [
+ "bembeyaz-utf8",
+]
+
+[[package]]
 name = "bembeyaz-ffi"
 version = "0.1.0"
 dependencies = [
+ "bembeyaz-bidi",
  "bembeyaz-inflate",
  "bembeyaz-utf8",
  "bembeyaz-zip",

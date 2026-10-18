@@ -1,7 +1,7 @@
 // LigatureGuardTest — font GSUB ligatures must not re-process Arabic text.
 //
 // Arabic contextual joining (including Lam-Alef) is resolved at render time by
-// do_shape() in MiniBidi, which emits Arabic presentation forms in visual
+// BidiUtils::applyBidiVisual(), which emits Arabic presentation forms in visual
 // order. A font's GSUB ligature table (extracted from the source font) also
 // carries Lam-Alef pairs keyed on those presentation forms, e.g.
 //   FEDF (lam-initial) + FE8E (alef-final) -> FEFB (lam-alef isolated)
@@ -47,7 +47,7 @@ TEST(LigatureGuard, LatinLigatureKept) {
   EXPECT_EQ(font.getLigature(0x0066, 0x0066), 0xFB00u);
 }
 
-// The Arabic Lam-Alef GSUB pair must be suppressed: do_shape() already owns it.
+// The Arabic Lam-Alef GSUB pair must be suppressed: bidi shaping already owns it.
 TEST(LigatureGuard, ArabicPresentationFormPairSuppressed) {
   EpdFontData data;
   const EpdFont font = makeFont(data);

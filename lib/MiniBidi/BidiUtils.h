@@ -6,7 +6,7 @@
 
 namespace BidiUtils {
 
-// Paragraph-level P2/P3: scan the first N strong chars per word to find base direction.
+// Paragraph-level P2/P3: scan the first N characters per word for a strong one to find base direction.
 inline constexpr int RTL_PARAGRAPH_PROBE_DEPTH = 5;
 
 bool startsWithRtl(const char* utf8, int maxStrongChars = RTL_PARAGRAPH_PROBE_DEPTH);

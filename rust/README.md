@@ -44,6 +44,11 @@ emu/compare.sh emu/baska-senaryo.txt x4pro kitap.epub
 python3 emu/make_inflate_epub.py emu/books/inflate
 emu/compare.sh emu/inflate.txt x4pro emu/books/inflate/inflate.epub
 
+# Sağdan sola metin (Arapça, İbranice). Yerleşik fontlarda bu harfler yok: gövde
+# kutularla çizilir, karşılaştırma satır düzenini ve başlığı ölçer.
+python3 emu/make_bidi_epub.py emu/books/bidi
+emu/compare.sh emu/reading.txt x4pro emu/books/bidi/bidi-test.epub
+
 # Bozuk EPUB'lar (her biri kendi kartında):
 python3 emu/make_bad_epubs.py emu/books/bad
 emu/compare.sh emu/open-book.txt x4pro emu/books/bad/max-size-cover/max-size-cover.epub
@@ -69,7 +74,7 @@ açıklanır.
 - Sınırda veri: dilim (`ptr` + `len`) girer; çıktı ya çağıranın tamponuna yazılır
   ya da `emit` geri çağrısıyla `std::string`'e eklenir. Rust, C++'a
   sahipliği devredilmiş bellek döndürmez.
-- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`) `clippy::indexing_slicing`,
+- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-bidi`) `clippy::indexing_slicing`,
   `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla bellek ayırmaz. Her
   kesme ve tek bayt bozulması için panik olmadığını test eden bir mini-fuzz testi taşır.
 - Büyük bir değer (ör. ~10 KB'lık inflate durumu) yerinde kurulmalı: Rust bunu
@@ -85,7 +90,7 @@ Bağımlılıklara göre (önce yapraklar):
 
 | Aşama | Modüller | Not |
 | --- | --- | --- |
-| 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, XmlParserUtils, MiniBidi, JsonParser | Donanım yok, testleri var |
+| 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, XmlParserUtils, **MiniBidi ✅** (minibidi davranışıyla birebir; UAX #9 düzeltmeleri sırada), JsonParser | Donanım yok, testleri var |
 | 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (miniz_oxide), **InflateReader ✅** (silindi; kullanıcıları InflateStream'e geçti), Serialization | Framebuffer ödünç alma C++'ta kaldı; Rust belleği çağırandan alır. ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
 | 3 — EPUB çekirdeği | Epub: CSS ayrıştırıcı, OPF, heceleme, ParsedText, Section | En büyük parça (~19k satır); alt modül alt modül |
 | 4 — görüntü/font | Png/JpegToBmp, EpdFont, GfxRenderer | Çerçeve tamponu sınırı |
