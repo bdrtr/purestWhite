@@ -62,10 +62,10 @@ açıklanır.
 
 - **Her şeyi kendimiz yazarız.** Firmware'e bağlanan Rust kodunda (`bembeyaz-ffi`'nin
   bağımlılıkları) üçüncü taraf crate yoktur: algoritmalar standarttan (UAX #9,
-  RFC 1951 …) kendimiz yazılır, en küçük ve en hızlı olacak şekilde. Henüz kalan:
-  `bembeyaz-inflate`'teki miniz_oxide. Testlerde referans olarak kullanılan crate'ler
-  (`zip`, miniz_oxide'ın `with-alloc` özelliği) de zamanla kendi ürettiğimiz
-  fixture'larla değiştirilir.
+  RFC 1951 …) kendimiz yazılır, en küçük ve en hızlı olacak şekilde. Testlerde
+  referans olarak kullanılan crate'ler (`zip`; test verisini sıkıştıran ve
+  karşılaştırma testinde `bembeyaz-inflate`'in yerini aldığı çözücü olan miniz_oxide)
+  de zamanla kendi ürettiğimiz fixture'larla değiştirilir.
 - **Taşıma önce eski davranışı korur.** Eski koda karşı yazılmış oracle testleri
   değişmeden geçer; standarttan sapmalar sonra, her biri kendi commit'inde düzeltilir.
 - **Rust tarafı birebir çeviri değildir.** Crate'ler dilim, iterator, `Option` ve
@@ -85,7 +85,7 @@ açıklanır.
 - Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-bidi`) `clippy::indexing_slicing`,
   `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla bellek ayırmaz. Her
   kesme ve tek bayt bozulması için panik olmadığını test eden bir mini-fuzz testi taşır.
-- Büyük bir değer (ör. ~10 KB'lık inflate durumu) yerinde kurulmalı: Rust bunu
+- Büyük bir değer (ör. ~4,5 KB'lık inflate durumu) yerinde kurulmalı: Rust bunu
   garanti etmez, değer önce stack'te kurulup kopyalanabilir. `scripts/build_rust.py`
   her firmware build'inde (`pio run`) Rust fonksiyonlarının stack çerçevesini ölçer
   ve 2 KB'ı aşanı reddeder.
@@ -99,7 +99,7 @@ Bağımlılıklara göre (önce yapraklar):
 | Aşama | Modüller | Not |
 | --- | --- | --- |
 | 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, XmlParserUtils, **MiniBidi ✅** (minibidi davranışıyla birebir; UAX #9 düzeltmeleri sırada), JsonParser | Donanım yok, testleri var |
-| 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (miniz_oxide), **InflateReader ✅** (silindi; kullanıcıları InflateStream'e geçti), Serialization | Framebuffer ödünç alma C++'ta kaldı; Rust belleği çağırandan alır. ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
+| 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (kendi çözücümüz), **InflateReader ✅** (silindi; kullanıcıları InflateStream'e geçti), Serialization | Framebuffer ödünç alma C++'ta kaldı; Rust belleği çağırandan alır. ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
 | 3 — EPUB çekirdeği | Epub: CSS ayrıştırıcı, OPF, heceleme, ParsedText, Section | En büyük parça (~19k satır); alt modül alt modül |
 | 4 — görüntü/font | Png/JpegToBmp, EpdFont, GfxRenderer | Çerçeve tamponu sınırı |
 | 5 — uygulama | LibraryIndex, Txt, Xtc, KOReaderSync, `src/` activity'leri | UI |

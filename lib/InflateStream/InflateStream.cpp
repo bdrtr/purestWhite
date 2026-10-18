@@ -27,7 +27,7 @@ bool InflateStream::init(const bool streaming) {
   deinit();
 
   // During a framebuffer loan the lent framebuffer (48KB on X4) is up for
-  // grabs: when state (~10KB) + window (32KB) fit inside it, a chapter-build
+  // grabs: when state (~4.5KB) + window (32KB) fit inside it, a chapter-build
   // inflate costs the heap nothing. Otherwise: plain heap, freed in deinit().
   const size_t stateSize = bb_inflate_state_size();
   void* state = nullptr;

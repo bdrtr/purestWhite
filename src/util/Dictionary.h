@@ -35,7 +35,7 @@ class Dictionary {
     Found,       // hit — definition filled
     NotFound,    // the word is genuinely not in the dictionary
     LowMemory,   // found, but an allocation failed: the .dict.dz inflate window
-                 // (~32KB) and state (~10KB), or the definition text buffer, couldn't
+                 // (~32KB) and state (~4.5KB), or the definition text buffer, couldn't
                  // be obtained from the fragmented heap. THIS is the "stopped
                  // finding words until restart" case — definitively memory.
     Decompress,  // found, but decompression genuinely failed (corrupt/truncated

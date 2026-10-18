@@ -43,7 +43,7 @@ if subprocess.run(command, cwd=rust_dir, env=cargo_env).returncode != 0:
     sys.exit("build_rust.py: cargo build failed")
 
 # Rust gives no guarantee that a large value is built in place, so a big
-# struct (e.g. the ~10 KiB inflate state) can silently pass through the stack.
+# struct (e.g. the ~4.5 KiB inflate state) can silently pass through the stack.
 # Refuse frames beyond this; task stacks are 3-24 KiB.
 MAX_FRAME = 2048
 FUNCTION = re.compile(r"^[0-9a-f]+ <(.+)>:$")

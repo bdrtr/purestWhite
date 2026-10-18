@@ -22,7 +22,7 @@ struct Info {
 enum class ExtractError : uint8_t {
   None,        // success
   LowMemory,   // an allocation failed — the inflate window (~32KB) or state
-               // (~10KB), or a small input/output buffer, couldn't be obtained
+               // (~4.5KB), or a small input/output buffer, couldn't be obtained
                // from the fragmented heap
   ReadError,   // file open / read / write / bad-offset failure (IO or a bogus
                // .idx offset), not a compression problem

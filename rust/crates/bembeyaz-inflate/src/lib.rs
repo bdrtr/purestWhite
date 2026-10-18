@@ -1,9 +1,10 @@
-//! Streaming DEFLATE and zlib decompression over caller-owned storage.
+//! Streaming DEFLATE and zlib decompression over caller-owned storage: our own decoder
+//! (RFC 1951, RFC 1950).
 //!
 //! [`Inflater`] decodes into one buffer that holds the whole output, so it
 //! needs no window. With a borrowed 32 KiB [`Window`] it hands out the output
 //! in pieces of any size. Nothing allocates: the caller decides where the
-//! ~10 KiB decoder state and the window live (heap, or the framebuffer lent
+//! ~4.5 KiB decoder state and the window live (heap, or the framebuffer lent
 //! out during a chapter build).
 //!
 //! The compressed data comes from untrusted files. Corrupt or truncated input
@@ -12,20 +13,18 @@
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
+mod decode;
+mod huffman;
+
 use core::ffi::CStr;
 use core::fmt;
 use core::mem::MaybeUninit;
 use core::ops::Range;
 use core::ptr;
-use miniz_oxide::inflate::TINFLStatus;
-use miniz_oxide::inflate::core::inflate_flags::{
-    TINFL_FLAG_HAS_MORE_INPUT, TINFL_FLAG_PARSE_ZLIB_HEADER,
-    TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF,
-};
-use miniz_oxide::inflate::core::{DecompressorOxide, decompress};
+use decode::{Decoder, Outcome};
 
 /// Size of a [`Window`]: the largest distance DEFLATE can refer back.
-pub const WINDOW_SIZE: usize = miniz_oxide::inflate::core::TINFL_LZ_DICT_SIZE;
+pub const WINDOW_SIZE: usize = 32 * 1024;
 
 /// Compressed input, read like `std::io::BufRead` without I/O errors.
 pub trait Input {
@@ -109,32 +108,30 @@ impl core::error::Error for Error {}
 /// every call must pass the same buffer with the earlier output in front.
 /// [`Window`] hands the output out in pieces instead.
 pub struct Inflater {
-    state: DecompressorOxide,
+    decoder: Decoder,
     format: Format,
     done: bool,
 }
 
 impl Inflater {
-    /// Tests only: the ~10 KiB result may be built on the stack and moved.
+    /// Tests only: the ~4.5 KiB result may be built on the stack and moved.
     #[cfg(test)]
     #[must_use]
     pub fn new(format: Format) -> Self {
-        Self {
-            state: DecompressorOxide::new(),
-            format,
-            done: false,
-        }
+        let mut slot = MaybeUninit::uninit();
+        Self::init(&mut slot, format);
+        // SAFETY: init() initialised it.
+        unsafe { slot.assume_init() }
     }
 
     /// Sets up an inflater in `slot` without building it on the stack first,
     /// which Rust does not promise for a returned value even when inlined.
     pub fn init(slot: &mut MaybeUninit<Self>, format: Format) -> &mut Self {
         let this = slot.as_mut_ptr();
-        // SAFETY: in miniz_oxide 0.9.1 (pinned) `DecompressorOxide::default()`
-        // is all zeros: integers, integer arrays and `State::Start = 0`. Miri
-        // checks this in `init_matches_new`.
+        // SAFETY: all-zero bytes are a fresh `Decoder` (integers, integer arrays, `false` and
+        // enums whose first variant is 0); Miri checks this in `init_over_garbage_decodes`.
         unsafe {
-            (&raw mut (*this).state).write_bytes(0, 1);
+            (&raw mut (*this).decoder).write_bytes(0, 1);
             (&raw mut (*this).format).write(format);
             (&raw mut (*this).done).write(false);
             slot.assume_init_mut()
@@ -191,36 +188,28 @@ impl Inflater {
         pos: usize,
         wrapping: bool,
     ) -> (usize, Result<(), Error>) {
+        if pos > out.len() {
+            return (0, Err(Error::BadOutput));
+        }
         let data = input.fill_buf();
-        let mut flags = 0;
-        if self.format == Format::Zlib {
-            flags |= TINFL_FLAG_PARSE_ZLIB_HEADER;
-        }
-        // An empty refill is the end of the input; until then more may follow.
-        if !data.is_empty() {
-            flags |= TINFL_FLAG_HAS_MORE_INPUT;
-        }
-        if !wrapping {
-            flags |= TINFL_FLAG_USING_NON_WRAPPING_OUTPUT_BUF;
-        }
-        let (status, consumed, written) = decompress(&mut self.state, data, out, pos, flags);
+        let at_end = data.is_empty();
+        let (consumed, written, outcome) =
+            self.decoder
+                .run(data, out, pos, wrapping, self.format == Format::Zlib);
         input.consume(consumed);
-        let result = match status {
-            TINFLStatus::Done => {
+        let result = match outcome {
+            Outcome::Done => {
                 self.done = true;
                 Ok(())
             }
+            // The input has ended (an empty refill is the end) and more was needed: truncated,
+            // even when this step still wrote what the bit buffer held.
+            Outcome::NeedInput if at_end => Err(Error::Truncated),
             // Both report progress; a step that made none would loop forever.
-            TINFLStatus::NeedsMoreInput | TINFLStatus::HasMoreOutput
-                if consumed > 0 || written > 0 =>
-            {
-                Ok(())
-            }
-            TINFLStatus::NeedsMoreInput | TINFLStatus::FailedCannotMakeProgress => {
-                Err(Error::Truncated)
-            }
-            TINFLStatus::Adler32Mismatch => Err(Error::Checksum),
-            _ => Err(Error::Corrupt),
+            Outcome::NeedInput | Outcome::OutputFull if consumed > 0 || written > 0 => Ok(()),
+            Outcome::NeedInput => Err(Error::Truncated),
+            Outcome::OutputFull => Err(Error::Corrupt),
+            Outcome::Failed(error) => Err(error),
         };
         (written, result)
     }
@@ -243,7 +232,8 @@ pub struct Window<'w> {
 }
 
 impl<'w> Window<'w> {
-    /// The buffer's previous contents are irrelevant.
+    /// The buffer's previous contents are irrelevant to a valid stream (see the ring note in
+    /// `decode.rs` for one that refers back past its start).
     #[must_use]
     pub fn new(buf: &'w mut [u8; WINDOW_SIZE]) -> Self {
         Self {
@@ -322,3 +312,17 @@ impl<'w> Window<'w> {
     reason = "tests"
 )]
 mod tests;
+
+#[cfg(test)]
+mod reference;
+
+#[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::cast_possible_truncation,
+    clippy::cast_precision_loss,
+    reason = "tests"
+)]
+mod differential;

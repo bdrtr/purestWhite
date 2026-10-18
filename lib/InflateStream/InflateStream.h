@@ -5,12 +5,12 @@
 
 struct bb_inflate;
 
-// Streaming deflate decompressor; the decoder is Rust (miniz_oxide, a port of
-// miniz's tinfl) behind rust/include/bembeyaz/inflate.h.
+// Streaming deflate decompressor; the decoder is our own Rust (rust/crates/bembeyaz-inflate)
+// behind rust/include/bembeyaz/inflate.h.
 //
 // The firmware's DEFLATE decoder for EPUB zip entries, PNG IDAT, font groups
 // (FontDecompressor) and dictzip chunks (DictZip); the SDK's ContentProtection
-// keeps its own miniz. The decoder state (~10KB)
+// keeps its own miniz. The decoder state (~4.5KB)
 // lives for the scope of the stream: taken from the lent framebuffer bytes via
 // buildscratch::claim() when a FrameBufferLoan is active, heap otherwise (on
 // the S3, malloc puts blocks over 4KB in PSRAM).

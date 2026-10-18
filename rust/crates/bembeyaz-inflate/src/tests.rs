@@ -105,9 +105,9 @@ fn streamed(
 }
 
 /// Run under Miri (`cargo +nightly miri test -p bembeyaz-inflate init_`) to
-/// check that the zeroed state `init` relies on is a valid decoder.
+/// check that the zeroed state `init` writes over garbage is a valid decoder.
 #[test]
-fn init_matches_new() {
+fn init_over_garbage_decodes() {
     let data = sample(300);
     for (format, compressed) in [
         (Format::Deflate, compress_to_vec(&data, 6)),

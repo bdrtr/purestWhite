@@ -126,7 +126,7 @@ pub unsafe extern "C" fn bb_inflate_init(
             &mut *window.cast::<[u8; WINDOW_SIZE]>()
         }))
     };
-    // Field by field: the ~10 KiB decoder must not pass through the stack.
+    // Field by field: the ~4.5 KiB decoder must not pass through the stack.
     unsafe {
         let inflater = (&raw mut (*state).inflater).cast::<MaybeUninit<Inflater>>();
         Inflater::init(&mut *inflater, Format::Deflate);

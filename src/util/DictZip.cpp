@@ -72,7 +72,7 @@ bool extractChunkSlice(HalFile& file, uint32_t compressedOffset, uint32_t compre
   // run, so taking the ~3KB ChunkSource before the 32KB window left the window's
   // block 12 bytes short on device (largest=32756 against need=32768) even on a
   // barely fragmented heap. Ordering by size removes that failure mode: the
-  // window (and the ~10KB decoder state after it, see InflateStream::init) gets
+  // window (and the ~4.5KB decoder state after it, see InflateStream::init) gets
   // the big block while it is still whole, and the small buffers fit in what
   // remains — or in one of the smaller free blocks.
   InflateStream inflate;
