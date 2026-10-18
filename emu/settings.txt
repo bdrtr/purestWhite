@@ -1,0 +1,8 @@
+# Home -> Settings -> System (update and firmware entries)
+ready
+touch:240,562
+wait-screen
+shot:settings
+touch:240,145
+wait-screen
+shot:system
