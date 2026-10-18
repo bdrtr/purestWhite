@@ -141,3 +141,13 @@ fn never_panics() {
         }
     }
 }
+
+/// L4: a character mirrors by its own level. In a right-to-left paragraph `(a` puts the bracket
+/// at level 1 and `a` at level 2: drawn `a)`. (The C version tested the level of the logical
+/// position each glyph landed on, and drew `a(`.)
+#[test]
+fn mirrors_by_the_characters_own_level() {
+    let (r, out) = visual_of("(a", Level::Rtl);
+    assert_eq!(r, Visual::Done);
+    assert_eq!(out.as_slice(), [u32::from('a'), u32::from(')')]);
+}

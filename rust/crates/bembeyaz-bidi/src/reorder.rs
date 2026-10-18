@@ -644,8 +644,8 @@ pub(crate) fn resolve(
     Some(paragraph)
 }
 
-/// Reorders `line` into visual order and mirrors its right-to-left glyphs (rules L2, L4), with
-/// the levels [`resolve`] gives. Returns the paragraph level.
+/// Mirrors the right-to-left glyphs of `line` and reorders it into visual order (rules L4, L2),
+/// with the levels [`resolve`] gives. Returns the paragraph level.
 pub(crate) fn reorder(line: &mut [Char], auto: bool, level: u8) -> u8 {
     let mut levels = [0u8; MAX_LINE];
     let n = line.len().min(MAX_LINE);
@@ -658,6 +658,13 @@ pub(crate) fn reorder(line: &mut [Char], auto: bool, level: u8) -> u8 {
     let Some(levels) = levels.get(..n) else {
         return level;
     };
+
+    // L4: a character at an odd level shows its mirrored glyph; done before L2 moves it.
+    for (c, &l) in line.iter_mut().zip(levels.iter()) {
+        if l & 1 == 1 {
+            c.cp = mirror(c.cp);
+        }
+    }
 
     // L2: reverse every run at or above each level, from the highest down to the lowest odd one.
     // The levels stay in logical order: the runs at a level are the same either way.
@@ -683,12 +690,5 @@ pub(crate) fn reorder(line: &mut [Char], auto: bool, level: u8) -> u8 {
         }
     }
 
-    // L4: mirror the glyphs at odd levels. As in the C version, this tests the logical level of
-    // each visual position; fixed in its own change.
-    for (c, &l) in line.iter_mut().zip(levels.iter()) {
-        if l & 1 == 1 {
-            c.cp = mirror(c.cp);
-        }
-    }
     level
 }
