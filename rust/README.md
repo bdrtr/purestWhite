@@ -60,9 +60,17 @@ açıklanır.
 
 ## Kurallar
 
-- **Rust tarafı birebir çeviri değildir.** Crate'ler dilim, iterator ve `Result`
-  kullanır; NUL ile biten string ve sessiz hata yoktur. Eski davranışı yalnızca
-  shim korur, çünkü testler o davranışı ölçer.
+- **Her şeyi kendimiz yazarız.** Firmware'e bağlanan Rust kodunda (`bembeyaz-ffi`'nin
+  bağımlılıkları) üçüncü taraf crate yoktur: algoritmalar standarttan (UAX #9,
+  RFC 1951 …) kendimiz yazılır, en küçük ve en hızlı olacak şekilde. Henüz kalan:
+  `bembeyaz-inflate`'teki miniz_oxide. Testlerde referans olarak kullanılan crate'ler
+  (`zip`, miniz_oxide'ın `with-alloc` özelliği) de zamanla kendi ürettiğimiz
+  fixture'larla değiştirilir.
+- **Taşıma önce eski davranışı korur.** Eski koda karşı yazılmış oracle testleri
+  değişmeden geçer; standarttan sapmalar sonra, her biri kendi commit'inde düzeltilir.
+- **Rust tarafı birebir çeviri değildir.** Crate'ler dilim, iterator, `Option` ve
+  `Result` kullanır; NUL ile biten string, -1 gibi özel değerler ve sessiz hata yoktur.
+  Sınırın C biçimini (C string, `int` dönüş kodları) FFI katmanı ve shim taşır.
 - **Bulunan hatalar ayrı commit olur.** Her düzeltmeyle birlikte hatayı yakalayan
   bir test eklenir, ve düzeltme emülatör karşılaştırmasında kasıtlı fark olarak görünür.
 - `cargo clippy --all-targets` (crate'lerde `clippy::pedantic`) uyarısız kalmalı.
