@@ -1,0 +1,23 @@
+# Home -> Settings -> Connectivity -> Bluetooth Page Turner: radio on, a scan, the paired list.
+# The emulator has no radio peers: the scan finds nothing and nothing pairs.
+ready
+touch:240,562
+wait-screen
+touch:240,520
+wait-screen
+touch:240,200
+wait-screen
+shot:bt-off
+touch:240,145
+wait-screen
+wait:5
+shot:bt-on
+touch:240,213
+wait-screen
+wait:12
+shot:scan-done
+touch:34,63
+wait-screen
+touch:240,275
+wait-screen
+shot:paired

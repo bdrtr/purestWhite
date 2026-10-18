@@ -3,6 +3,7 @@
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 
 #include "BlePageTurner.h"
 
@@ -235,5 +236,18 @@ struct Tracker {
     wanted.store(false, std::memory_order_release);
   }
 };
+
+// --- Pairing a new remote ---------------------------------------------------------
+// NimBLE stores a remote's keys while pairing, before the SDK lists the remote, and a full store
+// drops its oldest bond. A bond the SDK does not list (its HID setup failed, an older build kept
+// it) would take that slot and cost a listed remote its keys. So before connecting to `target`, a
+// remote the SDK does not list, SdkRadio.cpp drops every such bond but the target's own.
+inline bool staleBond(const char* bonded, const char* target, const char* const* listed, const uint8_t listedCount) {
+  if (strcmp(bonded, target) == 0) return false;
+  for (uint8_t i = 0; i < listedCount; ++i) {
+    if (strcmp(listed[i], target) == 0 || strcmp(listed[i], bonded) == 0) return false;
+  }
+  return true;
+}
 
 }  // namespace bleturner

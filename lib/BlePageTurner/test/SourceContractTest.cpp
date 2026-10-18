@@ -1,5 +1,5 @@
 // The module depends only on the SDK's BleKeyboardHost, ArduinoJson and the C++ library; the
-// chip's headers only in SdkRadio.cpp. Any other include (a host's settings, activities,
+// chip's and NimBLE's headers only in SdkRadio.cpp. Any other include (a host's settings, activities,
 // renderer, HAL) would tie the module to one host and break its extraction.
 
 #include <gtest/gtest.h>
@@ -17,8 +17,8 @@ namespace fs = std::filesystem;
 const std::set<std::string> kOwn = {"BlePageTurner.h", "BlePageTurnerJson.h", "BleKeyBinding.h",
                                     "RadioPolicy.h",   "RadioPort.h",         "Runtime.h"};
 const std::set<std::string> kStd = {"array", "atomic", "cstdarg", "cstddef", "cstdint", "cstdio", "cstring"};
-const std::set<std::string> kSdkRadioOnly = {"BleKeyboardHost.h",   "esp_attr.h",      "esp_timer.h",
-                                             "freertos/FreeRTOS.h", "freertos/task.h", "sdkconfig.h"};
+const std::set<std::string> kSdkRadioOnly = {"BleKeyboardHost.h", "esp_attr.h",  "esp_timer.h",   "freertos/FreeRTOS.h",
+                                             "freertos/task.h",   "sdkconfig.h", "NimBLEDevice.h"};
 
 TEST(BlePageTurnerSourceContractTest, IncludesStayInsideTheAllowList) {
   const fs::path root = BLETURNER_ROOT_PATH;

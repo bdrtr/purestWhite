@@ -671,10 +671,19 @@ bool pair(const char* addr, const char* name) {
   // Only a candidate until it links: a pairing that fails must not replace a bonded choice with
   // an address the stack cannot reconnect.
   pairing = Pairing{};
-  if (!config->enabled || !switchOn() || !port::connect(addr)) return false;
+  if (!config->enabled || !switchOn() || !canPair(addr) || !port::connect(addr)) return false;
   strncpy(pairing.addr, addr, sizeof(pairing.addr) - 1);
   strncpy(pairing.name, name, sizeof(pairing.name) - 1);
   return true;
+}
+
+bool canPair(const char* addr) {
+  const uint8_t bonds = port::bondCount();
+  if (bonds < kMaxRemotes) return true;
+  for (uint8_t i = 0; i < bonds; ++i) {
+    if (strcmp(port::bond(i).addr, addr) == 0) return true;
+  }
+  return false;
 }
 
 void disconnect() { port::disconnect(); }

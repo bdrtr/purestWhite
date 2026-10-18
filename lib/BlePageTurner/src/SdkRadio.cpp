@@ -1,14 +1,16 @@
 // RadioPort over the SDK's BleKeyboardHost, with the radio start on a FreeRTOS task. The only
-// file of the module that includes the SDK or the chip's headers.
+// file of the module that includes the SDK, NimBLE or the chip's headers.
 #if defined(FREEINK_CAP_BLE_HID_HOST) && FREEINK_CAP_BLE_HID_HOST
 
 #include <BleKeyboardHost.h>
+#include <NimBLEDevice.h>
 #include <esp_attr.h>
 #include <esp_timer.h>
 #include <sdkconfig.h>
 
 #include <atomic>
 
+#include "RadioPolicy.h"
 #include "RadioPort.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -16,6 +18,8 @@
 // NimBLE evicts its oldest bond when the store is full: it must hold every remote the SDK keeps.
 static_assert(freeink::BleKeyboardHost::kMaxBonds <= CONFIG_BT_NIMBLE_MAX_BONDS,
               "NimBLE bond store smaller than the SDK's remote list (BEMBEYAZ_NIMBLE_MAX_BONDS in platformio.ini)");
+// canPair() keeps the SDK's list from filling past what it keeps.
+static_assert(bleturner::kMaxRemotes == freeink::BleKeyboardHost::kMaxBonds, "one remote list, one size");
 
 namespace bleturner::port {
 namespace {
@@ -93,7 +97,19 @@ void scan(const uint32_t durationMs) {
   }
 }
 
-bool connect(const char* addr) { return hid().connect(addr); }
+// A new remote's bond must not evict a listed one's: staleBond() (RadioPolicy.h) says what goes.
+bool connect(const char* addr) {
+  if (NimBLEDevice::isInitialized()) {
+    const char* listed[freeink::BleKeyboardHost::kMaxBonds];
+    const uint8_t count = hid().pairedCount();
+    for (uint8_t i = 0; i < count; ++i) listed[i] = hid().paired(i).addr;
+    for (int i = NimBLEDevice::getNumBonds() - 1; i >= 0; --i) {
+      const NimBLEAddress bonded = NimBLEDevice::getBondedAddress(i);
+      if (staleBond(bonded.toString().c_str(), addr, listed, count)) NimBLEDevice::deleteBond(bonded);
+    }
+  }
+  return hid().connect(addr);
+}
 void disconnect() { hid().disconnect(); }
 void forget(const char* addr) { hid().forget(addr); }
 bool takeConnectFailure(char* out, const size_t outLen) { return hid().takeConnectFailure(out, outLen); }

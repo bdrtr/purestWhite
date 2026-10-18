@@ -218,6 +218,9 @@ void scan(uint32_t durationMs);
 // Pairs (or connects) this remote. It becomes the chosen one only once it links (service()); a
 // pairing that fails leaves the choice as it was.
 bool pair(const char* addr, const char* name);
+// False for a remote that is not paired while kMaxRemotes are: pairing it would cost another
+// remote its keys. pair() refuses it; the screen asks to forget one first.
+bool canPair(const char* addr);
 void disconnect();
 // Forgets the bond, its button table and, if it was the chosen remote, the choice.
 // True when the Config changed (the host saves it).

@@ -155,7 +155,10 @@ void BleSettingsActivity::refresh() {
     }
     case View::Scan:
       add(st.scanning ? tr(STR_BT_STOP_SCAN) : tr(STR_BT_SCAN), -1, st.running);
-      for (uint8_t i = 0; i < found; ++i) add(labels[i].c_str(), i);
+      for (uint8_t i = 0; i < found; ++i) {
+        auto& row = add(labels[i].c_str(), i, bleturner::canPair(bleturner::found(i).addr));
+        if (!row.enabled) row.subtitle = tr(STR_BT_FORGET_REMOTE_FIRST);
+      }
       if (found == 0) add(st.scanning ? tr(STR_SCANNING) : tr(STR_BT_NO_DEVICES), -1, false);
       break;
     case View::Paired:

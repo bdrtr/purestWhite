@@ -636,6 +636,7 @@ STR_BT_BUILD_REFUSED: "Bluetooth still busy. Reopen the book"
 
 STR_BT_MAP_BUTTONS: "Map Buttons"
 STR_BT_CONNECT_REMOTE: "Connect a remote first"
+STR_BT_FORGET_REMOTE_FIRST: "Forget a paired remote first"
 STR_BT_PRESS_REMOTE: "Press the remote button (15 seconds)"
 STR_BT_MAPPING_SAVED: "Button mapping saved"
 STR_BT_NEXT_CHAPTER: "Next Chapter"

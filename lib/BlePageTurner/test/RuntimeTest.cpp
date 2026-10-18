@@ -4,6 +4,7 @@
 #include <gtest/gtest.h>
 
 #include <cstring>
+#include <string>
 
 #include "Fakes.h"
 #include "Runtime.h"
@@ -437,6 +438,22 @@ TEST_F(RuntimeTest, PairStartsTheRadioThenConnects) {
   config.enabled = 0;
   EXPECT_FALSE(bleturner::pair("AA:BB:CC:DD:EE:02", "Remote")) << "a page turner switched off does not pair";
   EXPECT_EQ(radio().connects.size(), 1u);
+}
+
+TEST_F(RuntimeTest, AFullListTakesNoNewRemoteUntilOneIsForgotten) {
+  radio().bonds.clear();
+  for (uint8_t i = 1; i < bleturner::kMaxRemotes; ++i) radio().bonds.push_back("aa:00:00:00:00:0" + std::to_string(i));
+  EXPECT_TRUE(bleturner::canPair("aa:00:00:00:00:09")) << "a free slot takes any remote";
+  radio().bonds.push_back("aa:00:00:00:00:08");
+  EXPECT_FALSE(bleturner::canPair("aa:00:00:00:00:09"));
+  EXPECT_FALSE(bleturner::pair("aa:00:00:00:00:09", "Fifth")) << "the stack would drop the oldest remote's keys";
+  EXPECT_TRUE(radio().connects.empty());
+  EXPECT_TRUE(bleturner::canPair("aa:00:00:00:00:01")) << "a paired remote still connects";
+  EXPECT_TRUE(bleturner::pair("aa:00:00:00:00:01", "First"));
+  EXPECT_EQ(radio().connects.size(), 1u);
+  radio().bonds.pop_back();  // forgotten
+  EXPECT_TRUE(bleturner::pair("aa:00:00:00:00:09", "Fifth"));
+  EXPECT_EQ(radio().connects.size(), 2u);
 }
 
 TEST_F(RuntimeTest, ForgetDropsTheBondItsTableAndTheChoice) {
