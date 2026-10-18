@@ -6,9 +6,12 @@ This checkout is the Bembeyaz fork of CrossPoint. Nothing is sent upstream:
 there are no PRs to CrossPoint, and the fork's owner maintains the code. Where
 this section conflicts with the rest of this guide, this section wins.
 
-- Target: X4 Pro only (ESP32-S3 with 8 MB PSRAM, `pio run -e x4pro`). Other
-  board profiles may stop building, and the C3 is not the resource baseline.
-  Internal RAM is still limited: check where a large allocation lands.
+- Targets: the X4 Pro (ESP32-S3 with 8 MB PSRAM, `pio run -e x4pro`), and the
+  X4 Classic (`x4c`, same board, buttons only), which must keep building. The
+  C3 is not the resource baseline. Internal RAM is still limited: check where a
+  large allocation lands.
+- On upstream merges, keep this fork's removal of other boards' environments,
+  workflow rows and core-rebuild settings (last present in c903b92).
 - The move to Rust follows [rust/README.md](rust/README.md).
 - Every firmware change: affected host tests, `cargo test` and
   `cargo clippy --all-targets` in `rust/`, `pio run -e x4pro`, and

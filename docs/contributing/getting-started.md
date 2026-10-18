@@ -65,11 +65,11 @@ chmod +x .githooks/pre-commit
 With an existing compilation setup, run the selected profile directly:
 
 ```sh
-pio run -e default
+pio run -e x4pro
 ```
 
-`pio run` also selects the C3 X3/X4 profile. Select an existing board environment
-in `platformio.ini` for other devices; see [device profiles](./touch-and-ui.md#building-and-testing-on-other-devices).
+`pio run` also selects the X4 Pro profile; use `x4c` for the X4 Classic. See
+[device profiles](./touch-and-ui.md#building-and-testing-on-other-devices).
 Keep the installed tools, packages, and build caches. The setup commands below
 apply only to a new environment or an identified missing or incompatible
 dependency; they are not steps to repeat before each build.
@@ -93,19 +93,7 @@ On Windows, create the environment with `py -3.13 -m venv .venv` and activate
 Use this core in the IDE too; installing the IDE alone does not verify its core
 version. CI also lists the Python dependencies needed for a fresh platform setup.
 
-Profiles with `custom_sdkconfig`, including `default` and `sticky`, build a
-nested core environment. Pin that core too before the first build, as CI does:
-
-```sh
-python -m pip install uv
-pio pkg install -e default
-uv pip install --python ~/.platformio/penv/bin/python 'pioarduino==6.1.19'
-```
-
-Replace `default` with the selected profile. The nested Python path above uses
-the default Linux/macOS PlatformIO directory; on Windows use
-`~/.platformio/penv/Scripts/python.exe`, or the configured core directory.
-Keep both core pins aligned with CI when updating the toolchain. After setup,
+Keep the core pin aligned with CI when updating the toolchain. After setup,
 use the [normal build command](#build).
 
 ## Flash
@@ -121,9 +109,6 @@ pio run --target upload
 pio check --fail-on-defect low --fail-on-defect medium --fail-on-defect high
 pio run
 ```
-
-Development builds apply the Git version only to sources that use
-`CROSSPOINT_VERSION`, so a branch/SHA change does not invalidate unrelated objects.
 
 ## What to read next
 

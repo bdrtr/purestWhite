@@ -113,13 +113,7 @@ pip install esptool
 log stream --predicate 'subsystem == "com.apple.iokit"' --info
 ```
 
-5. Flash an X3 or X4:
-
-```bash
-esptool.py --chip esp32c3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
-```
-
-   Flash an Xteink X4Pro, Seeed reTerminal Sticky, or M5PaperMono:
+5. Flash an Xteink X4 Pro or X4 Classic:
 
 ```bash
 esptool.py --chip esp32s3 --port /dev/ttyACM0 --baud 921600 write_flash 0x10000 /path/to/firmware.bin
@@ -207,8 +201,8 @@ pio run --target upload
 
 ```bash
 ./bin/clang-format-fix
-pio check -e default
-pio run -e default
+pio check -e x4pro
+pio run -e x4pro
 ```
 
 ### Debugging

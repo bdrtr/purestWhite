@@ -14,7 +14,7 @@ Two modes (mutually exclusive, one required):
                        can come from different branches.
 
 Common options:
-  --env ENV            PlatformIO build environment (default: "default")
+  --env ENV            PlatformIO build environment (default: "x4pro")
   --csv [FILE]         Output as CSV.  Without FILE, writes to stdout.
 
 Output is a human-readable table by default.  Use --csv for machine-readable
@@ -22,7 +22,7 @@ output.
 
 Examples:
     python3 scripts/firmware_size_history.py --range HEAD~5 HEAD
-    python3 scripts/firmware_size_history.py --range abc1234 def5678 --env gh_release --csv sizes.csv
+    python3 scripts/firmware_size_history.py --range abc1234 def5678 --env x4pro-gh_release --csv sizes.csv
     python3 scripts/firmware_size_history.py --commits main feature/new-parser
     python3 scripts/firmware_size_history.py --commits abc1234 def5678 ghi9012 --csv
 """
@@ -201,7 +201,7 @@ def main():
         help="One or more git refs to build (SHAs, branches, tags, HEAD~N, ...)",
     )
 
-    parser.add_argument("--env", default="default", help="PlatformIO environment (default: 'default')")
+    parser.add_argument("--env", default="x4pro", help="PlatformIO environment (default: 'x4pro')")
     parser.add_argument(
         "--csv", nargs="?", const="-", default=None, metavar="FILE",
         help="Output as CSV (default: stdout, or specify FILE)",

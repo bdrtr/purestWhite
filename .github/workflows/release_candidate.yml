@@ -10,20 +10,10 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - pio_env: gh_release_rc
-            asset: firmware.bin
-          - pio_env: sticky-gh_release_rc
-            asset: firmware-sticky.bin
           - pio_env: x4pro-gh_release_rc
             asset: firmware-x4pro.bin
           - pio_env: x4c-gh_release_rc
             asset: firmware-x4c.bin
-          - pio_env: papermono-gh_release_rc
-            asset: firmware-papermono.bin
-          - pio_env: metalio_eink4-gh_release_rc
-            asset: firmware-metalio_eink4.bin
-          - pio_env: eego_a4-gh_release_rc
-            asset: firmware-eego_a4.bin
     steps:
       - uses: actions/checkout@v6
         with:
@@ -56,16 +46,6 @@ jobs:
           path: ~/.platformio
           key: pio-v2-${{ runner.os }}-${{ hashFiles('platformio.ini') }}
           restore-keys: pio-v2-${{ runner.os }}-
-
-      - name: Pin pioarduino core inside the platform penv
-        run: |
-          set -euo pipefail
-          # Envs with custom_sdkconfig run a nested `pio run` from
-          # ~/.platformio/penv. Keep that core on the same version as the outer core.
-          # See https://github.com/pioarduino/platform-espressif32/issues/529
-          pio pkg install -e ${{ matrix.pio_env }}
-          uv pip install --python ~/.platformio/penv/bin/python "pioarduino==6.1.19"
-          ~/.platformio/penv/bin/pio --version
 
       - name: Extract env
         run: |

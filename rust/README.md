@@ -20,10 +20,11 @@ ve Arduino katmanı kalkar.
 
 ## Derleme
 
-- Firmware: `pio run -e x4pro` (veya `default`). `scripts/build_rust.py`, kartın
+- Firmware: `pio run -e x4pro` (veya `x4c`). `scripts/build_rust.py`, kartın
   MCU'suna göre `bembeyaz-ffi`'yi derleyip bağlar:
   - ESP32-S3 → `cargo +esp ... --target xtensa-esp32s3-none-elf -Zbuild-std=core,alloc`
-  - ESP32-C3 → `riscv32imc-unknown-none-elf` (stable)
+  - ESP32-C3 → `riscv32imc-unknown-none-elf` (stable). Bu karta artık env yok;
+    satır, ileride RISC-V çipli bir kart için şablon olarak duruyor.
 - Host testleri: `cmake -S test -B build/test && cmake --build build/test && ctest --test-dir build/test`
   CMake, Rust kütüphanesini host için derleyip her teste bağlar.
 - Yalnız Rust: `cd rust && cargo test`

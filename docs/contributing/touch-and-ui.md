@@ -1,6 +1,6 @@
 # Touch and UI Development
 
-CrossPoint runs on touch devices (Seeed Sticky, M5Paper, M5Stack PaperMono, LilyGo T5, Xteink X4 Pro) alongside the button-only Xteink X3/X4. Every screen must work with both input styles.
+Bembeyaz runs on the touch Xteink X4 Pro and the button-only Xteink X4 Classic. Every screen must work with both input styles.
 
 **There is one supported way to build a new screen: FreeInkUI, hosted through the firmware base classes below.** Touch hit-testing, tap highlighting, long-press, swipe scrolling, and button focus navigation all come from the shared stack; you never hand-roll coordinate math.
 
@@ -148,15 +148,10 @@ profile. CrossPoint's CI and release workflows currently cover:
 
 | Device | Development environment | MCU |
 | --- | --- | --- |
-| Xteink X3 / X4 | `default` | ESP32-C3 |
-| Seeed reTerminal Sticky | `sticky` | ESP32-S3 |
 | Xteink X4 Pro | `x4pro` | ESP32-S3 |
 | Xteink X4 Classic | `x4c` | ESP32-S3 |
-| M5Stack Paper Mono | `papermono` | ESP32-S3 |
-| Metalio E-Ink 4 | `metalio_eink4` | ESP32-S3 |
 
-Build with `pio run -e <environment>`. X3 and X4 share a binary with runtime
-board selection; different MCU families require separate binaries. Check the
+Build with `pio run -e <environment>`. Check the
 current workflow matrices before claiming build coverage or published assets.
 
 The [FreeInk SDK profiles](../../freeink-sdk/libs/hardware/BoardConfig/include/BoardConfig.h)
@@ -230,6 +225,6 @@ lib_deps =
 Then `pio run -e m5paper_v11 -t upload` (or `-e lilygo_t5s3`). Gotchas worth knowing:
 
 - **Flash mode matters.** The M5Paper is `qio`; the X4-family standalone envs need `dio`. A wrong flash-mode header boots into a `partition 0 invalid magic number 0xffff` loop even though esptool verified the write.
-- **Device flags select board profiles.** The local examples use one `FREEINK_DEVICE_*` flag; the C3 X3/X4 profile deliberately enables both. See `freeink-sdk/platformio.sample.ini` for SDK reference environments and `BoardConfig` for capability defaults.
-- **Serial logs:** `[base]` does not enable logging; without `-DENABLE_SERIAL_LOG` a non-default env prints nothing.
-- No touch hardware on your desk? The X4 build still exercises the same code paths through buttons; touch-specific behavior (tap zones, gestures) needs a real device.
+- **Device flags select board profiles.** The local examples use one `FREEINK_DEVICE_*` flag. See `freeink-sdk/platformio.sample.ini` for SDK reference environments and `BoardConfig` for capability defaults.
+- **Serial logs:** `[base]` does not enable logging; without `-DENABLE_SERIAL_LOG` a local env prints nothing.
+- No touch hardware on your desk? The `x4c` (X4 Classic) build still exercises the same code paths through buttons; touch-specific behavior (tap zones, gestures) needs a real device.

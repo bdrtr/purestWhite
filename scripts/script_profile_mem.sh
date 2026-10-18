@@ -1,6 +1,6 @@
 #!/bin/bash
 
-ELF_FILE=".pio/build/default/firmware.elf"
+ELF_FILE=".pio/build/x4pro/firmware.elf"
 
 list_top_symbols() {
     local section_pattern="$1"

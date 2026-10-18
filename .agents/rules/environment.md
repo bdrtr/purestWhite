@@ -30,8 +30,4 @@ Preserve `${base.build_flags}` plus that environment's device, capability,
 logging, and version flags before adding personal flags. Inspect
 `platformio.ini`; select an existing board profile before creating a local one.
 
-Git branch/SHA version flags apply only where `CROSSPOINT_VERSION` is used;
-changing branches alone does not require a clean build. For duplicate
-`app_main` after an interrupted custom-core rebuild, use the targeted scaffold
-cleanup beside `[firmware_tuned]`. Preserve overrides and unrelated ignored work;
-`git clean -fdX` would delete them.
+Preserve overrides and unrelated ignored work; `git clean -fdX` would delete them.

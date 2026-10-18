@@ -13,8 +13,8 @@ C++20 (`-std=c++2a`), no exceptions or RTTI. Use `LOG_INF`, `LOG_DBG`, or
 `LOG_ERR` from `Logging.h`, not raw Serial output.
 
 Inspect the selected environment and inheritance in `platformio.ini`.
-USB-MSC profiles use the prebuilt Arduino/TinyUSB graph instead of the
-`firmware_tuned` core rebuild. Preserve pinned platforms, dependencies, and patches.
+Both profiles (`x4pro`, `x4c`) use the prebuilt Arduino/TinyUSB graph; there is
+no custom core rebuild. Preserve pinned platforms, dependencies, and patches.
 
 ### Critical Build Flags
 

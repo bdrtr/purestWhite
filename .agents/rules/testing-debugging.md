@@ -3,7 +3,7 @@
 ### Build Commands
 
 Use the [existing environment](environment.md#build-in-an-existing-environment).
-Run the selected `pio run -e <environment>` target; `pio run` selects `default`.
+Run the selected `pio run -e <environment>` target; `pio run` selects `x4pro`.
 Host suites use `pio run -t unit-tests` or their existing CMake/CTest commands.
 
 ### Compact build output
