@@ -5,12 +5,17 @@
 #include <BleKeyboardHost.h>
 #include <esp_attr.h>
 #include <esp_timer.h>
+#include <sdkconfig.h>
 
 #include <atomic>
 
 #include "RadioPort.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
+
+// NimBLE evicts its oldest bond when the store is full: it must hold every remote the SDK keeps.
+static_assert(freeink::BleKeyboardHost::kMaxBonds <= CONFIG_BT_NIMBLE_MAX_BONDS,
+              "NimBLE bond store smaller than the SDK's remote list (BEMBEYAZ_NIMBLE_MAX_BONDS in platformio.ini)");
 
 namespace bleturner::port {
 namespace {
