@@ -28,7 +28,6 @@ XML general entities remain disabled (`XML_GE=0`).
 SdFat's `USE_SPI_ARRAY_TRANSFER` / `USE_SEPARATE_FAT_CACHE` depend on
 `scripts/patch_sdfat.py` and its dependency pin. SPI array transfers add
 send-path stack use; SDMMC uses the block-device interface.
-Miniz defines live in `lib/miniz/src/MinizConfig.h`, not obsolete global flags.
 
 ### Hardware Abstraction Layer (HAL)
 

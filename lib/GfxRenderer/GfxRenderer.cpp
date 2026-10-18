@@ -221,7 +221,7 @@ void GfxRenderer::releaseFrameBufferForBuild() {
   // it cannot move and repeated loans cannot fragment the heap (the previous
   // free+realloc model measurably decayed the max contiguous block over a
   // session). The bytes are deposited in the build-scratch registry so
-  // memory-hungry build phases (e.g. InflateStream's tinfl state + window)
+  // memory-hungry build phases (e.g. InflateStream's decoder state + window)
   // can claim them instead of allocating.
   uint32_t size = 0;
   uint8_t* scratch = display.lendFrameBufferStorage(&size);

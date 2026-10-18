@@ -6,7 +6,7 @@
 // Registry for the framebuffer bytes lent out during a build phase
 // (GfxRenderer::FrameBufferLoan). The lender (GfxRenderer) deposits the block
 // with lend()/reclaim(); a memory-hungry consumer (e.g. InflateStream's ~43KB
-// tinfl state + window) may claim() it instead of allocating from the heap.
+// decoder state + window) may claim() it instead of allocating from the heap.
 //
 // Exactly one claimant at a time; claim() returns nullptr when the block is
 // absent or already claimed, and consumers must fall back to the heap. The

@@ -1,0 +1,18 @@
+# Book from make_inflate_epub.py: open (stored chapter), turn into the large
+# level-9 chapter (cold layout), turn once more, then Home (PNG cover thumbnail)
+ready
+touch:240,348
+wait-screen
+touch:240,138
+wait-log:Page render
+shot:stored-chapter
+swipe:left
+wait-log:Page render
+shot:level9-chapter
+heap:level9-chapter
+swipe:left
+wait-log:Page render
+shot:level9-page2
+press:home
+wait-quiet:8
+shot:home-cover

@@ -5,5 +5,6 @@
 
 #[cfg(target_os = "none")]
 mod device;
+mod inflate;
 mod utf8;
 mod zip;

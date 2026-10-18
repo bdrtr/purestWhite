@@ -21,8 +21,16 @@ dependencies = [
 name = "bembeyaz-ffi"
 version = "0.1.0"
 dependencies = [
+ "bembeyaz-inflate",
  "bembeyaz-utf8",
  "bembeyaz-zip",
+]
+
+[[package]]
+name = "bembeyaz-inflate"
+version = "0.1.0"
+dependencies = [
+ "miniz_oxide",
 ]
 
 [[package]]

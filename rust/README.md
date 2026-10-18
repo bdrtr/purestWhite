@@ -10,7 +10,7 @@ Her adımda cihaz açılır, host testleri geçer, kullanıcı geri dönebilir.
    `no_std` bir crate olarak yazılır ve `cargo test` ile birim testleri eklenir.
 3. `bembeyaz-ffi` bunu `bb_<modül>_*` C fonksiyonları olarak dışa açar;
    bildirimleri `rust/include/bembeyaz/<modül>.h` içindedir.
-4. C++ header'ı **değişmez**; `.cpp` dosyası Rust'ı çağıran ince bir shim olur.
+4. C++ header'ının public API'si **değişmez**; `.cpp` dosyası Rust'ı çağıran ince bir shim olur.
    Böylece çağıran kod dokunulmadan kalır.
 5. Mevcut host testleri (`test/`, gtest) artık Rust'ı test eder. Davranış farkı
    varsa burada yakalanır. Testler geçince eski C++ gövdesi silinir.
@@ -39,6 +39,10 @@ aynı senaryoyla yan yana çalıştırır: ekran görüntüsü farkı, heap, ren
 pio run -e x4pro && emu/compare.sh            # emu/reading.txt senaryosu
 emu/compare.sh emu/baska-senaryo.txt x4pro kitap.epub
 
+# Inflate: PNG kapak (zlib akışı), stored ve level-9 bölümler
+python3 emu/make_inflate_epub.py emu/books/inflate
+emu/compare.sh emu/inflate.txt x4pro emu/books/inflate/inflate.epub
+
 # Bozuk EPUB'lar (her biri kendi kartında):
 python3 emu/make_bad_epubs.py emu/books/bad
 emu/compare.sh emu/open-book.txt x4pro emu/books/bad/max-size-cover/max-size-cover.epub
@@ -64,9 +68,13 @@ açıklanır.
 - Sınırda veri: dilim (`ptr` + `len`) girer; çıktı ya çağıranın tamponuna yazılır
   ya da `emit` geri çağrısıyla `std::string`'e eklenir. Rust, C++'a
   sahipliği devredilmiş bellek döndürmez.
-- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`) `clippy::indexing_slicing`,
+- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`) `clippy::indexing_slicing`,
   `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla bellek ayırmaz. Her
   kesme ve tek bayt bozulması için panik olmadığını test eden bir mini-fuzz testi taşır.
+- Büyük bir değer (ör. ~10 KB'lık inflate durumu) yerinde kurulmalı: Rust bunu
+  garanti etmez, değer önce stack'te kurulup kopyalanabilir. `scripts/build_rust.py`
+  her firmware build'inde (`pio run`) Rust fonksiyonlarının stack çerçevesini ölçer
+  ve 2 KB'ı aşanı reddeder.
 - Henüz yalnızca tam sayı ve işaretçi geçiyor. Sınırdan `float` geçmeye başlamadan
   önce Xtensa'da float ABI uyumu doğrulanmalı.
 
@@ -77,7 +85,7 @@ Bağımlılıklara göre (önce yapraklar):
 | Aşama | Modüller | Not |
 | --- | --- | --- |
 | 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, XmlParserUtils, MiniBidi, JsonParser | Donanım yok, testleri var |
-| 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, InflateStream (miniz/uzlib), Serialization | Inflate, framebuffer ödünç alma (`buildscratch`) ile birlikte taşınacak |
+| 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (miniz_oxide), InflateReader (uzlib), Serialization | Framebuffer ödünç alma C++'ta kaldı; Rust belleği çağırandan alır. ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
 | 3 — EPUB çekirdeği | Epub: CSS ayrıştırıcı, OPF, heceleme, ParsedText, Section | En büyük parça (~19k satır); alt modül alt modül |
 | 4 — görüntü/font | Png/JpegToBmp, EpdFont, GfxRenderer | Çerçeve tamponu sınırı |
 | 5 — uygulama | LibraryIndex, Txt, Xtc, KOReaderSync, `src/` activity'leri | UI |

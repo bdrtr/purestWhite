@@ -5,6 +5,7 @@
 #include <array>
 #include <cstdlib>
 #include <cstring>
+#include <vector>
 
 namespace {
 size_t allocationAttempts = 0;
@@ -27,7 +28,7 @@ void testFree(void* ptr) {
 // Intercept only InflateStream's allocations, leaving the test runner untouched.
 #define malloc testMalloc
 #define free testFree
-#include "../../lib/miniz/src/InflateStream.cpp"
+#include "../../lib/InflateStream/InflateStream.cpp"
 #undef free
 #undef malloc
 
@@ -67,6 +68,8 @@ class InflateStreamTest : public ::testing::Test {
     buildscratch::reclaim();
   }
 
+  static uint8_t expected(const size_t offset) { return LINE[offset % (sizeof(LINE) - 1)]; }
+
   void verifyOutput(InflateStream& stream) {
     stream.setSource(COMPRESSED, sizeof(COMPRESSED));
     std::array<uint8_t, 127> output{};
@@ -75,7 +78,7 @@ class InflateStreamTest : public ::testing::Test {
       const size_t wanted = std::min(output.size(), OUTPUT_SIZE - total);
       ASSERT_TRUE(stream.read(output.data(), wanted));
       for (size_t i = 0; i < wanted; ++i) {
-        ASSERT_EQ(output[i], static_cast<uint8_t>(LINE[(total + i) % (sizeof(LINE) - 1)]));
+        ASSERT_EQ(output[i], expected(total + i));
       }
       total += wanted;
     }
@@ -95,7 +98,7 @@ TEST_F(InflateStreamTest, BorrowedFramebufferDecodesAcrossWindowWrapsWithoutHeap
   buildscratch::release(framebuffer.data());
 }
 
-TEST_F(InflateStreamTest, StateAllocationFailureCanRetry) {
+TEST_F(InflateStreamTest, WindowAllocationFailureCanRetry) {
   InflateStream stream;
   failOnAttempt = 1;
   EXPECT_FALSE(stream.init(true));
@@ -105,7 +108,7 @@ TEST_F(InflateStreamTest, StateAllocationFailureCanRetry) {
   verifyOutput(stream);
 }
 
-TEST_F(InflateStreamTest, WindowAllocationFailureImmediatelyReleasesState) {
+TEST_F(InflateStreamTest, StateAllocationFailureImmediatelyReleasesWindow) {
   InflateStream stream;
   failOnAttempt = 2;
   EXPECT_FALSE(stream.init(true));
@@ -128,5 +131,57 @@ TEST_F(InflateStreamTest, OccupiedScratchIsNotOverwrittenOnHeapFailure) {
   ASSERT_TRUE(stream.init(true));
   verifyOutput(stream);
   EXPECT_EQ(allocationAttempts, 1u);
+}
+
+TEST_F(InflateStreamTest, ZlibWrappedStreamChecksItsTrailer) {
+  // COMPRESSED inside a zlib header and the Adler-32 of its output, as in PNG.
+  uint32_t a = 1, b = 0;
+  for (size_t i = 0; i < OUTPUT_SIZE; ++i) {
+    a = (a + expected(i)) % 65521;
+    b = (b + a) % 65521;
+  }
+  const uint32_t adler = (b << 16) | a;
+  std::array<uint8_t, sizeof(COMPRESSED) + 6> zlib{0x78, 0x9c};
+  std::memcpy(zlib.data() + 2, COMPRESSED, sizeof(COMPRESSED));
+  for (int i = 0; i < 4; ++i) zlib[zlib.size() - 1 - i] = static_cast<uint8_t>(adler >> (8 * i));
+
+  for (const bool corrupt : {false, true}) {
+    if (corrupt) zlib.back() ^= 1;
+    InflateStream stream;
+    ASSERT_TRUE(stream.init(true));
+    stream.setZlibWrapped();
+    stream.setSource(zlib.data(), zlib.size());
+    std::vector<uint8_t> output(OUTPUT_SIZE + 1);
+    size_t produced = 0;
+    EXPECT_EQ(stream.readAtMost(output.data(), output.size(), &produced),
+              corrupt ? InflateStream::Status::Error : InflateStream::Status::Done);
+    // A bad checksum still hands out what was decoded.
+    ASSERT_EQ(produced, OUTPUT_SIZE);
+    for (size_t i = 0; i < produced; ++i) ASSERT_EQ(output[i], expected(i)) << i;
+  }
+}
+
+TEST_F(InflateStreamTest, TruncatedStreamHandsOutWhatItDecoded) {
+  for (const bool streaming : {true, false}) {
+    InflateStream stream;
+    ASSERT_TRUE(stream.init(streaming));
+    stream.setSource(COMPRESSED, sizeof(COMPRESSED) / 2);
+    std::vector<uint8_t> output(OUTPUT_SIZE);
+    size_t produced = 0;
+    EXPECT_EQ(stream.readAtMost(output.data(), output.size(), &produced), InflateStream::Status::Error);
+    EXPECT_GT(produced, 0u);
+    for (size_t i = 0; i < produced; ++i) ASSERT_EQ(output[i], expected(i)) << i;
+  }
+}
+
+TEST_F(InflateStreamTest, OneShotRejectsOutputElsewhere) {
+  InflateStream stream;
+  ASSERT_TRUE(stream.init(false));
+  stream.setSource(COMPRESSED, sizeof(COMPRESSED));
+  std::vector<uint8_t> output(OUTPUT_SIZE);
+  ASSERT_TRUE(stream.read(output.data(), 100));
+  // Back-references need the earlier output right in front of dest.
+  std::array<uint8_t, 100> elsewhere{};
+  EXPECT_FALSE(stream.read(elsewhere.data(), elsewhere.size()));
 }
 }  // namespace
