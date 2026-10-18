@@ -1,7 +1,7 @@
 #include "DictZip.h"
 
 #include <Arduino.h>  // ESP.getMaxAllocHeap for the pre-reserve heap guard
-#include <InflateReader.h>
+#include <InflateStream.h>
 #include <Memory.h>
 
 #include <cstddef>
@@ -30,41 +30,34 @@ bool readLe16(HalFile& file, uint16_t* out) {
 // contiguous request made while the 32KB inflate window was about to be taken
 // as well — two big blocks live at once, on a heap that during a reading
 // session has well under 50KB free (#2744). This holds INPUT_BUF_BYTES instead.
-//
-// InflateReader MUST stay the first member: the uzlib callback receives only a
-// uzlib_uncomp* and recovers this struct by casting it (see InflateReader.h).
 constexpr size_t INPUT_BUF_BYTES = 2048;
 
 struct ChunkSource {
-  InflateReader reader;  // must be first
   HalFile* file = nullptr;
   uint32_t remaining = 0;  // compressed bytes left in this chunk
   bool readFailed = false;
   uint8_t buf[INPUT_BUF_BYTES] = {};
 };
 
-static_assert(offsetof(ChunkSource, reader) == 0, "InflateReader must be first for the uzlib callback cast");
-
-// Refills from the file and returns the next byte, or -1 at the chunk's end.
+// InflateStream::FillFn: refills from the file, 0 at the chunk's end.
 // Never reads past compressedSize: the following bytes belong to the next
 // chunk, and stopping there reproduces exactly the hard limit the whole-chunk
 // buffer used to impose.
-int chunkReadCb(uzlib_uncomp* u) {
-  auto* src = reinterpret_cast<ChunkSource*>(u);
-  if (src->remaining == 0) return -1;
+size_t chunkFill(void* ctx, const uint8_t** data) {
+  auto* src = static_cast<ChunkSource*>(ctx);
+  if (src->remaining == 0) return 0;
 
   const uint32_t want = src->remaining < INPUT_BUF_BYTES ? src->remaining : INPUT_BUF_BYTES;
-  const int n = src->file->read(src->buf, static_cast<int>(want));
+  const int n = src->file->read(src->buf, want);
   if (n <= 0) {
-    // Remember the cause: uzlib collapses this into a generic decode failure,
+    // Remember the cause: the decoder reports this as a truncated stream,
     // but an IO error is a ReadError, not a corrupt .dz.
     src->readFailed = true;
-    return -1;
+    return 0;
   }
   src->remaining -= static_cast<uint32_t>(n);
-  u->source = src->buf + 1;
-  u->source_limit = src->buf + n;
-  return src->buf[0];
+  *data = src->buf;
+  return static_cast<size_t>(n);
 }
 
 bool extractChunkSlice(HalFile& file, uint32_t compressedOffset, uint32_t compressedSize, uint32_t discardSize,
@@ -76,13 +69,14 @@ bool extractChunkSlice(HalFile& file, uint32_t compressedOffset, uint32_t compre
   if (extractSize == 0) return true;
 
   // Largest block FIRST. Every allocation here is carved from the same big free
-  // run, so taking the ~3KB ChunkSource before the 32KB ring left the ring's
+  // run, so taking the ~3KB ChunkSource before the 32KB window left the window's
   // block 12 bytes short on device (largest=32756 against need=32768) even on a
-  // barely fragmented heap. Ordering by size removes that failure mode: the ring
-  // gets the big block while it is still whole, and the small buffers fit in
-  // what remains — or in one of the smaller free blocks.
-  auto window = makeUniqueNoThrow<uint8_t[]>(InflateReader::RING_BYTES);
-  if (!window) return fail(ExtractError::LowMemory);
+  // barely fragmented heap. Ordering by size removes that failure mode: the
+  // window (and the ~10KB decoder state after it, see InflateStream::init) gets
+  // the big block while it is still whole, and the small buffers fit in what
+  // remains — or in one of the smaller free blocks.
+  InflateStream inflate;
+  if (!inflate.init(true)) return fail(ExtractError::LowMemory);
 
   auto src = makeUniqueNoThrow<ChunkSource>();
   if (!src) return fail(ExtractError::LowMemory);
@@ -93,12 +87,7 @@ bool extractChunkSlice(HalFile& file, uint32_t compressedOffset, uint32_t compre
   // seek is possible — guard it rather than reading from the prior position.
   if (!file.seekSet(compressedOffset)) return fail(ExtractError::ReadError);
 
-  // `window` outlives the reader (declared above it, destroyed after), as
-  // initWithRing() requires.
-  if (!src->reader.initWithRing(window.get())) return fail(ExtractError::LowMemory);
-  // initWithRing() leaves source/source_limit null, so the very first byte
-  // already comes through the callback. Set it after, which resets state.
-  src->reader.setReadCallback(&chunkReadCb);
+  inflate.setFill(&chunkFill, src.get());
 
   auto buf = makeUniqueNoThrow<uint8_t[]>(512);
   if (!buf) return fail(ExtractError::LowMemory);
@@ -112,13 +101,13 @@ bool extractChunkSlice(HalFile& file, uint32_t compressedOffset, uint32_t compre
   uint32_t batch;
   while (discardSize > 0) {
     batch = discardSize < 512 ? discardSize : 512;
-    if (!src->reader.read(buf.get(), batch)) return decodeFail();
+    if (!inflate.read(buf.get(), batch)) return decodeFail();
     discardSize -= batch;
   }
 
   while (extractSize > 0) {
     batch = extractSize < 512 ? extractSize : 512;
-    if (!src->reader.read(buf.get(), batch)) return decodeFail();
+    if (!inflate.read(buf.get(), batch)) return decodeFail();
     if (outFile.write(buf.get(), batch) != batch) return fail(ExtractError::ReadError);
     extractSize -= batch;
   }

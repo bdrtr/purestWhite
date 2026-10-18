@@ -85,6 +85,26 @@ TEST_F(DictZipTest, ADamagedChunkIsADecompressError) {
   EXPECT_EQ(extract(10, 20), text(10, 20)) << "the other chunks still read";
 }
 
+TEST_F(DictZipTest, DamageAfterTheRangeDoesNotSpoilIt) {
+  // The first chunk rebuilt as a stored block of its first 1000 bytes that is not the last, then a
+  // block of the reserved type 11. The decoder meets the damage while decoding the range before it.
+  constexpr uint16_t kStored = 1000;
+  std::vector<uint8_t> chunk = {0x00, kStored & 0xFF, kStored >> 8, static_cast<uint8_t>(~kStored & 0xFF),
+                                static_cast<uint8_t>(~kStored >> 8)};
+  chunk.insert(chunk.end(), kDictText, kDictText + kStored);
+  chunk.push_back(0x07);
+  std::vector<uint8_t>& dz = dictZipFiles.dz;
+  dz.erase(dz.begin() + kChunkFileOffsets[0], dz.begin() + kChunkFileOffsets[1]);
+  dz.insert(dz.begin() + kChunkFileOffsets[0], chunk.begin(), chunk.end());
+  dz[kChunkSizeAt] = chunk.size() & 0xFF;
+  dz[kChunkSizeAt + 1] = chunk.size() >> 8;
+
+  EXPECT_EQ(extract(10, 20), text(10, 20));
+  DictZip::ExtractError error;
+  extract(kStored - 5, 10, &error);
+  EXPECT_EQ(error, DictZip::ExtractError::Decompress);
+}
+
 TEST_F(DictZipTest, ACutChunkIsADecompressError) {
   // The table gives the first chunk 40 bytes: its stream stops long before its 3000 bytes.
   dictZipFiles.dz[kChunkSizeAt] = 40;

@@ -238,6 +238,8 @@ pub struct Window<'w> {
     pos: usize,
     /// Decoded bytes not yet handed out.
     pending: Range<usize>,
+    /// The error that stopped the decoder, reported once `pending` is handed out.
+    failed: Option<Error>,
 }
 
 impl<'w> Window<'w> {
@@ -248,6 +250,7 @@ impl<'w> Window<'w> {
             buf,
             pos: 0,
             pending: 0..0,
+            failed: None,
         }
     }
 
@@ -256,7 +259,8 @@ impl<'w> Window<'w> {
     ///
     /// Returns how many bytes were written, which counts even on an error:
     /// they are the output decoded before it, as far as `out` holds it. The error means the input is
-    /// truncated, corrupt or fails its Adler-32 check.
+    /// truncated, corrupt or fails its Adler-32 check. It comes only once every byte decoded before
+    /// it has been handed out: a read that ends before the damage succeeds.
     pub fn read(
         &mut self,
         inflater: &mut Inflater,
@@ -279,8 +283,13 @@ impl<'w> Window<'w> {
         let mut filled = 0;
         loop {
             filled += self.take_pending(out.get_mut(filled..).unwrap_or_default());
-            if self.pending.is_empty() && inflater.is_done() {
-                return (filled, Ok(Status::Done));
+            if self.pending.is_empty() {
+                if inflater.is_done() {
+                    return (filled, Ok(Status::Done));
+                }
+                if let Some(error) = self.failed {
+                    return (filled, Err(error));
+                }
             }
             if filled == out.len() {
                 return (filled, Ok(Status::More));
@@ -290,10 +299,7 @@ impl<'w> Window<'w> {
             let (written, result) = inflater.step(input, self.buf, self.pos, true);
             self.pending = self.pos..self.pos + written;
             self.pos = self.pending.end % WINDOW_SIZE;
-            if let Err(error) = result {
-                filled += self.take_pending(out.get_mut(filled..).unwrap_or_default());
-                return (filled, Err(error));
-            }
+            self.failed = result.err();
         }
     }
 

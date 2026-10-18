@@ -8,14 +8,12 @@ struct bb_inflate;
 // Streaming deflate decompressor; the decoder is Rust (miniz_oxide, a port of
 // miniz's tinfl) behind rust/include/bembeyaz/inflate.h.
 //
-// Used on the throughput paths (EPUB zip entries, PNG IDAT). It decodes via
-// lookup tables where the uzlib-backed InflateReader walks the Huffman tree
-// bit-by-bit -- several times faster on this CPU -- at the cost of a larger
-// decoder state (~10KB, transient for the scope of the stream; taken from the
-// lent framebuffer bytes via buildscratch::claim() when a FrameBufferLoan is
-// active, heap otherwise). FontDecompressor intentionally stays on
-// InflateReader: its one-shot flash-resident group decompressions are tiny,
-// and the render path should not carry the extra state allocation.
+// The firmware's DEFLATE decoder for EPUB zip entries, PNG IDAT, font groups
+// (FontDecompressor) and dictzip chunks (DictZip); the SDK's ContentProtection
+// keeps its own miniz. The decoder state (~10KB)
+// lives for the scope of the stream: taken from the lent framebuffer bytes via
+// buildscratch::claim() when a FrameBufferLoan is active, heap otherwise (on
+// the S3, malloc puts blocks over 4KB in PSRAM).
 //
 // Two modes:
 //   init(false) -- one-shot: the destination buffer holds the ENTIRE output,
@@ -49,6 +47,8 @@ class InflateStream {
 
   // Allocate decompressor state (and the 32KB window when streaming) and reset
   // stream state. Releases prior storage first; leaves no allocation on OOM.
+  // The window is allocated before the state, so the state cannot split the
+  // only free block large enough for the window.
   bool init(bool streaming);
 
   // Free the decompressor state and window.

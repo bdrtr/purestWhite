@@ -411,3 +411,45 @@ fn hands_out_the_output_before_an_error() {
         assert_eq!(total, n, "streamed in {piece_len}");
     }
 }
+
+/// The decoder runs ahead of the reader. A read that ends before the damage
+/// succeeds; the error comes with the read that reaches it, and stays.
+#[test]
+fn an_error_waits_for_the_output_before_it() {
+    // A stored block that is not the last, then a block of the reserved type
+    // 11: the step that decodes the good bytes also meets the damage.
+    let data = sample(2000);
+    let len = u16::try_from(data.len()).unwrap();
+    let mut stream = vec![0x00];
+    stream.extend_from_slice(&len.to_le_bytes());
+    stream.extend_from_slice(&(!len).to_le_bytes());
+    stream.extend_from_slice(&data);
+    stream.push(0x07);
+
+    let mut input = stream.as_slice();
+    let mut buf = window();
+    let mut window = Window::new(&mut buf);
+    let mut inflater = Inflater::new(Format::Deflate);
+    let mut out = [0; 100];
+    assert_eq!(
+        window.read(&mut inflater, &mut input, &mut out),
+        (100, Ok(Status::More))
+    );
+    assert_eq!(out[..], data[..100]);
+
+    let mut total = 100;
+    loop {
+        let (n, result) = window.read(&mut inflater, &mut input, &mut out);
+        assert_eq!(out[..n], data[total..total + n]);
+        total += n;
+        if let Err(error) = result {
+            assert_eq!(error, Error::Corrupt);
+            break;
+        }
+    }
+    assert_eq!(total, data.len());
+    assert_eq!(
+        window.read(&mut inflater, &mut input, &mut out),
+        (0, Err(Error::Corrupt))
+    );
+}

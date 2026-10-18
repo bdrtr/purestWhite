@@ -1,7 +1,5 @@
 #pragma once
 
-#include <InflateReader.h>
-
 #include "EpdFontData.h"
 
 class FontDecompressor {
@@ -45,7 +43,6 @@ class FontDecompressor {
 
  private:
   Stats stats;
-  InflateReader inflateReader;
 
   // Page buffer slots: each style gets its own flat glyph buffer with sorted lookup.
   // Up to MAX_PAGE_SLOTS font/style pairs can be prewarmed simultaneously.

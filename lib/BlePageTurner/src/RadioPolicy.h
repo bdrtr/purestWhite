@@ -12,9 +12,9 @@
 namespace bleturner {
 
 // X3 numbers (the default profile below; the S3 has its own). The stack needs both to start; after it
-// started the reader still needs one 32 KiB block (InflateReader::RING_BYTES and the streaming InflateStream
-// window). Under kMinimumFreeBytes the heap is short in total; above it a refusal counts as a heap in
-// pieces (shouldRestart).
+// started the reader still needs one 32 KiB block (the streaming InflateStream window). Under
+// kMinimumFreeBytes the heap is short in total; above it a refusal counts as a heap in pieces
+// (shouldRestart).
 inline constexpr size_t kMinimumFreeBytes = 65536;
 inline constexpr size_t kMinimumLargestBlockBytes = 32768;
 // The stack took 50,644 to 51,188 B in every X3 log (free before and after the start). A start with

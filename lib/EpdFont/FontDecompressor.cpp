@@ -2,10 +2,12 @@
 
 #include <Arduino.h>
 #include <FontAlloc.h>  // PSRAM-preferring font allocator (fiFontMalloc/Free)
+#include <InflateStream.h>
 #include <Logging.h>
 #include <Utf8.h>
 
 #include <cstdlib>
+#include <cstring>
 
 // Decompressed-glyph page slots and the hot-group buffers are placed in PSRAM
 // when the board has it (fiFontMalloc), falling back to the internal heap
@@ -80,9 +82,14 @@ bool FontDecompressor::decompressGroup(const EpdFontData* fontData, uint16_t gro
   const EpdFontGroup& group = fontData->groups[groupIndex];
 
   const uint32_t tDecomp = millis();
-  inflateReader.init(false);
-  inflateReader.setSource(&fontData->bitmap[group.compressedOffset], group.compressedSize);
-  if (!inflateReader.read(outBuf, outSize)) {
+  // One-shot: outBuf holds the whole group, so no window. The decoder state lives only for this call.
+  InflateStream inflate;
+  if (!inflate.init(false)) {  // logs the allocation that failed
+    stats.decompressTimeMs += millis() - tDecomp;
+    return false;
+  }
+  inflate.setSource(&fontData->bitmap[group.compressedOffset], group.compressedSize);
+  if (!inflate.read(outBuf, outSize)) {
     stats.decompressTimeMs += millis() - tDecomp;
     LOG_ERR("FDC", "Decompression failed for group %u", groupIndex);
     return false;

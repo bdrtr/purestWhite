@@ -34,8 +34,8 @@ class Dictionary {
   enum class LookupResult : uint8_t {
     Found,       // hit — definition filled
     NotFound,    // the word is genuinely not in the dictionary
-    LowMemory,   // found, but an allocation failed: the ~32KB .dict.dz inflate
-                 // window / chunk buffer, or the definition text buffer, couldn't
+    LowMemory,   // found, but an allocation failed: the .dict.dz inflate window
+                 // (~32KB) and state (~10KB), or the definition text buffer, couldn't
                  // be obtained from the fragmented heap. THIS is the "stopped
                  // finding words until restart" case — definitively memory.
     Decompress,  // found, but decompression genuinely failed (corrupt/truncated
