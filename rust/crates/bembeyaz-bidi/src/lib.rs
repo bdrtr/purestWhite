@@ -472,3 +472,13 @@ fn place_words(line: &[Char], count: usize, order: &mut [u16]) -> Option<bool> {
     reason = "tests"
 )]
 mod tests;
+
+#[cfg(test)]
+#[allow(
+    clippy::indexing_slicing,
+    clippy::unwrap_used,
+    clippy::panic,
+    clippy::cast_precision_loss,
+    reason = "tests"
+)]
+mod conformance;

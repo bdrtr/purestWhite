@@ -82,23 +82,27 @@ fn strong_from(
     None
 }
 
-/// Reorders `line` into visual order and mirrors its right-to-left glyphs. `auto` takes the
-/// paragraph level from the first strong character, falling back to `level`. Returns the level.
+/// Resolves the embedding level of each character of `line` into `levels` (rules P2-I2).
+/// `auto` takes the paragraph level from the first strong character, falling back to `level`.
+/// Returns the paragraph level, or `None` when the whole line stays at level 0 untouched.
 #[allow(
     clippy::too_many_lines,
     reason = "one pass per rule, in the standard's order"
 )]
-pub(crate) fn reorder(line: &mut [Char], auto: bool, mut level: u8) -> u8 {
+pub(crate) fn resolve(
+    line: &[Char],
+    auto: bool,
+    mut level: u8,
+    levels: &mut [u8; MAX_LINE],
+) -> Option<u8> {
     let n = line.len().min(MAX_LINE);
-    let Some(line) = line.get_mut(..n) else {
-        return level;
-    };
+    let line = line.get(..n)?;
 
     // P2, P3: the paragraph level, and whether there is anything to do.
     let mut isolates = 0u32;
     let mut found = None;
     let mut has_rtl = false;
-    for c in line.iter() {
+    for c in line {
         let t = c.class;
         match t {
             LRI | RLI | FSI => {
@@ -132,17 +136,16 @@ pub(crate) fn reorder(line: &mut [Char], auto: bool, mut level: u8) -> u8 {
         level = found;
     }
     if !has_rtl && level == 0 {
-        return 0;
+        return None;
     }
     let sos = direction(level);
 
     let mut types = [ON; MAX_LINE];
-    let mut levels = [0u8; MAX_LINE];
     let mut skip = [false; MAX_LINE];
     let (Some(types), Some(levels), Some(skip)) =
         (types.get_mut(..n), levels.get_mut(..n), skip.get_mut(..n))
     else {
-        return level;
+        return Some(level);
     };
     let ty = |types: &[Class], i: usize| types.get(i).copied().unwrap_or(ON);
 
@@ -487,6 +490,24 @@ pub(crate) fn reorder(line: &mut [Char], auto: bool, mut level: u8) -> u8 {
         };
         *l = l.wrapping_add(raise);
     }
+
+    Some(level)
+}
+
+/// Reorders `line` into visual order and mirrors its right-to-left glyphs (rules L2, L4), with
+/// the levels [`resolve`] gives. Returns the paragraph level.
+pub(crate) fn reorder(line: &mut [Char], auto: bool, level: u8) -> u8 {
+    let mut levels = [0u8; MAX_LINE];
+    let n = line.len().min(MAX_LINE);
+    let Some(line) = line.get_mut(..n) else {
+        return level;
+    };
+    let Some(level) = resolve(line, auto, level, &mut levels) else {
+        return 0;
+    };
+    let Some(levels) = levels.get(..n) else {
+        return level;
+    };
 
     // L2: reverse every run at or above each level, from the highest down to the lowest odd one.
     // The levels stay in logical order: the runs at a level are the same either way.
