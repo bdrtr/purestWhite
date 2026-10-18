@@ -1,7 +1,7 @@
 // BidiUtils pinned case by case before its rewrite in Rust: reordering (UAX #9 as CrossPoint
 // implements it), Arabic shaping, mark placement, the Tetragrammaton substitution, word order and
 // the paragraph direction probes. Expectations are what the C implementation (lib/MiniBidi)
-// returned. Not all of them are what UAX #9 asks for; changing one belongs in its own commit.
+// returned, except where UAX #9 asks otherwise (marked); changing one belongs in its own commit.
 
 #include <gtest/gtest.h>
 
@@ -132,11 +132,13 @@ const VisualCase kVisualCases[] = {
      -1,
      true,
      {0x0061, 0x0062, 0x0063, 0x0020, 0x2069, 0x202C, 0x05DD, 0x05D5, 0x05DC, 0x05E9}},
+    // UAX #9: the mark opens the LRE's sequence (level 2), so it takes sos (L) and stays left of
+    // the Hebrew (level 3). The C version put it after the Hebrew.
     {"nsm_after_lre",
      {0x202A, 0x0301, 0x05E9, 0x05DC, 0x05D5, 0x05DD},
      1,
      true,
-     {0x05DD, 0x05D5, 0x05DC, 0x05E9, 0x0301, 0x202A}},
+     {0x0301, 0x05DD, 0x05D5, 0x05DC, 0x05E9, 0x202A}},
     {"currency",
      {0x05E9, 0x05DC, 0x05D5, 0x05DD, 0x0020, 0x0024, 0x0031, 0x0032},
      -1,

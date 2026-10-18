@@ -1,6 +1,10 @@
-//! UAX #9 on one line, as the C minibidi (mintty's, up to fdd0780) runs it. Its departures from
-//! the standard are kept here on purpose and named where they happen; each fix belongs in its own
-//! change, with a test.
+//! UAX #9 (Unicode 17.0.0) on one line that is one paragraph: the paragraph level (P2, P3),
+//! explicit levels (X1-X8), isolating run sequences (X9, X10), weak types (W1-W7), paired
+//! brackets and neutrals (N0-N2), implicit levels (I1, I2) and trailing whitespace (L1); then
+//! reordering (L2) and mirroring (L4). The conformance tests (`conformance.rs`) check it.
+//!
+//! Each step keeps its arrays in a frame of its own, so no stack frame grows past what
+//! `scripts/build_rust.py` allows.
 
 use crate::{Char, Class, MAX_LINE, bracket, mirror};
 use Class::{
@@ -8,490 +12,636 @@ use Class::{
     WS,
 };
 
-/// Rule N0 tracks this many open brackets; more are ignored.
+/// The deepest explicit embedding level (BD2).
+const MAX_DEPTH: u8 = 125;
+/// BD16 tracks this many open brackets; at the next one it stops looking for pairs.
 const MAX_BRACKETS: usize = 63;
+/// No index.
+const NONE: u8 = u8::MAX;
 
-fn is_neutral_or_isolate(t: Class) -> bool {
-    matches!(t, B | S | WS | ON | FSI | LRI | RLI | PDI)
-}
-
-/// The direction of a level, or of the paragraph at its start (sos).
+/// The direction of an embedding level.
 fn direction(level: u8) -> Class {
     if level & 1 == 1 { R } else { L }
 }
 
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "levels wrap like the C uchar"
-)]
-fn least_greater_odd(level: u8) -> u8 {
-    ((u32::from(level) + 1) | 1) as u8
+fn is_isolate_initiator(class: Class) -> bool {
+    matches!(class, LRI | RLI | FSI)
 }
 
-#[allow(
-    clippy::cast_possible_truncation,
-    reason = "levels wrap like the C uchar"
-)]
-fn least_greater_even(level: u8) -> u8 {
-    ((u32::from(level) + 2) & !1) as u8
+/// Removed by X9: embedding controls and boundary neutrals.
+fn removed(class: Class) -> bool {
+    matches!(class, RLE | LRE | RLO | LRO | PDF | BN)
 }
 
-/// The directional status stack of rules X1-X8. There is no depth limit (levels can pass 125
-/// and wrap at 256); pushes past `MAX_LINE + 1` entries are dropped.
-struct Stack {
-    entries: [(u8, Class, bool); MAX_LINE + 1],
-    len: usize,
+/// Neutral or isolate formatting character (N1, N2).
+fn is_ni(class: Class) -> bool {
+    matches!(class, B | S | WS | ON | LRI | RLI | FSI | PDI)
 }
 
-impl Stack {
-    fn push(&mut self, entry: (u8, Class, bool)) {
-        if let Some(slot) = self.entries.get_mut(self.len) {
-            *slot = entry;
-            self.len += 1;
-        }
-    }
-
-    /// Drops the top entry and returns the new top, or the paragraph-level defaults when empty.
-    fn pop(&mut self) -> (u8, Class, bool) {
-        self.len = self.len.saturating_sub(1);
-        self.len
-            .checked_sub(1)
-            .and_then(|top| self.entries.get(top))
-            .copied()
-            .unwrap_or((0, ON, false))
+/// L or R, with numbers counting as R (N0, N1); `None` for anything else.
+fn strong(class: Class) -> Option<Class> {
+    match class {
+        L => Some(L),
+        R | AL | EN | AN => Some(R),
+        _ => None,
     }
 }
 
-/// The first strong direction found scanning `indices` (EN and AN count as R), skipping the
-/// characters rule X9 removed.
-fn strong_from(
-    types: &[Class],
-    skip: &[bool],
-    indices: impl Iterator<Item = usize>,
-) -> Option<Class> {
-    for j in indices {
-        if skip.get(j).copied().unwrap_or(true) {
-            continue;
-        }
-        match types.get(j).copied() {
-            Some(EN | AN | R | AL) => return Some(R),
-            Some(L) => return Some(L),
+fn get<T: Copy>(slice: &[T], i: usize, default: T) -> T {
+    slice.get(i).copied().unwrap_or(default)
+}
+
+fn set<T>(slice: &mut [T], i: usize, value: T) {
+    if let Some(slot) = slice.get_mut(i) {
+        *slot = value;
+    }
+}
+
+/// BD9: for each isolate initiator the index of its matching PDI, for each matched PDI that of
+/// its initiator, `NONE` otherwise.
+fn match_isolates(line: &[Char], pair: &mut [u8; MAX_LINE]) {
+    let mut open = [0u8; MAX_LINE];
+    let mut depth = 0;
+    for (i, c) in (0u8..).zip(line) {
+        match c.class {
+            LRI | RLI | FSI => {
+                set(&mut open, depth, i);
+                depth += 1;
+            }
+            PDI if depth > 0 => {
+                depth -= 1;
+                let initiator = get(&open, depth, NONE);
+                set(pair, usize::from(initiator), i);
+                set(pair, usize::from(i), initiator);
+            }
             _ => {}
         }
+    }
+}
+
+/// P2: whether the first strong character of `line[from..to]` is right-to-left, skipping
+/// isolates (to their matching PDI, or to the end when there is none).
+fn first_strong(line: &[Char], from: usize, to: usize, pair: &[u8; MAX_LINE]) -> Option<bool> {
+    let mut i = from;
+    while i < to {
+        match line.get(i)?.class {
+            L => return Some(false),
+            R | AL => return Some(true),
+            LRI | RLI | FSI => match get(pair, i, NONE) {
+                NONE => return None,
+                pdi => i = usize::from(pdi),
+            },
+            _ => {}
+        }
+        i += 1;
     }
     None
 }
 
-/// Resolves the embedding level of each character of `line` into `levels` (rules P2-I2).
+/// An entry of the directional status stack (X1).
+#[derive(Clone, Copy)]
+struct Status {
+    level: u8,
+    /// `ON` for no override, else `L` or `R`.
+    over: Class,
+    isolate: bool,
+}
+
+/// X1-X8: the explicit level and the type (overrides applied) of each character.
+#[inline(never)]
+#[allow(clippy::too_many_lines, reason = "one arm per rule, X2 to X8")]
+fn explicit(
+    line: &[Char],
+    paragraph: u8,
+    pair: &[u8; MAX_LINE],
+    types: &mut [Class; MAX_LINE],
+    levels: &mut [u8; MAX_LINE],
+) {
+    let base = Status {
+        level: paragraph,
+        over: ON,
+        isolate: false,
+    };
+    let mut stack = [base; MAX_DEPTH as usize + 2];
+    let mut depth = 1;
+    let (mut overflow_isolates, mut overflow_embeddings, mut valid_isolates) = (0u32, 0u32, 0u32);
+    for (i, c) in line.iter().enumerate() {
+        let top = get(&stack, depth - 1, base);
+        let overridden = |class: Class| if top.over == ON { class } else { top.over };
+        match c.class {
+            RLE | LRE | RLO | LRO => {
+                let rtl = matches!(c.class, RLE | RLO);
+                let level = if rtl {
+                    (top.level + 1) | 1
+                } else {
+                    (top.level + 2) & !1
+                };
+                if level <= MAX_DEPTH && overflow_isolates == 0 && overflow_embeddings == 0 {
+                    let over = match c.class {
+                        RLO => R,
+                        LRO => L,
+                        _ => ON,
+                    };
+                    set(
+                        &mut stack,
+                        depth,
+                        Status {
+                            level,
+                            over,
+                            isolate: false,
+                        },
+                    );
+                    depth += 1;
+                } else if overflow_isolates == 0 {
+                    overflow_embeddings += 1;
+                }
+                set(types, i, c.class);
+                set(levels, i, top.level);
+            }
+            RLI | LRI | FSI => {
+                set(types, i, overridden(c.class));
+                set(levels, i, top.level);
+                let end = match get(pair, i, NONE) {
+                    NONE => line.len(),
+                    pdi => usize::from(pdi),
+                };
+                let rtl = match c.class {
+                    RLI => true,
+                    LRI => false,
+                    _ => first_strong(line, i + 1, end, pair) == Some(true),
+                };
+                let level = if rtl {
+                    (top.level + 1) | 1
+                } else {
+                    (top.level + 2) & !1
+                };
+                if level <= MAX_DEPTH && overflow_isolates == 0 && overflow_embeddings == 0 {
+                    valid_isolates += 1;
+                    set(
+                        &mut stack,
+                        depth,
+                        Status {
+                            level,
+                            over: ON,
+                            isolate: true,
+                        },
+                    );
+                    depth += 1;
+                } else {
+                    overflow_isolates += 1;
+                }
+            }
+            PDI => {
+                if overflow_isolates > 0 {
+                    overflow_isolates -= 1;
+                } else if valid_isolates > 0 {
+                    overflow_embeddings = 0;
+                    while depth > 1 && !get(&stack, depth - 1, base).isolate {
+                        depth -= 1;
+                    }
+                    depth = depth.saturating_sub(1).max(1);
+                    valid_isolates -= 1;
+                }
+                let top = get(&stack, depth - 1, base);
+                set(types, i, if top.over == ON { PDI } else { top.over });
+                set(levels, i, top.level);
+            }
+            PDF => {
+                if overflow_isolates > 0 {
+                } else if overflow_embeddings > 0 {
+                    overflow_embeddings -= 1;
+                } else if !top.isolate && depth >= 2 {
+                    depth -= 1;
+                }
+                set(types, i, PDF);
+                set(levels, i, top.level);
+            }
+            B => {
+                // X8: a paragraph separator ends every embedding and isolate.
+                set(types, i, B);
+                set(levels, i, paragraph);
+                depth = 1;
+                (overflow_isolates, overflow_embeddings, valid_isolates) = (0, 0, 0);
+            }
+            BN => {
+                set(types, i, BN);
+                set(levels, i, top.level);
+            }
+            class => {
+                set(types, i, overridden(class));
+                set(levels, i, top.level);
+            }
+        }
+    }
+}
+
+/// X10, W1-W7, N0-N2 and I1-I2 on each isolating run sequence (BD13).
+#[inline(never)]
+fn sequences(
+    line: &[Char],
+    paragraph: u8,
+    pair: &[u8; MAX_LINE],
+    types: &mut [Class; MAX_LINE],
+    levels: &mut [u8; MAX_LINE],
+) {
+    // The characters X9 keeps, and their level runs (BD7) as ranges of `kept`.
+    let mut kept = [0u8; MAX_LINE];
+    let mut count = 0;
+    for (i, c) in (0u8..).zip(line) {
+        if !removed(c.class) {
+            set(&mut kept, count, i);
+            count += 1;
+        }
+    }
+    let kept = kept.get(..count).unwrap_or_default();
+    // The explicit levels: runs, sos and eos come from them, while I1/I2 raise `levels`.
+    let explicit = *levels;
+    let level_at = |k: usize| get(&explicit, usize::from(get(kept, k, 0)), paragraph);
+    // The level run each kept character starts, by character index.
+    let mut run_end = [NONE; MAX_LINE];
+    let mut k = 0;
+    while k < kept.len() {
+        let mut end = k + 1;
+        while end < kept.len() && level_at(end) == level_at(k) {
+            end += 1;
+        }
+        #[allow(clippy::cast_possible_truncation, reason = "at most 128")]
+        set(&mut run_end, usize::from(get(kept, k, 0)), end as u8);
+        k = end;
+    }
+
+    let mut seq = [0u8; MAX_LINE];
+    let mut k = 0;
+    while k < kept.len() {
+        let first = usize::from(get(kept, k, 0));
+        let end = usize::from(get(&run_end, first, NONE));
+        let start = k;
+        k = end;
+        // A run starting with a PDI whose initiator ends another run continues that sequence.
+        if line.get(first).is_some_and(|c| c.class == PDI) {
+            let initiator = get(pair, first, NONE);
+            if initiator != NONE && ends_a_run(kept, &run_end, usize::from(initiator)) {
+                continue;
+            }
+        }
+        // Gather the sequence: this run, then the run at each matching PDI.
+        let mut len = 0;
+        let (mut from, mut to) = (start, end);
+        loop {
+            for kk in from..to {
+                set(&mut seq, len, get(kept, kk, 0));
+                len += 1;
+            }
+            let last = usize::from(get(kept, to - 1, 0));
+            let pdi = get(pair, last, NONE);
+            if !line
+                .get(last)
+                .is_some_and(|c| is_isolate_initiator(c.class))
+                || pdi == NONE
+            {
+                break;
+            }
+            let Some(pos) = kept.iter().position(|&i| i == pdi) else {
+                break;
+            };
+            let next_end = usize::from(get(&run_end, usize::from(pdi), NONE));
+            if next_end == usize::from(NONE) {
+                break;
+            }
+            (from, to) = (pos, next_end);
+        }
+        let Some(seq) = seq.get(..len) else {
+            continue;
+        };
+        // sos and eos: the higher of the sequence's level and its neighbour's (or the paragraph's).
+        let level = get(&explicit, usize::from(get(seq, 0, 0)), paragraph);
+        let before = start.checked_sub(1).map_or(paragraph, &level_at);
+        let last = usize::from(get(seq, len - 1, 0));
+        let last_kept = kept
+            .iter()
+            .position(|&i| usize::from(i) == last)
+            .unwrap_or(0);
+        let after = if line
+            .get(last)
+            .is_some_and(|c| is_isolate_initiator(c.class))
+            || last_kept + 1 >= kept.len()
+        {
+            paragraph
+        } else {
+            level_at(last_kept + 1)
+        };
+        let sos = direction(level.max(before));
+        let eos = direction(level.max(after));
+        resolve_sequence(line, seq, level, sos, eos, types);
+        for &i in seq {
+            let i = usize::from(i);
+            let t = get(types, i, ON);
+            let l = get(levels, i, level);
+            let raised = match (l & 1 == 1, t) {
+                (false, R) | (true, L | EN | AN) => l + 1,
+                (false, AN | EN) => l + 2,
+                _ => l,
+            };
+            set(levels, i, raised);
+        }
+    }
+}
+
+/// Whether the character at index `i` is the last of its level run.
+fn ends_a_run(kept: &[u8], run_end: &[u8; MAX_LINE], i: usize) -> bool {
+    let Some(k) = kept.iter().position(|&c| usize::from(c) == i) else {
+        return false;
+    };
+    // Its run starts at the latest run start at or before it.
+    (0..=k)
+        .rev()
+        .find_map(|start| {
+            let end = get(run_end, usize::from(get(kept, start, 0)), NONE);
+            (end != NONE).then_some(usize::from(end))
+        })
+        .is_some_and(|end| end == k + 1)
+}
+
+/// W1-W7 and N0-N2 on one isolating run sequence (character indices in `seq`).
+fn resolve_sequence(
+    line: &[Char],
+    seq: &[u8],
+    level: u8,
+    sos: Class,
+    eos: Class,
+    types: &mut [Class; MAX_LINE],
+) {
+    let at = |types: &[Class; MAX_LINE], k: usize| get(types, usize::from(get(seq, k, 0)), ON);
+    let put = |types: &mut [Class; MAX_LINE], k: usize, class: Class| {
+        set(types, usize::from(get(seq, k, 0)), class);
+    };
+    let n = seq.len();
+
+    // W1: NSM takes the type before it (sos at the start; ON after an isolate control).
+    for k in 0..n {
+        if at(types, k) == NSM {
+            let before = match k.checked_sub(1).map(|j| at(types, j)) {
+                None => sos,
+                Some(LRI | RLI | FSI | PDI) => ON,
+                Some(t) => t,
+            };
+            put(types, k, before);
+        }
+    }
+    // W2: EN after AL (back to the last strong type) is AN.
+    let mut last = sos;
+    for k in 0..n {
+        match at(types, k) {
+            t @ (L | R | AL) => last = t,
+            EN if last == AL => put(types, k, AN),
+            _ => {}
+        }
+    }
+    // W3: AL is R.
+    for k in 0..n {
+        if at(types, k) == AL {
+            put(types, k, R);
+        }
+    }
+    // W4: one separator between two numbers of a type takes it.
+    for k in 1..n.saturating_sub(1) {
+        let (before, t, after) = (at(types, k - 1), at(types, k), at(types, k + 1));
+        if (t == ES && before == EN && after == EN)
+            || (t == CS && before == after && matches!(before, EN | AN))
+        {
+            put(types, k, before);
+        }
+    }
+    // W5: a sequence of ET next to EN is EN.
+    let mut k = 0;
+    while k < n {
+        if at(types, k) != ET {
+            k += 1;
+            continue;
+        }
+        let mut end = k;
+        while end < n && at(types, end) == ET {
+            end += 1;
+        }
+        let touches_en = (k > 0 && at(types, k - 1) == EN) || (end < n && at(types, end) == EN);
+        if touches_en {
+            for j in k..end {
+                put(types, j, EN);
+            }
+        }
+        k = end;
+    }
+    // W6: the separators and terminators left are ON.
+    for k in 0..n {
+        if matches!(at(types, k), ES | ET | CS) {
+            put(types, k, ON);
+        }
+    }
+    // W7: EN after L (back to sos) is L.
+    let mut last = sos;
+    for k in 0..n {
+        match at(types, k) {
+            t @ (L | R) => last = t,
+            EN if last == L => put(types, k, L),
+            _ => {}
+        }
+    }
+
+    brackets(line, seq, level, sos, types);
+
+    // N1, N2: a run of neutrals takes the direction around it when both sides agree, else the
+    // embedding direction.
+    let embedding = direction(level);
+    let mut k = 0;
+    while k < n {
+        if !is_ni(at(types, k)) {
+            k += 1;
+            continue;
+        }
+        let mut end = k;
+        while end < n && is_ni(at(types, end)) {
+            end += 1;
+        }
+        let before = k.checked_sub(1).map_or(Some(sos), |j| strong(at(types, j)));
+        let after = if end < n {
+            strong(at(types, end))
+        } else {
+            Some(eos)
+        };
+        let resolved = match (before, after) {
+            (Some(b), Some(a)) if a == b => b,
+            _ => embedding,
+        };
+        for j in k..end {
+            put(types, j, resolved);
+        }
+        k = end;
+    }
+}
+
+/// N0: paired brackets (BD16) take the embedding direction when a strong type of it is inside,
+/// else the other direction when it is inside and also before them.
+#[inline(never)]
+fn brackets(line: &[Char], seq: &[u8], level: u8, sos: Class, types: &mut [Class; MAX_LINE]) {
+    let at = |types: &[Class; MAX_LINE], k: usize| get(types, usize::from(get(seq, k, 0)), ON);
+    let cp_at = |k: usize| line.get(usize::from(get(seq, k, 0))).map_or(0, |c| c.cp);
+    let class_at = |k: usize| {
+        line.get(usize::from(get(seq, k, 0)))
+            .map_or(ON, |c| c.class)
+    };
+
+    // BD16: pairs of sequence positions, found in closing order.
+    let mut open = [(0u32, 0u8); MAX_BRACKETS];
+    let mut depth = 0;
+    let mut pairs = [(0u8, 0u8); MAX_LINE / 2];
+    let mut count = 0;
+    for (k, pos) in (0..seq.len()).zip(0u8..) {
+        if at(types, k) != ON {
+            continue;
+        }
+        let cp = cp_at(k);
+        match bracket(cp) {
+            Some(opener) if opener == cp => {
+                if depth == MAX_BRACKETS {
+                    break;
+                }
+                set(&mut open, depth, (cp, pos));
+                depth += 1;
+            }
+            Some(opener) => {
+                if let Some(d) = (0..depth)
+                    .rev()
+                    .find(|&d| get(&open, d, (0, 0)).0 == opener)
+                {
+                    set(&mut pairs, count, (get(&open, d, (0, 0)).1, pos));
+                    count += 1;
+                    depth = d;
+                }
+            }
+            None => {}
+        }
+    }
+    let Some(pairs) = pairs.get_mut(..count) else {
+        return;
+    };
+    // By opening position; found in closing order, so nearly sorted already (insertion sort keeps
+    // the general-purpose sort out of the firmware).
+    for i in 1..pairs.len() {
+        let mut j = i;
+        while j > 0 && get(pairs, j - 1, (0, 0)).0 > get(pairs, j, (0, 0)).0 {
+            pairs.swap(j - 1, j);
+            j -= 1;
+        }
+    }
+
+    let embedding = direction(level);
+    let opposite = if embedding == L { R } else { L };
+    for &(opening, closing) in pairs.iter() {
+        let (opening, closing) = (usize::from(opening), usize::from(closing));
+        let inside = (opening + 1..closing).filter_map(|k| strong(at(types, k)));
+        let (mut same, mut other) = (false, false);
+        for t in inside {
+            if t == embedding {
+                same = true;
+            } else {
+                other = true;
+            }
+        }
+        let resolved = if same {
+            embedding
+        } else if other {
+            let context = (0..opening)
+                .rev()
+                .find_map(|k| strong(at(types, k)))
+                .unwrap_or(sos);
+            if context == opposite {
+                opposite
+            } else {
+                embedding
+            }
+        } else {
+            continue;
+        };
+        for bracket in [opening, closing] {
+            set(types, usize::from(get(seq, bracket, 0)), resolved);
+            // Marks right after a bracket follow it.
+            let mut k = bracket + 1;
+            while k < seq.len() && class_at(k) == NSM {
+                set(types, usize::from(get(seq, k, 0)), resolved);
+                k += 1;
+            }
+        }
+    }
+}
+
+/// L1, and a level for the characters X9 removed: that of the character before (the paragraph's
+/// at the start), unless L1 resets it.
+fn finish(line: &[Char], paragraph: u8, levels: &mut [u8; MAX_LINE]) {
+    let mut previous = paragraph;
+    for (i, c) in line.iter().enumerate() {
+        if removed(c.class) {
+            set(levels, i, previous);
+        } else {
+            previous = get(levels, i, paragraph);
+        }
+    }
+    // Separators, and whitespace (with isolate controls and removed characters) before one or at
+    // the end of the line, go back to the paragraph level.
+    let mut trailing = true;
+    for (i, c) in line.iter().enumerate().rev() {
+        match c.class {
+            S | B => {
+                set(levels, i, paragraph);
+                trailing = true;
+            }
+            WS | FSI | LRI | RLI | PDI => {
+                if trailing {
+                    set(levels, i, paragraph);
+                }
+            }
+            class if removed(class) => {
+                if trailing {
+                    set(levels, i, paragraph);
+                }
+            }
+            _ => trailing = false,
+        }
+    }
+}
+
+/// Resolves the embedding level of each character of `line` into `levels` (rules P2-L1).
 /// `auto` takes the paragraph level from the first strong character, falling back to `level`.
 /// Returns the paragraph level, or `None` when the whole line stays at level 0 untouched.
-#[allow(
-    clippy::too_many_lines,
-    reason = "one pass per rule, in the standard's order"
-)]
 pub(crate) fn resolve(
     line: &[Char],
     auto: bool,
-    mut level: u8,
+    level: u8,
     levels: &mut [u8; MAX_LINE],
 ) -> Option<u8> {
     let n = line.len().min(MAX_LINE);
     let line = line.get(..n)?;
-
-    // P2, P3: the paragraph level, and whether there is anything to do.
-    let mut isolates = 0u32;
-    let mut found = None;
-    let mut has_rtl = false;
-    for c in line {
-        let t = c.class;
-        match t {
-            LRI | RLI | FSI => {
-                has_rtl = true;
-                isolates += 1;
-            }
-            PDI => {
-                has_rtl = true;
-                isolates = isolates.saturating_sub(1);
-            }
-            _ if isolates > 0 => {}
-            R | AL => {
-                has_rtl = true;
-                found.get_or_insert(1);
-                break;
-            }
-            RLE | LRE | RLO | LRO | PDF => {
-                has_rtl = true;
-                if found.is_some() {
-                    break;
-                }
-            }
-            L => {
-                found.get_or_insert(0);
-            }
-            AN => has_rtl = true,
-            _ => {}
-        }
-    }
-    if auto && let Some(found) = found {
-        level = found;
-    }
-    if !has_rtl && level == 0 {
+    // Nothing right-to-left and nothing explicit in a left-to-right paragraph: all level 0.
+    let simple = line.iter().all(|c| {
+        !matches!(
+            c.class,
+            R | AL | AN | RLE | LRE | RLO | LRO | PDF | RLI | LRI | FSI | PDI
+        )
+    });
+    let mut pair = [NONE; MAX_LINE];
+    match_isolates(line, &mut pair);
+    let paragraph = if auto {
+        first_strong(line, 0, n, &pair).map_or(level, u8::from)
+    } else {
+        level
+    };
+    if simple && paragraph == 0 {
         return None;
     }
-    let sos = direction(level);
-
     let mut types = [ON; MAX_LINE];
-    let mut skip = [false; MAX_LINE];
-    let (Some(types), Some(levels), Some(skip)) =
-        (types.get_mut(..n), levels.get_mut(..n), skip.get_mut(..n))
-    else {
-        return Some(level);
-    };
-    let ty = |types: &[Class], i: usize| types.get(i).copied().unwrap_or(ON);
-
-    // X1-X8: embedding levels.
-    let mut embedding = level;
-    let mut over = ON; // no override
-    let mut isolate = false;
-    let mut isolates = 0u32;
-    let mut stack = Stack {
-        entries: [(0, ON, false); MAX_LINE + 1],
-        len: 0,
-    };
-    stack.push((embedding, over, isolate));
-    for i in 0..n {
-        let mut t = line.get(i).map_or(ON, |c| c.class);
-        if let Some(l) = levels.get_mut(i) {
-            *l = embedding;
-        }
-        if t == FSI {
-            // Its direction is that of the first strong character before the matching PDI.
-            t = LRI;
-            let mut depth = 0u32;
-            for c in line.iter().skip(i + 1) {
-                match c.class {
-                    FSI | RLI | LRI => depth += 1,
-                    PDI if depth > 0 => depth -= 1,
-                    PDI | L => break,
-                    R | AL => {
-                        t = RLI;
-                        break;
-                    }
-                    _ => {}
-                }
-            }
-        }
-        match t {
-            RLE | LRE | RLO | LRO => {
-                embedding = if matches!(t, RLE | RLO) {
-                    least_greater_odd(embedding)
-                } else {
-                    least_greater_even(embedding)
-                };
-                over = match t {
-                    RLO => R,
-                    LRO => L,
-                    _ => ON,
-                };
-                isolate = false;
-                stack.push((embedding, over, isolate));
-            }
-            RLI | LRI => {
-                embedding = if t == RLI {
-                    least_greater_odd(embedding)
-                } else {
-                    least_greater_even(embedding)
-                };
-                if over != ON {
-                    t = over;
-                }
-                isolates += 1;
-                over = ON;
-                isolate = true;
-                stack.push((embedding, over, isolate));
-            }
-            PDF => {
-                if !isolate && stack.len >= 2 {
-                    (embedding, over, isolate) = stack.pop();
-                }
-                if let Some(l) = levels.get_mut(i) {
-                    *l = embedding;
-                }
-            }
-            PDI => {
-                if isolates > 0 {
-                    while !isolate && stack.len > 0 {
-                        isolate = stack.pop().2;
-                    }
-                    (embedding, over, isolate) = stack.pop();
-                    isolates -= 1;
-                }
-                if over != ON {
-                    t = over;
-                }
-                if let Some(l) = levels.get_mut(i) {
-                    *l = embedding;
-                }
-            }
-            _ => {
-                if over != ON {
-                    t = over;
-                }
-            }
-        }
-        if let Some(slot) = types.get_mut(i) {
-            *slot = t;
-        }
-    }
-
-    // X9: the embedding controls and BN stay in place as NSM, and later rules skip them.
-    for (t, s) in types.iter_mut().zip(skip.iter_mut()) {
-        *s = matches!(*t, RLE | LRE | RLO | LRO | PDF | BN);
-        if *s {
-            *t = NSM;
-        }
-    }
-
-    // W1: NSM takes the type before it (sos at the start); after an isolate control, ON.
-    if ty(types, 0) == NSM
-        && let Some(t) = types.first_mut()
-    {
-        *t = sos;
-    }
-    for i in 1..n {
-        if ty(types, i) == NSM {
-            let before = match ty(types, i - 1) {
-                LRI | RLI | FSI | PDI => ON,
-                t => t,
-            };
-            if let Some(t) = types.get_mut(i) {
-                *t = before;
-            }
-        }
-    }
-
-    // W2: EN after AL (back to the last strong type) is AN.
-    for i in 0..n {
-        if ty(types, i) == EN {
-            for j in (0..i).rev() {
-                match ty(types, j) {
-                    AL => {
-                        if let Some(t) = types.get_mut(i) {
-                            *t = AN;
-                        }
-                        break;
-                    }
-                    R | L => break,
-                    _ => {}
-                }
-            }
-        }
-    }
-
-    // W3: AL is R.
-    for t in types.iter_mut() {
-        if *t == AL {
-            *t = R;
-        }
-    }
-
-    // W4: one separator between two numbers of a type takes it.
-    for i in 1..n.saturating_sub(1) {
-        let t = ty(types, i);
-        if t != ES && t != CS {
-            continue;
-        }
-        let prev = (0..i)
-            .rev()
-            .find(|&j| !skip.get(j).copied().unwrap_or(false));
-        let next = (i + 1..n).find(|&j| !skip.get(j).copied().unwrap_or(false));
-        let (Some(prev), Some(next)) = (prev, next) else {
-            continue;
-        };
-        let (before, after) = (ty(types, prev), ty(types, next));
-        let mut t = t;
-        if t == ES && before == EN && after == EN {
-            t = EN;
-        }
-        if t == CS {
-            if before == EN && after == EN {
-                t = EN;
-            }
-            if before == AN && after == AN {
-                t = AN;
-            }
-        }
-        if let Some(slot) = types.get_mut(i) {
-            *slot = t;
-        }
-    }
-
-    // W5: a sequence of ET next to EN is EN; a forward pass, then a backward one.
-    let skipped = |skip: &[bool], j: usize| skip.get(j).copied().unwrap_or(true);
-    for i in 0..n {
-        if skipped(skip, i) || ty(types, i) != ET {
-            continue;
-        }
-        if let Some(j) = (i..n).find(|&j| !skipped(skip, j) && ty(types, j) != ET)
-            && ty(types, j) == EN
-            && let Some(t) = types.get_mut(i)
-        {
-            *t = EN;
-        }
-    }
-    for i in (0..n).rev() {
-        if skipped(skip, i) || ty(types, i) != ET {
-            continue;
-        }
-        if let Some(j) = (0..=i)
-            .rev()
-            .find(|&j| !skipped(skip, j) && ty(types, j) != ET)
-            && ty(types, j) == EN
-            && let Some(t) = types.get_mut(i)
-        {
-            *t = EN;
-        }
-    }
-
-    // W6: the separators and terminators left are ON.
-    for t in types.iter_mut() {
-        if matches!(*t, ES | ET | CS) {
-            *t = ON;
-        }
-    }
-
-    // W7: EN after L (back to sos) is L.
-    let mut last_strong = sos;
-    for (t, &s) in types.iter_mut().zip(skip.iter()) {
-        if s {
-            continue;
-        }
-        if matches!(*t, L | R) {
-            last_strong = *t;
-        }
-        if *t == EN && last_strong == L {
-            *t = L;
-        }
-    }
-
-    // N0: bracket pairs take the embedding direction when it is inside them, else the opposite
-    // direction found inside when the context before them has it too.
-    let e = sos;
-    let o = if e == L { R } else { L };
-    // (opening bracket, position): every bracket and position fits the smaller types.
-    let mut openers = [(0u16, 0u8); MAX_BRACKETS];
-    let mut open = 0;
-    for i in 0..n {
-        if skipped(skip, i) {
-            continue;
-        }
-        let cp = line.get(i).map_or(0, |c| c.cp);
-        let Some(opener) = bracket(cp) else {
-            continue;
-        };
-        if opener == cp {
-            if let (Some(slot), Ok(c), Ok(pos)) =
-                (openers.get_mut(open), u16::try_from(cp), u8::try_from(i))
-            {
-                *slot = (c, pos);
-                open += 1;
-            }
-            continue;
-        }
-        let Some(k) = (0..open)
-            .rev()
-            .find(|&k| openers.get(k).is_some_and(|&(c, _)| u32::from(c) == opener))
-        else {
-            continue;
-        };
-        let start = openers.get(k).map_or(0, |&(_, pos)| usize::from(pos));
-        open = k;
-
-        let mut found_e = false;
-        let mut found_o = false;
-        for m in start + 1..i {
-            if skipped(skip, m) {
-                continue;
-            }
-            match ty(types, m) {
-                EN | AN | R | AL => {
-                    if e == R {
-                        found_e = true;
-                    } else {
-                        found_o = true;
-                    }
-                }
-                L => {
-                    if e == L {
-                        found_e = true;
-                    } else {
-                        found_o = true;
-                    }
-                }
-                _ => {}
-            }
-        }
-        let dir = if found_e {
-            e
-        } else if found_o {
-            let context = strong_from(types, skip, (0..start).rev()).unwrap_or(e);
-            if context == o { o } else { e }
-        } else {
-            continue;
-        };
-        for m in start..=i {
-            if let Some(t) = types.get_mut(m)
-                && (m == start || m == i || is_neutral_or_isolate(*t))
-            {
-                *t = dir;
-            }
-        }
-    }
-
-    // N1: a run of neutrals between two strong types of one direction takes it (sos/eos at the
-    // ends).
-    let mut i = 0;
-    while i < n {
-        if skipped(skip, i) || !is_neutral_or_isolate(ty(types, i)) {
-            i += 1;
-            continue;
-        }
-        let mut end = i;
-        while end + 1 < n && (skipped(skip, end + 1) || is_neutral_or_isolate(ty(types, end + 1))) {
-            end += 1;
-        }
-        let before = strong_from(types, skip, (0..i).rev()).unwrap_or(sos);
-        let after = strong_from(types, skip, end + 1..n).unwrap_or(sos);
-        if before == after {
-            for t in types.get_mut(i..=end).unwrap_or_default() {
-                *t = before;
-            }
-        }
-        i = end + 1;
-    }
-
-    // N2: the other neutrals take the embedding direction.
-    for (t, &l) in types.iter_mut().zip(levels.iter()) {
-        if is_neutral_or_isolate(*t) {
-            *t = direction(l);
-        }
-    }
-
-    // I1, I2: resolved levels. (Rule L1 would come next; in this version it never applied, the
-    // whitespace having been resolved by N1/N2, so it is left out.)
-    for ((&t, l), &s) in types.iter().zip(levels.iter_mut()).zip(skip.iter()) {
-        if s {
-            continue;
-        }
-        let raise = match (*l & 1 == 1, t) {
-            (false, R) | (true, L | EN | AN) => 1,
-            (false, AN | EN) => 2,
-            _ => 0,
-        };
-        *l = l.wrapping_add(raise);
-    }
-
-    Some(level)
+    explicit(line, paragraph, &pair, &mut types, levels);
+    sequences(line, paragraph, &pair, &mut types, levels);
+    finish(line, paragraph, levels);
+    Some(paragraph)
 }
 
 /// Reorders `line` into visual order and mirrors its right-to-left glyphs (rules L2, L4), with
@@ -533,8 +683,8 @@ pub(crate) fn reorder(line: &mut [Char], auto: bool, level: u8) -> u8 {
         }
     }
 
-    // L4: mirror the glyphs at odd levels. The C version tests the logical level of each visual
-    // position; kept as it was.
+    // L4: mirror the glyphs at odd levels. As in the C version, this tests the logical level of
+    // each visual position; fixed in its own change.
     for (c, &l) in line.iter_mut().zip(levels.iter()) {
         if l & 1 == 1 {
             c.cp = mirror(c.cp);
