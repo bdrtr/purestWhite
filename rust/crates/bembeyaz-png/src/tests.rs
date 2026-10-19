@@ -1,5 +1,7 @@
 extern crate std;
 
+mod cover;
+
 use super::*;
 use std::vec;
 use std::vec::Vec;

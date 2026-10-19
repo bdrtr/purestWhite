@@ -1,5 +1,6 @@
 # Book from make_png_epub.py: open it and page through its chapters, one PNG image each
-# (the last is the image PNGdec got wrong when built for a 64-bit host; the firmware's build did not)
+# (the last is the image PNGdec got wrong when built for a 64-bit host; the firmware's build did not),
+# then Home for the PNG cover thumbnail (PngToBmpConverter)
 ready
 touch:240,348
 wait-screen
@@ -44,5 +45,5 @@ swipe:left
 wait-log:Page render
 shot:rows-ending-in-runs
 press:home
-wait-quiet:3
-shot:home
+wait-quiet:8
+shot:home-cover

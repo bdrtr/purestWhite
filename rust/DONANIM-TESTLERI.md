@@ -196,3 +196,35 @@ boş resim, donma ya da yeniden başlatma.
 - [ ] PNG kapaklı birkaç kitap: Home ve Library küçük resimleri, Details (Ayrıntılar) ekranı ve uyku
   ekranındaki kapak eskisi gibi görünmeli. Geçersiz bit derinlikli bir kapak (yalnızca elle
   bozulmuş dosyalarda olur; host testleri kapsar) artık cihazı çökertmez, kapak gösterilmez.
+
+## PNG kapakları ("rust: PNG covers through bembeyaz-png")
+
+Kapak küçük resimleri ve uyku ekranı kapağı ilk üretimden sonra önbellekte kalır: aşağıdakileri
+denemeden önce kitabın önbelleğini silin (kitap açıkken okuma menüsünde Delete Book Cache / Kitap
+Önbelleğini Sil) ya da kitabı ilk kez açın. Hata belirtileri: boş, kayık ya da çizgili kapak, yanlış
+gri tonlar, donma ya da yeniden başlatma.
+
+- [ ] PNG kapaklı birkaç kitap (paletli, gri, renkli ve saydam kapaklar): Home'daki küçük resimler
+  ve uyku ekranındaki kapak eskisi gibi görünmeli (Uyku Ekranı / Sleep Screen ayarı **Kapak** /
+  Cover: uyku ekranı son açılan kitabın kapağını gösterir).
+- [ ] `python3 emu/make_png_epub.py emu/books/png` ile üretilen `png.epub`'ı (paletli kapak) ve
+  `python3 emu/make_inflate_epub.py emu/books/inflate` ile üretilen `inflate.epub`'ı (RGB kapak)
+  karta kopyalayıp açın, Home'a dönün: aynı temada küçük resimler
+  `emu/compare.sh emu/png.txt x4pro emu/books/png/png.epub` ve
+  `emu/compare.sh emu/inflate.txt x4pro emu/books/inflate/inflate.epub` çıktılarındaki
+  (`emu/runs/png-png-*/report.html`, `emu/runs/inflate-inflate-*/report.html`) `home-cover` ekran
+  görüntüleriyle aynı olmalı.
+- [ ] Hız: `png.epub`'ın küçük resmi üretilirken günlükteki `Converting PNG to 1-bit BMP` ile
+  `Successfully converted PNG to BMP` satırlarının zaman damgaları arasındaki süreyi ölçün.
+  Emülatörde ~400 ms (değiştirilmemiş CrossPoint'te ~495), `inflate.epub`'ın RGB kapağında ~450 ms
+  (CrossPoint ~490). Cihazda `../crosspoint-base` build'inden %10'dan fazla uzunsa not edin.
+- [ ] Bir `.txt` kitabın yanına aynı adda bir `.png` koyun (aynı adda `.bmp`, `.jpg` ya da `.jpeg`
+  varsa o önce gelir; aynı adda resim yoksa klasördeki `cover.png` da kullanılır): kitabı açıp
+  Home'a dönün, küçük resim ve uyku ekranı kapağı görünmeli.
+- [ ] Eşlenmiş ama henüz bağlanmamış bir BLE kumanda varken önbelleği silinmiş PNG kapaklı bir
+  kitabın küçük resmini yeniden üretin (kitabı açıp kapatın, cihazı yeniden başlatıp Home'a
+  dönün): günlükteki `HID begin skipped` / `BLE start deferred` satırlarını ve boş/en büyük blok
+  rakamlarını not edin; kumanda bağlanmalı (gerekirse bir sonraki kitap açılışında), sayfa çevirme
+  çalışmalı. Kapak okunurken ~2,3 KB'lık okuyucu durumu (eskiden görev yığınındaydı) dahili heap'te
+  durur; okuyucu dahili RAM'den hiçbir zaman 4 KB'tan büyük blok istemez (büyük satır tamponları
+  PSRAM'e gider).

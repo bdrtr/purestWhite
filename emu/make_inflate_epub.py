@@ -1,7 +1,8 @@
-"""Builds an EPUB that exercises lib/InflateStream: a large RGB PNG cover
-(zlib stream, adaptive row filters; decoded for the cover and the Home
-thumbnail), a one-page chapter of stored deflate blocks (level 0) and a
-~150 KB chapter at level 9, whose cold layout emu/inflate.txt measures.
+"""Builds an EPUB that exercises bembeyaz-inflate: a large RGB PNG cover (zlib
+stream, adaptive row filters; read by bembeyaz-png's cover reader for the cover
+and the Home thumbnail) and, through lib/InflateStream, a one-page chapter of
+stored deflate blocks (level 0) and a ~150 KB chapter at level 9, whose cold
+layout emu/inflate.txt measures.
 
   python3 emu/make_inflate_epub.py OUT_DIR
 """

@@ -2,10 +2,10 @@
 //! did, which `test/png_decoder` pins. Rows come out one at a time through a callback, as raw
 //! samples with the palette and transparency, for `PngToFramebufferConverter` to dither.
 //!
-//! Like PNGdec it supports bit depths up to 8 and no interlacing, checks no CRC but IHDR's and not
-//! the Adler-32 sum, and reads the file through a 2048-byte buffer whose bookkeeping decides how
-//! odd chunk layouts come out (an empty IDAT, for one, leaves it reading stale bytes as the next
-//! chunk). It departs from PNGdec only where PNGdec misbehaved:
+//! The chapter decoder, like PNGdec, supports bit depths up to 8 and no interlacing, checks no CRC
+//! but IHDR's and not the Adler-32 sum, and reads the file through a 2048-byte buffer whose
+//! bookkeeping decides how odd chunk layouts come out (an empty IDAT, for one, leaves it reading
+//! stale bytes as the next chunk). It departs from PNGdec only where PNGdec misbehaved:
 //! - A file cut inside image data returns [`Error::FileEnded`]. PNGdec measured a chunk's length
 //!   from the start of its read buffer, not from the chunk, so it missed a cut near a chunk's end
 //!   and waited forever for the rest. A zlib stream that ends inside a row short of the height
@@ -17,11 +17,16 @@
 //!   when the bad data came right after the row's last byte in the same inflate call), and a zlib
 //!   header asking for a preset dictionary is corrupt (PNGdec stalled on it and returned at the
 //!   end of the file).
+//!
+//! Covers are read by [`cover`], as `PngToBmpConverter`'s own decoder read them, through the same
+//! inflate and unfiltering.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 extern crate alloc;
+
+pub mod cover;
 
 use alloc::alloc::{Layout, alloc_zeroed};
 use alloc::boxed::Box;
@@ -174,9 +179,10 @@ fn read(source: &mut impl Source, pos: i64, buf: &mut [u8]) -> i64 {
 
 /// Undoes a row's filter for the raw bytes `raw` that continue the row at byte `x0` (after the
 /// filter byte), writing them to `row[x0..]`. `row[..x0]` holds the row so far and `up` the row
-/// above. Pixels are `step` bytes apart, as PNGdec counted them.
+/// above. Pixels are `step` bytes apart (for the chapter decoder, as PNGdec counted them).
 ///
-/// The raw bytes come straight from the inflate window: unfiltering is the copy out of it.
+/// The chapter decoder hands it raw bytes straight from the inflate window, so unfiltering is the
+/// copy out of it; the cover reader hands it whole rows.
 fn unfilter_into(filter: u8, raw: &[u8], row: &mut [u8], up: &[u8], x0: usize, step: usize) {
     let end = (x0 + raw.len()).min(row.len()).min(up.len());
     let raw = raw.get(..end.saturating_sub(x0)).unwrap_or_default();
@@ -217,13 +223,14 @@ fn unfilter_into(filter: u8, raw: &[u8], row: &mut [u8], up: &[u8], x0: usize, s
         2 => unfilter_2(filter, raw, row, up, x0, start, end),
         3 => unfilter_3(filter, raw, row, up, x0, start, end),
         4 => unfilter_4(filter, raw, row, up, x0, start, end),
+        6 | 8 => unfilter_wide(filter, raw, row, up, x0, start, end, step),
         _ => start,
     };
     unfilter_bytes(filter, raw, row, up, x0, x..end, step);
 }
 
-/// [`unfilter_into`] byte by byte over `row[span]`, for the ends of a piece and for steps past 4
-/// bytes (no valid image has them).
+/// [`unfilter_into`] byte by byte over `row[span]`, for the ends of a piece and for steps no valid
+/// image has (PNGdec's arithmetic gives them for some broken headers).
 fn unfilter_bytes(
     filter: u8,
     raw: &[u8],
@@ -324,6 +331,85 @@ unfilter_pixels!(unfilter_1, 1, [0]);
 unfilter_pixels!(unfilter_2, 2, [0, 1]);
 unfilter_pixels!(unfilter_3, 3, [0, 1, 2]);
 unfilter_pixels!(unfilter_4, 4, [0, 1, 2, 3]);
+
+/// [`unfilter_into`] over the whole pixels of `row[start..end]` for 6- and 8-byte pixels (16-bit RGB
+/// and RGBA covers): as `unfilter_pixels!`, with the pixel's bytes in a loop. Returns where the
+/// pixels end.
+#[allow(
+    clippy::too_many_arguments,
+    reason = "the unfilter_pixels functions' arguments, and the step"
+)]
+fn unfilter_wide(
+    filter: u8,
+    raw: &[u8],
+    row: &mut [u8],
+    up: &[u8],
+    x0: usize,
+    start: usize,
+    end: usize,
+    step: usize,
+) -> usize {
+    let (mut left, mut up_left) = ([0u8; 8], [0u8; 8]);
+    if start < step || start >= end {
+        return start;
+    }
+    let last = start + (end - start) / step * step;
+    let (Some(left), Some(up_left), Some(before), Some(up_before)) = (
+        left.get_mut(..step),
+        up_left.get_mut(..step),
+        row.get(start - step..start),
+        up.get(start - step..start),
+    ) else {
+        return start;
+    };
+    left.copy_from_slice(before);
+    up_left.copy_from_slice(up_before);
+    let (Some(dst), Some(raw), Some(ups)) = (
+        row.get_mut(start..last),
+        raw.get(start - x0..last - x0),
+        up.get(start..last),
+    ) else {
+        return start;
+    };
+    let pixels = dst
+        .chunks_mut(step)
+        .zip(raw.chunks(step))
+        .zip(ups.chunks(step));
+    match filter {
+        1 => {
+            for ((v, r), _) in pixels {
+                for ((v, &r), l) in v.iter_mut().zip(r).zip(left.iter_mut()) {
+                    *l = r.wrapping_add(*l);
+                    *v = *l;
+                }
+            }
+        }
+        3 => {
+            for ((v, r), u) in pixels {
+                for (((v, &r), &u), l) in v.iter_mut().zip(r).zip(u).zip(left.iter_mut()) {
+                    *l = r.wrapping_add(u8::midpoint(*l, u));
+                    *v = *l;
+                }
+            }
+        }
+        _ => {
+            for ((v, r), u) in pixels {
+                for ((((v, &r), &u), l), ul) in v
+                    .iter_mut()
+                    .zip(r)
+                    .zip(u)
+                    .zip(left.iter_mut())
+                    .zip(up_left.iter_mut())
+                {
+                    *l = r.wrapping_add(paeth(*l, u, *ul));
+                    *v = *l;
+                    *ul = u;
+                }
+            }
+        }
+    }
+    last
+}
 
 fn paeth(a: u8, b: u8, c: u8) -> u8 {
     let (ia, ib, ic) = (i16::from(a), i16::from(b), i16::from(c));

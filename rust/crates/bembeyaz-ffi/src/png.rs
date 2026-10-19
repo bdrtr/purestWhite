@@ -10,13 +10,14 @@ use core::ffi::{c_int, c_void};
 use core::mem::{MaybeUninit, offset_of, size_of};
 use core::ptr;
 
-type ReadFn =
+pub(crate) type ReadFn =
     unsafe extern "C" fn(context: *mut c_void, pos: u32, buf: *mut u8, len: usize) -> usize;
 type DrawFn = unsafe extern "C" fn(user: *mut c_void, row: *const BbPngRow) -> c_int;
 
-struct CSource {
-    read: ReadFn,
-    context: *mut c_void,
+/// The C read callback a PNG is read through.
+pub(crate) struct CSource {
+    pub(crate) read: ReadFn,
+    pub(crate) context: *mut c_void,
 }
 
 impl Source for CSource {

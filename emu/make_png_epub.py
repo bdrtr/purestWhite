@@ -1,9 +1,11 @@
-"""Builds EPUBs that exercise the chapter-image PNG decoder (bembeyaz-png):
+"""Builds EPUBs that exercise the PNG decoders (bembeyaz-png):
 
 - png.epub, one image per chapter: every color type and bit depth the converter decodes, palette
   and color-key transparency, alpha, a large image scaled down, and last an image whose rows end
   in runs at a width where PNGdec built for a 64-bit host (the one test/png_decoder recorded)
   wrote past a row. The firmware's 32-bit build did not, so the screens should all match.
+  png.epub's 600x800 palette cover goes through PngToBmpConverter (bembeyaz-png's cover reader)
+  for the Home thumbnail.
 - png-broken.epub: an image cut near the end of its data, on which PNGdec waited forever.
 
   python3 emu/make_png_epub.py OUT_DIR
@@ -114,9 +116,13 @@ def page(title, src):
     )
 
 
-def epub(path, book_id, title, pictures):
-    manifest = spine = ""
+def epub(path, book_id, title, pictures, cover=None):
+    manifest = spine = meta = ""
     files = {}
+    if cover:
+        manifest += '<item id="cover" href="cover.png" media-type="image/png" properties="cover-image"/>'
+        meta = '<meta name="cover" content="cover"/>'
+        files["OEBPS/cover.png"] = cover
     for n, (name, data) in enumerate(pictures.items(), 1):
         manifest += f'<item id="i{n}" href="i{n}.png" media-type="image/png"/>'
         manifest += f'<item id="c{n}" href="c{n}.xhtml" media-type="application/xhtml+xml"/>'
@@ -132,7 +138,7 @@ def epub(path, book_id, title, pictures):
         '<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
         'unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
         f'<dc:identifier id="id">{book_id}</dc:identifier><dc:title>{title}</dc:title><dc:language>en</dc:language>'
-        f"</metadata><manifest>{manifest}</manifest><spine>{spine}</spine></package>"
+        f"{meta}</metadata><manifest>{manifest}</manifest><spine>{spine}</spine></package>"
     ).encode()
     with zipfile.ZipFile(path, "w") as z:
         z.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip", compress_type=zipfile.ZIP_STORED)
@@ -141,7 +147,19 @@ def epub(path, book_id, title, pictures):
     print(path)
 
 
-epub(out_dir / "png.epub", "bembeyaz-png", "PNG images", images)
+# A palette cover (inflate.epub has an RGB one): rings over a gradient in indices 0-62, of which
+# 60-62 are past its 60-entry palette (the converter reads them as entry 0), and a tRNS chunk it
+# ignores.
+cover = png(
+    600,
+    800,
+    8,
+    3,
+    lambda x, y, c: (y * 48 // 800 + rings(x, y, 16, 300, 400)) % 64,
+    palette=bytes(v for i in range(60) for v in (i * 4, 255 - i * 4, i * 37 % 256)),
+    trns=bytes(range(0, 240, 4)),
+)
+epub(out_dir / "png.epub", "bembeyaz-png", "PNG images", images, cover)
 # Cut 10 bytes before the end of the image data: PNGdec checked a chunk's length against the file
 # size less where its 2048-byte read buffer started, not where the chunk started, so a cut this
 # close to the end passed and it waited forever.

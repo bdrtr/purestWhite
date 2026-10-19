@@ -222,7 +222,9 @@ TEST(PngToBmpConverter, RefusesBitDepthsTheColorTypeDoesNotAllow) {
       const bool allowed = std::find(type.allowed.begin(), type.allowed.end(), depth) != type.allowed.end();
       EXPECT_EQ(PngToBmpConverter::pngFileToBmpStreamWithSize(in, bmp, 0, 0), allowed)
           << "color " << int{type.color} << " depth " << int{depth};
-      if (!allowed) EXPECT_EQ(bmp.bytes, 0u) << "color " << int{type.color} << " depth " << int{depth};
+      if (!allowed) {
+        EXPECT_EQ(bmp.bytes, 0u) << "color " << int{type.color} << " depth " << int{depth};
+      }
     }
   }
 }

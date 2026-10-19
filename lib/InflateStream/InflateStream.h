@@ -8,7 +8,7 @@ struct bb_inflate;
 // Streaming deflate decompressor; the decoder is our own Rust (rust/crates/bembeyaz-inflate)
 // behind rust/include/bembeyaz/inflate.h.
 //
-// The firmware's DEFLATE decoder for EPUB zip entries, PNG IDAT, font groups
+// The firmware's DEFLATE decoder for EPUB zip entries, font groups
 // (FontDecompressor) and dictzip chunks (DictZip); the SDK's ContentProtection
 // keeps its own miniz. The decoder state (~4.5KB)
 // lives for the scope of the stream: taken from the lent framebuffer bytes via
@@ -29,7 +29,7 @@ struct bb_inflate;
 // through a fill callback (setFill): return the number of bytes available and
 // point *data at them (valid until the next fill call); return 0 at end of
 // input. Call setZlibWrapped() before the first read when the stream has a
-// zlib header (e.g. PNG IDAT).
+// zlib header.
 class InflateStream {
  public:
   enum class Status {

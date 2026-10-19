@@ -17,6 +17,7 @@ mod layout;
 mod opf;
 mod path;
 mod png;
+mod png_cover;
 mod utf8;
 mod xml;
 mod zip;
