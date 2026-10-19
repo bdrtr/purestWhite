@@ -22,9 +22,6 @@ int bb_hyph_language(const char* tag, size_t len);
 void bb_hyph_breaks(int language, const char* word, size_t len, bool fallback,
                     void (*emit)(void* context, size_t offset, bool inserted_hyphen), void* context);
 
-// Hyphens and dashes a word may already break at (and the underscore and ellipsis).
-bool bb_hyph_is_explicit_hyphen(uint32_t cp);
-
 #ifdef __cplusplus
 }
 #endif

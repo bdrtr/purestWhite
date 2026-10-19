@@ -55,6 +55,20 @@ CrossPoint, `../crosspoint-prev` 609d473.
 - [ ] Binlerce manifest öğesi olan bir kitap (antoloji, sözlük ya da çizgi roman EPUB'ı):
   açılmalı; `Parse error` görülmemeli.
 
+## Paragraf yerleşimi ("rust: our own paragraph layout")
+
+- [ ] Farklı hizalamalarla birkaç kitap (iki yana yaslı, sola yaslı, ortalı): satır sonları ve
+  sözcük aralıkları eskisi gibi olmalı; sayfa sayısı (alt bilgideki 1/N) değişmemeli.
+- [ ] Heceleme açıkken Türkçe ve Almanca birer kitap: tireler aynı yerlerde olmalı.
+- [ ] Odaklanmış Okuma (Focus Reading) açıkken: sözcük başları kalın olmalı, hizalama kaymamalı.
+- [ ] Japonca/Çince bir kitap (ruby varsa iyi olur), Korece bir kitap ve Arapça/İbranice bir
+  kitap: satır kırma ve sağdan sola sıralama eskisi gibi olmalı.
+- [ ] Dipnot bağlantıları olan bir kitap: bağlantıya dokunulunca dipnot açılmalı.
+- [ ] SD karttan yüklenen bir yazı tipiyle uzun bir bölüm: ilk sayfa oluşturma süresi
+  (`Time to parse and build pages`) eskisinden uzun olmamalı.
+- [ ] Çok uzun tek paragraflı bir bölüm (ör. Çince romanda bölüm boyu tek paragraf): açılmalı,
+  yeniden başlatma olmamalı.
+
 ## DEFLATE ve yazı tipleri (b340e76, fdd0780)
 
 - [ ] Kitap açma ve bölüm oluşturma süresi; önceki sürümle kabaca karşılaştırın (günlükte

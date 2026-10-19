@@ -200,7 +200,7 @@ void TextBlock::render(const GfxRenderer& renderer, const int sectionFontId, con
   // Words in other sizes share the baseline set by the line's tallest font.
   const int ascender = lineAscent(renderer, sectionFontId);
 
-  // Resolve ruby positions. Layout (extractLine) has already reserved extraStartOffset on the
+  // Resolve ruby positions. Paragraph layout has already reserved extraStartOffset on the
   // left and extraEndOffset on the right, so the centered rubyX is always within the page margins.
   struct RubyDrawInfo {
     int x;
@@ -291,8 +291,8 @@ void TextBlock::render(const GfxRenderer& renderer, const int sectionFontId, con
 
     if (boundary > 0) {
       // Focus split: draw bold prefix, then the regular suffix at a pre-computed x offset.
-      // The bold prefix is bounded to 9 codepoints by the clamp on targetBoldChars in
-      // ParsedText::addWord; 9 UTF-8 codepoints occupy at most 9 * 4 = 36 bytes, +1 for null = 37.
+      // The bold prefix is bounded to 9 codepoints by paragraph layout (bembeyaz-layout's
+      // add_word); 9 UTF-8 codepoints occupy at most 9 * 4 = 36 bytes, +1 for null = 37.
       // suffixX is computed at cache-creation time to avoid font metric lookups at render time.
       static constexpr size_t MAX_FOCUS_PREFIX_BYTES = 9 * 4 + 1;
       char boldBuf[40];

@@ -1,18 +1,11 @@
+#include <BidiUtils.h>
 #include <Epub/Page.h>
-#include <Epub/TokenBoundary.h>
 #include <Epub/blocks/ImageBlock.h>
 #include <Epub/blocks/TextBlock.h>
 #include <Epub/converters/ImageDecoderFactory.h>
 #include <Epub/converters/ImageToFramebufferDecoder.h>
 #include <Epub/hyphenation/Hyphenator.h>
 #include <GfxRenderer.h>
-
-#include <BidiUtils.h>
-
-bool isExplicitHyphen(uint32_t) { return false; }
-bool isSoftHyphen(uint32_t) { return false; }
-
-std::vector<Hyphenator::BreakInfo> Hyphenator::breakOffsets(const std::string&, bool) { return {}; }
 
 ImageBlock::ImageBlock(const std::string& imagePath, const std::string& srcPath, int16_t width, int16_t height)
     : imagePath(imagePath), srcPath(srcPath), width(width), height(height) {}

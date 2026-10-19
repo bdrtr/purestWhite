@@ -214,7 +214,7 @@ class GfxRenderer {
   // styleMask: bitmask of styles to prepare (bit 0=regular, 1=bold, 2=italic, 3=bold-italic).
   void ensureSdCardFontReady(int fontId, const char* utf8Text, uint8_t styleMask = 0x0F) const;
   // Packed variant for the paragraph layout path: each segment holds
-  // consecutive NUL-terminated words (WordStore chunks), so a whole paragraph
+  // consecutive NUL-terminated words (the paragraph's 2 KB word chunks), so a whole paragraph
   // is scanned without materializing per-word strings.
   void ensureSdCardFontReady(int fontId, const char* const* segments, const size_t* segmentLens, size_t segmentCount,
                              bool includeSpace, bool includeHyphen, uint8_t styleMask = 0x0F,

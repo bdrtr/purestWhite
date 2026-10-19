@@ -97,26 +97,6 @@ pub fn is_separator(cp: u32) -> bool {
     is_explicit_hyphen(cp) || is_apostrophe(cp)
 }
 
-/// Characters that break without a hyphen: as `utf8IsCjkBreakable` in lib/Utf8/Utf8.h.
-pub fn is_cjk_breakable(cp: u32) -> bool {
-    matches!(
-        cp,
-        0x1100..=0x11FF
-            | 0x3000..=0x309F
-            | 0x30A0..=0x30FF
-            | 0x3130..=0x318F
-            | 0x3400..=0x4DBF
-            | 0x4E00..=0x9FFF
-            | 0xAC00..=0xD7FF
-            | 0xF900..=0xFAFF
-            | 0xFE30..=0xFE4F
-            | 0xFF01..=0xFF60
-            | 0xFF65..=0xFFEF
-            | 0x2_0000..=0x2_A6DF
-            | 0x2_A700..=0x2_B73F
-    )
-}
-
 /// The precomposed letter for `base` followed by the combining `mark`, for the Western
 /// European and Polish accents only (a lightweight NFC, not Unicode's).
 fn compose(base: u32, mark: u32) -> Option<u32> {

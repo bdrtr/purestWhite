@@ -26,6 +26,26 @@
 
 namespace {
 
+// What a paragraph lays out to (it consumes the paragraph).
+struct LaidOut {
+  std::vector<std::string> words;
+  std::vector<int16_t> xpos;
+  std::vector<TextBlock::LinkSpan> links;
+};
+
+LaidOut layOut(ParsedText& text) {
+  LaidOut out;
+  GfxRenderer renderer;
+  text.layoutAndExtractLines(renderer, 0, 400, [&out](std::unique_ptr<TextBlock> line, uint32_t) {
+    for (uint16_t i = 0; i < line->wordCount(); ++i) {
+      out.words.emplace_back(line->wordText(i));
+      out.xpos.push_back(line->wordXpos(i));
+    }
+    for (const auto& link : line->takeLinkSpans()) out.links.push_back(link);
+  });
+  return out;
+}
+
 void installBuiltinVariants(GfxRenderer& renderer) {
   renderer.setFontVariantProvider({&renderer, [](void* ctx, const int fontId, const float scale) {
                                      const int variant = builtinReaderFontVariant(fontId, scale);
@@ -343,9 +363,10 @@ TEST_P(ChapterHtmlSlimParserTest, KeepsCssVerticalAlignAndInternalLinkMetadata) 
   ASSERT_EQ(parser.pendingFootnotes.size(), 1u);
   const FootnoteEntry& footnote = parser.pendingFootnotes.front().second;
   EXPECT_STREQ(footnote.href, expectedHref);
-  ASSERT_EQ(parser.currentTextBlock->wordLinkIds.size(), 1u);
-  EXPECT_EQ(parser.currentTextBlock->wordLinkIds.front(), linkId);
   EXPECT_TRUE(parser.currentTextBlock->linkTargetMatches(linkId, expectedHref));
+  const auto laidOut = layOut(*parser.currentTextBlock);
+  ASSERT_EQ(laidOut.links.size(), 1u);
+  EXPECT_STREQ(laidOut.links.front().href, expectedHref);
 }
 
 INSTANTIATE_TEST_SUITE_P(CssVerticalAlign, ChapterHtmlSlimParserTest,
@@ -383,8 +404,7 @@ TEST_F(ChapterHtmlSlimParserTest, SpanWithHiddenAttributeShouldBeSkipped) {
   ChapterHtmlSlimParser::characterData(&parser, " After ", 7);
 
   ASSERT_EQ(parser.currentTextBlock->size(), 2);
-  ASSERT_EQ(parser.currentTextBlock->wordAt(0), "Before");
-  ASSERT_EQ(parser.currentTextBlock->wordAt(1), "After");
+  EXPECT_EQ(layOut(*parser.currentTextBlock).words, (std::vector<std::string>{"Before", "After"}));
 }
 
 TEST_F(ChapterHtmlSlimParserTest, DivWithHiddenAttributeContentShouldBeSkipped) {
@@ -1250,7 +1270,9 @@ TEST_F(ChapterHtmlSlimParserTest, PassesIndentSettingsToNewTextBlock) {
     parser.setParagraphIndentSpaces(5);
     parser.startNewTextBlock(BlockStyle());
     ASSERT_NE(parser.currentTextBlock, nullptr);
-    EXPECT_EQ(parser.currentTextBlock->paragraphIndentSpaces, 5);
+    parser.currentTextBlock->addWord("x", EpdFontFamily::REGULAR);
+    // Five 4 px fixture spaces before the first word.
+    EXPECT_EQ(layOut(*parser.currentTextBlock).xpos, std::vector<int16_t>{20});
   }
 }
 

@@ -180,7 +180,7 @@ void GfxRenderer::begin() {
   bwBufferChunks.assign((frameBufferSize + BW_BUFFER_CHUNK_SIZE - 1) / BW_BUFFER_CHUNK_SIZE, nullptr);
 
   // Evictable-cache sinks for the SDK memory manager: layout's OOM choke
-  // points (WordStore/TextBlock) call ensureFree() to flush these and retry
+  // points (the paragraph word store, TextBlock) call ensureFree() to flush these and retry
   // before failing a section build. Both caches rebuild transparently from SD
   // or flash on the next glyph access. The SD-font persistent advance table is
   // deliberately NOT a sink: evicting it mid-paragraph would make later

@@ -6,7 +6,8 @@
 //!
 //! The words come from books: nothing here panics. A word's codepoints stay on the stack up to
 //! 70 (the patterns look at 68 letters at most); a longer word takes two fallible heap blocks of
-//! 4 bytes per codepoint. The caller bounds the word (`WordStore` keeps at most 0xFFFE bytes).
+//! 4 bytes per codepoint. The caller bounds the word (bembeyaz-layout stores at most 0xFFFE
+//! bytes of one).
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -18,9 +19,10 @@ mod liang;
 mod text;
 
 pub use languages::{Language, language};
-pub use text::is_explicit_hyphen;
+pub use text::{is_explicit_hyphen, is_soft_hyphen};
 
-use text::{Word, is_alphabetic, is_apostrophe, is_cjk_breakable, is_separator, trim};
+use bembeyaz_utf8::is_cjk_breakable;
+use text::{Word, is_alphabetic, is_apostrophe, is_separator, trim};
 
 /// A place a word may break.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

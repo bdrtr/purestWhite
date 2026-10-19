@@ -1171,7 +1171,7 @@ void ChapterHtmlSlimParser::finishTableRow() {
         true, characterSpacing, wordSpacingPercent);
     maxLineCount = std::max(maxLineCount, lines.size());
   }
-  // Cell layout itself can drop lines (TextBlock arena OOM in extractLine);
+  // Cell layout itself can drop lines (out of memory for a line or its TextBlock);
   // latch that before the cells are destroyed.
   for (const auto& cell : tableRowCells) {
     if (cell && cell->hadDroppedWords()) layoutOom = true;
@@ -1887,9 +1887,6 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     }
     self->inRuby = true;
     self->rubyStartWordIndex = self->currentTextBlock ? static_cast<int>(self->currentTextBlock->size()) : 0;
-    if (self->currentTextBlock) {
-      self->currentTextBlock->ensureRubyCapacity();
-    }
     self->rubyTextBuffer.clear();
     self->depth += 1;
     return;
@@ -3116,8 +3113,8 @@ void ChapterHtmlSlimParser::makePages(const bool includeLastLine, const bool par
     layoutParagraphHasDropCap = false;
   }
 
-  // Latch again after layout: extractLine can drop a whole line (TextBlock
-  // arena OOM) during the call above, after the pre-layout latch ran, and the
+  // Latch again after layout: it can drop a whole line (out of memory for the
+  // line or its TextBlock) during the call above, after the pre-layout latch ran, and the
   // block is replaced right after this returns.
   if (currentTextBlock->hadDroppedWords()) {
     layoutOom = true;

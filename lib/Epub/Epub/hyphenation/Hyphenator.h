@@ -38,6 +38,8 @@ class Hyphenator {
 
   // Provide a publication-level language hint (e.g. "en", "en-US", "ru") used to select hyphenation rules.
   static void setPreferredLanguage(const std::string& lang);
+  // The language set above, as bb_hyph_language's index; -1 for none.
+  static int language() { return language_; }
 
  private:
   static int language_;  // from bb_hyph_language; -1 for none

@@ -34,8 +34,8 @@
 //
 // Focus split semantics (unchanged from the vector layout): boundary N > 0
 // means the first N bytes of word i render bold, the remainder in the base
-// style. N is bounded to 9 codepoints (<= 36 UTF-8 bytes) by the clamp in
-// ParsedText::addWord. focusSuffixX is the pre-computed pixel offset from the
+// style. N is bounded to 9 codepoints (<= 36 UTF-8 bytes) by paragraph layout
+// (bembeyaz-layout). focusSuffixX is the pre-computed pixel offset from the
 // word start to the regular suffix. Both arrays are omitted from the arena
 // entirely when no word on the line has a split (zero per-word RAM cost when
 // focus reading is disabled).

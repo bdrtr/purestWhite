@@ -33,9 +33,7 @@ pub unsafe extern "C" fn bb_hyph_breaks(
     let Some(emit) = emit else {
         return;
     };
-    let language = usize::try_from(language)
-        .ok()
-        .and_then(Language::from_index);
+    let language = self::language(language);
     hyphenation::breaks(
         unsafe { bytes(word, len) },
         language,
@@ -46,7 +44,7 @@ pub unsafe extern "C" fn bb_hyph_breaks(
     );
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn bb_hyph_is_explicit_hyphen(cp: u32) -> bool {
-    hyphenation::is_explicit_hyphen(cp)
+/// The language of `bb_hyph_language`'s index; -1 (or any other) for none.
+pub(crate) fn language(index: c_int) -> Option<Language> {
+    usize::try_from(index).ok().and_then(Language::from_index)
 }

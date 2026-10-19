@@ -36,6 +36,7 @@ dependencies = [
  "bembeyaz-css",
  "bembeyaz-hyphenation",
  "bembeyaz-inflate",
+ "bembeyaz-layout",
  "bembeyaz-opf",
  "bembeyaz-path",
  "bembeyaz-utf8",
@@ -55,6 +56,15 @@ name = "bembeyaz-inflate"
 version = "0.1.0"
 dependencies = [
  "miniz_oxide",
+]
+
+[[package]]
+name = "bembeyaz-layout"
+version = "0.1.0"
+dependencies = [
+ "bembeyaz-bidi",
+ "bembeyaz-hyphenation",
+ "bembeyaz-utf8",
 ]
 
 [[package]]
