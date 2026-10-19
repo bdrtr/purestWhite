@@ -7,8 +7,11 @@
 
 namespace FsHelpers {
 
+// rust/crates/bembeyaz-path: each %XX becomes the byte it names.
 std::string decodeUriEscapes(const std::string& path);
 
+// rust/crates/bembeyaz-path: ".." removes the component before it and empty components go, with
+// no leading or trailing '/'; "." stays.
 std::string normalisePath(const std::string& path);
 
 // Numeric-aware, case-insensitive comparison ("2" < "10"). Returns true when str1 orders

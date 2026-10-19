@@ -12,6 +12,7 @@ mod device;
 mod expat;
 mod hyphenation;
 mod inflate;
+mod path;
 mod utf8;
 mod xml;
 mod zip;

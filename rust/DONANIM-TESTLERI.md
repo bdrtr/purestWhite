@@ -37,6 +37,12 @@ CrossPoint, `../crosspoint-prev` 609d473.
 - [ ] Çok uzun bir bölüm (yüzlerce sayfa) ve büyük tablolu bir kitap: açılırken ve
   okurken yeniden başlatma ya da donma olmamalı (ayrıştırıcının yığın kullanımı arttı).
 
+## Yol çözümü ("rust: path helpers")
+
+- [ ] Bölüm, resim ya da bağlantı dosyalarının adında boşluk, `%20` ya da `../` geçen bir
+  kitap: bölümler açılmalı, resimler görünmeli, içindekiler ve dipnot bağlantıları çalışmalı.
+- [ ] WebDAV ve web sunucusu: bir alt klasöre dosya yükleyin, listeleyin, indirin.
+
 ## DEFLATE ve yazı tipleri (b340e76, fdd0780)
 
 - [ ] Kitap açma ve bölüm oluşturma süresi; önceki sürümle kabaca karşılaştırın (günlükte
