@@ -114,3 +114,24 @@ const char* lookupHtmlEntity(const char* entity, size_t len) {
 
   return nullptr;
 }
+
+void htmlEntityText(const char* name, void* userData, void (*text)(void* userData, const char* s, int len)) {
+  char reference[48];
+  const size_t len = strlen(name);
+  if (len + 2 > sizeof(reference)) {
+    // Longer than any HTML entity: kept as written.
+    text(userData, "&", 1);
+    text(userData, name, static_cast<int>(len));
+    text(userData, ";", 1);
+    return;
+  }
+  reference[0] = '&';
+  memcpy(reference + 1, name, len);
+  reference[len + 1] = ';';
+  const char* utf8Value = lookupHtmlEntity(reference, len + 2);
+  if (utf8Value != nullptr) {
+    text(userData, utf8Value, static_cast<int>(strlen(utf8Value)));
+  } else {
+    text(userData, reference, static_cast<int>(len + 2));
+  }
+}

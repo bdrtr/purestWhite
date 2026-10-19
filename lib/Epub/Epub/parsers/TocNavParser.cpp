@@ -105,17 +105,7 @@ void TocNavParser::characterData(void* userData, const char* s, const int len) {
 }
 
 // An entity the document does not declare: expand the HTML ones, keep the others as written.
-void TocNavParser::skippedEntity(void* userData, const char* name) {
-  auto* self = static_cast<TocNavParser*>(userData);
-  if (self->state != IN_ANCHOR) return;
-
-  const size_t start = self->currentLabel.size();
-  self->currentLabel.append("&").append(name).append(";");
-  const char* utf8Value = lookupHtmlEntity(self->currentLabel.data() + start, self->currentLabel.size() - start);
-  if (utf8Value != nullptr) {
-    self->currentLabel.replace(start, std::string::npos, utf8Value);
-  }
-}
+void TocNavParser::skippedEntity(void* userData, const char* name) { htmlEntityText(name, userData, characterData); }
 
 void TocNavParser::endElement(void* userData, const char* name) {
   auto* self = static_cast<TocNavParser*>(userData);

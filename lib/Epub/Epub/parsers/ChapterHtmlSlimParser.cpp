@@ -2496,24 +2496,7 @@ void ChapterHtmlSlimParser::characterData(void* userData, const char* s, const i
 // An entity the document does not declare (HTML entities like &nbsp;): expand the HTML ones, keep
 // the others as written.
 void ChapterHtmlSlimParser::skippedEntity(void* userData, const char* name) {
-  char reference[48];
-  const size_t len = strlen(name);
-  if (len + 2 > sizeof(reference)) {
-    // Longer than any HTML entity: kept as written.
-    characterData(userData, "&", 1);
-    characterData(userData, name, static_cast<int>(len));
-    characterData(userData, ";", 1);
-    return;
-  }
-  reference[0] = '&';
-  memcpy(reference + 1, name, len);
-  reference[len + 1] = ';';
-  const char* utf8Value = lookupHtmlEntity(reference, len + 2);
-  if (utf8Value != nullptr) {
-    characterData(userData, utf8Value, static_cast<int>(strlen(utf8Value)));
-  } else {
-    characterData(userData, reference, static_cast<int>(len + 2));
-  }
+  htmlEntityText(name, userData, characterData);
 }
 
 void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
