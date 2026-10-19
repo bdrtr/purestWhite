@@ -75,9 +75,11 @@ emu/compare.sh emu/png.txt x4pro emu/books/png/png.epub
 emu/compare.sh emu/png-broken.txt x4pro emu/books/png/png-broken.epub
 
 # JPEG (bembeyaz-jpeg): gri ton, 4:4:4/4:2:2/4:2:0, ilerlemeli, restart, CMYK, 1/2, 1/4 ve 1/8
-# ölçekte çözülen büyük resimler; JPEG kapak (Home'daki küçük resim, tam boyutta çözülür).
+# ölçekte çözülen büyük resimler; JPEG kapak (Home'daki küçük resim, tam boyutta çözülür). Bozuk
+# ikizinin resminde bir başlık segmenti dosyanın sonunu aşıyor: eski sürüm onu açarken donar.
 python3 emu/make_jpeg_epub.py emu/books/jpeg
 emu/compare.sh emu/jpeg.txt x4pro emu/books/jpeg/jpeg.epub
+emu/compare.sh emu/jpeg-broken.txt x4pro emu/books/jpeg/jpeg-broken.epub
 
 # Bozuk EPUB'lar (her biri kendi kartında):
 python3 emu/make_bad_epubs.py emu/books/bad

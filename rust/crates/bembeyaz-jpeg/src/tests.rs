@@ -265,20 +265,80 @@ fn survives_a_progressive_code_past_the_bit_buffer() {
     assert!(d.result.is_some());
 }
 
-/// A segment that jumps past the end of the file to a marker whose length jumps past it again:
-/// JPEGDEC's file position ran round its int until a seek landed in the file. Here it lands on a
-/// scan header, and the header parse ends.
+/// A source that fails the test after 1000 reads: an open that loops reads without end.
+struct Limited<'a>(&'a [u8], u32);
+
+impl Source for Limited<'_> {
+    fn read_at(&mut self, pos: u32, buf: &mut [u8]) -> usize {
+        self.1 += 1;
+        assert!(self.1 < 1000, "the open loops");
+        Mem(self.0).read_at(pos, buf)
+    }
+}
+
+fn open_limited(file: &[u8]) -> Result<(), Error> {
+    let mut slot = new_jpeg();
+    let jpeg = Jpeg::init(&mut slot);
+    jpeg.open(&mut Limited(file, 0), i32::try_from(file.len()).unwrap())
+}
+
+/// A segment longer than the read buffer is skipped with a seek.
 #[test]
-fn survives_a_marker_looping_past_the_end() {
+fn skips_a_long_segment() {
+    let file = corpus!("gray_100x60.jpg");
+    let mut long = vec![0xff, 0xd8, 0xff, 0xe2, 0xff, 0xff];
+    long.resize(2 + 0x10001, 0x11);
+    long.extend(&file[2..]);
+    assert_eq!(open_limited(&long), Ok(()));
+    let (a, b) = (decode(file, Scale::Full), decode(&long, Scale::Full));
+    assert_eq!(b.result, Some(Ok(())));
+    assert_eq!((a.blocks, a.pixels), (b.blocks, b.pixels));
+}
+
+/// After a segment that runs past the end of the file the seek fails and the parse reads on from
+/// the end of its buffer, as JPEGDEC's did: here through the zeros to the image's own headers.
+#[test]
+fn reads_on_after_a_segment_past_the_end() {
+    let file = corpus!("gray_100x60.jpg");
+    let mut f = vec![0xff, 0xd8, 0xff, 0xe2, 0xff, 0xff];
+    f.resize(2 + 0x10001, 0);
+    f.extend([0xff, 0xe1, 0xff, 0xff]);
+    // A gap at which JPEGDEC's resync (three bytes a step over non-markers) meets the next marker.
+    f.resize(f.len() + 3001, 0);
+    f.extend(&file[2..]);
+    assert_eq!(open_limited(&f), Ok(()));
+    let (a, b) = (decode(file, Scale::Full), decode(&f, Scale::Full));
+    assert_eq!(b.result, Some(Ok(())));
+    assert_eq!((a.blocks, a.pixels), (b.blocks, b.pixels));
+}
+
+/// Once nothing more can be read after a failed seek, the open fails. JPEGDEC parsed its stale
+/// buffer again, its file position running round its `int` until a seek landed in the file, here
+/// on a scan header.
+#[test]
+fn a_segment_past_the_end_fails() {
     let mut f = vec![0xff, 0xd8, 0xff, 0xfe, 0xff, 0xff];
     while f.len() < 65539 {
         f.extend([0xff, 0xda]);
     }
     f.truncate(65539);
     f.extend([0xff, 0xe0, 0xff, 0xff]);
-    let mut slot = new_jpeg();
-    let jpeg = Jpeg::init(&mut slot);
-    let _ = jpeg.open(&mut Mem(&f), f.len() as i32);
+    assert_eq!(open_limited(&f), Err(Error::Decode));
+}
+
+/// A comment jumps to an APP0 segment within 2048 bytes of the end, 65536 bytes long with its
+/// marker: past the end. Every later jump read the same stale segment, so JPEGDEC's position ran
+/// round 2^32 back to the APP0 segment, the one point of its class in the file, and again without
+/// end.
+#[test]
+fn a_segment_looping_past_the_end_fails() {
+    let (size, app0) = (66_000, 65_000);
+    let mut f = vec![0xff, 0xd8, 0xff, 0xfe];
+    f.extend(u16::try_from(app0 - 4).unwrap().to_be_bytes());
+    f.resize(app0, 0);
+    f.extend([0xff, 0xe0, 0xff, 0xfe]);
+    f.resize(size, 0);
+    assert_eq!(open_limited(&f), Err(Error::Decode));
 }
 
 /// Damage anywhere ends in a result, never a panic or a hang, with blocks inside their buffer.

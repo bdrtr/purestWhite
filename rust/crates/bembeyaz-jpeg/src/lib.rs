@@ -8,9 +8,7 @@
 //! zeros and markers; keeps a 32-bit bit buffer, which loses the last bits of a long code with many
 //! extra bits, as JPEGDEC built for the firmware did; and draws color images from their luma
 //! alone (and four-component ones as if every block of the scan were the first component's: the
-//! picture comes out scrambled, as it did with JPEGDEC). Like JPEGDEC, `open` can also loop
-//! without end on a crafted file whose segment lengths keep jumping past its end (its file
-//! position runs round an `i32`); that is to be fixed in its own commit.
+//! picture comes out scrambled, as it did with JPEGDEC).
 //!
 //! Its internals follow JPEGDEC function by function, to be read against it, and its state keeps
 //! JPEGDEC's layout where JPEGDEC read or wrote past an array: the read buffer runs on into the DC
@@ -29,6 +27,12 @@
 //!   which no caller uses.
 //! - An image decodes once, after it opened ([`Error::NotOpen`] otherwise); JPEGDEC decoded again
 //!   with its quantization tables scaled twice.
+//!
+//! One JPEGDEC fault is fixed. When a header segment runs past the end of the file, the seek
+//! fails and `open` reads on from where it was, as JPEGDEC did, but once nothing more can be read
+//! it fails with [`Error::Decode`]. JPEGDEC parsed its stale buffer again from there, moving its
+//! file position on each time until it ran round its `int` and a seek landed in the file: a
+//! crafted file looped without end.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -66,8 +70,8 @@ mod scale {
 pub enum Error {
     /// `decode` without a successful `open`, or a second time.
     NotOpen,
-    /// A broken header (bad tables, a segment past the read buffer, no scan) or bad data in the
-    /// scan.
+    /// A broken header (bad tables, a segment past the read buffer, a segment past the end of the
+    /// file with nothing more to read, no scan) or bad data in the scan.
     Decode,
     /// Extended (SOF1) or lossless (SOF3) coding, Huffman codes its lookup tables cannot hold (or
     /// more than two AC tables), or a sampling factor it has no MCU layout for. (An
@@ -320,10 +324,12 @@ impl Jpeg {
     }
 
     /// The converters' seek: past the end of the file it fails and the position stays.
-    fn seek(&mut self, pos: i32) {
-        if (0..=self.file_size).contains(&pos) {
+    fn seek(&mut self, pos: i32) -> bool {
+        let in_file = (0..=self.file_size).contains(&pos);
+        if in_file {
             self.file_pos = pos;
         }
+        in_file
     }
 
     #[allow(
@@ -346,10 +352,16 @@ impl Jpeg {
         while marker != 0xffda && offset < self.file_size {
             if offset >= FILE_BUF_I32 / 2 {
                 // Too close to the end: read more.
+                let mut seek_failed = false;
                 if offset >= FILE_BUF_I32 {
-                    file_pos = file_pos.wrapping_add(offset - bytes_read);
+                    // Past the end of the file the seek fails and the read goes on from where it
+                    // was. Where JPEGDEC's int ran round, the open fails (see the crate doc).
+                    let Some(next) = file_pos.checked_add(offset - bytes_read) else {
+                        return Err(Error::Decode);
+                    };
+                    file_pos = next;
                     offset = 0;
-                    self.seek(file_pos);
+                    seek_failed = !self.seek(file_pos);
                     bytes_read = 0;
                 }
                 if offset > bytes_read {
@@ -362,8 +374,14 @@ impl Jpeg {
                     offset = 0;
                 }
                 let n = self.read(source, at(bytes_read), FILE_BUF_SIZE - at(bytes_read));
-                // JPEGDEC's int, which a file looping on a marker runs round.
-                file_pos = file_pos.wrapping_add(n);
+                if n == 0 && seek_failed {
+                    // Nothing more to read: JPEGDEC parsed the stale buffer again from here.
+                    return Err(Error::Decode);
+                }
+                let Some(next) = file_pos.checked_add(n) else {
+                    return Err(Error::Decode);
+                };
+                file_pos = next;
                 bytes_read += n;
             }
             marker = self.be16(at(offset));

@@ -1,8 +1,11 @@
-"""Builds jpeg.epub, which exercises the JPEG decoder (bembeyaz-jpeg): a JPEG cover (decoded by
-JpegToBmpConverter for the Home thumbnail) and one image per chapter: grayscale, color at 4:4:4,
-4:2:2 and 4:2:0, progressive, restart intervals, CMYK, and images large enough that the chapter
-converter decodes them at 1/2, 1/4 and 1/8 size (456 pixels wide on the X4 Pro with the default
-margins).
+"""Builds EPUBs that exercise the JPEG decoder (bembeyaz-jpeg):
+
+- jpeg.epub: a JPEG cover (decoded by JpegToBmpConverter for the Home thumbnail) and one image per
+  chapter: grayscale, color at 4:4:4, 4:2:2 and 4:2:0, progressive, restart intervals, CMYK, and
+  images large enough that the chapter converter decodes them at 1/2, 1/4 and 1/8 size (456 pixels
+  wide on the X4 Pro with the default margins).
+- jpeg-broken.epub: an image whose header segment runs past the end of the file, on which JPEGDEC
+  looped forever.
 
   python3 emu/make_jpeg_epub.py OUT_DIR
 """
@@ -66,30 +69,43 @@ def page(title, src):
     )
 
 
-manifest = '<item id="cover" href="cover.jpg" media-type="image/jpeg" properties="cover-image"/>'
-spine = ""
-files = {"OEBPS/cover.jpg": cover}
-for n, (name, data) in enumerate(images.items(), 1):
-    manifest += f'<item id="i{n}" href="i{n}.jpg" media-type="image/jpeg"/>'
-    manifest += f'<item id="c{n}" href="c{n}.xhtml" media-type="application/xhtml+xml"/>'
-    spine += f'<itemref idref="c{n}"/>'
-    files[f"OEBPS/i{n}.jpg"] = data
-    files[f"OEBPS/c{n}.xhtml"] = page(name, f"i{n}.jpg").encode()
-files["META-INF/container.xml"] = (
-    b'<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
-    b'<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>'
-    b"</rootfiles></container>"
-)
-files["OEBPS/content.opf"] = (
-    '<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
-    'unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
-    '<dc:identifier id="id">bembeyaz-jpeg</dc:identifier><dc:title>JPEG images</dc:title>'
-    '<dc:language>en</dc:language><meta name="cover" content="cover"/></metadata>'
-    f"<manifest>{manifest}</manifest><spine>{spine}</spine></package>"
-).encode()
-path = out_dir / "jpeg.epub"
-with zipfile.ZipFile(path, "w") as z:
-    z.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip", compress_type=zipfile.ZIP_STORED)
-    for name, data in files.items():
-        z.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
-print(path)
+def epub(path, book_id, title, pictures, cover=None):
+    manifest = spine = meta = ""
+    files = {}
+    if cover:
+        manifest += '<item id="cover" href="cover.jpg" media-type="image/jpeg" properties="cover-image"/>'
+        meta = '<meta name="cover" content="cover"/>'
+        files["OEBPS/cover.jpg"] = cover
+    for n, (name, data) in enumerate(pictures.items(), 1):
+        manifest += f'<item id="i{n}" href="i{n}.jpg" media-type="image/jpeg"/>'
+        manifest += f'<item id="c{n}" href="c{n}.xhtml" media-type="application/xhtml+xml"/>'
+        spine += f'<itemref idref="c{n}"/>'
+        files[f"OEBPS/i{n}.jpg"] = data
+        files[f"OEBPS/c{n}.xhtml"] = page(name, f"i{n}.jpg").encode()
+    files["META-INF/container.xml"] = (
+        b'<?xml version="1.0"?><container version="1.0" xmlns="urn:oasis:names:tc:opendocument:xmlns:container">'
+        b'<rootfiles><rootfile full-path="OEBPS/content.opf" media-type="application/oebps-package+xml"/>'
+        b"</rootfiles></container>"
+    )
+    files["OEBPS/content.opf"] = (
+        '<?xml version="1.0" encoding="utf-8"?><package xmlns="http://www.idpf.org/2007/opf" version="3.0" '
+        'unique-identifier="id"><metadata xmlns:dc="http://purl.org/dc/elements/1.1/">'
+        f'<dc:identifier id="id">{book_id}</dc:identifier><dc:title>{title}</dc:title>'
+        f"<dc:language>en</dc:language>{meta}</metadata>"
+        f"<manifest>{manifest}</manifest><spine>{spine}</spine></package>"
+    ).encode()
+    with zipfile.ZipFile(path, "w") as z:
+        z.writestr(zipfile.ZipInfo("mimetype"), "application/epub+zip", compress_type=zipfile.ZIP_STORED)
+        for name, data in files.items():
+            z.writestr(name, data, compress_type=zipfile.ZIP_DEFLATED)
+    print(path)
+
+
+epub(out_dir / "jpeg.epub", "bembeyaz-jpeg", "JPEG images", images, cover)
+# A comment segment jumps to an APP0 segment within 2048 bytes of the end, 65536 bytes long with
+# its marker: past the end. JPEGDEC's seek failed and it parsed the same stale segment again and
+# again, its file position running round its int back to the APP0 segment without end.
+SIZE, APP0 = 66_000, 65_000
+looping = b"\xff\xd8\xff\xfe" + (APP0 - 4).to_bytes(2, "big")
+looping = looping.ljust(APP0, b"\0") + b"\xff\xe0\xff\xfe"
+epub(out_dir / "jpeg-broken.epub", "bembeyaz-jpeg-broken", "Broken JPEG", {"Segment past the end": looping.ljust(SIZE, b"\0")})

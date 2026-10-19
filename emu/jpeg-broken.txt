@@ -1,0 +1,8 @@
+# Book from make_jpeg_epub.py (jpeg-broken.epub): open its chapter, an image whose header segment
+# runs past the end of the file. JPEGDEC looped forever; the page must render.
+ready
+touch:240,348
+wait-screen
+touch:240,138
+wait-log:Page render
+shot:broken-image
