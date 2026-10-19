@@ -1,6 +1,7 @@
 add_executable(ContentOpfParserTest
   ContentOpfParserTest.cpp
   EncryptionManifestProbeTest.cpp
+  OpfCorpusTest.cpp
   ${REPO_ROOT}/lib/Epub/Epub/parsers/ContentOpfParser.cpp
   ${REPO_ROOT}/lib/FsHelpers/FsHelpers.cpp
   ${REPO_ROOT}/lib/Utf8/Utf8.cpp

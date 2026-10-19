@@ -77,3 +77,39 @@ TEST(SanitizePathComponentForFat32, DoesNotSplitLetterAtBufferLimit) {
 }
 
 }  // namespace
+
+// decodeUriEscapes and normalisePath, alone and as the OPF parser chains them, over generated paths;
+// the hash was recorded from the C++ helpers before the Rust port.
+TEST(PathHelpers, GeneratedPathsMatchTheRecordedHelpers) {
+  static const char* const kPieces[] = {"/",         "/",        "//",      ".",       "..",  "../", "./", "a",  "bc",
+                                        "%",         "%2",       "%2F",     "%2f",     "%41", "%zz", "%%", "%0", "%00",
+                                        "%e2%80%94", "\xC3\xA9", "x.xhtml", "%2e%2e/", "\\",  " ",   "#f", "?q"};
+  uint64_t state = 0x5EEDF00DULL;
+  uint64_t hash = 0xCBF29CE484222325ULL;
+  const auto add = [&hash](const std::string& s) {
+    for (const char c : s) {
+      hash ^= static_cast<uint8_t>(c);
+      hash *= 0x100000001B3ULL;
+    }
+    hash ^= 0xFF;
+    hash *= 0x100000001B3ULL;
+  };
+  for (int i = 0; i < 100000; i++) {
+    std::string path;
+    state ^= state << 13;
+    state ^= state >> 7;
+    state ^= state << 17;
+    const int pieces = static_cast<int>((state >> 40) % 12);
+    for (int p = 0; p < pieces; p++) {
+      state ^= state << 13;
+      state ^= state >> 7;
+      state ^= state << 17;
+      path += kPieces[(state >> 33) % (sizeof(kPieces) / sizeof(kPieces[0]))];
+    }
+    add(path);
+    add(FsHelpers::decodeUriEscapes(path));
+    add(FsHelpers::normalisePath(path));
+    add(FsHelpers::normalisePath(FsHelpers::decodeUriEscapes(path)));
+  }
+  EXPECT_EQ(hash, 0x02B66160A70509D4ULL) << std::hex << std::uppercase << "0x" << hash << "ULL";
+}
