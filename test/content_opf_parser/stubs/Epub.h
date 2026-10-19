@@ -57,6 +57,7 @@ class HalFile {
 struct TestStorage {
   int writeOpens = 0;
   int readOpens = 0;
+  int overreads = 0;
   std::map<std::string, std::shared_ptr<std::vector<uint8_t>>> files;
 
   bool openFileForWrite(const char*, const std::string& path, HalFile& file) {

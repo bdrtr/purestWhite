@@ -213,6 +213,8 @@ void ContentOpfParser::startElement(void* userData, const char* name, const char
 
   if (self->state == IN_PACKAGE && xmlLocalNameEquals(name, "manifest")) {
     self->state = IN_MANIFEST;
+    // The items file starts over, and so does its index.
+    self->itemIndex.clear();
     if (self->cache && !Storage.openFileForWrite("COF", self->cachePath + itemCacheFile, self->tempItemStore)) {
       LOG_ERR("COF", "Couldn't open temp items file for writing. This is probably going to be a fatal error.");
     }
