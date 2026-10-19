@@ -102,7 +102,6 @@ pub struct Row<'a> {
 }
 
 /// An image being decoded. About 3 KB: keep it off the stack ([`Png::init`]).
-/// Its fields are all 4-byte aligned at most, so the firmware's allocator places it by size.
 pub struct Png {
     buf: [u8; FILE_BUF_SIZE],
     palette: [u8; PALETTE_SIZE],
@@ -122,11 +121,6 @@ struct Workspace {
     inflater: MaybeUninit<Inflater>,
     window: [u8; WINDOW_SIZE],
 }
-
-// The firmware's allocator routes blocks aligned above 4 bytes past its size rule, which would put
-// these ~37 KB in internal RAM (see lib/BlePageTurner/src/RadioPolicy.h).
-#[cfg(target_pointer_width = "32")]
-const _: () = assert!(core::mem::align_of::<Workspace>() <= 4);
 
 /// # Safety
 /// All-zero bytes must be a valid `T`, and `T` not zero-sized.

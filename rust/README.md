@@ -118,7 +118,10 @@ birikir; her commit kendi maddesini ekler.
 
 - Firmware'e tek bir Rust staticlib bağlanır (`bembeyaz-ffi`). Yeni modül
   ayrı staticlib olmaz, `bembeyaz-ffi`'ye bağımlılık olarak eklenir.
-- Rust tarafı C++ heap'ini kullanır (`device.rs`: `malloc`/`heap_caps_aligned_alloc`).
+- Rust tarafı C++ heap'ini kullanır (`device.rs`: `malloc`). 4 bayttan geniş hizalanması
+  gereken blok, `align` bayt daha büyük bir `malloc` bloğundan kesilir; böylece her blok
+  `malloc`'un seçtiği yere düşer: S3'te 4096 baytı aşan istek önce PSRAM'e gider
+  (`lib/BlePageTurner/src/RadioPolicy.h`).
   Panic `abort()` çağırır; normal backtrace ve core dump üretir.
 - Sınırda veri: dilim (`ptr` + `len`) girer; çıktı ya çağıranın tamponuna yazılır
   ya da `emit` geri çağrısıyla `std::string`'e (ya da bir `std::vector`'e) eklenir; Rust'ın

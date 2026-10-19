@@ -210,7 +210,7 @@ pub unsafe extern "C" fn bb_png_free(png: *mut BbPng) {
 
 // `bb_png_free` frees the block without running a destructor.
 const _: () = assert!(!core::mem::needs_drop::<BbPng>());
-// On the device the block takes malloc's path into internal RAM, which RadioPolicy.h allows only
-// up to 4096 bytes a request (device.rs routes blocks aligned above 4 bytes differently).
+// PngToFramebufferConverter's heap gate counts this block in internal RAM, where malloc keeps
+// requests of up to 4096 bytes (RadioPolicy.h).
 #[cfg(target_pointer_width = "32")]
-const _: () = assert!(core::mem::align_of::<BbPng>() <= 4 && core::mem::size_of::<BbPng>() <= 4096);
+const _: () = assert!(core::mem::size_of::<BbPng>() <= 4096);

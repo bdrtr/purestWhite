@@ -63,11 +63,6 @@ const _: () = assert!(
 );
 // `bb_jpeg_free` frees the block without running a destructor.
 const _: () = assert!(!core::mem::needs_drop::<BbJpeg>());
-// On the device the block (about 18 KB) takes malloc's path, which puts requests above 4096 bytes
-// in PSRAM as RadioPolicy.h needs; device.rs gives blocks aligned above 4 bytes to
-// heap_caps_aligned_alloc, which can return internal RAM.
-#[cfg(target_pointer_width = "32")]
-const _: () = assert!(core::mem::align_of::<BbJpeg>() <= 4);
 
 /// BB_JPEG_* in jpeg.h: JPEGDEC's error numbers.
 const SUCCESS: c_int = 0;
