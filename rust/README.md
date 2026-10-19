@@ -76,6 +76,9 @@ Davranışı korumak için yapılan taşımada beklenen sonuç "N of N screensho
 identical". Kasıtlı bir düzeltme fark üretiyorsa, bu fark commit mesajında
 açıklanır.
 
+Cihazda denenmeyi bekleyen değişiklikler [DONANIM-TESTLERI.md](DONANIM-TESTLERI.md) dosyasında
+birikir; her commit kendi maddesini ekler.
+
 ## Kurallar
 
 - **Her şeyi kendimiz yazarız.** Firmware'e bağlanan Rust kodunda (`bembeyaz-ffi`'nin
