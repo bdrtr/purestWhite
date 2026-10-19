@@ -118,8 +118,9 @@ struct CssPropertyFlags {
   uint16_t floatLeft : 1;
   uint16_t initialLetter : 1;
   uint16_t whiteSpace : 1;
+  uint16_t unused : 1;  // fills the word, so its bytes are all defined
 
-  CssPropertyFlags()
+  constexpr CssPropertyFlags()
       : textAlign(0),
         fontStyle(0),
         fontWeight(0),
@@ -150,7 +151,8 @@ struct CssPropertyFlags {
         shaded(0),
         floatLeft(0),
         initialLetter(0),
-        whiteSpace(0) {}
+        whiteSpace(0),
+        unused(0) {}
 
   [[nodiscard]] bool anySet() const {
     return textAlign || fontStyle || fontWeight || textDecoration || textIndent || marginTop || marginBottom ||
@@ -161,15 +163,17 @@ struct CssPropertyFlags {
   }
 };
 
-// Cache serializes defined flags as uint32_t with bit indices 0..30.
+// The cache (rust/crates/bembeyaz-css/src/style.rs) serializes defined flags as uint32_t with bit
+// indices 0..30.
 static_assert(sizeof(CssPropertyFlags) <= sizeof(uint32_t),
-              "CssPropertyFlags exceeds 32 bits; update cache read/write in CssParser.cpp");
+              "CssPropertyFlags exceeds 32 bits; update Defined in bembeyaz-css style.rs");
 static_assert(sizeof(CssPropertyFlags) * 8 >= 31,
               "CssPropertyFlags has fewer bits than properties; update bitfield widths");
 
 // Represents a collection of CSS style properties
 // Only stores properties relevant to e-ink text rendering
 // Length values are stored as CssLength (value + unit) for deferred resolution
+// Rust writes it in place: keep fields and defaults in step with Style in bembeyaz-css style.rs
 struct CssStyle {
   CssTextAlign textAlign = CssTextAlign::Left;
   CssFontStyle fontStyle = CssFontStyle::Normal;
@@ -207,7 +211,7 @@ struct CssStyle {
   CssPropertyFlags defined;  // Tracks which properties were explicitly set
 
   // Apply properties from another style, only overwriting if the other style
-  // has that property explicitly defined
+  // has that property explicitly defined (Style::apply in Rust does the same)
   void applyOver(const CssStyle& base) {
     if (base.hasTextAlign()) {
       textAlign = base.textAlign;

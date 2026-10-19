@@ -49,6 +49,10 @@ emu/compare.sh emu/inflate.txt x4pro emu/books/inflate/inflate.epub
 python3 emu/make_bidi_epub.py emu/books/bidi
 emu/compare.sh emu/reading.txt x4pro emu/books/bidi/bidi-test.epub
 
+# CSS: hizalama, girinti, kenar boşlukları, kalın/italik, küçük büyük harf, kenarlıklar
+python3 emu/make_css_epub.py emu/books/css
+emu/compare.sh emu/reading.txt x4pro emu/books/css/css-test.epub
+
 # Bozuk EPUB'lar (her biri kendi kartında):
 python3 emu/make_bad_epubs.py emu/books/bad
 emu/compare.sh emu/open-book.txt x4pro emu/books/bad/max-size-cover/max-size-cover.epub
@@ -82,15 +86,22 @@ açıklanır.
 - Sınırda veri: dilim (`ptr` + `len`) girer; çıktı ya çağıranın tamponuna yazılır
   ya da `emit` geri çağrısıyla `std::string`'e eklenir. Rust, C++'a
   sahipliği devredilmiş bellek döndürmez.
-- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-bidi`) `clippy::indexing_slicing`,
-  `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla bellek ayırmaz. Her
-  kesme ve tek bayt bozulması için panik olmadığını test eden bir mini-fuzz testi taşır.
+- Çağrılar arasında durum tutan bir Rust değeri C++'ın sağladığı opak bellekte durabilir
+  (`bb_css_rules`). Rust'ın bu değerde tuttuğu heap blokları Rust'ındır: bellek bir kez
+  `*_init` ile kurulur, bellek ömrü bitmeden `*_free` çağrılır, değer kopyalanmaz (C++
+  sınıfı kopyalanamaz ve taşınamaz). Heap tutmayan durum (`bb_inflate`, `bb_css_tokenizer`)
+  serbest bırakma gerektirmez; Rust tarafı bunu `needs_drop` ile derleme anında denetler.
+- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-bidi`, `bembeyaz-css`) `clippy::indexing_slicing`,
+  `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla sınırsız bellek ayırmaz
+  (ayırma sabit bir üst sınırla kısılır). Kesmeler ve tek bayt bozulmaları için panik
+  olmadığını test eden bir mini-fuzz testi taşır.
 - Büyük bir değer (ör. ~4,5 KB'lık inflate durumu) yerinde kurulmalı: Rust bunu
   garanti etmez, değer önce stack'te kurulup kopyalanabilir. `scripts/build_rust.py`
   her firmware build'inde (`pio run`) Rust fonksiyonlarının stack çerçevesini ölçer
   ve 2 KB'ı aşanı reddeder.
-- Henüz yalnızca tam sayı ve işaretçi geçiyor. Sınırdan `float` geçmeye başlamadan
-  önce Xtensa'da float ABI uyumu doğrulanmalı.
+- Fonksiyon argümanı ve dönüş değeri olarak yalnızca tam sayı ve işaretçi geçiyor; `float`
+  yalnızca bellekte, yerleşimi iki tarafta da denetlenen struct'ların içinde geçiyor
+  (`CssStyle`). Değer olarak `float` geçmeden önce Xtensa'da float ABI uyumu doğrulanmalı.
 
 ## Taşıma sırası
 
@@ -100,7 +111,7 @@ Bağımlılıklara göre (önce yapraklar):
 | --- | --- | --- |
 | 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, XmlParserUtils, **MiniBidi ✅** (minibidi davranışıyla birebir; UAX #9 düzeltmeleri sırada), JsonParser | Donanım yok, testleri var |
 | 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (kendi çözücümüz), **InflateReader ✅** (silindi; kullanıcıları InflateStream'e geçti), Serialization | Framebuffer ödünç alma C++'ta kaldı; Rust belleği çağırandan alır. ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
-| 3 — EPUB çekirdeği | Epub: CSS ayrıştırıcı, OPF, heceleme, ParsedText, Section | En büyük parça (~19k satır); alt modül alt modül |
+| 3 — EPUB çekirdeği | Epub: **CSS ayrıştırıcı ✅** (önbellek biçimi aynı; dosya işlemleri C++'ta), OPF, heceleme, ParsedText, Section | En büyük parça (~19k satır); alt modül alt modül |
 | 4 — görüntü/font | Png/JpegToBmp, EpdFont, GfxRenderer | Çerçeve tamponu sınırı |
 | 5 — uygulama | LibraryIndex, Txt, Xtc, KOReaderSync, `src/` activity'leri | UI |
 | 6 — platform | hal, freeink-sdk sürücüleri, `main` → Rust (esp-hal / esp-idf) | Arduino kalkar |

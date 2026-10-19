@@ -25,10 +25,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bembeyaz-css"
+version = "0.1.0"
+
+[[package]]
 name = "bembeyaz-ffi"
 version = "0.1.0"
 dependencies = [
  "bembeyaz-bidi",
+ "bembeyaz-css",
  "bembeyaz-inflate",
  "bembeyaz-utf8",
  "bembeyaz-zip",

@@ -15,6 +15,7 @@ bench = false
 
 [dependencies]
 bembeyaz-bidi = { path = "../bembeyaz-bidi" }
+bembeyaz-css = { path = "../bembeyaz-css" }
 bembeyaz-inflate = { path = "../bembeyaz-inflate" }
 bembeyaz-utf8 = { path = "../bembeyaz-utf8" }
 bembeyaz-zip = { path = "../bembeyaz-zip" }
