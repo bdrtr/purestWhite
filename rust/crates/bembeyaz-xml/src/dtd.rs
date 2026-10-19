@@ -437,6 +437,9 @@ pub(crate) struct Dtd {
     /// The document has an external DTD subset, so an entity it does not declare may be
     /// declared there: references to it are skipped instead of failing (unless standalone).
     pub(crate) has_external: bool,
+    /// Skip references to undeclared entities instead of failing, standalone or not (see
+    /// `Parser::skip_undefined_entities`).
+    pub(crate) skip_undefined: bool,
     pub(crate) standalone: bool,
     /// The general entity being declared, when it is new.
     declaring: Option<usize>,
@@ -482,6 +485,7 @@ impl Dtd {
             element_index: Index::new(),
             atts: Vec::new(),
             has_external: false,
+            skip_undefined: false,
             standalone: false,
             declaring: None,
             element: Span { start: 0, len: 0 },
@@ -557,7 +561,9 @@ impl Dtd {
         match self.entity(name) {
             Some(e) if e.unparsed => Ok(Reference::Unparsed),
             Some(_) => Ok(Reference::Text),
-            None if self.has_external && !self.standalone => Ok(Reference::Skipped),
+            None if self.skip_undefined || (self.has_external && !self.standalone) => {
+                Ok(Reference::Skipped)
+            }
             None => Err(Error::UndefinedEntity),
         }
     }

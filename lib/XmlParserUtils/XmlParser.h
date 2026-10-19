@@ -16,8 +16,8 @@ class XmlParser {
   using CommentHandler = void (*)(void* userData, const char* data);
   using ProcessingInstructionHandler = void (*)(void* userData, const char* target, const char* data);
   using CdataSectionHandler = void (*)(void* userData);
-  // An entity reference the parser cannot resolve because only an external DTD subset could
-  // declare it (the document has one; without it the reference is an error).
+  // A reference to an entity nobody declared, when the document has an external DTD subset (which
+  // is not read) or after skipUndefinedEntities(); otherwise such a reference is an error.
   using SkippedEntityHandler = void (*)(void* userData, const char* name);
 
   // Byte limit for one token, for the open element names, and for the DTD; past it the parse
@@ -56,6 +56,9 @@ class XmlParser {
     cdataEnd_ = end;
   }
   void setSkippedEntityHandler(const SkippedEntityHandler handler) { skipped_ = handler; }
+  // Reports references to entities nobody declared to the skipped entity handler instead of
+  // failing, even in a standalone document. Call after create(), before parsing.
+  void skipUndefinedEntities() { bb_xml_skip_undefined_entities(parser_); }
 
   // Parses the next len bytes of the document; `last` when nothing follows. False when the
   // document failed or a handler called stop(); error() says which.

@@ -210,6 +210,14 @@ pub(crate) fn code(e: Error) -> c_int {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_xml_skip_undefined_entities(parser: *mut XmlParser) {
+    // SAFETY: from bb_xml_new, not parsing.
+    if let Some(p) = unsafe { parser.as_mut() } {
+        p.parser.skip_undefined_entities();
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn bb_xml_error_offset(parser: *const XmlParser) -> u64 {
     // SAFETY: from bb_xml_new.
     unsafe { parser.as_ref() }.map_or(0, |p| p.parser.error_offset())

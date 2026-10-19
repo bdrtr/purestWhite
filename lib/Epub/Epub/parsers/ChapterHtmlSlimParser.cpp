@@ -2493,8 +2493,8 @@ void ChapterHtmlSlimParser::characterData(void* userData, const char* s, const i
   }
 }
 
-// An entity the document's external DTD may declare (HTML entities like &nbsp;): expand the HTML
-// ones, keep the others as written.
+// An entity the document does not declare (HTML entities like &nbsp;): expand the HTML ones, keep
+// the others as written.
 void ChapterHtmlSlimParser::skippedEntity(void* userData, const char* name) {
   char reference[48];
   const size_t len = strlen(name);
@@ -2793,7 +2793,8 @@ bool ChapterHtmlSlimParser::beginParse() {
     return false;
   }
 
-  // HTML entities (like &nbsp;) behind an external DTD, which the parser does not read
+  // HTML entities (like &nbsp;), with or without an external DTD (which the parser does not read)
+  xmlParser_.skipUndefinedEntities();
   xmlParser_.setSkippedEntityHandler(skippedEntity);
 
   if (!Storage.openFileForRead("EHP", filepath, parseFile_)) {

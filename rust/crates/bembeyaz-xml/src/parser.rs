@@ -291,6 +291,13 @@ impl Parser {
         self.check_pending()
     }
 
+    /// Reports a reference to an entity nobody declared as skipped (in an attribute value, it
+    /// reads as nothing) instead of failing, even in a standalone document: XHTML uses HTML
+    /// entities like `&nbsp;` with or without an external DTD. Call before the first `feed`.
+    pub fn skip_undefined_entities(&mut self) {
+        self.dtd.skip_undefined = true;
+    }
+
     /// Where in the input the token that failed starts, in bytes.
     #[must_use]
     pub fn error_offset(&self) -> u64 {

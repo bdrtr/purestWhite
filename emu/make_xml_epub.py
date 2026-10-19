@@ -8,7 +8,8 @@ Each chapter but the last is about a page, so the xml.txt scenario's turns reach
 
     python3 emu/make_xml_epub.py emu/books/xml
     emu/compare.sh emu/xml.txt x4pro emu/books/xml/xml-test.epub
-    emu/compare.sh emu/open-book.txt x4pro emu/books/xml/broken/xml-broken.epub"""
+    emu/compare.sh emu/open-book.txt x4pro emu/books/xml/broken/xml-broken.epub
+    emu/compare.sh emu/open-book.txt x4pro emu/books/xml/entities/xml-entities.epub"""
 import sys
 import zipfile
 from pathlib import Path
@@ -156,11 +157,23 @@ def write(name, files):
 
 write("xml-test.epub", files)
 
-# A broken twin, for open-book.txt: its first chapter uses an HTML entity without a DTD (which
-# fails the chapter), its NCX ends early, and its package document has junk after the root.
+# A broken twin, for open-book.txt: its NCX ends early and its package document has junk after
+# the root. (Its first chapter's HTML entity without a DTD no longer fails the chapter.)
 broken = dict(files)
 broken["OEBPS/c0.xhtml"] = page("Bozuk", "<p>a&nbsp;b</p>", doctype="<!DOCTYPE html>\n").encode()
 broken["OEBPS/toc.ncx"] = ncx.encode()[: len(ncx) // 2]
 broken["OEBPS/content.opf"] = (opf + "<junk/>").encode()
 (out_dir / "broken").mkdir(exist_ok=True)
 write("broken/xml-broken.epub", broken)
+
+# An entities twin, for open-book.txt: its first chapter and its nav document use HTML entities
+# without a DTD, which used to fail them.
+entities = dict(files)
+entities["OEBPS/c0.xhtml"] = page(
+    "Varl&#305;klar",
+    "<p>Fu&szlig;g&auml;nger&nbsp;yolu &mdash; &copy; 2024 &bogus; &amp; son.</p>",
+    doctype="<!DOCTYPE html>\n",
+).encode()
+entities["OEBPS/nav.xhtml"] = nav.replace("</a>", "&nbsp;&ndash;&nbsp;son</a>").encode()
+(out_dir / "entities").mkdir(exist_ok=True)
+write("entities/xml-entities.epub", entities)

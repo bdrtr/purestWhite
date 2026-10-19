@@ -5,8 +5,9 @@
 //! the same document, and an error where expat has one. Like that build it reads the internal DTD
 //! subset but no external one: a declared general entity reads as its own reference (`&name;`),
 //! attribute defaults apply, and an entity nobody declares fails the document unless it has an
-//! external subset (then the entity is skipped). Encodings: UTF-8, UTF-16 either way, ISO-8859-1
-//! and US-ASCII. Names keep their prefixes (no namespace processing).
+//! external subset (then the entity is skipped) or `Parser::skip_undefined_entities` was called.
+//! Encodings: UTF-8, UTF-16 either way, ISO-8859-1 and US-ASCII. Names keep their prefixes (no
+//! namespace processing).
 //!
 //! Fed in the same pieces, it also calls the handlers in the same pieces: text up to the end of
 //! the input expat would have scanned, with expat's buffer and its reparse deferral modelled, and
@@ -69,7 +70,8 @@ pub trait Handler {
     fn cdata_end(&mut self) -> Flow {
         Flow::Continue(())
     }
-    /// A reference to an entity the external DTD subset may declare, which is not read.
+    /// A reference to an entity the external DTD subset may declare, which is not read (or, after
+    /// `Parser::skip_undefined_entities`, to any entity nobody declared).
     fn skipped_entity(&mut self, name: Str<'_>) -> Flow {
         let _ = name;
         Flow::Continue(())

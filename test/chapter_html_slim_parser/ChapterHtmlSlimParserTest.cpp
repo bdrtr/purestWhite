@@ -79,7 +79,7 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
     return parseDocumentToParagraphText("<html><body>" + body + "</body></html>");
   }
 
-  std::string parseDocumentToParagraphText(const std::string& html, const bool parses = true) {
+  std::string parseDocumentToParagraphText(const std::string& html) {
     const std::string testId = std::to_string(std::hash<std::string>{}(html));
     const auto tempDir = std::filesystem::temp_directory_path();
     filepath = (tempDir / ("crosspoint-clipping-paragraphs-" + testId + ".xhtml")).string();
@@ -118,15 +118,15 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
       EXPECT_EQ(file.position(), file.size());
     };
     parser.paragraphIndentSpaces = 0;
-    EXPECT_EQ(parser.parseAndBuildPages(), parses);
+    EXPECT_TRUE(parser.parseAndBuildPages());
     std::filesystem::remove(filepath);
     std::filesystem::remove(cachePath);
     return selected;
   }
 };
 
-// With an external DTD the XML parser skips entities it does not know, and the chapter parser
-// expands the HTML ones itself.
+// The XML parser skips entities the document does not declare, and the chapter parser expands the
+// HTML ones itself: with an external DTD (which the parser does not read)...
 TEST_F(ChapterHtmlSlimParserTest, ExpandsHtmlEntitiesBehindAnExternalDtd) {
   EXPECT_EQ(parseDocumentToParagraphText(
                 "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
@@ -137,9 +137,11 @@ TEST_F(ChapterHtmlSlimParserTest, ExpandsHtmlEntitiesBehindAnExternalDtd) {
             "a b \xC2\xA9 &bogus; & \xE2\x80\x94");
 }
 
-// Without one, an entity XML does not define fails the chapter.
-TEST_F(ChapterHtmlSlimParserTest, UndefinedEntityWithoutAnExternalDtdFailsTheChapter) {
-  parseDocumentToParagraphText("<!DOCTYPE html><html><body><p>a&nbsp;b</p></body></html>", false);
+// ...and without one.
+TEST_F(ChapterHtmlSlimParserTest, ExpandsHtmlEntitiesWithoutAnExternalDtd) {
+  EXPECT_EQ(parseDocumentToParagraphText("<!DOCTYPE html><html><body><p>a&nbsp;b &mdash; &bogus;</p></body></html>"),
+            "a b \xE2\x80\x94 &bogus;");
+  EXPECT_EQ(parseDocumentToParagraphText("<html><body><p title=\"x&nbsp;y\">a&copy;</p></body></html>"), "a\xC2\xA9");
 }
 
 // An entity declared in the document reads as its own reference: the parser expands no general

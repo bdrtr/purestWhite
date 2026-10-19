@@ -34,6 +34,7 @@ class TocNavParser final : public Print {
   static void startElement(void* userData, const char* name, const char** atts);
   static void characterData(void* userData, const char* s, int len);
   static void endElement(void* userData, const char* name);
+  static void skippedEntity(void* userData, const char* name);
 
  public:
   explicit TocNavParser(const std::string& baseContentPath, const size_t xmlSize, BookMetadataCache* cache)

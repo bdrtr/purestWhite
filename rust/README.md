@@ -59,10 +59,13 @@ emu/compare.sh emu/reading.txt x4pro emu/books/hyphenation/hyphenation-test.epub
     emu/books/hyphenation/card/.crosspoint=/
 
 # XML: kapsayıcı, paket belgesi, NCX ve nav; HTML varlıkları, CDATA, tablo, UTF-16, ISO-8859-1,
-# iç DTD ve 32 KB'tan uzun bir paragraf. Bozuk ikizi açılışta aynı hataları vermeli.
+# iç DTD ve 32 KB'tan uzun bir paragraf. Bozuk ikizi açılışta aynı hataları vermeli; varlık ikizinin
+# ilk bölümü ve nav belgesi DTD'siz HTML varlıkları kullanır (eski sürümde bölüm açılmaz, nav yerine
+# NCX okunur).
 python3 emu/make_xml_epub.py emu/books/xml
 emu/compare.sh emu/xml.txt x4pro emu/books/xml/xml-test.epub
 emu/compare.sh emu/open-book.txt x4pro emu/books/xml/broken/xml-broken.epub
+emu/compare.sh emu/open-book.txt x4pro emu/books/xml/entities/xml-entities.epub
 
 # Bozuk EPUB'lar (her biri kendi kartında):
 python3 emu/make_bad_epubs.py emu/books/bad

@@ -481,3 +481,23 @@ fn input_past_the_limit_is_refused_before_it_is_copied() {
         Err(Error::NoMemory)
     );
 }
+
+#[test]
+fn can_skip_entities_nobody_declared() {
+    let doc = b"<!DOCTYPE html><p a='x&nbsp;y'>a&nbsp;b&amp;&e;</p>";
+    assert_eq!(report(doc, 0), "error\n");
+    let mut rec = Recorder::default();
+    let mut parser = Parser::new(1 << 16);
+    parser.skip_undefined_entities();
+    assert_eq!(parser.feed(doc, true, &mut rec), Ok(()));
+    rec.flush();
+    assert_eq!(rec.out, "Sp\nAa=xy\nTa\nKnbsp\nTb&\nKe\nEp\n");
+    // Declared entities and errors other than undefined entities stay as they were.
+    let mut parser = Parser::new(1 << 16);
+    parser.skip_undefined_entities();
+    let doc = b"<!DOCTYPE p [<!ENTITY d 'v'>]><p>&d;&#0;</p>";
+    let mut rec = Recorder::default();
+    assert_eq!(parser.feed(doc, true, &mut rec), Err(Error::BadCharRef));
+    rec.flush();
+    assert_eq!(rec.out, "Sp\nT&d;\n");
+}

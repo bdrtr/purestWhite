@@ -5,6 +5,7 @@
 #include <XmlParserUtils.h>
 
 #include "Epub/BookMetadataCache.h"
+#include "Epub/htmlEntities.h"
 
 bool TocNavParser::setup() {
   if (!parser.create()) {
@@ -15,6 +16,9 @@ bool TocNavParser::setup() {
   parser.setUserData(this);
   parser.setElementHandler(startElement, endElement);
   parser.setCharacterDataHandler(characterData);
+  // HTML entities (like &nbsp;) in labels; nav documents declare none
+  parser.skipUndefinedEntities();
+  parser.setSkippedEntityHandler(skippedEntity);
   return true;
 }
 
@@ -97,6 +101,19 @@ void TocNavParser::characterData(void* userData, const char* s, const int len) {
   // Only collect text when inside an anchor within the TOC nav
   if (self->state == IN_ANCHOR) {
     self->currentLabel.append(s, len);
+  }
+}
+
+// An entity the document does not declare: expand the HTML ones, keep the others as written.
+void TocNavParser::skippedEntity(void* userData, const char* name) {
+  auto* self = static_cast<TocNavParser*>(userData);
+  if (self->state != IN_ANCHOR) return;
+
+  const size_t start = self->currentLabel.size();
+  self->currentLabel.append("&").append(name).append(";");
+  const char* utf8Value = lookupHtmlEntity(self->currentLabel.data() + start, self->currentLabel.size() - start);
+  if (utf8Value != nullptr) {
+    self->currentLabel.replace(start, std::string::npos, utf8Value);
   }
 }
 

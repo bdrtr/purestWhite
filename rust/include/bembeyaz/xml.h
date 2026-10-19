@@ -23,7 +23,8 @@ typedef struct {
   bool (*processing_instruction)(void* context, const char* target, const char* data);
   bool (*cdata_start)(void* context);
   bool (*cdata_end)(void* context);
-  // A reference to an entity an external DTD subset may declare (it is not read).
+  // A reference to an entity an external DTD subset may declare (it is not read), or after
+  // bb_xml_skip_undefined_entities, to any entity nobody declared.
   bool (*skipped_entity)(void* context, const char* name);
 } bb_xml_handlers;
 
@@ -48,6 +49,10 @@ void bb_xml_free(bb_xml_parser* parser);
 // code. After an error, every later call returns the same code; after `last`, BB_XML_FINISHED.
 int bb_xml_parse(bb_xml_parser* parser, const char* data, size_t len, bool last, const bb_xml_handlers* handlers,
                  void* context);
+
+// Reports references to entities nobody declared to skipped_entity (in attribute values they read
+// as nothing) instead of failing, even in a standalone document. Call before parsing.
+void bb_xml_skip_undefined_entities(bb_xml_parser* parser);
 
 // Where in the input the token that failed starts, in bytes.
 uint64_t bb_xml_error_offset(const bb_xml_parser* parser);
