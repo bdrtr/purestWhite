@@ -71,7 +71,7 @@ fn stream(rng: &mut Rng, format: Format) -> Vec<u8> {
     let level = rng.below(11) as u8;
     let mut bytes = match format {
         Format::Deflate => compress_to_vec(&data, level),
-        Format::Zlib => compress_to_vec_zlib(&data, level),
+        Format::Zlib | Format::ZlibUnchecked => compress_to_vec_zlib(&data, level),
     };
     match rng.below(6) {
         0 if !bytes.is_empty() => bytes.truncate(rng.below(bytes.len())),

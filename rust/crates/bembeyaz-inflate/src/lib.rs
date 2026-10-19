@@ -50,8 +50,11 @@ impl Input for &[u8] {
 pub enum Format {
     /// Raw DEFLATE, as in ZIP entries.
     Deflate,
-    /// DEFLATE inside a zlib header and Adler-32 trailer, as in PNG.
+    /// DEFLATE inside a zlib header and Adler-32 trailer.
     Zlib,
+    /// [`Format::Zlib`] with the trailer read but not checked, as PNGdec does: the sum costs a
+    /// pass over all the output.
+    ZlibUnchecked,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,6 +105,26 @@ impl fmt::Display for Error {
 }
 
 impl core::error::Error for Error {}
+
+/// How [`Inflater::step`] went, when it did not fail.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Step {
+    /// It took input or wrote output, or the stream ended.
+    Progress,
+    /// The input ran out and the decoder needs more.
+    InputEnded,
+}
+
+/// Where [`Window::feed_with`] stopped.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Feed {
+    /// `want` bytes were handed out.
+    OutputFull,
+    /// The input given so far is used up.
+    NeedInput,
+    /// The stream ended; fewer than `want` bytes may have been handed out.
+    Done,
+}
 
 /// The decoder. On its own it writes the whole output into one buffer:
 /// back-references resolve inside that buffer, so no window is needed, but
@@ -169,25 +192,29 @@ impl Inflater {
             if at == out.len() {
                 return (at - pos, Ok(Status::More));
             }
-            let (written, result) = self.step(input, out, at, false);
+            let (written, result) = self.step(input, out, at, out.len(), false);
             at += written;
-            if let Err(error) = result {
-                return (at - pos, Err(error));
+            match result {
+                Ok(Step::Progress) => {}
+                // All the input is here: running out of it is a truncation.
+                Ok(Step::InputEnded) => return (at - pos, Err(Error::Truncated)),
+                Err(error) => return (at - pos, Err(error)),
             }
         }
         (at - pos, Ok(Status::Done))
     }
 
     /// Runs the decoder once on the buffered input and returns the bytes
-    /// written at `out[pos..]`, even on an error. A `wrapping` `out` is a
-    /// power-of-two ring.
+    /// written at `out[pos..out.len().min(limit)]`, even on an error. A
+    /// `wrapping` `out` is a power-of-two ring.
     fn step(
         &mut self,
         input: &mut impl Input,
         out: &mut [u8],
         pos: usize,
+        limit: usize,
         wrapping: bool,
-    ) -> (usize, Result<(), Error>) {
+    ) -> (usize, Result<Step, Error>) {
         if pos > out.len() {
             return (0, Err(Error::BadOutput));
         }
@@ -195,18 +222,21 @@ impl Inflater {
         let at_end = data.is_empty();
         let (consumed, written, outcome) =
             self.decoder
-                .run(data, out, pos, wrapping, self.format == Format::Zlib);
+                .run(data, out, pos, wrapping, self.format, limit);
         input.consume(consumed);
         let result = match outcome {
             Outcome::Done => {
                 self.done = true;
-                Ok(())
+                Ok(Step::Progress)
             }
-            // The input has ended (an empty refill is the end) and more was needed: truncated,
-            // even when this step still wrote what the bit buffer held.
-            Outcome::NeedInput if at_end => Err(Error::Truncated),
+            // The input has ended (an empty refill is the end) and more was needed, even when
+            // this step still wrote what the bit buffer held.
+            Outcome::NeedInput if at_end => Ok(Step::InputEnded),
             // Both report progress; a step that made none would loop forever.
-            Outcome::NeedInput | Outcome::OutputFull if consumed > 0 || written > 0 => Ok(()),
+            Outcome::NeedInput | Outcome::OutputFull if consumed > 0 || written > 0 => {
+                Ok(Step::Progress)
+            }
+            // Input left over that the decoder could not take (no field needs that many bits).
             Outcome::NeedInput => Err(Error::Truncated),
             Outcome::OutputFull => Err(Error::Corrupt),
             Outcome::Failed(error) => Err(error),
@@ -218,9 +248,11 @@ impl Inflater {
 /// Hands an [`Inflater`]'s output out in pieces of any size, through a
 /// 32 KiB window that holds the history back-references need.
 ///
-/// The decoder fills the window as far as it can in one go (several times
-/// faster than decoding piecemeal); what the caller has not taken yet stays
-/// pending in the window until the next read.
+/// For [`Window::read`] the decoder fills the window as far as it can in one
+/// go (several times faster than decoding piecemeal); what the caller has not
+/// taken yet stays pending in the window until the next read.
+/// [`Window::feed_with`] decodes only as far as asked, so the bytes are still in
+/// the CPU data cache when taken.
 pub struct Window<'w> {
     buf: &'w mut [u8; WINDOW_SIZE],
     /// Where the decoder writes next.
@@ -271,36 +303,107 @@ impl<'w> Window<'w> {
         out: &mut [MaybeUninit<u8>],
     ) -> (usize, Result<Status, Error>) {
         let mut filled = 0;
-        loop {
-            filled += self.take_pending(out.get_mut(filled..).unwrap_or_default());
-            if self.pending.is_empty() {
-                if inflater.is_done() {
-                    return (filled, Ok(Status::Done));
-                }
-                if let Some(error) = self.failed {
-                    return (filled, Err(error));
-                }
+        let (n, result) = self.fill(inflater, input, out.len(), false, |piece| {
+            if let Some(dst) = out.get_mut(filled..filled + piece.len()) {
+                dst.write_copy_of_slice(piece);
             }
-            if filled == out.len() {
-                return (filled, Ok(Status::More));
-            }
-            // The decoder derives the ring size from the slice, so it always
-            // gets the whole window and writes from `pos` up to its end.
-            let (written, result) = inflater.step(input, self.buf, self.pos, true);
-            self.pending = self.pos..self.pos + written;
-            self.pos = self.pending.end % WINDOW_SIZE;
-            self.failed = result.err();
-        }
+            filled += piece.len();
+        });
+        let result = match result {
+            Ok(Feed::OutputFull) => Ok(Status::More),
+            Ok(Feed::Done) => Ok(Status::Done),
+            // Never: not resumable, `fill` reports running out of input as Truncated itself.
+            Ok(Feed::NeedInput) => Err(Error::Truncated),
+            Err(error) => Err(error),
+        };
+        (n, result)
     }
 
-    fn take_pending(&mut self, out: &mut [MaybeUninit<u8>]) -> usize {
-        let pending = self.buf.get(self.pending.clone()).unwrap_or_default();
-        let n = pending.len().min(out.len());
-        if let (Some(dst), Some(src)) = (out.get_mut(..n), pending.get(..n)) {
-            dst.write_copy_of_slice(src);
+    /// [`Window::feed_with`] into `out`, for the tests.
+    #[cfg(test)]
+    pub fn feed(
+        &mut self,
+        inflater: &mut Inflater,
+        input: &mut &[u8],
+        out: &mut [u8],
+    ) -> (usize, Result<Feed, Error>) {
+        let mut filled = 0;
+        self.feed_with(inflater, input, out.len(), |piece| {
+            if let Some(dst) = out.get_mut(filled..filled + piece.len()) {
+                dst.copy_from_slice(piece);
+            }
+            filled += piece.len();
+        })
+    }
+
+    /// Decodes input that arrives in pieces (PNG's IDAT chunks) and hands the next `want` bytes
+    /// (at most) to `take` where they lie in the window, in one or more pieces, instead of
+    /// copying them out. Running out of `input` is [`Feed::NeedInput`], not an error, and the
+    /// next call goes on with more; the bytes taken are removed from the front of `input`. The
+    /// decoder runs only as far ahead as asked, so the bytes are still in the CPU data cache when
+    /// `take` reads them.
+    pub fn feed_with(
+        &mut self,
+        inflater: &mut Inflater,
+        input: &mut &[u8],
+        want: usize,
+        take: impl FnMut(&[u8]),
+    ) -> (usize, Result<Feed, Error>) {
+        self.fill(inflater, input, want, true, take)
+    }
+
+    fn fill(
+        &mut self,
+        inflater: &mut Inflater,
+        input: &mut impl Input,
+        want: usize,
+        resumable: bool,
+        mut take: impl FnMut(&[u8]),
+    ) -> (usize, Result<Feed, Error>) {
+        let mut given = 0;
+        loop {
+            let n = self.pending.len().min(want - given);
+            if n > 0 {
+                let start = self.pending.start;
+                take(self.buf.get(start..start + n).unwrap_or_default());
+                self.pending.start += n;
+                given += n;
+            }
+            if self.pending.is_empty() {
+                if inflater.is_done() {
+                    return (given, Ok(Feed::Done));
+                }
+                if let Some(error) = self.failed {
+                    return (given, Err(error));
+                }
+            }
+            if given == want {
+                return (given, Ok(Feed::OutputFull));
+            }
+            // The decoder derives the ring size from the slice, so it always gets the whole
+            // window. It writes from `pos` up to its end, or in steps only as far as asked.
+            let limit = if resumable {
+                (self.pos + (want - given)).min(WINDOW_SIZE)
+            } else {
+                WINDOW_SIZE
+            };
+            let (written, result) = inflater.step(input, self.buf, self.pos, limit, true);
+            self.pending = self.pos..self.pos + written;
+            self.pos = self.pending.end % WINDOW_SIZE;
+            match result {
+                Ok(Step::Progress) => {}
+                // Out of input for now. What the bit buffer still held is pending; once that is
+                // handed out, a step that writes nothing ends the call.
+                Ok(Step::InputEnded) if resumable => {
+                    if written == 0 {
+                        return (given, Ok(Feed::NeedInput));
+                    }
+                }
+                // All the input is here: running out of it is a truncation.
+                Ok(Step::InputEnded) => self.failed = Some(Error::Truncated),
+                Err(error) => self.failed = Some(error),
+            }
         }
-        self.pending.start += n;
-        n
     }
 }
 

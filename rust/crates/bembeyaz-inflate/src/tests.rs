@@ -454,6 +454,87 @@ fn an_error_waits_for_the_output_before_it() {
     );
 }
 
+/// Feeds `compressed` in pieces of `in_chunk` bytes and takes the output in pieces of
+/// `out_chunk`; returns the output and how the stream ended once the input ran out.
+fn fed(compressed: &[u8], in_chunk: usize, out_chunk: usize) -> (Vec<u8>, Result<Feed, Error>) {
+    let mut buf = window();
+    let mut window = Window::new(&mut buf);
+    let mut inflater = Inflater::new(Format::Zlib);
+    let mut out = Vec::new();
+    let mut piece = vec![0; out_chunk];
+    for mut input in compressed.chunks(in_chunk) {
+        loop {
+            let (n, result) = window.feed(&mut inflater, &mut input, &mut piece);
+            out.extend_from_slice(&piece[..n]);
+            match result {
+                Ok(Feed::OutputFull) => assert_eq!(n, out_chunk),
+                Ok(Feed::NeedInput) => {
+                    assert!(input.is_empty());
+                    break;
+                }
+                end => return (out, end),
+            }
+        }
+    }
+    let (n, result) = window.feed(&mut inflater, &mut &[][..], &mut piece);
+    out.extend_from_slice(&piece[..n]);
+    (out, result)
+}
+
+#[test]
+fn feeds_input_that_arrives_in_pieces() {
+    let data = sample(100_000);
+    let compressed = compress_to_vec_zlib(&data, 6);
+    for (in_chunk, out_chunk) in [
+        (1, 7),
+        (7, 1),
+        (100, 4096),
+        (5000, 333),
+        (compressed.len(), 100_001),
+    ] {
+        let (out, end) = fed(&compressed, in_chunk, out_chunk);
+        assert_eq!(end, Ok(Feed::Done), "{in_chunk}/{out_chunk}");
+        assert_eq!(out, data, "{in_chunk}/{out_chunk}");
+    }
+}
+
+/// Running out of input is not an error: what was decoded is handed out, and the stream waits.
+#[test]
+fn feeding_too_little_waits_for_more() {
+    let data = sample(50_000);
+    let compressed = compress_to_vec_zlib(&data, 6);
+    for cut in [
+        0,
+        1,
+        2,
+        3,
+        compressed.len() / 2,
+        compressed.len() - 4,
+        compressed.len() - 1,
+    ] {
+        let (out, end) = fed(&compressed[..cut], 13, 1000);
+        assert_eq!(end, Ok(Feed::NeedInput), "{cut}");
+        assert_eq!(out, data[..out.len()], "{cut}");
+        if cut > compressed.len() / 2 {
+            assert!(out.len() > data.len() / 3, "{cut}: {}", out.len());
+        }
+    }
+}
+
+#[test]
+fn feeding_reports_corruption_and_the_checksum() {
+    let data = sample(20_000);
+    let mut compressed = compress_to_vec_zlib(&data, 6);
+    let last = compressed.len() - 1;
+    compressed[last] ^= 1;
+    let (out, end) = fed(&compressed, 50, 777);
+    assert_eq!(end, Err(Error::Checksum));
+    assert_eq!(out, data);
+
+    let (_, end) = fed(&[0x78, 0x9C, 0x07], 1, 10);
+    assert_eq!(end, Err(Error::Corrupt));
+}
+
 /// DEFLATE bits, least significant first; Huffman codes most significant first.
 #[derive(Default)]
 struct Bits {
@@ -527,6 +608,30 @@ fn refuses_a_distance_before_the_start() {
     let data = sample(WINDOW_SIZE + 1000);
     let compressed = compress_to_vec(&data, 6);
     assert_eq!(streamed(&compressed, Format::Deflate, 4096, 1000), Ok(data));
+}
+
+/// Unchecked zlib reads the trailer but accepts a wrong sum, as PNGdec does.
+#[test]
+fn unchecked_zlib_skips_the_sum() {
+    let data = sample(50_000);
+    let mut compressed = compress_to_vec_zlib(&data, 6);
+    let last = compressed.len() - 1;
+    compressed[last] ^= 1;
+    assert_eq!(
+        one_shot(&compressed, Format::Zlib, 100, data.len()),
+        Err(Error::Checksum)
+    );
+    let format = Format::ZlibUnchecked;
+    assert_eq!(
+        one_shot(&compressed, format, 100, data.len()),
+        Ok(data.clone())
+    );
+    assert_eq!(streamed(&compressed, format, 100, 777), Ok(data));
+    // The trailer must still be there.
+    assert_eq!(
+        streamed(&compressed[..last - 1], format, 100, 777),
+        Err(Error::Truncated)
+    );
 }
 
 /// A dynamic block whose end-of-block symbol has no code is corrupt, as zlib has it: it could never

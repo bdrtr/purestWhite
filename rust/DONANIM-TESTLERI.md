@@ -106,5 +106,13 @@ CrossPoint, `../crosspoint-prev` 609d473.
 - [ ] Yarıda kesilmiş ya da bozuk bir EPUB (örneğin yarım kalmış bir indirme): açmayı
   deneyin; donma ya da yeniden başlatma olmamalı, bozuk bölüm hata vermeli. Sağlam
   kitaplar bu değişiklikten etkilenmez.
-- [ ] ("fix: inflate refuses a block without an end-of-block code") Aynı denemede bozuk kitap
-  bölüm hatası vermeli, donmamalı. Sağlam kitaplar bu değişiklikten de etkilenmez.
+- [ ] ("fix: inflate refuses a block without an end-of-block code") Bu durum yalnızca elle
+  bozulmuş bir dosyada çıkar ve host testleri kapsar; yukarıdaki bozuk EPUB denemesinde donma
+  olmaması yeterli. Sağlam kitaplar bu değişiklikten de etkilenmez.
+
+## Sıkıştırma hızı ("rust: inflate for the PNG decoder")
+
+- [ ] Büyük bir kitabın önbelleğini silin (kitap açıkken okuma menüsünde Delete Book Cache)
+  ve açın: sayfalar eskisi gibi görünmeli; günlükteki `Time to parse and build pages` süresi
+  önceki sürümden uzun olmamalı (emülatörde fark 3 ms içinde). Kapak küçük resimleri (PNG
+  kapaklar) de görünmeli.

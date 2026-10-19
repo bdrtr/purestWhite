@@ -18,8 +18,8 @@
 //! zlib does ("invalid distance too far back"); `miniz_oxide` checked it against the ring's size
 //! only and copied whatever the ring held before the stream.
 
-use crate::Error;
 use crate::huffman::{Huffman, Lookup};
+use crate::{Error, Format};
 
 const LENGTH_BASE: [u16; 29] = [
     3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 15, 17, 19, 23, 27, 31, 35, 43, 51, 59, 67, 83, 99, 115, 131,
@@ -121,10 +121,14 @@ pub(crate) struct Decoder {
     literal: u8,
     adler_a: u32,
     adler_b: u32,
+    /// The Adler-32 sum is neither kept nor checked ([`Format::ZlibUnchecked`]).
+    unchecked: bool,
     /// The output before this run, up to the farthest a distance reaches.
     history: u16,
     /// Where this run started writing.
     run_start: usize,
+    /// Where this run stops writing: the end of `out`, or before it in a ring decoded in steps.
+    limit: usize,
     lengths: [u8; 288 + 32],
     code_lengths: Huffman<19, 128>,
     literals: Huffman<288, 1024>,
@@ -245,46 +249,70 @@ fn distance_ok(distance: usize, at: usize, history: usize, out_len: usize, wrapp
 /// Writes the `n` bytes `distance` back from `at` to `out[at..at + n]`, which the caller has
 /// checked fits. In a ring the source may wrap around its end.
 fn copy_match(out: &mut [u8], at: usize, distance: usize, n: usize) {
-    if distance == 0 || at + n > out.len() {
+    let len = out.len();
+    if n == 0 || distance == 0 || distance > len || at + n > len {
         return;
     }
-    if let Some(src) = at.checked_sub(distance) {
-        if n <= 16 && distance < n {
-            // Short overlapping matches byte by byte, without a call per doubling.
-            let Some(span) = out.get_mut(src..at + n) else {
-                return;
-            };
-            for i in 0..n {
-                if let Some(&byte) = span.get(i)
-                    && let Some(slot) = span.get_mut(i + distance)
-                {
+    let Some(src) = at.checked_sub(distance) else {
+        // Only in a ring: the source starts before its end. Copy up to the end, then the rest
+        // continues from the start of the ring like any match.
+        let src = at + len - distance;
+        let first = (len - src).min(n);
+        if src >= at + first {
+            copy_disjoint(out, src, at, first);
+        } else {
+            // The source meets the copy (a distance within 258 of the ring size).
+            for i in 0..first {
+                let byte = out.get(src + i).copied().unwrap_or(0);
+                if let Some(slot) = out.get_mut(at + i) {
                     *slot = byte;
                 }
             }
-        } else if distance >= n {
-            out.copy_within(src..src + n, at);
-        } else if let Some(&byte) = out.get(src).filter(|_| distance == 1) {
-            out.get_mut(at..at + n).unwrap_or_default().fill(byte);
-        } else {
-            // Overlapping: the written part repeats every `distance` bytes, and doubles each copy.
-            let mut copied = 0;
-            while copied < n {
-                let len = (distance + copied).min(n - copied);
-                out.copy_within(src..src + len, at + copied);
-                copied += len;
+        }
+        copy_match(out, at + first, distance, n - first);
+        return;
+    };
+    if distance >= n {
+        copy_disjoint(out, src, at, n);
+    } else if distance == 1 {
+        let byte = out.get(src).copied().unwrap_or(0);
+        out.get_mut(at..at + n).unwrap_or_default().fill(byte);
+    } else if n <= 16 {
+        // Short overlapping matches byte by byte, without a call per doubling.
+        let Some(span) = out.get_mut(src..at + n) else {
+            return;
+        };
+        for i in 0..n {
+            if let Some(&byte) = span.get(i)
+                && let Some(slot) = span.get_mut(i + distance)
+            {
+                *slot = byte;
             }
         }
     } else {
-        // Only in a ring: the source starts before its end.
-        let ring = out.len().wrapping_sub(1);
-        for i in at..at + n {
-            let byte = out
-                .get(i.wrapping_sub(distance) & ring)
-                .copied()
-                .unwrap_or(0);
-            if let Some(slot) = out.get_mut(i) {
-                *slot = byte;
-            }
+        // Overlapping: the written part repeats every `distance` bytes, and doubles each copy.
+        let mut copied = 0;
+        while copied < n {
+            let chunk = (distance + copied).min(n - copied);
+            copy_disjoint(out, src, at + copied, chunk);
+            copied += chunk;
+        }
+    }
+}
+
+/// Copies `out[from..from + n]` to `out[to..to + n]`, which do not overlap. Uses memcpy
+/// (`copy_from_slice`): the ESP32-S3 ROM memcpy copies words even when unaligned, while its memmove
+/// (`copy_within`) copies one byte at a time, at 7 instructions a byte.
+fn copy_disjoint(out: &mut [u8], from: usize, to: usize, n: usize) {
+    if from < to {
+        let (head, tail) = out.split_at_mut(to);
+        if let (Some(src), Some(dst)) = (head.get(from..from + n), tail.get_mut(..n)) {
+            dst.copy_from_slice(src);
+        }
+    } else {
+        let (head, tail) = out.split_at_mut(from);
+        if let (Some(dst), Some(src)) = (head.get_mut(to..to + n), tail.get(..n)) {
+            dst.copy_from_slice(src);
         }
     }
 }
@@ -300,8 +328,12 @@ impl Decoder {
         out: &mut [u8],
         pos: usize,
         wrapping: bool,
-        zlib: bool,
+        format: Format,
+        limit: usize,
     ) -> (usize, usize, Outcome) {
+        let zlib = format != Format::Deflate;
+        self.limit = limit.min(out.len());
+        self.unchecked = format == Format::ZlibUnchecked;
         let mut bits = BitReader {
             data: input,
             used: 0,
@@ -319,7 +351,7 @@ impl Decoder {
         }
         self.bits = bits.bits;
         self.nbits = bits.nbits;
-        if zlib {
+        if zlib && !self.unchecked {
             self.hash(out, hashed, at);
         }
         self.history = u16::try_from(self.history(at).min(MAX_DISTANCE)).unwrap_or(u16::MAX);
@@ -427,7 +459,7 @@ impl Decoder {
                 }
                 Mode::Stored => {
                     while self.remaining > 0 {
-                        let space = out.len() - *at;
+                        let space = self.limit.saturating_sub(*at);
                         if space == 0 {
                             return Outcome::OutputFull;
                         }
@@ -581,7 +613,7 @@ impl Decoder {
                         bits.consume(len);
                         #[allow(clippy::cast_possible_truncation, reason = "below 256")]
                         let byte = symbol as u8;
-                        let Some(slot) = out.get_mut(*at) else {
+                        let Some(slot) = out.get_mut(*at).filter(|_| *at < self.limit) else {
                             // Read now, written next time, as `miniz_oxide` does: it decides how
                             // much input is left over.
                             self.literal = byte;
@@ -630,7 +662,7 @@ impl Decoder {
                                     return Outcome::Failed(Error::Corrupt);
                                 }
                                 let length = usize::from(length);
-                                if length <= out.len() - *at {
+                                if length <= self.limit.saturating_sub(*at) {
                                     copy_match(out, *at, distance, length);
                                     *at += length;
                                     continue;
@@ -655,7 +687,7 @@ impl Decoder {
                     break;
                 },
                 Mode::PendingLiteral => {
-                    let Some(slot) = out.get_mut(*at) else {
+                    let Some(slot) = out.get_mut(*at).filter(|_| *at < self.limit) else {
                         return Outcome::OutputFull;
                     };
                     *slot = self.literal;
@@ -701,7 +733,7 @@ impl Decoder {
                     self.mode = Mode::Copy;
                 }
                 Mode::Copy => {
-                    let space = out.len() - *at;
+                    let space = self.limit.saturating_sub(*at);
                     let n = usize::from(self.remaining).min(space);
                     copy_match(out, *at, usize::from(self.distance), n);
                     *at += n;
@@ -719,10 +751,13 @@ impl Decoder {
                         return Outcome::NeedInput;
                     };
                     bits.consume_all();
+                    self.mode = Mode::Done;
+                    if self.unchecked {
+                        continue;
+                    }
                     self.hash(out, *hashed, *at);
                     *hashed = *at;
                     let sum = (self.adler_b << 16) | self.adler_a;
-                    self.mode = Mode::Done;
                     if trailer.swap_bytes() != sum {
                         return Outcome::Failed(Error::Checksum);
                     }
