@@ -21,8 +21,8 @@
 // reset. Streaming keeps the working set to a single MCU-row band, so caching
 // succeeds and the image is decoded exactly once.
 //
-// Correctness relies on JPEGDEC delivering blocks in raster MCU order (outer
-// loop over y, inner over x: see jpeg.inl DecodeJPEG). Consecutive MCU rows map
+// Correctness relies on the JPEG decoder delivering blocks in raster MCU order
+// (outer loop over y, inner over x: see bembeyaz-jpeg's decode). Consecutive MCU rows map
 // to contiguous, non-overlapping destination row ranges, so once a block whose
 // top row is Y arrives, every output row < Y is final and is flushed to disk.
 struct PixelCache {

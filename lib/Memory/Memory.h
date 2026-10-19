@@ -36,8 +36,8 @@ std::unique_ptr<T> makeUniqueNoThrow(size_t count) {
 // Helper struct to call a cleanup function on exit from any scope.
 // Use with a lambda to avoid unnecessary allocations from std::function/std::bind:
 // Example:
-//   auto jpeg = makeUniqueNoThrow<JPEGDEC>();
-//   ScopedCleanup cleanup{[&jpeg]{ jpeg->close(); }};
+//   HalFile file;
+//   ScopedCleanup cleanup{[&file]{ file.close(); }};
 //
 template <typename F>
 struct [[nodiscard]] ScopedCleanup final {

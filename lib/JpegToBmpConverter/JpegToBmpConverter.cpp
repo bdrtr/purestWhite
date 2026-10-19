@@ -2,9 +2,9 @@
 
 #include <HalDisplay.h>
 #include <HalStorage.h>
-#include <JPEGDEC.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <bembeyaz/jpeg.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
@@ -168,51 +168,36 @@ constexpr size_t JPEG_DECODER_SIZE = 20 * 1024;
 constexpr size_t MIN_FREE_HEAP = JPEG_DECODER_SIZE + 32 * 1024;
 constexpr uint32_t FP_ONE = 1UL << 16;
 
-// Static file pointer for JPEGDEC open callback.
-// Safe in single-threaded embedded context; never accessed concurrently.
-static HalFile* s_jpegFile = nullptr;
-static uint8_t s_jpegIoSinceYield = 0;
-
 static void yieldToIdle() { vTaskDelay(1); }
 
-static void yieldDuringJpegIo() {
-  if (++s_jpegIoSinceYield < 4) return;
-  s_jpegIoSinceYield = 0;
+// The caller's file, which the decoder reads at a position.
+struct JpegFile {
+  HalFile* file;
+  uint32_t position;
+  uint8_t ioSinceYield;
+};
+
+static void yieldDuringJpegIo(JpegFile& f) {
+  if (++f.ioSinceYield < 4) return;
+  f.ioSinceYield = 0;
   yieldToIdle();
 }
 
-void* bmpJpegOpen(const char* /*filename*/, int32_t* size) {
-  if (!s_jpegFile || !*s_jpegFile) return nullptr;
-  s_jpegIoSinceYield = 0;
-  s_jpegFile->seek(0);
-  *size = static_cast<int32_t>(s_jpegFile->size());
-  yieldDuringJpegIo();
-  return s_jpegFile;
+size_t bmpJpegRead(void* context, const uint32_t pos, uint8_t* buf, const size_t len) {
+  auto& f = *static_cast<JpegFile*>(context);
+  if (pos != f.position) {
+    if (!f.file->seek(pos)) return 0;
+    f.position = pos;
+    yieldDuringJpegIo(f);
+  }
+  const int n = f.file->read(buf, len);
+  yieldDuringJpegIo(f);
+  if (n <= 0) return 0;
+  f.position += n;
+  return static_cast<size_t>(n);
 }
 
-void bmpJpegClose(void* /*handle*/) {
-  // Caller owns the file — do not close it here
-}
-
-int32_t bmpJpegRead(JPEGFILE* pFile, uint8_t* pBuf, int32_t len) {
-  auto* f = reinterpret_cast<HalFile*>(pFile->fHandle);
-  if (!f) return 0;
-  int32_t n = f->read(pBuf, len);
-  if (n < 0) n = 0;
-  pFile->iPos += n;
-  yieldDuringJpegIo();
-  return n;
-}
-
-int32_t bmpJpegSeek(JPEGFILE* pFile, int32_t pos) {
-  auto* f = reinterpret_cast<HalFile*>(pFile->fHandle);
-  if (!f || !f->seek(pos)) return -1;
-  pFile->iPos = pos;
-  yieldDuringJpegIo();
-  return pos;
-}
-
-// Context passed to the JPEGDEC draw callback via setUserPointer()
+// Context passed to the draw callback through bb_jpeg_decode
 struct BmpConvertCtx {
   Print* bmpOut;
   int srcWidth;
@@ -229,7 +214,7 @@ struct BmpConvertCtx {
   uint32_t smoothScaleY_fp;
 
   // Accumulates one MCU row (up to MAX_MCU_HEIGHT source rows × srcWidth pixels)
-  // Filled column-by-column as JPEGDEC callbacks arrive for the same MCU row
+  // Filled column-by-column as the decoder's callbacks arrive for the same MCU row
   std::unique_ptr<uint8_t[]> mcuBuf;
 
   // Y-axis area averaging accumulators (needsScaling only)
@@ -429,21 +414,21 @@ static void flushScaledRow(BmpConvertCtx* ctx) {
   yieldDuringDecode(ctx);
 }
 
-// JPEGDEC draw callback — receives one MCU-width × MCU-height block at a time,
-// in left-to-right, top-to-bottom order (baseline JPEG).
+// Draw callback — receives one block of MCUs at a time, in left-to-right,
+// top-to-bottom order.
 // Accumulates columns into mcuBuf; once the last column arrives (completing the MCU
 // row), applies scaling + dithering and writes packed BMP rows to bmpOut.
-int bmpDrawCallback(JPEGDRAW* pDraw) {
-  auto* ctx = reinterpret_cast<BmpConvertCtx*>(pDraw->pUser);
+int bmpDrawCallback(void* user, const bb_jpeg_block* block) {
+  auto* ctx = static_cast<BmpConvertCtx*>(user);
   if (!ctx || ctx->error) return 0;
   yieldDuringDecodeBlock(ctx);
 
-  const uint8_t* pixels = reinterpret_cast<uint8_t*>(pDraw->pPixels);
-  const int stride = pDraw->iWidth;
-  const int validW = pDraw->iWidthUsed;
-  const int blockH = pDraw->iHeight;
-  const int blockX = pDraw->x;
-  const int blockY = pDraw->y;
+  const uint8_t* pixels = block->pixels;
+  const int stride = block->width;
+  const int validW = block->width_used;
+  const int blockH = block->height;
+  const int blockX = block->x;
+  const int blockY = block->y;
 
   // Guard against unexpected callback geometry so we never index past row buffers.
   if (blockX < 0 || blockY < 0 || blockX >= ctx->srcWidth || blockY >= ctx->srcHeight) {
@@ -521,27 +506,27 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(HalFile& jpegFile, Print& b
     return false;
   }
 
-  s_jpegFile = &jpegFile;
-
-  const auto jpeg = makeUniqueNoThrow<JPEGDEC>();
-  if (!jpeg) {
-    LOG_ERR("JPG", "OOM: JPEG decoder");
+  if (!jpegFile) {
+    LOG_ERR("JPG", "JPEG open failed: file not open");
     return false;
   }
-
-  int rc = jpeg->open("", bmpJpegOpen, bmpJpegClose, bmpJpegRead, bmpJpegSeek, bmpDrawCallback);
-  if (rc != 1) {
-    LOG_ERR("JPG", "JPEG open failed (err=%d)", jpeg->getLastError());
+  jpegFile.seek(0);
+  JpegFile file{&jpegFile, 0, 0};
+  int status = BB_JPEG_INVALID_PARAMETER;
+  const std::unique_ptr<bb_jpeg, decltype(&bb_jpeg_free)> jpeg(
+      bb_jpeg_open(bmpJpegRead, &file, static_cast<int32_t>(jpegFile.size()), &status), bb_jpeg_free);
+  if (status != BB_JPEG_SUCCESS) {
+    LOG_ERR("JPG", "JPEG open failed (err=%d)", status);
     return false;
   }
+  bb_jpeg_info info{};
+  bb_jpeg_get_info(jpeg.get(), &info);
 
-  const ScopedCleanup cleanup{[&jpeg]() { jpeg->close(); }};
-
-  const int srcWidth = jpeg->getWidth();
-  const int srcHeight = jpeg->getHeight();
-  const bool progressiveDecode = (jpeg->getJPEGType() == JPEG_MODE_PROGRESSIVE);
-  // JPEGDEC forces progressive streams to JPEG_SCALE_EIGHTH in DecodeJPEG,
-  // so callback coordinates and MCU buffering must use the reduced decode grid.
+  const int srcWidth = info.width;
+  const int srcHeight = info.height;
+  const bool progressiveDecode = info.progressive;
+  // Progressive streams asked for full size decode at 1/8, so callback
+  // coordinates and MCU buffering must use the reduced decode grid.
   const int decodedSrcWidth = progressiveDecode ? ((srcWidth + 7) >> 3) : srcWidth;
   const int decodedSrcHeight = progressiveDecode ? ((srcHeight + 7) >> 3) : srcHeight;
 
@@ -695,17 +680,14 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(HalFile& jpegFile, Print& b
     }
   }
 
-  jpeg->setPixelType(EIGHT_BIT_GRAYSCALE);
-  jpeg->setUserPointer(&ctx);
+  status = bb_jpeg_decode(jpeg.get(), 0, bmpDrawCallback, &ctx);
 
-  rc = jpeg->decode(0, 0, 0);
-
-  if (rc == 1 && ctx.smoothUpscale && !ctx.error) {
+  if (status == BB_JPEG_SUCCESS && ctx.smoothUpscale && !ctx.error) {
     finishSmoothUpscale(&ctx);
   }
 
-  if (rc != 1 || ctx.error) {
-    LOG_ERR("JPG", "JPEG decode failed (rc=%d, err=%d)", rc, jpeg->getLastError());
+  if (status != BB_JPEG_SUCCESS || ctx.error) {
+    LOG_ERR("JPG", "JPEG decode failed (err=%d)", status);
     return false;
   }
 

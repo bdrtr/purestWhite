@@ -74,6 +74,11 @@ python3 emu/make_png_epub.py emu/books/png
 emu/compare.sh emu/png.txt x4pro emu/books/png/png.epub
 emu/compare.sh emu/png-broken.txt x4pro emu/books/png/png-broken.epub
 
+# JPEG (bembeyaz-jpeg): gri ton, 4:4:4/4:2:2/4:2:0, ilerlemeli, restart, CMYK, 1/2, 1/4 ve 1/8
+# ölçekte çözülen büyük resimler; JPEG kapak (Home'daki küçük resim, tam boyutta çözülür).
+python3 emu/make_jpeg_epub.py emu/books/jpeg
+emu/compare.sh emu/jpeg.txt x4pro emu/books/jpeg/jpeg.epub
+
 # Bozuk EPUB'lar (her biri kendi kartında):
 python3 emu/make_bad_epubs.py emu/books/bad
 emu/compare.sh emu/open-book.txt x4pro emu/books/bad/max-size-cover/max-size-cover.epub
@@ -100,7 +105,11 @@ birikir; her commit kendi maddesini ekler.
   `Result` kullanır; NUL ile biten string, -1 gibi özel değerler ve sessiz hata yoktur.
   Sınırın C biçimini (C string, `int` dönüş kodları) FFI katmanı ve shim taşır. Tek istisna
   `bembeyaz-layout`: renderer ve `TextBlock` C string aldığı için sözcükleri NUL ile biten
-  biçimde tutar, ölçer ve verir.
+  biçimde tutar, ölçer ve verir. `bembeyaz-jpeg`'in API'si bu kurala uyar ama iç yapısı
+  JPEGDEC'i işlev işlev izler ve onun bellek düzenini (okuma tamponundan Huffman tablolarına
+  taşan okumalar, katsayıların üstüne yazılan pikseller) korur: bozuk dosyalarda bile çıktıyı
+  oracle belirler. Bu düzeni değiştirmek bozuk dosyalarda çıktıyı değiştirebilir; böyle bir
+  değişiklik kendi commit'inde yapılır.
 - **Bulunan hatalar ayrı commit olur.** Her düzeltmeyle birlikte hatayı yakalayan
   bir test eklenir, ve düzeltme emülatör karşılaştırmasında kasıtlı fark olarak görünür.
 - `cargo clippy --all-targets` (crate'lerde `clippy::pedantic`) uyarısız kalmalı.
@@ -121,7 +130,7 @@ birikir; her commit kendi maddesini ekler.
   tuttuğu heap blokları Rust'ındır: değer bir kez `*_init` (Rust heap'inde `*_new`) ile kurulur,
   ömrü bitmeden `*_free` çağrılır, kopyalanmaz (C++ sınıfı kopyalanamaz ve taşınamaz). Heap tutmayan durum (`bb_inflate`, `bb_css_tokenizer`)
   serbest bırakma gerektirmez; Rust tarafı bunu `needs_drop` ile derleme anında denetler.
-- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-png`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`, `bembeyaz-xml`, `bembeyaz-opf`, `bembeyaz-path`, `bembeyaz-layout`) `clippy::indexing_slicing`,
+- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-png`, `bembeyaz-jpeg`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`, `bembeyaz-xml`, `bembeyaz-opf`, `bembeyaz-path`, `bembeyaz-layout`) `clippy::indexing_slicing`,
   `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla sınırsız bellek ayırmaz
   (ayırma sabit bir üst sınırla ya da zaten bellekte olan girdinin boyutuyla kısılır). Kesmeler ve tek bayt bozulmaları için panik
   olmadığını test eden bir mini-fuzz testi taşır.
@@ -142,6 +151,6 @@ Bağımlılıklara göre (önce yapraklar):
 | 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, **XML ayrıştırıcı ✅** (expat'ın yerine; firmware `XmlParser.h`'yi, SDK'nın OPDS ve katalog okuyucuları `rust/include/expat.h`'deki expat API alt kümesini kullanır; metni expat'ın tamponunu taklit ederek aynı parçalarda verir, çünkü bölüm ayrıştırıcısı metni geri çağrı başına diziyor: o Rust'a geçince bu taklit kalkabilir), XmlParserUtils (yerel ad yardımcıları), **MiniBidi ✅** (minibidi davranışıyla birebir; UAX #9 düzeltmeleri sırada), JsonParser | Donanım yok, testleri var |
 | 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (kendi çözücümüz), **InflateReader ✅** (silindi; kullanıcıları InflateStream'e geçti), Serialization | Framebuffer ödünç alma C++'ta kaldı; Rust belleği çağırandan alır. ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
 | 3 — EPUB çekirdeği | Epub: **CSS ayrıştırıcı ✅** (önbellek biçimi aynı; dosya işlemleri C++'ta), **heceleme ✅** (hypher trie'leri crate'te; seçili dil C++'ta), **OPF ✅** (paket belgesi; manifest SD'deki geçici dosya yerine bellekte, 2 MiB ile sınırlı; yol çözümü `bembeyaz-path`, FsHelpers da onu kullanır), **ParsedText ✅** (paragraf yerleşimi: belirteçler, satır kırma, heceleme, iki yana yaslama, bidi, ruby; ölçümler GfxRenderer'dan geri çağrıyla; TextBlock, BlockStyle, bağlantı hedefleri ve satır içi yazı boyutu yuvaları C++'ta), Section | En büyük parça (~19k satır); alt modül alt modül |
-| 4 — görüntü/font | **PNG çözücüsü ✅** (bölüm resimleri, resim görüntüleyici, saydam uyku kaplaması, Ayrıntılar kapağı; PNGdec'in yerine `bembeyaz-png`; ölçekleme, titreme ve önbellek C++ dönüştürücüde kaldı), JPEG çözücüsü (JPEGDEC), Png/JpegToBmp (kapak), EpdFont, GfxRenderer | Çerçeve tamponu sınırı |
+| 4 — görüntü/font | **PNG çözücüsü ✅** (bölüm resimleri, resim görüntüleyici, saydam uyku kaplaması, Ayrıntılar kapağı; PNGdec'in yerine `bembeyaz-png`; ölçekleme, titreme ve önbellek C++ dönüştürücüde kaldı), **JPEG çözücüsü ✅** (bölüm resimleri ve kapaklar; JPEGDEC'in yerine `bembeyaz-jpeg`, gri tonlu blok çıkışı; ölçekleme ve titreme C++ dönüştürücülerde kaldı), PngToBmp (kapak), EpdFont, GfxRenderer | Çerçeve tamponu sınırı |
 | 5 — uygulama | LibraryIndex, Txt, Xtc, KOReaderSync, `src/` activity'leri | UI |
 | 6 — platform | hal, freeink-sdk sürücüleri, `main` → Rust (esp-hal / esp-idf) | Arduino kalkar |

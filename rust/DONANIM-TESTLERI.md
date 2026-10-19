@@ -139,9 +139,39 @@ açın. Hata belirtileri: kayık ya da çizgili satırlar, yanlış gri tonlar, 
   gerçekte olduğundan hızlı modelliyor; cihazda fark %10'u aşarsa not edin.
 - [ ] Dosya gezgininden bir `.png` dosyası açın (büyük bir resim de deneyin): resim eskisi gibi
   görünmeli, önceki/sonraki resme geçiş çalışmalı.
-- [ ] PNG kapaklı bir kitabın Ayrıntılar ekranı: kapak görünmeli.
+- [ ] PNG kapaklı bir kitabın Details (Ayrıntılar) ekranı: kapak görünmeli.
 - [ ] Uyku ekranı ayarını **Transparent** yapın, kartın köküne alfa kanallı bir
   `sleep-overlay.png` koyun (kökte `sleep-overlay.bmp` olmasın, o önce gelir), cihazı uyutun:
   saydam yerlerden alttaki ekran, opak yerlerde resim görünmeli.
 - [ ] BLE kumanda bağlıyken PNG'li bir bölümü ilk kez açın: kumanda bağlı kalmalı, sayfa
   çevirme çalışmalı (çözücü dahili RAM'den hiçbir zaman 4 KB'tan büyük blok istemez).
+
+## JPEG resimleri ("rust: our own JPEG decoder")
+
+Resimler ve kapaklar ilk çözümden sonra önbelleğe alınır: aşağıdakileri denemeden önce kitabın
+önbelleğini silin (kitap açıkken okuma menüsünde Delete Book Cache) ya da kitabı ilk kez açın.
+Hata belirtileri: kayık ya da bloklu (8×8 kareli) görüntü, yanlış gri tonlar, eksik şeritler,
+boş resim, donma ya da yeniden başlatma.
+
+- [ ] JPEG resimli birkaç kitap (fotoğraf, taranmış sayfa, çizgi roman): resimler eskisi gibi
+  görünmeli; büyük fotoğraflar da (sayfaya küçültülerek).
+- [ ] `python3 emu/make_jpeg_epub.py emu/books/jpeg` ile üretilen `jpeg.epub`'ı karta kopyalayıp
+  11 bölümü sırayla açın; görünüşleri
+  `emu/compare.sh emu/jpeg.txt x4pro emu/books/jpeg/jpeg.epub` çıktısındaki
+  `emu/runs/jpeg-jpeg-*/report.html` ekran görüntüleriyle aynı olmalı. İlerlemeli JPEG'ler
+  bulanık görünür (eskiden de öyleydi: yalnızca ilk tarama, 1/8 boyutta çözülür). CMYK bölümü
+  bozuk, şeritli görünür (eskiden de öyleydi).
+- [ ] JPEG kapaklı kitaplar: Home'daki ve Library'deki kapak küçük resimleri ile Details
+  (Ayrıntılar) ekranındaki kapak görünmeli (`jpeg.epub`'ın kapağı da).
+- [ ] Dosya gezgininden bir `.jpg` dosyası açın (büyük bir fotoğraf da deneyin): resim eskisi
+  gibi görünmeli, önceki/sonraki resme geçiş çalışmalı.
+- [ ] Resim görüntüleyicide bir `.jpg` açıkken **Kapak Ayarla** (Set Cover) düğmesine basın,
+  sonra cihazı uyutun: uyku ekranında resim eskisi gibi görünmeli.
+- [ ] Hız: `jpeg.epub`'ın büyük resimli üç bölümünü önbelleği silinmiş olarak açın, günlükteki
+  `JPEG decoding complete - render time:` sürelerini önceki sürümle karşılaştırın. Emülatörde
+  yeni çözücü daha yavaş: "Large, at 1/2" ~425 ms (eskisi ~383, %11), "Larger, at 1/4" ~742 ms
+  (eskisi ~656, %13), "Wide, at 1/8" ~470 ms (eskisi ~410, %15); küçük resimlerde birkaç ms.
+  Kapak küçük resminin süresi, günlükte `Converting JPEG to 1-bit BMP` ile
+  `Successfully converted JPEG to BMP` satırlarının zaman damgaları arasıdır: emülatörde ~232 ms
+  (eskisi ~219, %6). Cihazda fark %30'u aşarsa ya da kapak/sayfa açılışı gözle fark edilir
+  biçimde yavaşlarsa not edin.

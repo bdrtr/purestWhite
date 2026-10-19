@@ -17,3 +17,8 @@ debug = true
 
 [profile.dev]
 panic = "abort"
+
+# Measured in the emulator: 2-4% faster JPEG decode for +2.3 KB flash. Generic functions
+# (`decode`, `open` and the reads they make through the source) are built in bembeyaz-ffi, at "s".
+[profile.release.package.bembeyaz-jpeg]
+opt-level = 2

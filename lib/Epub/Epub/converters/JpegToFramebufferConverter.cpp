@@ -3,31 +3,33 @@
 #include <FsHelpers.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
-#include <JPEGDEC.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <bembeyaz/jpeg.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdlib>
 #include <memory>
-#include <new>
 
 #include "DirectPixelWriter.h"
 #include "DitherUtils.h"
 #include "PixelCache.h"
 
+// jpeg.h's layouts, which bembeyaz-ffi's jpeg.rs checks from its side.
+static_assert(offsetof(bb_jpeg_info, progressive) == 8);
+static_assert(offsetof(bb_jpeg_block, x) == sizeof(void*) && offsetof(bb_jpeg_block, width_used) == sizeof(void*) + 16);
+
 namespace {
 
-// Context struct passed through JPEGDEC callbacks to avoid global mutable state.
-// The draw callback receives this via pDraw->pUser (set by setUserPointer()).
-// The file I/O callbacks receive the HalFile* via pFile->fHandle (set by jpegOpen()).
+// What the draw callback works with, passed through bb_jpeg_decode.
 struct JpegContext {
   GfxRenderer* renderer{nullptr};
   const RenderConfig* config{nullptr};
   int screenWidth{0};
   int screenHeight{0};
 
-  // Visible source dimensions after JPEGDEC's built-in scaling
+  // Visible source dimensions after the decoder's built-in scaling
   int scaledSrcWidth{0};
   int scaledSrcHeight{0};
   int cropLeft{0};
@@ -53,70 +55,51 @@ struct JpegContext {
   uint32_t lastYieldMs{0};  // throttle state for yieldDuringDecode()
 };
 
-// File I/O callbacks use pFile->fHandle to access the HalFile*,
-// avoiding the need for global file state.
-void* jpegOpen(const char* filename, int32_t* size) {
-  // JPEGDEC releases this handle through jpegClose().
-  HalFile* f = new (std::nothrow) HalFile();
-  if (!f) {
-    LOG_ERR("JPG", "OOM: JPEG file handle");
-    return nullptr;
+// The image file, which the decoder reads at a position.
+struct JpegFile {
+  HalFile file;
+  uint32_t position{0};
+};
+
+size_t jpegRead(void* context, const uint32_t pos, uint8_t* buf, const size_t len) {
+  auto& f = *static_cast<JpegFile*>(context);
+  if (pos != f.position) {
+    if (!f.file.seek(pos)) return 0;
+    f.position = pos;
   }
-  if (!Storage.openFileForRead("JPG", std::string(filename), *f)) {
-    delete f;
-    return nullptr;
-  }
-  *size = f->size();
-  return f;
+  const int n = f.file.read(buf, len);
+  if (n <= 0) return 0;
+  f.position += n;
+  return static_cast<size_t>(n);
 }
 
-void jpegClose(void* handle) {
-  HalFile* f = reinterpret_cast<HalFile*>(handle);
-  if (f) {
-    f->close();
-    delete f;
-  }
+using JpegHandle = std::unique_ptr<bb_jpeg, decltype(&bb_jpeg_free)>;
+
+// Opens the file and reads its header; status gets the result, or -1 when the file does not open.
+// Null when the file does not open or memory runs out. file must outlive the handle.
+JpegHandle openJpeg(const std::string& imagePath, JpegFile& file, int& status) {
+  status = -1;
+  if (!Storage.openFileForRead("JPG", imagePath, file.file)) return JpegHandle(nullptr, bb_jpeg_free);
+  return JpegHandle(bb_jpeg_open(jpegRead, &file, static_cast<int32_t>(file.file.size()), &status), bb_jpeg_free);
 }
 
-// JPEGDEC tracks file position via pFile->iPos internally (e.g. JPEGGetMoreData
-// checks iPos < iSize to decide whether more data is available). The callbacks
-// MUST maintain iPos to match the actual file position, otherwise progressive
-// JPEGs with large headers fail during parsing.
-int32_t jpegRead(JPEGFILE* pFile, uint8_t* pBuf, int32_t len) {
-  HalFile* f = reinterpret_cast<HalFile*>(pFile->fHandle);
-  if (!f) return 0;
-  int32_t bytesRead = f->read(pBuf, len);
-  if (bytesRead < 0) return 0;
-  pFile->iPos += bytesRead;
-  return bytesRead;
-}
-
-int32_t jpegSeek(JPEGFILE* pFile, int32_t pos) {
-  HalFile* f = reinterpret_cast<HalFile*>(pFile->fHandle);
-  if (!f) return -1;
-  if (!f->seek(pos)) return -1;
-  pFile->iPos = pos;
-  return pos;
-}
-
-// JPEGDEC object is ~17 KB due to internal decode buffers.
-// Heap-allocate on demand so memory is only used during active decode.
+// The decoder takes ~18 KB for the open image (its read buffer, Huffman tables and pixel buffer).
 constexpr size_t JPEG_DECODER_APPROX_SIZE = 20 * 1024;
 constexpr size_t MIN_FREE_HEAP_FOR_JPEG = JPEG_DECODER_APPROX_SIZE + 16 * 1024;
 
-// Choose JPEGDEC's built-in scale factor for coarse downscaling.
+// Choose the decoder's built-in scale factor for coarse downscaling.
 // Returns the scale denominator (1, 2, 4, or 8) and sets jpegScaleOption.
 int chooseJpegScale(float targetScale, int& jpegScaleOption) {
   if (targetScale <= 0.125f) {
-    jpegScaleOption = JPEG_SCALE_EIGHTH;
+    jpegScaleOption = BB_JPEG_SCALE_EIGHTH;
     return 8;
   }
   if (targetScale <= 0.25f) {
-    jpegScaleOption = JPEG_SCALE_QUARTER;
+    jpegScaleOption = BB_JPEG_SCALE_QUARTER;
     return 4;
   }
   if (targetScale <= 0.5f) {
-    jpegScaleOption = JPEG_SCALE_HALF;
+    jpegScaleOption = BB_JPEG_SCALE_HALF;
     return 2;
   }
   jpegScaleOption = 0;
@@ -128,18 +111,17 @@ constexpr int FP_SHIFT = 16;
 constexpr int32_t FP_ONE = 1 << FP_SHIFT;
 constexpr int32_t FP_MASK = FP_ONE - 1;
 
-int jpegDrawCallback(JPEGDRAW* pDraw) {
-  JpegContext* ctx = reinterpret_cast<JpegContext*>(pDraw->pUser);
+int jpegDrawCallback(void* user, const bb_jpeg_block* block) {
+  JpegContext* ctx = static_cast<JpegContext*>(user);
   if (!ctx || !ctx->config || !ctx->renderer) return 0;
 
   ImageToFramebufferDecoder::yieldDuringDecode(ctx->lastYieldMs);
 
-  // In EIGHT_BIT_GRAYSCALE mode, pPixels contains 8-bit grayscale values
-  // Buffer is densely packed: stride = pDraw->iWidth, valid columns = pDraw->iWidthUsed
-  uint8_t* pixels = reinterpret_cast<uint8_t*>(pDraw->pPixels);
-  const int stride = pDraw->iWidth;
-  const int validW = pDraw->iWidthUsed;
-  const int blockH = pDraw->iHeight;
+  // 8-bit grayscale, densely packed: stride = block->width, valid columns = block->width_used
+  const uint8_t* pixels = block->pixels;
+  const int stride = block->width;
+  const int validW = block->width_used;
+  const int blockH = block->height;
 
   if (stride <= 0 || blockH <= 0 || validW <= 0) return 1;
 
@@ -152,8 +134,8 @@ int jpegDrawCallback(JPEGDRAW* pDraw) {
   GfxRenderer& renderer = *ctx->renderer;
   const int cfgX = ctx->config->x;
   const int cfgY = ctx->config->y;
-  const int blockX = pDraw->x - ctx->cropLeft;
-  const int blockY = pDraw->y - ctx->cropTop;
+  const int blockX = block->x - ctx->cropLeft;
+  const int blockY = block->y - ctx->cropTop;
 
   // Determine destination pixel range covered by this source block
   const int srcYEnd = blockY + blockH;
@@ -373,21 +355,18 @@ bool JpegToFramebufferConverter::getDimensionsStatic(const std::string& imagePat
     return false;
   }
 
-  std::unique_ptr<JPEGDEC> jpeg(new (std::nothrow) JPEGDEC());
-  if (!jpeg) {
-    LOG_ERR("JPG", "Failed to allocate JPEG decoder for dimensions");
+  JpegFile file;
+  int status = 0;
+  const JpegHandle jpeg = openJpeg(imagePath, file, status);
+  if (status != BB_JPEG_SUCCESS) {
+    LOG_ERR("JPG", "Failed to open JPEG for dimensions (err=%d): %s", status, imagePath.c_str());
     return false;
   }
+  bb_jpeg_info info{};
+  bb_jpeg_get_info(jpeg.get(), &info);
 
-  int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, nullptr);
-  const ScopedCleanup cleanup{[&jpeg]() { jpeg->close(); }};
-  if (rc != 1) {
-    LOG_ERR("JPG", "Failed to open JPEG for dimensions (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
-    return false;
-  }
-
-  const int width = jpeg->getWidth();
-  const int height = jpeg->getHeight();
+  const int width = info.width;
+  const int height = info.height;
   if (!validateAndStoreDimensions(width, height, out, "JPEG")) return false;
   LOG_DBG("JPG", "Image dimensions: %dx%d", width, height);
 
@@ -411,27 +390,24 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
     return false;
   }
 
-  std::unique_ptr<JPEGDEC> jpeg(new (std::nothrow) JPEGDEC());
-  if (!jpeg) {
-    LOG_ERR("JPG", "Failed to allocate JPEG decoder");
-    return false;
-  }
-
   JpegContext ctx;
   ctx.renderer = &renderer;
   ctx.config = &config;
   ctx.screenWidth = renderer.getScreenWidth();
   ctx.screenHeight = renderer.getScreenHeight();
 
-  int rc = jpeg->open(imagePath.c_str(), jpegOpen, jpegClose, jpegRead, jpegSeek, jpegDrawCallback);
-  const ScopedCleanup cleanup{[&jpeg]() { jpeg->close(); }};
-  if (rc != 1) {
-    LOG_ERR("JPG", "Failed to open JPEG (err=%d): %s", jpeg->getLastError(), imagePath.c_str());
+  JpegFile file;
+  int status = 0;
+  const JpegHandle jpeg = openJpeg(imagePath, file, status);
+  if (status != BB_JPEG_SUCCESS) {
+    LOG_ERR("JPG", "Failed to open JPEG (err=%d): %s", status, imagePath.c_str());
     return false;
   }
+  bb_jpeg_info info{};
+  bb_jpeg_get_info(jpeg.get(), &info);
 
   ImageDimensions sourceDimensions;
-  if (!validateAndStoreDimensions(jpeg->getWidth(), jpeg->getHeight(), sourceDimensions, "JPEG")) return false;
+  if (!validateAndStoreDimensions(info.width, info.height, sourceDimensions, "JPEG")) return false;
   const int srcWidth = sourceDimensions.width;
   const int srcHeight = sourceDimensions.height;
   const float cropX = std::clamp(config.sourceCropX, 0.0f, 0.99f);
@@ -439,7 +415,7 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
   const int visibleWidth = srcWidth - 2 * static_cast<int>(srcWidth * cropX / 2);
   const int visibleHeight = srcHeight - 2 * static_cast<int>(srcHeight * cropY / 2);
 
-  bool isProgressive = jpeg->getJPEGType() == JPEG_MODE_PROGRESSIVE;
+  const bool isProgressive = info.progressive;
   if (isProgressive) {
     LOG_INF("JPG", "Progressive JPEG detected - decoding DC coefficients only (lower quality)");
   }
@@ -464,14 +440,14 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
     destHeight = (int)(visibleHeight * targetScale);
   }
 
-  // Choose JPEGDEC built-in scaling for coarse downscaling.
-  // Progressive JPEGs: JPEGDEC forces JPEG_SCALE_EIGHTH internally (DC-only
-  // decode produces 1/8 resolution). We must match this to avoid the if/else
-  // priority chain in DecodeJPEG selecting a different scale.
+  // Choose the decoder's built-in scaling for coarse downscaling.
+  // Progressive JPEGs hold only 1/8-size data (the DC values of the first
+  // scan), so ask for 1/8: full size gives 1/8 anyway, and 1/2 or 1/4 leave
+  // most of a subsampled image's blocks unfilled.
   int jpegScaleOption;
   int jpegScaleDenom;
   if (isProgressive) {
-    jpegScaleOption = JPEG_SCALE_EIGHTH;
+    jpegScaleOption = BB_JPEG_SCALE_EIGHTH;
     jpegScaleDenom = 8;
   } else {
     jpegScaleDenom = chooseJpegScale(targetScale, jpegScaleOption);
@@ -500,12 +476,8 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
           destHeight, targetScale, jpegScaleDenom, (float)destWidth / ctx.scaledSrcWidth,
           isProgressive ? " [progressive]" : "");
 
-  // Set pixel type to 8-bit grayscale (must be after open())
-  jpeg->setPixelType(EIGHT_BIT_GRAYSCALE);
-  jpeg->setUserPointer(&ctx);
-
   // Start streaming the pixel cache to disk. The band only needs to hold the
-  // tallest single decode block: a JPEGDEC MCU cell is at most 16 scaled-source
+  // tallest single decode block: an MCU cell is at most 16 scaled-source
   // rows tall, which our fine scale maps to this many output rows.
   ctx.caching = !config.cachePath.empty();
   if (ctx.caching) {
@@ -518,11 +490,11 @@ bool JpegToFramebufferConverter::decodeToFramebuffer(const std::string& imagePat
 
   unsigned long decodeStart = millis();
   ctx.lastYieldMs = decodeStart;
-  rc = jpeg->decode(0, 0, jpegScaleOption);
+  status = bb_jpeg_decode(jpeg.get(), jpegScaleOption, jpegDrawCallback, &ctx);
   unsigned long decodeTime = millis() - decodeStart;
 
-  if (rc != 1) {
-    LOG_ERR("JPG", "Decode failed (rc=%d, lastError=%d)", rc, jpeg->getLastError());
+  if (status != BB_JPEG_SUCCESS) {
+    LOG_ERR("JPG", "Decode failed (err=%d)", status);
     if (ctx.caching) ctx.cache.abort();
     return false;
   }

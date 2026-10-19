@@ -5,8 +5,8 @@ The patches in `scripts/sdfat_patches/` make USE_SEPARATE_FAT_CACHE
 overridable and invalidate the sector cache after a failed read (see the
 file headers). They target SdFat 2.3.1 only.
 
-Unlike JPEGDEC, SdFat is a registry dependency of the SDK, so the script
-patches only the copy that the current environment actually builds:
+SdFat is a registry dependency of the SDK, so the script patches only the
+copy that the current environment actually builds:
   * the target must live under this project's `.pio/libdeps/<env>/`
   * `library.properties` must say version 2.3.1
   * each target file must hash to the reviewed upstream or patched bytes

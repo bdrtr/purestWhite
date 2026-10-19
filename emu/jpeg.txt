@@ -1,0 +1,42 @@
+# Book from make_jpeg_epub.py: open it, page through its chapters (one JPEG each), then Home
+# for the JPEG cover thumbnail
+ready
+touch:240,348
+wait-screen
+touch:240,138
+wait-log:Page render
+shot:gray
+heap:gray
+swipe:left
+wait-log:Page render
+shot:color444
+swipe:left
+wait-log:Page render
+shot:color422
+swipe:left
+wait-log:Page render
+shot:color420-odd
+swipe:left
+wait-log:Page render
+shot:prog-gray
+swipe:left
+wait-log:Page render
+shot:prog-color
+swipe:left
+wait-log:Page render
+shot:restart
+swipe:left
+wait-log:Page render
+shot:cmyk
+swipe:left
+wait-log:Page render
+shot:large-half
+swipe:left
+wait-log:Page render
+shot:larger-quarter
+swipe:left
+wait-log:Page render
+shot:wide-eighth
+press:home
+wait-quiet:8
+shot:home-cover

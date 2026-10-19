@@ -3,16 +3,19 @@
 // progressive, error), and, for files the converters go on to decode, every block it draws at each
 // scale they ask for (position, size, the 8-bit gray pixels in use) and the result of the decode.
 // Files are decoded only when the converters would decode them: a size within their limits.
-// The reports hash to a value recorded from JPEGDEC (the commit platformio.ini pins, with the
-// patches in scripts/jpegdec_patches), built as the firmware builds it. Rerun with
+// The reports hash to a value recorded from JPEGDEC (the commit platformio.ini pinned, with
+// CrossPoint's three patches, built as the firmware built it: a 32-bit bit buffer, no unaligned
+// reads, no SIMD), the decoder the firmware used before bembeyaz-jpeg. Rerun with
 // JPEG_CORPUS_PRINT=1 to list the cases. The hash freezes the corpus.
 //
 // Left out, because JPEGDEC's output there is not a behaviour to keep: a sampling factor of 3, on
-// which it divides by zero (a crash on the device too), and a frame of more than four components,
-// on which it writes past its component table into the rest of its state. Its other undefined
-// behaviour, shifts by a negative amount while it builds Huffman tables, comes out the same on the
-// device (Xtensa and x86 both shift by the low 5 bits); reports from 32- and 64-bit builds match.
+// which it divided by zero (a crash on the device too), and a frame of more than four components,
+// on which it wrote past its component table into the rest of its state. bembeyaz-jpeg's own tests
+// cover those. Its other undefined behaviour, shifts by a negative amount while it built Huffman
+// tables, came out the same on the device (Xtensa and x86 both shift by the low 5 bits); reports
+// from 32- and 64-bit builds of it matched.
 
+#include <bembeyaz/jpeg.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -25,8 +28,6 @@
 #include <iterator>
 #include <string>
 #include <vector>
-
-#include "JPEGDEC.h"
 
 namespace {
 
@@ -48,83 +49,60 @@ bool convertersWouldDecode(const int width, const int height) {
          static_cast<int64_t>(width) * height <= 8388608;
 }
 
-// The data source the firmware gives the decoder: a file it reads and seeks as HalFile does
-// (a seek past the end fails).
-struct MemoryFile {
-  const std::vector<uint8_t>* data;
-  int32_t position = 0;
-};
-
-// The file being decoded: JPEGDEC's open callback takes only a name.
-MemoryFile* currentFile = nullptr;
-
-void* openFile(const char*, int32_t* size) {
-  currentFile->position = 0;
-  *size = static_cast<int32_t>(currentFile->data->size());
-  return currentFile;
-}
-
-void closeFile(void*) {}
-
-// As the converters' callbacks: iPos follows every read and seek.
-int32_t readFile(JPEGFILE* f, uint8_t* buffer, const int32_t len) {
-  auto* m = static_cast<MemoryFile*>(f->fHandle);
-  const int32_t available = static_cast<int32_t>(m->data->size()) - m->position;
-  const int32_t n = std::max<int32_t>(0, std::min(len, available));
-  if (n > 0) std::memcpy(buffer, m->data->data() + m->position, static_cast<size_t>(n));
-  m->position += n;
-  f->iPos += n;
+// The data source the firmware gives the decoder: a file it reads at a position.
+size_t readAt(void* context, const uint32_t pos, uint8_t* buf, const size_t len) {
+  const auto& data = *static_cast<const std::vector<uint8_t>*>(context);
+  if (pos >= data.size()) return 0;
+  const size_t n = std::min(len, data.size() - pos);
+  std::memcpy(buf, data.data() + pos, n);
   return n;
 }
 
-int32_t seekFile(JPEGFILE* f, const int32_t position) {
-  auto* m = static_cast<MemoryFile*>(f->fHandle);
-  if (position < 0 || position > static_cast<int32_t>(m->data->size())) return -1;
-  m->position = position;
-  f->iPos = position;
-  return position;
-}
-
-int drawBlock(JPEGDRAW* draw) {
-  std::string& out = *static_cast<std::string*>(draw->pUser);
-  // The converters read iWidthUsed columns of each of iHeight rows, iWidth bytes apart.
-  const auto* pixels = reinterpret_cast<const uint8_t*>(draw->pPixels);
+int drawBlock(void* user, const bb_jpeg_block* block) {
+  std::string& out = *static_cast<std::string*>(user);
+  // The converters read width_used columns of each of height rows, width bytes apart.
   uint64_t h = 0xCBF29CE484222325ULL;
-  for (int row = 0; row < draw->iHeight; ++row) {
-    for (int x = 0; x < draw->iWidthUsed; ++x) {
-      h ^= pixels[row * draw->iWidth + x];
+  for (int row = 0; row < block->height; ++row) {
+    for (int x = 0; x < block->width_used; ++x) {
+      h ^= block->pixels[row * block->width + x];
       h *= 0x100000001B3ULL;
     }
   }
   char line[160];
-  std::snprintf(line, sizeof(line), "block %d,%d %dx%d used %d bpp %d pixels %016llx\n", draw->x, draw->y, draw->iWidth,
-                draw->iHeight, draw->iWidthUsed, draw->iBpp, static_cast<unsigned long long>(h));
+  std::snprintf(line, sizeof(line), "block %d,%d %dx%d used %d bpp %d pixels %016llx\n", block->x, block->y,
+                block->width, block->height, block->width_used, 8, static_cast<unsigned long long>(h));
   out += line;
   return 1;
 }
 
-std::string report() {
-  static JPEGDEC jpeg;  // ~17 KB: kept off the stack
+std::string report(const std::vector<uint8_t>& file) {
   std::string out;
   char line[160];
-  // What getDimensions sees.
-  int rc = jpeg.open("file", openFile, closeFile, readFile, seekFile, nullptr);
-  std::snprintf(line, sizeof(line), "open %d error %d %dx%d type %d\n", rc, jpeg.getLastError(), jpeg.getWidth(),
-                jpeg.getHeight(), jpeg.getJPEGType());
+  void* context = const_cast<std::vector<uint8_t>*>(&file);
+  const auto size = static_cast<int32_t>(file.size());
+  // What getDimensions sees, in JPEGDEC's terms: open's 1 or 0 and the error.
+  int status = 0;
+  bb_jpeg* jpeg = bb_jpeg_open(readAt, context, size, &status);
+  if (!jpeg) return "out of memory\n";
+  bb_jpeg_info info;
+  bb_jpeg_get_info(jpeg, &info);
+  std::snprintf(line, sizeof(line), "open %d error %d %dx%d type %d\n", status == BB_JPEG_SUCCESS, status, info.width,
+                info.height, info.progressive ? 1 : 0);
   out += line;
-  const bool decodes = rc == 1 && convertersWouldDecode(jpeg.getWidth(), jpeg.getHeight());
-  jpeg.close();
+  const bool decodes = status == BB_JPEG_SUCCESS && convertersWouldDecode(info.width, info.height);
+  bb_jpeg_free(jpeg);
   if (!decodes) return out;
   // Each scale the framebuffer converter picks (the cover converter asks for 0).
-  for (const int options : {0, JPEG_SCALE_HALF, JPEG_SCALE_QUARTER, JPEG_SCALE_EIGHTH}) {
-    rc = jpeg.open("file", openFile, closeFile, readFile, seekFile, drawBlock);
-    jpeg.setPixelType(EIGHT_BIT_GRAYSCALE);
-    jpeg.setUserPointer(&out);
-    const int decoded = rc == 1 ? jpeg.decode(0, 0, options) : -1;
-    std::snprintf(line, sizeof(line), "decode %d open %d result %d error %d\n", options, rc, decoded,
-                  jpeg.getLastError());
+  const int scales[] = {0, BB_JPEG_SCALE_HALF, BB_JPEG_SCALE_QUARTER, BB_JPEG_SCALE_EIGHTH};
+  for (const int options : scales) {
+    jpeg = bb_jpeg_open(readAt, context, size, &status);
+    if (!jpeg) return out + "out of memory\n";
+    const bool opened = status == BB_JPEG_SUCCESS;
+    if (opened) status = bb_jpeg_decode(jpeg, options, drawBlock, &out);
+    std::snprintf(line, sizeof(line), "decode %d open %d result %d error %d\n", options, opened,
+                  opened ? status == BB_JPEG_SUCCESS : -1, status);
     out += line;
-    jpeg.close();
+    bb_jpeg_free(jpeg);
   }
   return out;
 }
@@ -143,9 +121,7 @@ TEST(JpegDecoderCorpus, BlocksMatchTheRecordedDecoder) {
   Hash hash;
   size_t cases = 0;
   const auto run = [&](const std::string& name, const std::vector<uint8_t>& file) {
-    MemoryFile memory{&file};
-    currentFile = &memory;
-    const std::string r = report();
+    const std::string r = report(file);
     hash.add(name);
     hash.add(r);
     ++cases;

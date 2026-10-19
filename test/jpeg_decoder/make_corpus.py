@@ -5,7 +5,8 @@ tables, restart intervals, progressive scans, four-component (CMYK) files, metad
 
     python3 test/jpeg_decoder/make_corpus.py test/jpeg_decoder/corpus
 
-The files are committed; rerun only to change the corpus (and record new hashes)."""
+The files are committed. The test's hash was recorded from JPEGDEC, which is no longer built:
+changing the corpus loses that check."""
 import io
 import random
 import struct
