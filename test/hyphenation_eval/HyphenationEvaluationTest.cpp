@@ -8,9 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "lib/Epub/Epub/hyphenation/HyphenationCommon.h"
-#include "lib/Epub/Epub/hyphenation/LanguageHyphenator.h"
-#include "lib/Epub/Epub/hyphenation/LanguageRegistry.h"
+#include "lib/Epub/Epub/hyphenation/Hyphenator.h"
 
 #ifndef HYPHENATION_RESOURCES_DIR
 #error "HYPHENATION_RESOURCES_DIR must be defined by the build system"
@@ -113,10 +111,21 @@ std::string positionsToHyphenated(const std::string& word, const std::vector<siz
   return result;
 }
 
-std::vector<size_t> hyphenateWordWithHyphenator(const std::string& word, const LanguageHyphenator& hyphenator) {
-  auto cps = collectCodepoints(word);
-  trimSurroundingPunctuationAndFootnote(cps);
-  return hyphenator.breakIndexes(cps);
+// Pattern breaks only (no fallback), as codepoint indexes into the word.
+std::vector<size_t> hyphenateWord(const std::string& word) {
+  std::vector<size_t> positions;
+  const auto breaks = Hyphenator::breakOffsets(word, /*includeFallback=*/false);
+  const auto* begin = reinterpret_cast<const unsigned char*>(word.c_str());
+  const auto* p = begin;
+  size_t index = 0;
+  for (const auto& info : breaks) {
+    while (static_cast<size_t>(p - begin) < info.byteOffset && *p) {
+      utf8NextCodepoint(&p);
+      ++index;
+    }
+    positions.push_back(index);
+  }
+  return positions;
 }
 
 EvaluationResult evaluateWord(const TestCase& testCase, const std::vector<size_t>& actualPositions) {
@@ -180,8 +189,7 @@ EvaluationResult evaluateWord(const TestCase& testCase, const std::vector<size_t
 // is at or above `minF1Percent`. Thresholds are set ~1pp below measured
 // baselines so unrelated tweaks don't fail CI but real regressions still trip.
 void runLanguageEval(const char* langName, const char* primaryTag, const char* resourceFile, double minF1Percent) {
-  const auto* hyphenator = getLanguageHyphenatorForPrimaryTag(primaryTag);
-  ASSERT_NE(hyphenator, nullptr) << "No hyphenator registered for tag: " << primaryTag;
+  Hyphenator::setPreferredLanguage(primaryTag);
 
   std::string path = std::string(HYPHENATION_RESOURCES_DIR) + "/" + resourceFile;
   std::vector<TestCase> testCases = loadTestData(path);
@@ -191,7 +199,7 @@ void runLanguageEval(const char* langName, const char* primaryTag, const char* r
   std::vector<std::pair<TestCase, EvaluationResult>> imperfect;
 
   for (const auto& tc : testCases) {
-    std::vector<size_t> actual = hyphenateWordWithHyphenator(tc.word, *hyphenator);
+    std::vector<size_t> actual = hyphenateWord(tc.word);
     EvaluationResult res = evaluateWord(tc, actual);
     totalF1 += res.f1Score;
     if (res.weightedScore < 0.999999) {
@@ -213,7 +221,7 @@ void runLanguageEval(const char* langName, const char* primaryTag, const char* r
     int show = std::min<int>(10, static_cast<int>(imperfect.size()));
     for (int i = 0; i < show; ++i) {
       const TestCase& tc = imperfect[i].first;
-      std::vector<size_t> actual = hyphenateWordWithHyphenator(tc.word, *hyphenator);
+      std::vector<size_t> actual = hyphenateWord(tc.word);
       std::cout << "  " << tc.word << " | expected=" << tc.hyphenated
                 << " | got=" << positionsToHyphenated(tc.word, actual) << "\n";
     }
