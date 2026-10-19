@@ -528,3 +528,35 @@ fn refuses_a_distance_before_the_start() {
     let compressed = compress_to_vec(&data, 6);
     assert_eq!(streamed(&compressed, Format::Deflate, 4096, 1000), Ok(data));
 }
+
+/// A dynamic block whose end-of-block symbol has no code is corrupt, as zlib has it: it could never
+/// end. Here literals 0-255 take every 8-bit code (a complete code) and 256 none.
+#[test]
+fn refuses_a_block_without_an_end_of_block_code() {
+    let mut bits = Bits::default();
+    bits.put(1, 1); // last block
+    bits.put(2, 2); // dynamic codes
+    bits.put(0, 5); // 257 literal/length codes
+    bits.put(0, 5); // 1 distance code
+    bits.put(15, 4); // all 19 code-length code lengths, in their order below
+    for symbol in [
+        16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
+    ] {
+        // Lengths 0, 1 and 8 get 2-bit codes (00, 01, 10 in symbol order), the rest none.
+        bits.put(if matches!(symbol, 0 | 1 | 8) { 2 } else { 0 }, 3);
+    }
+    for _ in 0..256 {
+        bits.code(0b10, 2); // length 8
+    }
+    bits.code(0b00, 2); // 256: length 0
+    bits.code(0b01, 2); // the distance code: length 1
+    let stream = bits.finish();
+    assert_eq!(
+        one_shot(&stream, Format::Deflate, 1, 10),
+        Err(Error::Corrupt)
+    );
+    assert_eq!(
+        streamed(&stream, Format::Deflate, 1, 10),
+        Err(Error::Corrupt)
+    );
+}

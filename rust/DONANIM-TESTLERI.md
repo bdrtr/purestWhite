@@ -106,3 +106,5 @@ CrossPoint, `../crosspoint-prev` 609d473.
 - [ ] Yarıda kesilmiş ya da bozuk bir EPUB (örneğin yarım kalmış bir indirme): açmayı
   deneyin; donma ya da yeniden başlatma olmamalı, bozuk bölüm hata vermeli. Sağlam
   kitaplar bu değişiklikten etkilenmez.
+- [ ] ("fix: inflate refuses a block without an end-of-block code") Aynı denemede bozuk kitap
+  bölüm hatası vermeli, donmamalı. Sağlam kitaplar bu değişiklikten de etkilenmez.

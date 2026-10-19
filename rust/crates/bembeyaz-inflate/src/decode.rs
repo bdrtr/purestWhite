@@ -11,6 +11,9 @@
 //! buffer. So does when input goes back: whole bytes left in the bit buffer are returned to the
 //! input whenever a run stops for anything but more input.
 //!
+//! Stricter than `miniz_oxide`, as zlib: a literal/length code without the end-of-block symbol is
+//! corrupt (such a block could never end).
+//!
 //! In a ring (`wrapping`) a distance is checked against the output the stream has produced, as
 //! zlib does ("invalid distance too far back"); `miniz_oxide` checked it against the ring's size
 //! only and copied whatever the ring held before the stream.
@@ -555,7 +558,9 @@ impl Decoder {
                     let (literals, distances) =
                         self.lengths.split_at_checked(hlit).unwrap_or_default();
                     self.fixed_tables = false;
-                    if self.literals.build(literals, true).is_err()
+                    // A block without an end-of-block code can never end; zlib refuses it here.
+                    if literals.get(256).is_none_or(|&len| len == 0)
+                        || self.literals.build(literals, true).is_err()
                         || self
                             .distances
                             .build(distances.get(..hdist).unwrap_or_default(), true)

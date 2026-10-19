@@ -363,8 +363,8 @@ fn truncated_trailer_past_a_window() {
     }
 }
 
-/// An all-zero literal/length code (accepted, as in the old decoder) at the very end of the
-/// input: the next symbol needs a bit first, so it is a truncation, not corruption.
+/// An all-zero literal/length code at the very end of the input. The old decoder took it and then
+/// reported a truncation; it has no end-of-block code, so it is corrupt now, as zlib has it.
 #[test]
 fn empty_code_at_the_end_of_the_input() {
     let mut bits = 0u64;
@@ -393,13 +393,18 @@ fn empty_code_at_the_end_of_the_input() {
         for piece in [1, 300] {
             assert_eq!(
                 streamed_calls(&stream, Format::Deflate, chunk, piece, false),
+                "0 Err(Corrupt) []\n",
+                "chunk {chunk} piece {piece}"
+            );
+            assert_eq!(
                 streamed_calls(&stream, Format::Deflate, chunk, piece, true),
+                "0 Err(Truncated) []\n",
                 "chunk {chunk} piece {piece}"
             );
         }
         assert_eq!(
             one_shot_calls(&stream, Format::Deflate, chunk, 300, 300, false),
-            one_shot_calls(&stream, Format::Deflate, chunk, 300, 300, true),
+            "0 Err(Corrupt) []\n"
         );
     }
 }
