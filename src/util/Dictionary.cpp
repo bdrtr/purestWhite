@@ -503,7 +503,7 @@ bool Dictionary::readDefinition(const DictLocation& location, std::string& out, 
 
   // Refuse before touching the heap or the SD: std::string growth aborts on OOM
   // (-fno-exceptions), and the extraction below transiently holds small buffers
-  // plus a 32KB inflate window and ~4.5KB decoder state we'd rather not commit to
+  // plus a 32KB inflate window and ~11KB decoder state we'd rather not commit to
   // a doomed lookup.
   if (ESP.getMaxAllocHeap() < size + DEFINITION_HEAP_HEADROOM_BYTES) {
     LOG_ERR("DICT", "Low heap for %lu byte definition", static_cast<unsigned long>(size));

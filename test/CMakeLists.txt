@@ -40,6 +40,11 @@ add_dependencies(bembeyaz_rust bembeyaz_rust_build)
 target_include_directories(bembeyaz_rust INTERFACE ${REPO_ROOT}/rust/include)
 target_link_libraries(bembeyaz_rust INTERFACE ${BEMBEYAZ_RUST_LIB} Threads::Threads ${CMAKE_DL_LIBS} m)
 
+# lib/InflateStream calls the ESP32-S3 ROM's tinfl_decompress (miniz 1.15); the tests that build
+# it link the same version from source, built as the ROM was (rom_tinfl/miniz115_tinfl.c).
+add_library(rom_tinfl STATIC rom_tinfl/miniz115_tinfl.c)
+target_compile_options(rom_tinfl PRIVATE -w)
+
 add_library(crosspoint_test_common INTERFACE)
 target_include_directories(crosspoint_test_common INTERFACE
   ${REPO_ROOT}

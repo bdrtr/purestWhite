@@ -17,7 +17,6 @@ bench = false
 bembeyaz-bidi = { path = "../bembeyaz-bidi" }
 bembeyaz-css = { path = "../bembeyaz-css" }
 bembeyaz-hyphenation = { path = "../bembeyaz-hyphenation" }
-bembeyaz-inflate = { path = "../bembeyaz-inflate" }
 bembeyaz-jpeg = { path = "../bembeyaz-jpeg" }
 bembeyaz-layout = { path = "../bembeyaz-layout" }
 bembeyaz-opf = { path = "../bembeyaz-opf" }

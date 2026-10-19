@@ -72,7 +72,8 @@ CrossPoint, `../crosspoint-prev` 609d473.
 ## DEFLATE ve yazı tipleri (b340e76, fdd0780)
 
 - [ ] Kitap açma ve bölüm oluşturma süresi; önceki sürümle kabaca karşılaştırın (günlükte
-  `Time to parse and build pages`). Rust çözücüsü host'ta %10–20 yavaş, cihazda ölçülmedi.
+  `Time to parse and build pages`). EPUB dosyaları, yazı tipleri ve sözlük artık ROM'daki
+  inflate ile açılıyor: aşağıdaki "ROM'daki inflate" bölümü.
 - [ ] SD karttan yüklenen bir yazı tipiyle okuma: glifler bozulmadan çizilmeli, sayfa
   çevirme hızı eskisi gibi olmalı.
 - [ ] PNG kapaklı bir kitap: kapak görünmeli.
@@ -103,12 +104,12 @@ CrossPoint, `../crosspoint-prev` 609d473.
 
 ## Sıkıştırma ("fix: inflate refuses a distance before the start of the stream")
 
-- [ ] Yarıda kesilmiş ya da bozuk bir EPUB (örneğin yarım kalmış bir indirme): açmayı
-  deneyin; donma ya da yeniden başlatma olmamalı, bozuk bölüm hata vermeli. Sağlam
-  kitaplar bu değişiklikten etkilenmez.
-- [ ] ("fix: inflate refuses a block without an end-of-block code") Bu durum yalnızca elle
-  bozulmuş bir dosyada çıkar ve host testleri kapsar; yukarıdaki bozuk EPUB denemesinde donma
-  olmaması yeterli. Sağlam kitaplar bu değişiklikten de etkilenmez.
+Bu iki düzeltme artık yalnızca PNG resimlerinde (`bembeyaz-png`) geçerli; elle bozulmuş
+dosyalarda çıkar ve host testleri kapsar. Bozuk EPUB denemesi aşağıdaki "ROM'daki inflate"
+bölümünde.
+
+- [ ] Cihazda ayrıca denenecek bir şey yok: "PNG resimleri" bölümündeki `png-broken.epub`
+  denemesinde donma olmaması yeterli. Sağlam kitaplar bu değişikliklerden etkilenmez.
 
 ## Sıkıştırma hızı ("rust: inflate for the PNG decoder")
 
@@ -230,3 +231,34 @@ gri tonlar, donma ya da yeniden başlatma.
   çalışmalı. Kapak okunurken ~2,3 KB'lık okuyucu durumu (eskiden görev yığınındaydı) dahili heap'te
   durur; okuyucu dahili RAM'den hiçbir zaman 4 KB'tan büyük blok istemez (büyük satır tamponları
   PSRAM'e gider).
+
+## ROM'daki inflate ("inflate: InflateStream decodes with the ESP32-S3 ROM's miniz")
+
+EPUB içindeki dosyalar (bölümler, OPF, içindekiler, CSS, resim dosyaları), sıkıştırılmış yazı
+tiplerinin glif grupları (yerleşik okuma yazı tipleri ve indirilen `.cpfont`'lar), KOReader
+eşitlemesinin okuduğu bölümler ve sözlük (.dict.dz) tanımları artık S3 ROM'undaki miniz ile
+açılıyor (önceden kendi Rust çözücümüzle). PNG resimlerin içi hâlâ `bembeyaz-png` ile çözülür.
+Hata belirtileri: kitabın açılmaması, eksik ya da bozuk sayfa, bozuk ya da eksik glifler, sözlükte
+tanımın gelmemesi, donma ya da yeniden başlatma; sağlam bir dosyada günlükte `Inflate failed`.
+
+- [ ] Birkaç kitabın önbelleğini silip (kitap açıkken okuma menüsünde Delete Book Cache / Kitap
+  Önbelleğini Sil) açın, bölümler arasında gezinin: sayfalar, içindekiler, stiller ve resimler
+  eskisi gibi olmalı. Günlükteki `Time to parse and build pages` süresi önceki sürümden uzun
+  olmamalı (emülatörde aynı kaldı).
+- [ ] `python3 emu/make_inflate_epub.py emu/books/inflate` ile üretilen `inflate.epub`'ı karta
+  kopyalayıp açın: stored bölüm ve ~150 KB'lık level-9 bölüm,
+  `emu/compare.sh emu/inflate.txt x4pro emu/books/inflate/inflate.epub` çıktısındaki
+  (`emu/runs/inflate-inflate-*/report.html`) ekran görüntüleriyle aynı görünmeli.
+- [ ] Yerleşik yazı tipleriyle (farklı boyutlar, kalın/italik) ve indirilmiş bir yazı tipiyle
+  okuma: glifler bozulmadan çizilmeli, sayfa çevirme eskisi kadar hızlı olmalı.
+- [ ] Sözlük (.dict.dz): birkaç kelime, uzun tanımlı bir kelime de arayın; tanımlar tam gelmeli.
+- [ ] KOReader eşitleme: konum gönderme ve alma çalışmalı.
+- [ ] Bozuk bir EPUB: bir kitabın kopyasında dosyanın ortasındaki birkaç baytı bir hex
+  düzenleyiciyle değiştirin (dosyanın sonundaki ZIP dizini sağlam kalsın; yarıda kesilmiş bir
+  dosya inflate'e hiç ulaşmaz) ve bölümleri açın: donma ya da yeniden başlatma olmamalı; bozuk
+  bölüm ya hata vermeli (günlükte `Inflate failed: ...`) ya da bozuk metin göstermeli. ROM'un
+  miniz'i bazı bozuk verileri kendi çözücümüzden daha gevşek karşılar (ör. akışın başından
+  önceye uzanan bir mesafe 0 okunur).
+- [ ] BLE kumanda bağlıyken önbelleği silinmiş bir kitabı açın ve sözlükte bir kelime arayın:
+  kumanda bağlı kalmalı, sayfa çevirme çalışmalı (çözücü durumu ~4,5 KB'tan ~11 KB'a çıktı;
+  ödünç framebuffer'da ya da PSRAM'de durur).

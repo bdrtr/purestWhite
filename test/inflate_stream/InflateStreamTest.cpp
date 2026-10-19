@@ -184,4 +184,14 @@ TEST_F(InflateStreamTest, OneShotRejectsOutputElsewhere) {
   std::array<uint8_t, 100> elsewhere{};
   EXPECT_FALSE(stream.read(elsewhere.data(), elsewhere.size()));
 }
+TEST_F(InflateStreamTest, ReadWithoutInputFails) {
+  for (const bool streaming : {true, false}) {
+    InflateStream stream;
+    ASSERT_TRUE(stream.init(streaming));
+    std::array<uint8_t, 16> output{};
+    size_t produced = 1;
+    EXPECT_EQ(stream.readAtMost(output.data(), output.size(), &produced), InflateStream::Status::Error);
+    EXPECT_EQ(produced, 0u);
+  }
+}
 }  // namespace

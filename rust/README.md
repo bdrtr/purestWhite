@@ -40,7 +40,7 @@ aynı senaryoyla yan yana çalıştırır: ekran görüntüsü farkı, heap, ren
 pio run -e x4pro && emu/compare.sh            # emu/reading.txt senaryosu
 emu/compare.sh emu/baska-senaryo.txt x4pro kitap.epub
 
-# Inflate: PNG kapak (zlib akışı), stored ve level-9 bölümler
+# Inflate: PNG kapak (zlib akışı, bembeyaz-png), stored ve level-9 bölümler (InflateStream, ROM'daki miniz)
 python3 emu/make_inflate_epub.py emu/books/inflate
 emu/compare.sh emu/inflate.txt x4pro emu/books/inflate/inflate.epub
 
@@ -95,9 +95,15 @@ birikir; her commit kendi maddesini ekler.
 
 ## Kurallar
 
-- **Her şeyi kendimiz yazarız.** Firmware'e bağlanan Rust kodunda (`bembeyaz-ffi`'nin
-  bağımlılıkları) üçüncü taraf crate yoktur: algoritmalar standarttan (UAX #9,
-  RFC 1951 …) kendimiz yazılır, en küçük ve en hızlı olacak şekilde. Testlerde
+- **ESP-IDF'in sunduğunu kullanırız; fayda sağlayacaksa kendimiz yazarız.** ESP-IDF ya da
+  S3 ROM'u bir işi hazır sunuyorsa (ör. ROM'daki miniz inflate: `InflateStream`) onu
+  kullanırız; kendi kodumuzu yalnızca ölçülmüş bir fayda (hız, bellek, davranış) varsa,
+  gerekçesiyle yazarız. Örnek: PNG çözücüleri `bembeyaz-inflate`'te kalır, çünkü satırları
+  kopyalamadan doğrudan inflate penceresinden çözerler ve bozuk girdide PNGdec'le (zlib) aynı
+  sonucu veren denetimler (akışın başından önceye uzanan mesafeyi ve blok sonu kodu olmayan bloğu
+  reddetmek: `e734c19`, `b109503`) ROM'un miniz 1.15'inde yoktur. Firmware'e bağlanan Rust
+  kodunda (`bembeyaz-ffi`'nin bağımlılıkları) üçüncü taraf crate yoktur: kendi yazdığımız
+  algoritmalar standarttan (UAX #9, RFC 1951 …) en küçük ve en hızlı olacak şekilde yazılır. Testlerde
   referans olarak kullanılan crate'ler (`zip`; test verisini sıkıştıran ve
   karşılaştırma testinde `bembeyaz-inflate`'in yerini aldığı çözücü olan miniz_oxide)
   de zamanla kendi ürettiğimiz fixture'larla değiştirilir.
@@ -133,7 +139,7 @@ birikir; her commit kendi maddesini ekler.
   (`bb_xml_new`/`bb_xml_free`). İlki, değer sabit boyutlu olup C++ nesnesinin içinde ya da belli
   bir bellekte durmalıysa; ikincisi, durum Rust'ın iç işiyse ve büyüyorsa. İkisinde de Rust'ın
   tuttuğu heap blokları Rust'ındır: değer bir kez `*_init` (Rust heap'inde `*_new`) ile kurulur,
-  ömrü bitmeden `*_free` çağrılır, kopyalanmaz (C++ sınıfı kopyalanamaz ve taşınamaz). Heap tutmayan durum (`bb_inflate`, `bb_css_tokenizer`)
+  ömrü bitmeden `*_free` çağrılır, kopyalanmaz (C++ sınıfı kopyalanamaz ve taşınamaz). Heap tutmayan durum (`bb_css_tokenizer`)
   serbest bırakma gerektirmez; Rust tarafı bunu `needs_drop` ile derleme anında denetler.
 - Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-png`, `bembeyaz-jpeg`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`, `bembeyaz-xml`, `bembeyaz-opf`, `bembeyaz-path`, `bembeyaz-layout`) `clippy::indexing_slicing`,
   `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla sınırsız bellek ayırmaz
@@ -154,7 +160,7 @@ Bağımlılıklara göre (önce yapraklar):
 | Aşama | Modüller | Not |
 | --- | --- | --- |
 | 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, **XML ayrıştırıcı ✅** (expat'ın yerine; firmware `XmlParser.h`'yi, SDK'nın OPDS ve katalog okuyucuları `rust/include/expat.h`'deki expat API alt kümesini kullanır; metni expat'ın tamponunu taklit ederek aynı parçalarda verir, çünkü bölüm ayrıştırıcısı metni geri çağrı başına diziyor: o Rust'a geçince bu taklit kalkabilir), XmlParserUtils (yerel ad yardımcıları), **MiniBidi ✅** (minibidi davranışıyla birebir; UAX #9 düzeltmeleri sırada), JsonParser | Donanım yok, testleri var |
-| 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (kendi çözücümüz), **InflateReader ✅** (silindi; kullanıcıları InflateStream'e geçti), Serialization | Framebuffer ödünç alma C++'ta kaldı; Rust belleği çağırandan alır. ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
+| 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (S3 ROM'undaki miniz 1.15 `tinfl_decompress`: ESP-IDF'in sunduğu kullanılır, flash harcamaz; emülatörde çözmesi kendi çözücümüzden ~1,4–1,9 kat hızlı, bölüm oluşturma süresi değişmedi; `bembeyaz-inflate` yalnızca PNG çözücülerinde), **InflateReader ✅** (silindi; kullanıcıları InflateStream'e geçti), Serialization | Framebuffer ödünç alma ve inflate çağrısı C++'ta (`InflateStream`). ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
 | 3 — EPUB çekirdeği | Epub: **CSS ayrıştırıcı ✅** (önbellek biçimi aynı; dosya işlemleri C++'ta), **heceleme ✅** (hypher trie'leri crate'te; seçili dil C++'ta), **OPF ✅** (paket belgesi; manifest SD'deki geçici dosya yerine bellekte, 2 MiB ile sınırlı; yol çözümü `bembeyaz-path`, FsHelpers da onu kullanır), **ParsedText ✅** (paragraf yerleşimi: belirteçler, satır kırma, heceleme, iki yana yaslama, bidi, ruby; ölçümler GfxRenderer'dan geri çağrıyla; TextBlock, BlockStyle, bağlantı hedefleri ve satır içi yazı boyutu yuvaları C++'ta), Section | En büyük parça (~19k satır); alt modül alt modül |
 | 4 — görüntü/font | **PNG çözücüsü ✅** (bölüm resimleri, resim görüntüleyici, saydam uyku kaplaması, Ayrıntılar kapağı; PNGdec'in yerine `bembeyaz-png`; ölçekleme, titreme ve önbellek C++ dönüştürücüde kaldı), **JPEG çözücüsü ✅** (bölüm resimleri ve kapaklar; JPEGDEC'in yerine `bembeyaz-jpeg`, gri tonlu blok çıkışı; ölçekleme ve titreme C++ dönüştürücülerde kaldı), **PNG kapakları ✅** (PngToBmpConverter'ın kendi çözücüsünün yerine `bembeyaz-png`'nin `cover` okuyucusu; ölçekleme, titreme ve BMP yazımı C++'ta kaldı), EpdFont, GfxRenderer | Çerçeve tamponu sınırı |
 | 5 — uygulama | LibraryIndex, Txt, Xtc, KOReaderSync, `src/` activity'leri | UI |

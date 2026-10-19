@@ -9,5 +9,5 @@ target_include_directories(InflateStreamTest PRIVATE
   ${REPO_ROOT}/lib/hal
   ${REPO_ROOT}/lib/InflateStream
 )
-target_link_libraries(InflateStreamTest PRIVATE crosspoint_test_common GTest::gtest_main)
+target_link_libraries(InflateStreamTest PRIVATE crosspoint_test_common rom_tinfl GTest::gtest_main)
 gtest_discover_tests(InflateStreamTest)

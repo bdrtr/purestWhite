@@ -3,17 +3,19 @@
 #include <cstddef>
 #include <cstdint>
 
-struct bb_inflate;
+struct tinfl_decompressor_tag;
 
-// Streaming deflate decompressor; the decoder is our own Rust (rust/crates/bembeyaz-inflate)
-// behind rust/include/bembeyaz/inflate.h.
+// Streaming deflate decompressor; the decoder is miniz 1.15's tinfl_decompress in
+// the ESP32-S3 mask ROM (RomTinfl.h), which costs no flash. Host tests link the
+// same miniz version from source (test/rom_tinfl); emu/compare.sh runs the ROM's.
 //
 // The firmware's DEFLATE decoder for EPUB zip entries, font groups
-// (FontDecompressor) and dictzip chunks (DictZip); the SDK's ContentProtection
-// keeps its own miniz. The decoder state (~4.5KB)
-// lives for the scope of the stream: taken from the lent framebuffer bytes via
-// buildscratch::claim() when a FrameBufferLoan is active, heap otherwise (on
-// the S3, malloc puts blocks over 4KB in PSRAM).
+// (FontDecompressor) and dictzip chunks (DictZip); PNG images decode with
+// bembeyaz-png's own inflate, and the SDK's ContentProtection keeps its own
+// miniz. The decoder state (~11KB) lives for the scope of the stream: taken
+// from the lent framebuffer bytes via buildscratch::claim() when a
+// FrameBufferLoan is active, heap otherwise (on the S3, malloc puts blocks
+// over 4KB in PSRAM).
 //
 // Two modes:
 //   init(false) -- one-shot: the destination buffer holds the ENTIRE output,
@@ -33,7 +35,7 @@ struct bb_inflate;
 class InflateStream {
  public:
   enum class Status {
-    Ok,     // Output buffer full; more decompressed data remains.
+    Ok,     // Output buffer full; the stream has not ended (a later read may still fail).
     Done,   // Stream ended cleanly. produced may be < maxLen.
     Error,  // Corrupt/truncated stream, or decompression failed.
   };
@@ -72,7 +74,35 @@ class InflateStream {
   Status readAtMost(uint8_t* dest, size_t maxLen, size_t* produced);
 
  private:
-  bb_inflate* stream = nullptr;  // decoder state: heap, or inside the claimed build scratch
-  uint8_t* window = nullptr;     // 32KB ring, streaming mode only
-  uint8_t* arenaBase = nullptr;  // non-null when stream/window live in lent framebuffer bytes
+  // How the decoder stopped; its result once the decoded bytes are handed out.
+  enum class End : uint8_t { None, Done, Error };
+
+  bool refillInput();
+  // One tinfl_decompress call writing at out within the buffer that starts at base; sets end
+  // when the stream ends or fails, and refills the input when it runs out.
+  void decode(uint8_t* base, uint8_t* out, size_t* outLen, uint32_t outFlags);
+  Status readOneShot(uint8_t* dest, size_t maxLen, size_t* produced);
+  Status readStreaming(uint8_t* dest, size_t maxLen, size_t* produced);
+  // The status of a read that filled its buffer or not.
+  Status result(bool filled) const;
+
+  tinfl_decompressor_tag* decoder = nullptr;  // heap, or inside the claimed build scratch
+  uint8_t* window = nullptr;                  // 32KB ring, streaming mode only
+  uint8_t* arenaBase = nullptr;               // non-null when decoder/window live in lent framebuffer bytes
+
+  const uint8_t* input = nullptr;  // unread input bytes
+  size_t inputLen = 0;
+  FillFn fill = nullptr;
+  void* fillCtx = nullptr;
+  bool inputEnded = false;
+  uint32_t flags = 0;  // zlib header and trailer
+  End end = End::None;
+  uint64_t inputTotal = 0;  // bytes the decoder took and gave, against MAX_EXPANSION
+  uint64_t outputTotal = 0;
+
+  uint8_t* outStart = nullptr;  // one-shot: the first byte of the output buffer
+  size_t outWritten = 0;
+  size_t windowPos = 0;  // streaming: where the decoder writes next
+  size_t pendingStart = 0;
+  size_t pendingLen = 0;  // decoded bytes in the window not handed out yet
 };

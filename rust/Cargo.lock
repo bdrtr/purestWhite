@@ -35,7 +35,6 @@ dependencies = [
  "bembeyaz-bidi",
  "bembeyaz-css",
  "bembeyaz-hyphenation",
- "bembeyaz-inflate",
  "bembeyaz-jpeg",
  "bembeyaz-layout",
  "bembeyaz-opf",

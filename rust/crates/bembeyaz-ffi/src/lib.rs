@@ -11,7 +11,6 @@ mod css;
 mod device;
 mod expat;
 mod hyphenation;
-mod inflate;
 mod jpeg;
 mod layout;
 mod opf;

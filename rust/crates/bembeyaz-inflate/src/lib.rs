@@ -4,8 +4,8 @@
 //! [`Inflater`] decodes into one buffer that holds the whole output, so it
 //! needs no window. With a borrowed 32 KiB [`Window`] it hands out the output
 //! in pieces of any size. Nothing allocates: the caller decides where the
-//! ~4.5 KiB decoder state and the window live (heap, or the framebuffer lent
-//! out during a chapter build).
+//! ~4.5 KiB decoder state and the window live (the PNG decoders keep them in a
+//! heap block).
 //!
 //! The compressed data comes from untrusted files. Corrupt or truncated input
 //! yields an [`Error`]; it never reads or writes outside the given buffers.

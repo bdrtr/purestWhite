@@ -94,6 +94,7 @@ $clangFormat = Resolve-ClangFormat
 $exclude = @(
     'freeink-sdk'
     'lib\EpdFont\builtinFonts'
+    'test\rom_tinfl'
     'lib\Epub\Epub\hyphenation\generated'
     '.pio'
     '.venv'
