@@ -210,3 +210,23 @@ TEST(KOReaderXPathResolver, ProgressEndExcludesTrailingWhitespaceInsideRun) {
   const auto epub = epubWith("<html><body><p>Text   </p></body></html>");
   EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 1.0f), "/body/DocFragment[1]/body/p[1]/text()[1].4");
 }
+
+// HTML entities count as the chapter parser shows them (one codepoint for &nbsp;, the reference as
+// written for an unknown one), with or without an external DTD.
+TEST(KOReaderXPathResolver, CountsHtmlEntitiesAsTheChapterShowsThem) {
+  for (const char* doctype :
+       {"<!DOCTYPE html>", "",
+        "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" \"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">"}) {
+    SCOPED_TRACE(doctype);
+    const auto epub =
+        epubWith(std::string(doctype) + "<html><body><p>a&nbsp;b&mdash;c</p><p>&bogus;x &amp;</p></body></html>");
+
+    // a, U+00A0, b, U+2014, c, then "&bogus;x &"
+    EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 4),
+              "/body/DocFragment[1]/body/p[1]/text()[1].4");
+    EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 12),
+              "/body/DocFragment[1]/body/p[2]/text()[1].7");
+    EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 1.0f), "/body/DocFragment[1]/body/p[2]/text()[1].10");
+    EXPECT_EQ(ChapterXPathResolver::findXPathForParagraph(epub, 0, 2), "/body/DocFragment[1]/body/p[2]");
+  }
+}

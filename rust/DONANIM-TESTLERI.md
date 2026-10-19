@@ -28,8 +28,12 @@ CrossPoint, `../crosspoint-prev` 609d473.
   "Failed to index - invalid book" ya da eksik içindekiler).
 - [ ] OPDS kataloğu: göz atma, arama, indirme.
 - [ ] WebDAV ile dosya listesi.
-- [ ] KOReader eşitleme: konum gönderme ve alma. (Bilinen: DTD'siz HTML varlıkları
-  kullanan bölümlerde konum çözülemeyebilir; ayrı düzeltme bekliyor.)
+- [ ] KOReader eşitleme: konum gönderme ve alma.
+- [ ] KOReader eşitleme, `&nbsp;` gibi HTML varlıkları bol bir kitapta ("fix: KOReader
+  sync counts HTML entities as the chapter shows them"): bölüm ortasında konum gönderin,
+  KOReader aynı yeri açmalı; KOReader'dan gelen konum da aynı sayfaya düşmeli. Eskiden
+  DTD'siz bölümlerde konum hiç gönderilemiyordu, dış DTD'li bölümlerde her varlık konumu
+  bir karakter kaydırıyordu.
 - [ ] Çok uzun bir bölüm (yüzlerce sayfa) ve büyük tablolu bir kitap: açılırken ve
   okurken yeniden başlatma ya da donma olmamalı (ayrıştırıcının yığın kullanımı arttı).
 

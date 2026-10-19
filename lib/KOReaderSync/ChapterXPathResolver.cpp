@@ -1,6 +1,7 @@
 #include "ChapterXPathResolver.h"
 
 #include <Epub/VisibleTextUtils.h>
+#include <Epub/htmlEntities.h>
 #include <Logging.h>
 #include <Print.h>
 #include <Utf8.h>
@@ -100,6 +101,9 @@ class ParagraphTextCounter final : public Print {
     parser.setUserData(this);
     parser.setElementHandler(&ParagraphTextCounter::startElement, &ParagraphTextCounter::endElement);
     parser.setCharacterDataHandler(&ParagraphTextCounter::characterData);
+    // HTML entities count as the chapter parser shows them
+    parser.skipUndefinedEntities();
+    parser.setSkippedEntityHandler(&ParagraphTextCounter::skippedEntity);
   }
 
   bool ok() const { return static_cast<bool>(parser) && parseOk; }
@@ -152,6 +156,8 @@ class ParagraphTextCounter final : public Print {
     auto* self = static_cast<ParagraphTextCounter*>(userData);
     self->onCharacterData(data, len);
   }
+
+  static void skippedEntity(void* userData, const char* name) { htmlEntityText(name, userData, characterData); }
 
   void onStartElement(const char* rawName) {
     const std::string name = stripPrefix(rawName);
@@ -228,6 +234,8 @@ class XPathParagraphResolver final : public Print {
 
     parser.setUserData(this);
     parser.setElementHandler(&XPathParagraphResolver::startElement, &XPathParagraphResolver::endElement);
+    // HTML entities (like &nbsp;) are text, which this resolver does not read
+    parser.skipUndefinedEntities();
   }
 
   bool ok() const { return static_cast<bool>(parser) && parseOk; }
@@ -365,6 +373,9 @@ class XPathProgressResolver final : public Print {
     parser.setCommentHandler(&XPathProgressResolver::comment);
     parser.setProcessingInstructionHandler(&XPathProgressResolver::processingInstruction);
     parser.setCdataSectionHandler(&XPathProgressResolver::startCdataSection, &XPathProgressResolver::endCdataSection);
+    // HTML entities count as the chapter parser shows them
+    parser.skipUndefinedEntities();
+    parser.setSkippedEntityHandler(&XPathProgressResolver::skippedEntity);
   }
 
   bool ok() const { return static_cast<bool>(parser) && parseOk; }
@@ -418,6 +429,8 @@ class XPathProgressResolver final : public Print {
     auto* self = static_cast<XPathProgressResolver*>(userData);
     self->onCharacterData(data, len);
   }
+
+  static void skippedEntity(void* userData, const char* name) { htmlEntityText(name, userData, characterData); }
 
   static void comment(void* userData, const char*) {
     auto* self = static_cast<XPathProgressResolver*>(userData);
