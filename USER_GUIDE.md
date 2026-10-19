@@ -738,7 +738,7 @@ Local book and folder moves carry clipping data with them. Deleting a local book
 Please note that this firmware is currently in active development. The following features are **not yet supported** but are planned for future updates:
 
 * **Cover Images:** Large cover images embedded into EPUB require several seconds (~10s for ~2000 pixel tall image) to convert for sleep screen and home screen thumbnail. Consider optimizing the EPUB with e.g. https://github.com/bigbag/epub-to-xtc-converter to speed this up.
-* **Unsupported Image Formats:** Most JPG and PNG images in EPUBs render correctly. GIFs and progressive JPEGs are not supported and will fall back to an `[Image]` placeholder.
+* **Unsupported Image Formats:** Most JPG and PNG images in EPUBs render correctly. Progressive JPEGs render blurry: only their first, low-resolution pass is decoded. Other formats, such as GIF, are not shown; an image with alt text shows it as `[Image: ...]` instead.
 
 ---
 
