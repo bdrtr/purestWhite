@@ -112,6 +112,46 @@ TEST_F(CssParserTest, CascadeUpdatesContinueAfterRuleCap) {
   EXPECT_EQ(style.fontStyle, CssFontStyle::Italic);
 }
 
+TEST_F(CssParserTest, SelectorTextCapStopsBeforeTheRuleCap) {
+  // 200 selectors of 201 bytes fill the 32 KB of selector text long before 1500 rules.
+  const auto selector = [](const size_t i) {
+    std::string name = "pool-" + std::to_string(i) + "-";
+    name.resize(200, 'x');
+    return name;
+  };
+  CssParser parser(cachePath());
+  std::string css;
+  for (size_t i = 0; i < 200; ++i) css += "." + selector(i) + " { font-weight: bold; }\n";
+  css += "." + selector(162) + " { font-style: italic; }\n";
+
+  EXPECT_EQ(loadCss(parser, css), CssParser::ParseResult::Partial);
+  ASSERT_EQ(parser.ruleCount(), 163u);
+  EXPECT_EQ(parser.resolveStyle("p", selector(162)).fontWeight, CssFontWeight::Bold);
+  EXPECT_FALSE(parser.resolveStyle("p", selector(163)).hasFontWeight());
+  // The last stored rule still takes later declarations.
+  EXPECT_EQ(parser.resolveStyle("p", selector(162)).fontStyle, CssFontStyle::Italic);
+
+  ASSERT_TRUE(parser.saveToCache(false));
+  EXPECT_EQ(parser.inspectCache(), CssParser::CacheStatus::Partial);
+  CssParser reader(cachePath());
+  ASSERT_EQ(reader.loadFromCache(), CssParser::CacheLoadResult::Complete);
+  EXPECT_EQ(reader.ruleCount(), 163u);
+  EXPECT_EQ(reader.resolveStyle("p", selector(162)).fontWeight, CssFontWeight::Bold);
+}
+
+TEST_F(CssParserTest, OnlyAsciiLettersFoldCase) {
+  CssParser parser(cachePath());
+  ASSERT_EQ(
+      loadCss(parser,
+              ".\xC3\x89 { font-weight: bold; }\n.\xC3\xA9 { font-style: italic; }\n.NOTE { text-align: center; }\n"),
+      CssParser::ParseResult::Complete);
+  const CssStyle lower = parser.resolveStyle("p", "\xC3\xA9");
+  EXPECT_FALSE(lower.hasFontWeight());
+  EXPECT_EQ(lower.fontStyle, CssFontStyle::Italic);
+  EXPECT_EQ(parser.resolveStyle("p", "\xC3\x89").fontWeight, CssFontWeight::Bold);
+  EXPECT_EQ(parser.resolveStyle("p", "note").textAlign, CssTextAlign::Center);
+}
+
 TEST_F(CssParserTest, UniqueStyleCapStopsWithoutCorruptingAcceptedRules) {
   CssParser parser(cachePath());
   std::string css;
