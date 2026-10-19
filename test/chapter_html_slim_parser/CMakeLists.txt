@@ -8,6 +8,7 @@ add_executable(ChapterHtmlSlimParserTest
   ${REPO_ROOT}/lib/Epub/Epub/css/CssParser.cpp
   ${REPO_ROOT}/lib/Epub/Epub/ParsedText.cpp
   ${REPO_ROOT}/lib/Epub/Epub/WordStore.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/htmlEntities.cpp
   ${REPO_ROOT}/lib/Epub/Epub/converters/ImageDimsProbe.cpp
   ${REPO_ROOT}/lib/Utf8/Utf8.cpp
 )
@@ -31,8 +32,8 @@ target_include_directories(ChapterHtmlSlimParserTest PRIVATE
 
 target_link_libraries(ChapterHtmlSlimParserTest PRIVATE
   crosspoint_test_common
+  crosspoint_expat
   GTest::gtest_main
-  expat
 )
 
 gtest_discover_tests(ChapterHtmlSlimParserTest)

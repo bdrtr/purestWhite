@@ -76,7 +76,10 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
   // Lays out a body fragment through the cached-page path and joins its words the way a
   // clipping does: '\n' at a paragraph start, ' ' across a source gap, nothing otherwise.
   std::string parseToParagraphText(const std::string& body) {
-    const std::string html = "<html><body>" + body + "</body></html>";
+    return parseDocumentToParagraphText("<html><body>" + body + "</body></html>");
+  }
+
+  std::string parseDocumentToParagraphText(const std::string& html, const bool parses = true) {
     const std::string testId = std::to_string(std::hash<std::string>{}(html));
     const auto tempDir = std::filesystem::temp_directory_path();
     filepath = (tempDir / ("crosspoint-clipping-paragraphs-" + testId + ".xhtml")).string();
@@ -115,12 +118,37 @@ class ChapterHtmlSlimParserTest : public ::testing::TestWithParam<const char*> {
       EXPECT_EQ(file.position(), file.size());
     };
     parser.paragraphIndentSpaces = 0;
-    EXPECT_TRUE(parser.parseAndBuildPages());
+    EXPECT_EQ(parser.parseAndBuildPages(), parses);
     std::filesystem::remove(filepath);
     std::filesystem::remove(cachePath);
     return selected;
   }
 };
+
+// With an external DTD the XML parser skips entities it does not know, and the chapter parser
+// expands the HTML ones itself.
+TEST_F(ChapterHtmlSlimParserTest, ExpandsHtmlEntitiesBehindAnExternalDtd) {
+  EXPECT_EQ(parseDocumentToParagraphText(
+                "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+                "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.1//EN\" "
+                "\"http://www.w3.org/TR/xhtml11/DTD/xhtml11.dtd\">\n"
+                "<html xmlns=\"http://www.w3.org/1999/xhtml\"><body><p>a&nbsp;b &copy; &bogus; &amp; "
+                "&#8212;</p></body></html>"),
+            "a b \xC2\xA9 &bogus; & \xE2\x80\x94");
+}
+
+// Without one, an entity XML does not define fails the chapter (XML_GE=0 expat).
+TEST_F(ChapterHtmlSlimParserTest, UndefinedEntityWithoutAnExternalDtdFailsTheChapter) {
+  parseDocumentToParagraphText("<!DOCTYPE html><html><body><p>a&nbsp;b</p></body></html>", false);
+}
+
+// An entity declared in the document reads as its own reference: expat built with XML_GE=0
+// does not expand general entities.
+TEST_F(ChapterHtmlSlimParserTest, KeepsAnEntityDeclaredInTheDocumentAsItsReference) {
+  EXPECT_EQ(parseDocumentToParagraphText(
+                "<!DOCTYPE html [<!ENTITY nbsp \"&#160;\">]><html><body><p>a&nbsp;b</p></body></html>"),
+            "a&nbsp;b");
+}
 
 TEST_F(ChapterHtmlSlimParserTest, RubySurvivesPartialParagraphExtraction) {
   ParsedText text;

@@ -7,8 +7,6 @@
 #include <Epub/hyphenation/Hyphenator.h>
 #include <GfxRenderer.h>
 
-const char* lookupHtmlEntity(const char*, size_t) { return nullptr; }
-
 #include <BidiUtils.h>
 
 bool isExplicitHyphen(uint32_t) { return false; }

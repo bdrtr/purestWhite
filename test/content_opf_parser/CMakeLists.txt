@@ -1,5 +1,3 @@
-find_package(EXPAT REQUIRED)
-
 add_executable(ContentOpfParserTest
   ContentOpfParserTest.cpp
   EncryptionManifestProbeTest.cpp
@@ -14,7 +12,7 @@ target_include_directories(ContentOpfParserTest PRIVATE
 
 target_link_libraries(ContentOpfParserTest PRIVATE
   crosspoint_test_common
-  EXPAT::EXPAT
+  crosspoint_expat
   GTest::gtest_main
 )
 

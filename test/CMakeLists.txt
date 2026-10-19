@@ -52,6 +52,15 @@ target_compile_options(crosspoint_test_common INTERFACE
   -pedantic
 )
 
+# lib/expat as the firmware builds it (platformio.ini: XML_GE=0, XML_CONTEXT_BYTES=1024).
+add_library(crosspoint_expat STATIC
+  ${REPO_ROOT}/lib/expat/xmlparse.c
+  ${REPO_ROOT}/lib/expat/xmlrole.c
+  ${REPO_ROOT}/lib/expat/xmltok.c
+)
+target_include_directories(crosspoint_expat PUBLIC ${REPO_ROOT}/lib/expat)
+target_compile_definitions(crosspoint_expat PUBLIC XML_GE=0 XML_CONTEXT_BYTES=1024)
+
 enable_testing()
 include(GoogleTest)
 
@@ -72,6 +81,7 @@ add_subdirectory(bidi_utils)
 add_subdirectory(combining_marks)
 add_subdirectory(credential_integrity)
 add_subdirectory(xml_parser_utils)
+add_subdirectory(sdk_xml_parsers)
 add_subdirectory(token_boundary)
 add_subdirectory(koreader_xpath_resolver)
 add_subdirectory(progress_comparison)
