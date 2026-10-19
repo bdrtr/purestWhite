@@ -139,7 +139,8 @@ açın. Hata belirtileri: kayık ya da çizgili satırlar, yanlış gri tonlar, 
   gerçekte olduğundan hızlı modelliyor; cihazda fark %10'u aşarsa not edin.
 - [ ] Dosya gezgininden bir `.png` dosyası açın (büyük bir resim de deneyin): resim eskisi gibi
   görünmeli, önceki/sonraki resme geçiş çalışmalı.
-- [ ] PNG kapaklı bir kitabın Details (Ayrıntılar) ekranı: kapak görünmeli.
+- [ ] OPDS kataloğunda PNG kapaklı bir kitabın Details (Ayrıntılar) ekranı: kapak görünmeli (bu ekran
+  kapağı bölüm resmi çözücüsüyle çizer).
 - [ ] Uyku ekranı ayarını **Transparent** yapın, kartın köküne alfa kanallı bir
   `sleep-overlay.png` koyun (kökte `sleep-overlay.bmp` olmasın, o önce gelir), cihazı uyutun:
   saydam yerlerden alttaki ekran, opak yerlerde resim görünmeli.
@@ -161,8 +162,9 @@ boş resim, donma ya da yeniden başlatma.
   `emu/runs/jpeg-jpeg-*/report.html` ekran görüntüleriyle aynı olmalı. İlerlemeli JPEG'ler
   bulanık görünür (eskiden de öyleydi: yalnızca ilk tarama, 1/8 boyutta çözülür). CMYK bölümü
   bozuk, şeritli görünür (eskiden de öyleydi).
-- [ ] JPEG kapaklı kitaplar: Home'daki ve Library'deki kapak küçük resimleri ile Details
-  (Ayrıntılar) ekranındaki kapak görünmeli (`jpeg.epub`'ın kapağı da).
+- [ ] JPEG kapaklı kitaplar: Home'daki küçük resimler ve uyku ekranındaki kapak görünmeli
+  (`jpeg.epub`'ın kapağı da); OPDS kataloğunda JPEG kapaklı bir kitabın Details (Ayrıntılar)
+  ekranında da kapak görünmeli.
 - [ ] Dosya gezgininden bir `.jpg` dosyası açın (büyük bir fotoğraf da deneyin): resim eskisi
   gibi görünmeli, önceki/sonraki resme geçiş çalışmalı.
 - [ ] Resim görüntüleyicide bir `.jpg` açıkken **Kapak Ayarla** (Set Cover) düğmesine basın,
@@ -193,9 +195,9 @@ boş resim, donma ya da yeniden başlatma.
 
 ## PNG kapak bit derinliği ("fix: PNG covers refuse a bit depth the color type does not allow")
 
-- [ ] PNG kapaklı birkaç kitap: Home ve Library küçük resimleri, Details (Ayrıntılar) ekranı ve uyku
-  ekranındaki kapak eskisi gibi görünmeli. Geçersiz bit derinlikli bir kapak (yalnızca elle
-  bozulmuş dosyalarda olur; host testleri kapsar) artık cihazı çökertmez, kapak gösterilmez.
+- [ ] Bu durum yalnızca elle bozulmuş dosyalarda çıkar ve host testleri kapsar: geçersiz bit
+  derinlikli bir PNG kapak artık cihazı çökertmez, kapak gösterilmez. PNG kapakların cihaz denemesi
+  aşağıdaki "PNG kapakları" bölümünde.
 
 ## PNG kapakları ("rust: PNG covers through bembeyaz-png")
 
