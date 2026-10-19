@@ -100,3 +100,9 @@ CrossPoint, `../crosspoint-prev` 609d473.
 - [ ] Dört kumanda eşliyken beşinciyi tarayın: listede pasif, "Forget a paired remote
   first" (arayüz dilinde karşılığı yoksa İngilizce) yazmalı. Birini unutun: beşinci
   eşlenebilmeli, diğer üçü çalışmaya devam etmeli.
+
+## Sıkıştırma ("fix: inflate refuses a distance before the start of the stream")
+
+- [ ] Yarıda kesilmiş ya da bozuk bir EPUB (örneğin yarım kalmış bir indirme): açmayı
+  deneyin; donma ya da yeniden başlatma olmamalı, bozuk bölüm hata vermeli. Sağlam
+  kitaplar bu değişiklikten etkilenmez.

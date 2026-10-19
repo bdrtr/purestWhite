@@ -1,6 +1,6 @@
 //! The decoder this crate replaced (miniz_oxide 0.9.1 behind the same API, as of 9e985f3), kept
-//! for the tests to compare against. It goes with the first deliberate change from its behaviour
-//! (the ring note in `decode.rs`), or when our own fixtures replace miniz_oxide in the tests.
+//! for the tests to compare against. `differential.rs` allows the one deliberate change from its
+//! behaviour (the ring note in `decode.rs`).
 #![allow(dead_code, clippy::pedantic, reason = "test reference, kept as it was")]
 
 use crate::{Error, Format, Input, Status, WINDOW_SIZE};

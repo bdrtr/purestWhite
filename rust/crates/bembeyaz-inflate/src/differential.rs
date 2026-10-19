@@ -212,12 +212,46 @@ fn matches_the_decoder_it_replaced() {
             "case {case}: one-shot {format:?}, chunk {chunk}, size {size}, step {step}, stream {bytes:02x?}"
         );
         let piece = [1, 100, 777, 40_000][rng.below(4)];
-        assert_eq!(
-            streamed_calls(&bytes, format, chunk, piece, false),
-            streamed_calls(&bytes, format, chunk, piece, true),
-            "case {case}: streamed {format:?}, chunk {chunk}, piece {piece}, stream {bytes:02x?}"
-        );
+        let ours = streamed_calls(&bytes, format, chunk, piece, false);
+        let theirs = streamed_calls(&bytes, format, chunk, piece, true);
+        if ours != theirs {
+            assert_refers_before_its_start(&bytes, format, &ours, &theirs);
+        }
     }
+}
+
+/// The one departure from the reference: in a ring, a distance before the start of the stream is
+/// corrupt here, as it is for both decoders in a plain buffer. Our streamed reads must then give
+/// what the reference gave up to there, and what a one-shot decode gives.
+fn assert_refers_before_its_start(bytes: &[u8], format: Format, ours: &str, theirs: &str) {
+    let output = |log: &str| -> Vec<u8> {
+        log.lines()
+            .flat_map(|line| {
+                let list = &line[line.find('[').unwrap() + 1..line.len() - 1];
+                list.split(", ")
+                    .filter(|v| !v.is_empty())
+                    .map(|v| v.parse::<u8>().unwrap())
+                    .collect::<Vec<_>>()
+            })
+            .collect()
+    };
+    let streamed = output(ours);
+    assert!(
+        ours.lines().last().unwrap().contains("Err(Corrupt)"),
+        "ours {ours}\ntheirs {theirs}"
+    );
+    assert!(
+        output(theirs).starts_with(&streamed),
+        "ours {ours}\ntheirs {theirs}"
+    );
+    let size = streamed.len() + 1000;
+    let one_shot = one_shot_calls(bytes, format, usize::MAX, size, size, false);
+    assert_eq!(
+        output(&one_shot),
+        streamed,
+        "one-shot {one_shot}\nours {ours}"
+    );
+    assert!(one_shot.contains("Err(Corrupt)"), "one-shot {one_shot}");
 }
 
 /// Throughput against the decoder it replaced: `cargo test --release -p bembeyaz-inflate

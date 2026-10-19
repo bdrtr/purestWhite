@@ -453,3 +453,78 @@ fn an_error_waits_for_the_output_before_it() {
         (0, Err(Error::Corrupt))
     );
 }
+
+/// DEFLATE bits, least significant first; Huffman codes most significant first.
+#[derive(Default)]
+struct Bits {
+    out: Vec<u8>,
+    acc: u32,
+    n: u32,
+}
+
+impl Bits {
+    fn put(&mut self, value: u32, n: u32) {
+        self.acc |= value << self.n;
+        self.n += n;
+        while self.n >= 8 {
+            self.out.push(self.acc.to_le_bytes()[0]);
+            self.acc >>= 8;
+            self.n -= 8;
+        }
+    }
+
+    fn code(&mut self, code: u32, n: u32) {
+        self.put(code.reverse_bits() >> (32 - n), n);
+    }
+
+    fn finish(mut self) -> Vec<u8> {
+        if self.n > 0 {
+            self.out.push(self.acc.to_le_bytes()[0]);
+        }
+        self.out
+    }
+}
+
+/// A fixed-code block: the literal 'a', then 3 bytes `distance` back.
+fn match_after_one_byte(distance_code: u32) -> Vec<u8> {
+    let mut bits = Bits::default();
+    bits.put(1, 1); // last block
+    bits.put(1, 2); // fixed codes
+    bits.code(0x30 + u32::from(b'a'), 8);
+    bits.code(1, 7); // length 3
+    bits.code(distance_code, 5); // no extra bits for codes 0-3
+    bits.code(0, 7); // end of block
+    bits.finish()
+}
+
+/// A distance before the start of the stream is corrupt in a ring as in a plain buffer, as zlib
+/// has it, instead of copying what the ring held before.
+#[test]
+fn refuses_a_distance_before_the_start() {
+    let good = match_after_one_byte(0); // distance 1
+    assert_eq!(
+        one_shot(&good, Format::Deflate, 1, 10),
+        Ok(b"aaaa".to_vec())
+    );
+    assert_eq!(streamed(&good, Format::Deflate, 1, 3), Ok(b"aaaa".to_vec()));
+
+    let bad = match_after_one_byte(1); // distance 2
+    assert_eq!(one_shot(&bad, Format::Deflate, 1, 10), Err(Error::Corrupt));
+    for in_chunk in [1, bad.len()] {
+        let mut buf = window();
+        let mut window = Window::new(&mut buf);
+        let mut inflater = Inflater::new(Format::Deflate);
+        let mut input = Chunked::new(&bad, in_chunk);
+        let mut out = [0; 10];
+        assert_eq!(
+            window.read(&mut inflater, &mut input, &mut out),
+            (1, Err(Error::Corrupt))
+        );
+        assert_eq!(out[0], b'a');
+    }
+
+    // Past the first window the whole ring is history.
+    let data = sample(WINDOW_SIZE + 1000);
+    let compressed = compress_to_vec(&data, 6);
+    assert_eq!(streamed(&compressed, Format::Deflate, 4096, 1000), Ok(data));
+}

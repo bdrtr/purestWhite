@@ -11,9 +11,9 @@
 //! buffer. So does when input goes back: whole bytes left in the bit buffer are returned to the
 //! input whenever a run stops for anything but more input.
 //!
-//! One departure from RFC 1951 is kept for now, as `miniz_oxide` had it: in a ring (`wrapping`) a
-//! distance is checked against the ring's size only, so a stream that refers back past its own
-//! start copies whatever the ring held before (zeros, as the FFI clears it).
+//! In a ring (`wrapping`) a distance is checked against the output the stream has produced, as
+//! zlib does ("invalid distance too far back"); `miniz_oxide` checked it against the ring's size
+//! only and copied whatever the ring held before the stream.
 
 use crate::Error;
 use crate::huffman::{Huffman, Lookup};
@@ -33,6 +33,8 @@ const DIST_EXTRA: [u8; 30] = [
     0, 0, 0, 0, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10, 11, 11, 12, 12, 13,
     13,
 ];
+/// The farthest back a distance reaches.
+const MAX_DISTANCE: usize = 32768;
 /// The order in which a dynamic block lists the code lengths of the code-length code.
 const CODE_LENGTH_ORDER: [u8; 19] = [
     16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4, 12, 3, 13, 2, 14, 1, 15,
@@ -116,6 +118,10 @@ pub(crate) struct Decoder {
     literal: u8,
     adler_a: u32,
     adler_b: u32,
+    /// The output before this run, up to the farthest a distance reaches.
+    history: u16,
+    /// Where this run started writing.
+    run_start: usize,
     lengths: [u8; 288 + 32],
     code_lengths: Huffman<19, 128>,
     literals: Huffman<288, 1024>,
@@ -227,10 +233,10 @@ fn distance_code(symbol: u16) -> Option<(u16, u32)> {
     Some((*DIST_BASE.get(i)?, u32::from(*DIST_EXTRA.get(i)?)))
 }
 
-/// Whether a match `distance` back from `at` may be copied: within the output so far in a plain
-/// buffer, within the ring otherwise (the departure in the module notes).
-fn distance_ok(distance: usize, at: usize, out_len: usize, wrapping: bool) -> bool {
-    (wrapping || distance <= at) && distance <= out_len
+/// Whether a match `distance` back may be copied: within the output so far (`at` in a plain
+/// buffer, `history` in a ring) and within the buffer.
+fn distance_ok(distance: usize, at: usize, history: usize, out_len: usize, wrapping: bool) -> bool {
+    distance <= if wrapping { history } else { at } && distance <= out_len
 }
 
 /// Writes the `n` bytes `distance` back from `at` to `out[at..at + n]`, which the caller has
@@ -299,6 +305,7 @@ impl Decoder {
             bits: self.bits,
             nbits: self.nbits,
         };
+        self.run_start = pos;
         let mut at = pos;
         // The output from `hashed` on is not in the Adler-32 sum yet.
         let mut hashed = pos;
@@ -312,12 +319,18 @@ impl Decoder {
         if zlib {
             self.hash(out, hashed, at);
         }
+        self.history = u16::try_from(self.history(at).min(MAX_DISTANCE)).unwrap_or(u16::MAX);
         match outcome {
             Outcome::Failed(Error::Checksum) => self.mode = Mode::BadChecksum,
             Outcome::Failed(_) => self.mode = Mode::Failed,
             _ => {}
         }
         (bits.used, at - pos, outcome)
+    }
+
+    /// The output of the stream up to `at` in this run, counted up to past what a distance reaches.
+    fn history(&self, at: usize) -> usize {
+        usize::from(self.history) + at.saturating_sub(self.run_start)
     }
 
     fn hash(&mut self, out: &[u8], from: usize, to: usize) {
@@ -602,7 +615,13 @@ impl Decoder {
                                 let distance =
                                     usize::from(base) + (bits.bits & mask(extra)) as usize;
                                 bits.consume(extra);
-                                if !distance_ok(distance, *at, out.len(), wrapping) {
+                                if !distance_ok(
+                                    distance,
+                                    *at,
+                                    self.history(*at),
+                                    out.len(),
+                                    wrapping,
+                                ) {
                                     return Outcome::Failed(Error::Corrupt);
                                 }
                                 let length = usize::from(length);
@@ -665,7 +684,13 @@ impl Decoder {
                     #[allow(clippy::cast_possible_truncation, reason = "at most 13 bits")]
                     let more = more as u16;
                     self.distance += more;
-                    if !distance_ok(usize::from(self.distance), *at, out.len(), wrapping) {
+                    if !distance_ok(
+                        usize::from(self.distance),
+                        *at,
+                        self.history(*at),
+                        out.len(),
+                        wrapping,
+                    ) {
                         return Outcome::Failed(Error::Corrupt);
                     }
                     self.mode = Mode::Copy;
