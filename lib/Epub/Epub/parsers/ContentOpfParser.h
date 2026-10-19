@@ -65,6 +65,11 @@ class ContentOpfParser final : public Print {
     uint16_t idLen;       // length for collision reduction
     uint32_t fileOffset;  // offset in .items.bin
   };
+  static bool itemIndexLess(const ItemIndexEntry& a, const ItemIndexEntry& b) {
+    if (a.idHash != b.idHash) return a.idHash < b.idHash;
+    if (a.idLen != b.idLen) return a.idLen < b.idLen;
+    return a.fileOffset < b.fileOffset;
+  }
   std::deque<ItemIndexEntry> itemIndex;
   bool useItemIndex = false;
 

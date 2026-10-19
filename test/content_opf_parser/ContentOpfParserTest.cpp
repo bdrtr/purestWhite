@@ -267,3 +267,39 @@ TEST(ContentOpfParserCover, ReadingParserStillOpensManifestCache) {
   EXPECT_EQ(Storage.writeOpens, 1);
   EXPECT_EQ(Storage.readOpens, 1);
 }
+
+namespace {
+
+std::vector<std::string> spineOf(const std::string& xml) {
+  BookMetadataCache cache;
+  Storage = {};
+  {
+    ContentOpfParser parser("/cache", "OPS/", xml.size(), &cache);
+    parse(parser, xml);
+  }
+  return cache.spine;
+}
+
+}  // namespace
+
+TEST(ContentOpfParserSpine, ResolvesItemrefsThroughTheManifest) {
+  EXPECT_EQ(spineOf(R"(<package><metadata/><manifest>
+    <item id="b" href="Text/b%20c.xhtml" media-type="application/xhtml+xml"/>
+    <item id="a" href="../a.xhtml" media-type="application/xhtml+xml"/>
+    </manifest><spine><itemref idref="a"/><itemref idref="missing"/><itemref idref="b"/></spine></package>)"),
+            (std::vector<std::string>{"a.xhtml", "OPS/Text/b c.xhtml"}));
+}
+
+// A manifest may repeat an id (an invalid EPUB); the first item with it wins, however many there are.
+TEST(ContentOpfParserSpine, FirstItemWinsForARepeatedId) {
+  for (const int items : {4, 17, 40, 300}) {
+    SCOPED_TRACE(items);
+    std::string xml = "<package><metadata/><manifest>";
+    for (int i = 0; i < items; i++) {
+      xml += "<item id=\"" + std::string(i % 2 == 0 ? "dup" : "x" + std::to_string(i)) + "\" href=\"c" +
+             std::to_string(i) + ".xhtml\"/>";
+    }
+    xml += "</manifest><spine><itemref idref=\"dup\"/></spine></package>";
+    EXPECT_EQ(spineOf(xml), std::vector<std::string>{"OPS/c0.xhtml"});
+  }
+}

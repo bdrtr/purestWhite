@@ -228,10 +228,9 @@ void ContentOpfParser::startElement(void* userData, const char* name, const char
     // Sort the (unconditionally-built) item index so every idref lookup uses binary
     // search. Without this, small/medium manifests fell back to an O(spine × manifest)
     // linear rescan of .items.bin per itemref (up to ~200ms/item at large scale).
+    // The file offset orders a repeated id, so its first item wins.
     if (!self->itemIndex.empty()) {
-      std::sort(self->itemIndex.begin(), self->itemIndex.end(), [](const ItemIndexEntry& a, const ItemIndexEntry& b) {
-        return a.idHash < b.idHash || (a.idHash == b.idHash && a.idLen < b.idLen);
-      });
+      std::sort(self->itemIndex.begin(), self->itemIndex.end(), itemIndexLess);
       self->useItemIndex = true;
       LOG_DBG("COF", "Using fast index for %zu manifest items", self->itemIndex.size());
     }
@@ -377,10 +376,7 @@ void ContentOpfParser::startElement(void* userData, const char* name, const char
             uint16_t targetLen = static_cast<uint16_t>(idref.size());
 
             auto it = std::lower_bound(self->itemIndex.begin(), self->itemIndex.end(),
-                                       ItemIndexEntry{targetHash, targetLen, 0},
-                                       [](const ItemIndexEntry& a, const ItemIndexEntry& b) {
-                                         return a.idHash < b.idHash || (a.idHash == b.idHash && a.idLen < b.idLen);
-                                       });
+                                       ItemIndexEntry{targetHash, targetLen, 0}, itemIndexLess);
 
             // Check for match (may need to check a few due to hash collisions)
             while (it != self->itemIndex.end() && it->idHash == targetHash) {
