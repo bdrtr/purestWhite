@@ -373,10 +373,8 @@ const char* const kBases[] = {"OPS/", "", "a/b/", "OEBPS/%41/", "../x/", "/"};
 // Feeds `doc` in pieces of `chunk` bytes (0: whole) as ZipFile does, then lists the results.
 std::string report(const std::string& doc, const Mode& mode, const std::string& base, const size_t chunk) {
   BookMetadataCache cache;
-  Storage = {};
   std::string out;
-  const std::string cachePath = "/cache";  // ContentOpfParser keeps a reference
-  ContentOpfParser parser(cachePath, base, doc.size(), mode.spine ? &cache : nullptr, mode.metadataOnly);
+  ContentOpfParser parser(base, doc.size(), mode.spine ? &cache : nullptr, mode.metadataOnly);
   if (!parser.setup()) return "setup failed\n";
   const size_t step = chunk == 0 ? doc.size() : chunk;
   for (size_t at = 0; at < doc.size();) {

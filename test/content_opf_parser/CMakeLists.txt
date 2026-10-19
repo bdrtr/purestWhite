@@ -3,16 +3,12 @@ add_executable(ContentOpfParserTest
   EncryptionManifestProbeTest.cpp
   OpfCorpusTest.cpp
   ${REPO_ROOT}/lib/Epub/Epub/parsers/ContentOpfParser.cpp
-  ${REPO_ROOT}/lib/FsHelpers/FsHelpers.cpp
-  ${REPO_ROOT}/lib/Utf8/Utf8.cpp
 )
 
 target_include_directories(ContentOpfParserTest PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/stubs
   ${REPO_ROOT}/lib/Epub/Epub/parsers
   ${REPO_ROOT}/lib/XmlParserUtils
-  ${REPO_ROOT}/lib/FsHelpers
-  ${REPO_ROOT}/lib/Utf8
 )
 
 target_link_libraries(ContentOpfParserTest PRIVATE

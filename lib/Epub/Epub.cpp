@@ -79,8 +79,8 @@ bool Epub::parseContentOpf(BookMetadataCache::BookMetadata& bookMetadata, const 
     return false;
   }
 
-  ContentOpfParser opfParser(getCachePath(), getBasePath(), contentOpfSize,
-                             writeSpineEntries ? bookMetadataCache.get() : nullptr, metadataOnly);
+  ContentOpfParser opfParser(getBasePath(), contentOpfSize, writeSpineEntries ? bookMetadataCache.get() : nullptr,
+                             metadataOnly);
   if (!opfParser.setup()) {
     LOG_ERR("EBP", "Could not setup content.opf parser");
     return false;
@@ -703,7 +703,7 @@ bool Epub::loadSyncMetadata(SyncMetadata& metadata) {
   }
 
   const std::string basePath = contentOpfFilePath.substr(0, contentOpfFilePath.find_last_of('/') + 1);
-  ContentOpfParser parser(cachePath, basePath, contentOpfSize, nullptr, true);
+  ContentOpfParser parser(basePath, contentOpfSize, nullptr, true);
   if (!parser.setup()) {
     zip.close();
     return false;

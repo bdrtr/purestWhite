@@ -43,6 +43,18 @@ CrossPoint, `../crosspoint-prev` 609d473.
   kitap: bölümler açılmalı, resimler görünmeli, içindekiler ve dipnot bağlantıları çalışmalı.
 - [ ] WebDAV ve web sunucusu: bir alt klasöre dosya yükleyin, listeleyin, indirin.
 
+## OPF (paket belgesi) ("rust: our own package document reader")
+
+- [ ] Kütüphanede birkaç kitap: başlık, yazar ve seri adı/sırası eskisi gibi görünmeli
+  (Calibre serisi ve EPUB 3 koleksiyonu olan birer kitap iyi olur).
+- [ ] Kapak resimleri: EPUB 2 (`meta name="cover"`) ve EPUB 3 (`cover-image`) kapaklı
+  birer kitap; kapaklar görünmeli (ana ekran kapak ızgarası da).
+- [ ] Çok bölümlü büyük bir kitap (yüzlerce manifest öğesi): ilk açılış eskisinden yavaş
+  olmamalı, bölüm sırası ve içindekiler doğru olmalı. Günlükte `OPF pass completed in`
+  süresini not edin.
+- [ ] Binlerce manifest öğesi olan bir kitap (antoloji, sözlük ya da çizgi roman EPUB'ı):
+  açılmalı; `Parse error` görülmemeli.
+
 ## DEFLATE ve yazı tipleri (b340e76, fdd0780)
 
 - [ ] Kitap açma ve bölüm oluşturma süresi; önceki sürümle kabaca karşılaştırın (günlükte
