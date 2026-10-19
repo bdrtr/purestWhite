@@ -188,7 +188,6 @@ Some sources are generated and should not be edited manually.
 
 - `scripts/build_html.py` generates `src/network/html/*.generated.h` from HTML files
 - `scripts/gen_i18n.py` generates `lib/I18n/I18nKeys.h`, `I18nStrings.h`, and `I18nStrings.cpp`
-- `scripts/generate_hyphenation_trie.py` generates hyphenation headers under `lib/Epub/Epub/hyphenation/generated/`
 
 When editing related source assets, regenerate via normal build steps/scripts.
 

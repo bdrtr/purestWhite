@@ -53,6 +53,11 @@ emu/compare.sh emu/reading.txt x4pro emu/books/bidi/bidi-test.epub
 python3 emu/make_css_epub.py emu/books/css
 emu/compare.sh emu/reading.txt x4pro emu/books/css/css-test.epub
 
+# Heceleme: Almanca bileşik kelimeler, tireler, kesme işaretleri; kart hecelemeyi açan ayarla gelir
+python3 emu/make_hyphenation_epub.py emu/books/hyphenation
+emu/compare.sh emu/reading.txt x4pro emu/books/hyphenation/hyphenation-test.epub \
+    emu/books/hyphenation/card/.crosspoint=/
+
 # Bozuk EPUB'lar (her biri kendi kartında):
 python3 emu/make_bad_epubs.py emu/books/bad
 emu/compare.sh emu/open-book.txt x4pro emu/books/bad/max-size-cover/max-size-cover.epub
@@ -84,16 +89,16 @@ açıklanır.
 - Rust tarafı C++ heap'ini kullanır (`device.rs`: `malloc`/`heap_caps_aligned_alloc`).
   Panic `abort()` çağırır; normal backtrace ve core dump üretir.
 - Sınırda veri: dilim (`ptr` + `len`) girer; çıktı ya çağıranın tamponuna yazılır
-  ya da `emit` geri çağrısıyla `std::string`'e eklenir. Rust, C++'a
+  ya da `emit` geri çağrısıyla `std::string`'e (ya da bir `std::vector`'e) eklenir. Rust, C++'a
   sahipliği devredilmiş bellek döndürmez.
 - Çağrılar arasında durum tutan bir Rust değeri C++'ın sağladığı opak bellekte durabilir
   (`bb_css_rules`). Rust'ın bu değerde tuttuğu heap blokları Rust'ındır: bellek bir kez
   `*_init` ile kurulur, bellek ömrü bitmeden `*_free` çağrılır, değer kopyalanmaz (C++
   sınıfı kopyalanamaz ve taşınamaz). Heap tutmayan durum (`bb_inflate`, `bb_css_tokenizer`)
   serbest bırakma gerektirmez; Rust tarafı bunu `needs_drop` ile derleme anında denetler.
-- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-bidi`, `bembeyaz-css`) `clippy::indexing_slicing`,
+- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`) `clippy::indexing_slicing`,
   `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla sınırsız bellek ayırmaz
-  (ayırma sabit bir üst sınırla kısılır). Kesmeler ve tek bayt bozulmaları için panik
+  (ayırma sabit bir üst sınırla ya da zaten bellekte olan girdinin boyutuyla kısılır). Kesmeler ve tek bayt bozulmaları için panik
   olmadığını test eden bir mini-fuzz testi taşır.
 - Büyük bir değer (ör. ~4,5 KB'lık inflate durumu) yerinde kurulmalı: Rust bunu
   garanti etmez, değer önce stack'te kurulup kopyalanabilir. `scripts/build_rust.py`
@@ -111,7 +116,7 @@ Bağımlılıklara göre (önce yapraklar):
 | --- | --- | --- |
 | 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, XmlParserUtils, **MiniBidi ✅** (minibidi davranışıyla birebir; UAX #9 düzeltmeleri sırada), JsonParser | Donanım yok, testleri var |
 | 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (kendi çözücümüz), **InflateReader ✅** (silindi; kullanıcıları InflateStream'e geçti), Serialization | Framebuffer ödünç alma C++'ta kaldı; Rust belleği çağırandan alır. ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
-| 3 — EPUB çekirdeği | Epub: **CSS ayrıştırıcı ✅** (önbellek biçimi aynı; dosya işlemleri C++'ta), OPF, heceleme, ParsedText, Section | En büyük parça (~19k satır); alt modül alt modül |
+| 3 — EPUB çekirdeği | Epub: **CSS ayrıştırıcı ✅** (önbellek biçimi aynı; dosya işlemleri C++'ta), **heceleme ✅** (hypher trie'leri crate'te; seçili dil C++'ta), OPF, ParsedText, Section | En büyük parça (~19k satır); alt modül alt modül |
 | 4 — görüntü/font | Png/JpegToBmp, EpdFont, GfxRenderer | Çerçeve tamponu sınırı |
 | 5 — uygulama | LibraryIndex, Txt, Xtc, KOReaderSync, `src/` activity'leri | UI |
 | 6 — platform | hal, freeink-sdk sürücüleri, `main` → Rust (esp-hal / esp-idf) | Arduino kalkar |

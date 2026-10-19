@@ -34,9 +34,17 @@ version = "0.1.0"
 dependencies = [
  "bembeyaz-bidi",
  "bembeyaz-css",
+ "bembeyaz-hyphenation",
  "bembeyaz-inflate",
  "bembeyaz-utf8",
  "bembeyaz-zip",
+]
+
+[[package]]
+name = "bembeyaz-hyphenation"
+version = "0.1.0"
+dependencies = [
+ "bembeyaz-utf8",
 ]
 
 [[package]]

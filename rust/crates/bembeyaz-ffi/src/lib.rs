@@ -7,6 +7,7 @@ mod bidi;
 mod css;
 #[cfg(target_os = "none")]
 mod device;
+mod hyphenation;
 mod inflate;
 mod utf8;
 mod zip;

@@ -38,14 +38,21 @@ to the current node’s base.
 
 ## Embedding blobs into the firmware
 
-The helper script `scripts/generate_hyphenation_trie.py` acts as a thin
-wrapper: it reads the hypher-generated `.bin` files, formats them as `constexpr`
-byte arrays, and emits headers under
-`lib/Epub/Epub/hyphenation/generated/`. Each header defines the raw data plus a
-`SerializedHyphenationPatterns` descriptor so the reader can keep the automaton
-in flash.
+The `.bin` files live unchanged in `rust/crates/bembeyaz-hyphenation/tries/`,
+and the Rust crate embeds them with `include_bytes!`, so the automata stay in
+flash. Node addresses in `liang.rs` count from the byte after `root_addr_be`;
+levels offsets count from the start of the file.
 
-A convenient script `update_hyphenation.sh` is used to update all languages.
+The files in the repository are the ones the C++ hyphenator embedded until
+46ebf6e. On 2026-10-19 `en` and `de` matched hypher's main branch byte for
+byte and `fi` did not: hypher has updated some tries since.
+
+The script `update_hyphenation.sh` downloads the current tries for all
+languages. A new trie changes where words break, so check
+`test/hyphenation_eval` after an update and re-record `HyphenatorCorpusTest`:
+set every `kHashes` entry to 0, run the test, paste the hashes it prints, and
+take the language-tag test's new hash from its failure message. The hashes then
+pin the new tries instead of the C++ code.
 To use it, run:
 
 ```sh

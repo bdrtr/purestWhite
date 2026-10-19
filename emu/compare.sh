@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Runs a scenario on the unmodified CrossPoint build (BASE) and on this tree's
 # build side by side in eink-qemu, and prints the comparison table.
-#   emu/compare.sh [scenario.txt] [env] [book.epub...]
-# Without books, the card holds the book from make_utf8_epub.py.
+#   emu/compare.sh [scenario.txt] [env] [book.epub | host/dir=/card/dir ...]
+# Each extra argument is copied onto the card (eink-qemu --put). Without any, the card holds the
+# book from make_utf8_epub.py.
 set -euo pipefail
 here="$(cd "$(dirname "$0")" && pwd)"
 root="$(dirname "$here")"
