@@ -1,0 +1,48 @@
+# Book from make_png_epub.py: open it and page through its chapters, one PNG image each
+# (the last is the image PNGdec got wrong when built for a 64-bit host; the firmware's build did not)
+ready
+touch:240,348
+wait-screen
+touch:240,138
+wait-log:Page render
+shot:gray8
+heap:gray8
+swipe:left
+wait-log:Page render
+shot:gray1
+swipe:left
+wait-log:Page render
+shot:gray2
+swipe:left
+wait-log:Page render
+shot:gray4
+swipe:left
+wait-log:Page render
+shot:palette1
+swipe:left
+wait-log:Page render
+shot:palette2
+swipe:left
+wait-log:Page render
+shot:palette4-trns
+swipe:left
+wait-log:Page render
+shot:palette8
+swipe:left
+wait-log:Page render
+shot:rgb-key
+swipe:left
+wait-log:Page render
+shot:rgba
+swipe:left
+wait-log:Page render
+shot:gray-alpha
+swipe:left
+wait-log:Page render
+shot:large-rgb
+swipe:left
+wait-log:Page render
+shot:rows-ending-in-runs
+press:home
+wait-quiet:3
+shot:home

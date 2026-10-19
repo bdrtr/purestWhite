@@ -21,6 +21,7 @@ bembeyaz-inflate = { path = "../bembeyaz-inflate" }
 bembeyaz-layout = { path = "../bembeyaz-layout" }
 bembeyaz-opf = { path = "../bembeyaz-opf" }
 bembeyaz-path = { path = "../bembeyaz-path" }
+bembeyaz-png = { path = "../bembeyaz-png" }
 bembeyaz-utf8 = { path = "../bembeyaz-utf8" }
 bembeyaz-xml = { path = "../bembeyaz-xml" }
 bembeyaz-zip = { path = "../bembeyaz-zip" }

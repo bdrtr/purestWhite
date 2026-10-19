@@ -39,6 +39,7 @@ dependencies = [
  "bembeyaz-layout",
  "bembeyaz-opf",
  "bembeyaz-path",
+ "bembeyaz-png",
  "bembeyaz-utf8",
  "bembeyaz-xml",
  "bembeyaz-zip",
@@ -78,6 +79,13 @@ dependencies = [
 [[package]]
 name = "bembeyaz-path"
 version = "0.1.0"
+
+[[package]]
+name = "bembeyaz-png"
+version = "0.1.0"
+dependencies = [
+ "bembeyaz-inflate",
+]
 
 [[package]]
 name = "bembeyaz-utf8"

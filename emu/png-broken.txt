@@ -1,0 +1,8 @@
+# Book from make_png_epub.py (png-broken.epub): open its chapter, an image cut inside its
+# data. PNGdec waited for the rest forever; the page must render.
+ready
+touch:240,348
+wait-screen
+touch:240,138
+wait-log:Page render
+shot:broken-image

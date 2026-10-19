@@ -1,0 +1,9 @@
+[package]
+name = "bembeyaz-png"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+bembeyaz-inflate = { path = "../bembeyaz-inflate" }

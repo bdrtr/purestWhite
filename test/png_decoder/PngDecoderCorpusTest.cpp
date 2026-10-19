@@ -3,15 +3,19 @@
 // result of opening it (size, pixel type, bit depth, alpha), and, for files the converter goes on
 // to decode, every row it receives (pixels, pixel type, bit depth, alpha, color key, the palette
 // entries the row uses) and the result of the decode. Files are decoded only when the converter
-// would decode them: a size, a supported bit depth and rows that fit the decoder's buffer.
-// The reports hash to a value recorded from PNGdec 1.1.6, the decoder the firmware used. Rerun with
-// PNG_CORPUS_PRINT=1 to list the cases. The hash freezes the corpus.
+// would decode them: a size, a supported bit depth and rows within the converter's limit.
+// The reports hash to a value recorded from PNGdec 1.1.6, the decoder the firmware used before
+// bembeyaz-png. Rerun with PNG_CORPUS_PRINT=1 to list the cases. The hash freezes the corpus.
+// It was recorded on a 64-bit host, where PNGdec's zlib copies repeats 4 bytes at a time and can
+// spill past a row; no file here sets that off (bembeyaz-png's rows_ending_in_a_run_are_exact has
+// one), and the firmware's 32-bit build copied byte by byte.
 //
 // Left out, because PNGdec's output there is not a behaviour to keep: changed compressed data, on
-// which it can loop forever or overwrite its own state (a flipped IDAT bit in c0d1_33x17.png
+// which it could loop forever or overwrite its own state (a flipped IDAT bit in c0d1_33x17.png
 // changed the row pitch mid-decode, another never returned), and files cut inside IDAT data, on
-// which it waits forever for the rest.
+// which it could wait forever for the rest. bembeyaz-png's own tests cover those.
 
+#include <bembeyaz/png.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -25,8 +29,6 @@
 #include <set>
 #include <string>
 #include <vector>
-
-#include "PNGdec.h"
 
 namespace {
 
@@ -54,11 +56,11 @@ uint64_t fnv(const uint8_t* data, const size_t len) {
 // The converter's limits (PngToFramebufferConverter.cpp).
 int bytesPerPixel(const int type) {
   switch (type) {
-    case PNG_PIXEL_TRUECOLOR:
+    case BB_PNG_PIXEL_TRUECOLOR:
       return 3;
-    case PNG_PIXEL_GRAY_ALPHA:
+    case BB_PNG_PIXEL_GRAY_ALPHA:
       return 2;
-    case PNG_PIXEL_TRUECOLOR_ALPHA:
+    case BB_PNG_PIXEL_TRUECOLOR_ALPHA:
       return 4;
     default:
       return 1;
@@ -68,11 +70,11 @@ int bytesPerPixel(const int type) {
 bool converterWouldDecode(const int width, const int height, const int type, const int bpp) {
   if (width <= 0 || height <= 0) return false;
   int pitch = width * bytesPerPixel(type);
-  if ((type == PNG_PIXEL_GRAYSCALE || type == PNG_PIXEL_INDEXED) && bpp < 8) pitch = (width * bpp + 7) / 8;
-  if ((pitch + 1) * 2 + 32 > PNG_MAX_BUFFERED_PIXELS) return false;
+  if ((type == BB_PNG_PIXEL_GRAYSCALE || type == BB_PNG_PIXEL_INDEXED) && bpp < 8) pitch = (width * bpp + 7) / 8;
+  if ((pitch + 1) * 2 + 32 > 16416) return false;  // PngToFramebufferConverter.cpp's PNG_ROW_BUDGET
   if (bpp == 8) return true;
   if (bpp != 1 && bpp != 2 && bpp != 4) return false;
-  return type == PNG_PIXEL_GRAYSCALE || type == PNG_PIXEL_INDEXED;
+  return type == BB_PNG_PIXEL_GRAYSCALE || type == BB_PNG_PIXEL_INDEXED;
 }
 
 uint8_t packedSample(const uint8_t* pixels, const int x, const int bpp) {
@@ -81,37 +83,31 @@ uint8_t packedSample(const uint8_t* pixels, const int x, const int bpp) {
   return (pixels[bit >> 3] >> (8 - bpp - (bit & 7))) & ((1 << bpp) - 1);
 }
 
-// The data source the firmware gives the decoder: a file it reads and seeks.
-struct MemoryFile {
-  const std::vector<uint8_t>* data;
-  int32_t position = 0;
-};
+// The data source the firmware gives the decoder: a file it reads at a position.
+size_t readAt(void* context, const uint32_t pos, uint8_t* buf, const size_t len) {
+  const auto& data = *static_cast<const std::vector<uint8_t>*>(context);
+  if (pos >= data.size()) return 0;
+  const size_t n = std::min(len, data.size() - pos);
+  std::memcpy(buf, data.data() + pos, n);
+  return n;
+}
 
-// The file being decoded: PNGdec's open callback takes only a name.
-MemoryFile* currentFile = nullptr;
-
-struct Decode {
-  PNG* png;
-  std::string* out;
-};
-
-int drawRow(PNGDRAW* draw) {
-  auto* decode = static_cast<Decode*>(draw->pUser);
-  std::string& out = *decode->out;
+int drawRow(void* user, const bb_png_row* row) {
+  std::string& out = *static_cast<std::string*>(user);
   char line[160];
-  std::snprintf(line, sizeof(line), "row %d pitch %d type %d bpp %d alpha %d pixels %016llx", draw->y, draw->iPitch,
-                draw->iPixelType, draw->iBpp, draw->iHasAlpha,
-                static_cast<unsigned long long>(fnv(draw->pPixels, static_cast<size_t>(draw->iPitch))));
+  std::snprintf(line, sizeof(line), "row %d pitch %d type %d bpp %d alpha %d pixels %016llx", row->y, row->pitch,
+                row->pixel_type, row->bpp, row->has_alpha,
+                static_cast<unsigned long long>(fnv(row->pixels, static_cast<size_t>(row->pitch))));
   out += line;
-  if (draw->iHasAlpha && (draw->iPixelType == PNG_PIXEL_GRAYSCALE || draw->iPixelType == PNG_PIXEL_TRUECOLOR)) {
-    std::snprintf(line, sizeof(line), " key %06x", decode->png->getTransparentColor());
+  if (row->has_alpha && (row->pixel_type == BB_PNG_PIXEL_GRAYSCALE || row->pixel_type == BB_PNG_PIXEL_TRUECOLOR)) {
+    std::snprintf(line, sizeof(line), " key %06x", row->transparent);
     out += line;
   }
-  if (draw->iPixelType == PNG_PIXEL_INDEXED) {
+  if (row->pixel_type == BB_PNG_PIXEL_INDEXED) {
     std::set<int> used;
-    for (int x = 0; x < draw->iWidth; ++x) used.insert(packedSample(draw->pPixels, x, draw->iBpp));
+    for (int x = 0; x < row->width; ++x) used.insert(packedSample(row->pixels, x, row->bpp));
     for (const int i : used) {
-      const uint8_t* p = draw->pPalette;
+      const uint8_t* p = row->palette;
       std::snprintf(line, sizeof(line), " %d:%02x%02x%02x%02x", i, p[i * 3], p[i * 3 + 1], p[i * 3 + 2], p[768 + i]);
       out += line;
     }
@@ -120,47 +116,27 @@ int drawRow(PNGDRAW* draw) {
   return 1;
 }
 
-std::string report() {
-  static PNG png;  // 42 KB: kept off the stack
+std::string report(const std::vector<uint8_t>& file) {
   std::string out;
-  const int rc = png.open(
-      "file",
-      [](const char*, int32_t* size) -> void* {
-        *size = static_cast<int32_t>(currentFile->data->size());
-        return currentFile;
-      },
-      [](void*) {},
-      [](PNGFILE* f, uint8_t* buffer, int32_t len) -> int32_t {
-        auto* m = static_cast<MemoryFile*>(f->fHandle);
-        const int32_t available = static_cast<int32_t>(m->data->size()) - m->position;
-        const int32_t n = std::max<int32_t>(0, std::min(len, available));
-        std::memcpy(buffer, m->data->data() + m->position, static_cast<size_t>(n));
-        m->position += n;
-        f->iPos = m->position;
-        return n;
-      },
-      [](PNGFILE* f, int32_t position) -> int32_t {
-        auto* m = static_cast<MemoryFile*>(f->fHandle);
-        m->position = position;
-        f->iPos = position;
-        return position;
-      },
-      drawRow);
+  int rc = -1;
+  bb_png* png = bb_png_open(readAt, const_cast<std::vector<uint8_t>*>(&file), static_cast<uint32_t>(file.size()), &rc);
+  if (!png) return "out of memory\n";
+  bb_png_info info;
+  bb_png_get_info(png, &info);
   char line[160];
-  std::snprintf(line, sizeof(line), "open %d %dx%d type %d bpp %d alpha %d\n", rc, png.getWidth(), png.getHeight(),
-                png.getPixelType(), png.getBpp(), png.hasAlpha());
+  std::snprintf(line, sizeof(line), "open %d %dx%d type %d bpp %d alpha %d\n", rc, info.width, info.height,
+                info.pixel_type, info.bpp, info.has_alpha);
   out += line;
-  if (rc == PNG_SUCCESS && converterWouldDecode(png.getWidth(), png.getHeight(), png.getPixelType(), png.getBpp())) {
-    Decode decode{&png, &out};
-    const int decoded = png.decode(&decode, 0);
+  if (rc == BB_PNG_SUCCESS && converterWouldDecode(info.width, info.height, info.pixel_type, info.bpp)) {
+    const int decoded = bb_png_decode(png, drawRow, &out);
     std::snprintf(line, sizeof(line), "decode %d\n", decoded);
     out += line;
   }
-  png.close();
+  bb_png_free(png);
   return out;
 }
 
-// Whether `cut` falls inside some IDAT chunk's data, where PNGdec waits forever for the rest.
+// Whether `cut` falls inside some IDAT chunk's data, where PNGdec could wait forever for the rest.
 bool cutsImageData(const std::vector<uint8_t>& file, const size_t cut) {
   size_t p = 8;
   while (p + 8 <= file.size()) {
@@ -187,9 +163,7 @@ TEST(PngDecoderCorpus, RowsMatchTheRecordedDecoder) {
   Hash hash;
   size_t cases = 0;
   const auto run = [&](const std::string& name, const std::vector<uint8_t>& file) {
-    MemoryFile memory{&file};
-    currentFile = &memory;
-    const std::string r = report();
+    const std::string r = report(file);
     hash.add(name);
     hash.add(r);
     ++cases;

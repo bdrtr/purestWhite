@@ -116,3 +116,32 @@ CrossPoint, `../crosspoint-prev` 609d473.
   ve açın: sayfalar eskisi gibi görünmeli; günlükteki `Time to parse and build pages` süresi
   önceki sürümden uzun olmamalı (emülatörde fark 3 ms içinde). Kapak küçük resimleri (PNG
   kapaklar) de görünmeli.
+
+## PNG resimleri ("rust: our own PNG decoder for chapter images")
+
+Bölüm resimleri ilk çözümden sonra önbelleğe alınır: aşağıdakileri denemeden önce kitabın
+önbelleğini silin (kitap açıkken okuma menüsünde Delete Book Cache) ya da kitabı ilk kez
+açın. Hata belirtileri: kayık ya da çizgili satırlar, yanlış gri tonlar, saydam yerlerin siyah
+çıkması, boş resim, donma ya da yeniden başlatma.
+
+- [ ] PNG resimli birkaç kitap (diyagram, ekran görüntüsü, saydam logo): resimler eskisi gibi
+  görünmeli. Gri tonlar, saydam bölgeler, küçültülmüş büyük resimler de aynı olmalı.
+- [ ] `python3 emu/make_png_epub.py emu/books/png` ile üretilen `png.epub`'ı karta kopyalayıp
+  13 bölümü sırayla açın; her bölümde tek resim var. Görünüşleri
+  `emu/compare.sh emu/png.txt x4pro emu/books/png/png.epub` çıktısındaki
+  `emu/runs/png-png-*/report.html` ekran görüntüleriyle aynı olmalı.
+- [ ] Aynı klasördeki `png-broken.epub`: bölüm açılmalı, cihaz donmamalı. Günlükte
+  `Decode failed: 1` görünmeli, resmin yerinde boş bir çerçeve olmalı (emülatörde de böyle).
+  Eski sürüm bu resimde sonsuza dek bekliyordu.
+- [ ] Hız: büyük bir PNG resmi olan bir bölümü önbelleği silinmiş olarak açın, günlükteki
+  `PNG decoding complete - render time:` süresini önceki sürümle karşılaştırın. Emülatörde
+  1600×1000 RGB bir resim için ~1195 ms, eskisinde ~1135 ms (%5 yavaş). Emülatör PSRAM'i
+  gerçekte olduğundan hızlı modelliyor; cihazda fark %10'u aşarsa not edin.
+- [ ] Dosya gezgininden bir `.png` dosyası açın (büyük bir resim de deneyin): resim eskisi gibi
+  görünmeli, önceki/sonraki resme geçiş çalışmalı.
+- [ ] PNG kapaklı bir kitabın Ayrıntılar ekranı: kapak görünmeli.
+- [ ] Uyku ekranı ayarını **Transparent** yapın, kartın köküne alfa kanallı bir
+  `sleep-overlay.png` koyun (kökte `sleep-overlay.bmp` olmasın, o önce gelir), cihazı uyutun:
+  saydam yerlerden alttaki ekran, opak yerlerde resim görünmeli.
+- [ ] BLE kumanda bağlıyken PNG'li bir bölümü ilk kez açın: kumanda bağlı kalmalı, sayfa
+  çevirme çalışmalı (çözücü dahili RAM'den hiçbir zaman 4 KB'tan büyük blok istemez).

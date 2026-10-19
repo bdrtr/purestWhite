@@ -11,8 +11,8 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Memory.h>
-#include <PNGdec.h>
 #include <Xtc.h>
+#include <bembeyaz/png.h>
 
 #include <algorithm>
 #include <cmath>
@@ -133,11 +133,11 @@ bool isValidPngHeader(HalFile& file) {
   const int interlace = file.read();
 
   const bool supportedBitDepth =
-      bitDepth == 8 || ((colorType == PNG_PIXEL_GRAYSCALE || colorType == PNG_PIXEL_INDEXED) &&
+      bitDepth == 8 || ((colorType == BB_PNG_PIXEL_GRAYSCALE || colorType == BB_PNG_PIXEL_INDEXED) &&
                         (bitDepth == 1 || bitDepth == 2 || bitDepth == 4));
-  const bool supportedColorType = colorType == PNG_PIXEL_GRAYSCALE || colorType == PNG_PIXEL_TRUECOLOR ||
-                                  colorType == PNG_PIXEL_INDEXED || colorType == PNG_PIXEL_GRAY_ALPHA ||
-                                  colorType == PNG_PIXEL_TRUECOLOR_ALPHA;
+  const bool supportedColorType = colorType == BB_PNG_PIXEL_GRAYSCALE || colorType == BB_PNG_PIXEL_TRUECOLOR ||
+                                  colorType == BB_PNG_PIXEL_INDEXED || colorType == BB_PNG_PIXEL_GRAY_ALPHA ||
+                                  colorType == BB_PNG_PIXEL_TRUECOLOR_ALPHA;
   return width > 0 && height > 0 && width <= 2048 && height <= 3072 && width * height <= MAX_SOURCE_PIXELS &&
          supportedBitDepth && supportedColorType && compression == 0 && filter == 0 && interlace == 0;
 }

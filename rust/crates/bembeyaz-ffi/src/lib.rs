@@ -15,6 +15,7 @@ mod inflate;
 mod layout;
 mod opf;
 mod path;
+mod png;
 mod utf8;
 mod xml;
 mod zip;
