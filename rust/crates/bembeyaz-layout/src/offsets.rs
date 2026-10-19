@@ -92,8 +92,9 @@ impl VisibleOffsets {
         self.deltas.try_reserve(1).map_err(|_| Full)
     }
 
-    /// Kept as the C++ did it: a rebase inserted here also becomes the base of the word after
-    /// `word`, whose delta was stored against the old one. To be fixed in its own commit.
+    /// As the C++ did it: a rebase inserted here would also become the base of the word after
+    /// `word`. That needs the next word's offset to lie inside this one, i.e. decreasing offsets;
+    /// every caller passes non-decreasing ones (source positions, or 0 throughout).
     pub(crate) fn insert(&mut self, word: usize, offset: u32) -> Result<(), Full> {
         let base = if word > 0 {
             self.base_at(word - 1)
