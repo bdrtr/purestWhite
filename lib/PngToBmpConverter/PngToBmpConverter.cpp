@@ -75,6 +75,18 @@ enum PngFilter : uint8_t {
   PNG_FILTER_PAETH = 4,
 };
 
+// The bit depths PNG allows for each color type, which the conversion to gray reads rows as.
+bool bitDepthAllowed(const uint8_t colorType, const uint8_t bitDepth) {
+  switch (colorType) {
+    case PNG_COLOR_GRAYSCALE:
+      return bitDepth == 1 || bitDepth == 2 || bitDepth == 4 || bitDepth == 8 || bitDepth == 16;
+    case PNG_COLOR_PALETTE:
+      return bitDepth == 1 || bitDepth == 2 || bitDepth == 4 || bitDepth == 8;
+    default:
+      return bitDepth == 8 || bitDepth == 16;
+  }
+}
+
 void yieldDuringDecode(uint8_t& rowsSinceYield) {
   if (++rowsSinceYield < 8) return;
   rowsSinceYield = 0;
@@ -494,6 +506,12 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(HalFile& pngFile, Print& bmpO
     default:
       LOG_ERR("PNG", "Unsupported color type: %d", colorType);
       return false;
+  }
+
+  // Any other depth sent the conversion to gray past the row buffers, or divided by zero.
+  if (!bitDepthAllowed(colorType, bitDepth)) {
+    LOG_ERR("PNG", "Unsupported bit depth %u for color type %u", bitDepth, colorType);
+    return false;
   }
 
   // Validate raw row bytes won't cause memory issues

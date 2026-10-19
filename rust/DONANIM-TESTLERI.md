@@ -190,3 +190,9 @@ boş resim, donma ya da yeniden başlatma.
   arasında gezinin, OPDS kataloğuna da göz atın: günlükte `Rust panic`, yeniden başlatma ya da donma
   olmamalı.
 - [ ] BLE kumanda bağlıyken bir kitabı ilk kez açın: kumanda bağlı kalmalı, sayfa çevirme çalışmalı.
+
+## PNG kapak bit derinliği ("fix: PNG covers refuse a bit depth the color type does not allow")
+
+- [ ] PNG kapaklı birkaç kitap: Home ve Library küçük resimleri, Details (Ayrıntılar) ekranı ve uyku
+  ekranındaki kapak eskisi gibi görünmeli. Geçersiz bit derinlikli bir kapak (yalnızca elle
+  bozulmuş dosyalarda olur; host testleri kapsar) artık cihazı çökertmez, kapak gösterilmez.
