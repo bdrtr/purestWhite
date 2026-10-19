@@ -432,7 +432,7 @@ class ParagraphStreamer final : public Print {
     if (resolved)
       onVisibleText(resolved);
     else if (entityLen >= 3 && entityBuffer[1] == '#')
-      // Numeric character reference (&#NNN; / &#xHH;): expat -- which builds the page LUT --
+      // Numeric character reference (&#NNN; / &#xHH;): the XML parser -- which builds the page LUT --
       // decodes it to a single codepoint. Count one here too, not the raw "&#NNN" characters.
       onVisibleCodepoint();
     else
@@ -693,7 +693,7 @@ class ParagraphStreamer final : public Print {
       return 1;
     }
 
-    // XML 1.0 §2.11 line-ending normalization: expat (which builds the page LUT) collapses a
+    // XML 1.0 §2.11 line-ending normalization: the XML parser (which builds the page LUT) collapses a
     // "\r\n" pair and a lone "\r" to a single "\n". Mirror that so this byte counter -- which the
     // resolved offset is measured against -- stays codepoint-for-codepoint identical. prevCR is
     // set only by the visible-text branch below, so any non-text byte clears it here.

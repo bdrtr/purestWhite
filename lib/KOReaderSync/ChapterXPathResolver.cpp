@@ -4,8 +4,8 @@
 #include <Logging.h>
 #include <Print.h>
 #include <Utf8.h>
+#include <XmlParser.h>
 #include <XmlParserUtils.h>
-#include <expat.h>
 
 #include <algorithm>
 #include <cmath>
@@ -15,7 +15,7 @@
 #include <vector>
 
 namespace {
-std::string stripPrefix(const XML_Char* name) {
+std::string stripPrefix(const char* name) {
   if (!name) {
     return "";
   }
@@ -30,7 +30,7 @@ struct NameCounter {
 };
 
 // Mirrors crengine's IsEmptySpace(): only these four count as empty space.
-bool isWhitespaceOnly(const XML_Char* data, const int len) {
+bool isWhitespaceOnly(const char* data, const int len) {
   for (int i = 0; i < len; i++) {
     const char c = data[i];
     if (c != ' ' && c != '\r' && c != '\n' && c != '\t') {
@@ -73,7 +73,7 @@ std::string buildParagraphXPath(const int spineIndex, const std::vector<PathSegm
   return xpath;
 }
 
-size_t countUtf8Codepoints(const XML_Char* data, const int len) {
+size_t countUtf8Codepoints(const char* data, const int len) {
   if (!data || len <= 0) {
     return 0;
   }
@@ -92,28 +92,25 @@ size_t countUtf8Codepoints(const XML_Char* data, const int len) {
 class ParagraphTextCounter final : public Print {
  public:
   ParagraphTextCounter() {
-    parser = XML_ParserCreate(nullptr);
-    if (!parser) {
+    if (!parser.create()) {
       LOG_ERR("KOX", "Failed to create XML parser");
       return;
     }
 
-    XML_SetUserData(parser, this);
-    XML_SetElementHandler(parser, &ParagraphTextCounter::startElement, &ParagraphTextCounter::endElement);
-    XML_SetCharacterDataHandler(parser, &ParagraphTextCounter::characterData);
+    parser.setUserData(this);
+    parser.setElementHandler(&ParagraphTextCounter::startElement, &ParagraphTextCounter::endElement);
+    parser.setCharacterDataHandler(&ParagraphTextCounter::characterData);
   }
 
-  ~ParagraphTextCounter() override { destroyXmlParser(parser); }
-
-  bool ok() const { return parser != nullptr && parseOk; }
+  bool ok() const { return static_cast<bool>(parser) && parseOk; }
 
   bool finish() {
     if (!parser || !parseOk || stopped) {
       return parseOk;
     }
 
-    if (XML_Parse(parser, "", 0, XML_TRUE) == XML_STATUS_ERROR) {
-      LOG_ERR("KOX", "Final XML parse error: %s", XML_ErrorString(XML_GetErrorCode(parser)));
+    if (!parser.parse(nullptr, 0, true)) {
+      LOG_ERR("KOX", "Final XML parse error: %s", parser.errorString());
       parseOk = false;
     }
     return parseOk;
@@ -126,10 +123,9 @@ class ParagraphTextCounter final : public Print {
       return size;
     }
 
-    if (XML_Parse(parser, reinterpret_cast<const char*>(buffer), static_cast<int>(size), XML_FALSE) != XML_STATUS_OK) {
-      const enum XML_Error error = XML_GetErrorCode(parser);
-      if (error != XML_ERROR_ABORTED) {
-        LOG_ERR("KOX", "XML parse error: %s", XML_ErrorString(error));
+    if (!parser.parse(buffer, size, false)) {
+      if (!parser.stopped()) {
+        LOG_ERR("KOX", "XML parse error: %s", parser.errorString());
         parseOk = false;
       }
     }
@@ -142,22 +138,22 @@ class ParagraphTextCounter final : public Print {
   size_t totalVisibleChars() const { return lastTextEndChars; }
 
  private:
-  static void XMLCALL startElement(void* userData, const XML_Char* name, const XML_Char**) {
+  static void startElement(void* userData, const char* name, const char**) {
     auto* self = static_cast<ParagraphTextCounter*>(userData);
     self->onStartElement(name);
   }
 
-  static void XMLCALL endElement(void* userData, const XML_Char* name) {
+  static void endElement(void* userData, const char* name) {
     auto* self = static_cast<ParagraphTextCounter*>(userData);
     self->onEndElement(name);
   }
 
-  static void XMLCALL characterData(void* userData, const XML_Char* data, const int len) {
+  static void characterData(void* userData, const char* data, const int len) {
     auto* self = static_cast<ParagraphTextCounter*>(userData);
     self->onCharacterData(data, len);
   }
 
-  void onStartElement(const XML_Char* rawName) {
+  void onStartElement(const char* rawName) {
     const std::string name = stripPrefix(rawName);
 
     if (!insideBody) {
@@ -175,7 +171,7 @@ class ParagraphTextCounter final : public Print {
     depth++;
   }
 
-  void onEndElement(const XML_Char* rawName) {
+  void onEndElement(const char* rawName) {
     const std::string name = stripPrefix(rawName);
 
     depth--;
@@ -194,7 +190,7 @@ class ParagraphTextCounter final : public Print {
     }
   }
 
-  void onCharacterData(const XML_Char* data, const int len) {
+  void onCharacterData(const char* data, const int len) {
     if (!insideBody || nonVisibleDepth > 0 || len <= 0) {
       return;
     }
@@ -211,7 +207,7 @@ class ParagraphTextCounter final : public Print {
   }
 
  private:
-  XML_Parser parser = nullptr;
+  XmlParser parser;
   bool parseOk = true;
   bool insideBody = false;
   bool stopped = false;
@@ -225,27 +221,24 @@ class ParagraphTextCounter final : public Print {
 class XPathParagraphResolver final : public Print {
  public:
   explicit XPathParagraphResolver(const int targetParagraph) : targetParagraph(targetParagraph) {
-    parser = XML_ParserCreate(nullptr);
-    if (!parser) {
+    if (!parser.create()) {
       LOG_ERR("KOX", "Failed to create XML parser");
       return;
     }
 
-    XML_SetUserData(parser, this);
-    XML_SetElementHandler(parser, &XPathParagraphResolver::startElement, &XPathParagraphResolver::endElement);
+    parser.setUserData(this);
+    parser.setElementHandler(&XPathParagraphResolver::startElement, &XPathParagraphResolver::endElement);
   }
 
-  ~XPathParagraphResolver() override { destroyXmlParser(parser); }
-
-  bool ok() const { return parser != nullptr && parseOk; }
+  bool ok() const { return static_cast<bool>(parser) && parseOk; }
 
   bool finish() {
     if (!parser || !parseOk || stopped) {
       return parseOk;
     }
 
-    if (XML_Parse(parser, "", 0, XML_TRUE) == XML_STATUS_ERROR) {
-      LOG_ERR("KOX", "Final XML parse error: %s", XML_ErrorString(XML_GetErrorCode(parser)));
+    if (!parser.parse(nullptr, 0, true)) {
+      LOG_ERR("KOX", "Final XML parse error: %s", parser.errorString());
       parseOk = false;
     }
     return parseOk;
@@ -261,10 +254,9 @@ class XPathParagraphResolver final : public Print {
       return size;
     }
 
-    if (XML_Parse(parser, reinterpret_cast<const char*>(buffer), static_cast<int>(size), XML_FALSE) != XML_STATUS_OK) {
-      const enum XML_Error error = XML_GetErrorCode(parser);
-      if (error != XML_ERROR_ABORTED) {
-        LOG_ERR("KOX", "XML parse error: %s", XML_ErrorString(error));
+    if (!parser.parse(buffer, size, false)) {
+      if (!parser.stopped()) {
+        LOG_ERR("KOX", "XML parse error: %s", parser.errorString());
         parseOk = false;
       }
     }
@@ -275,17 +267,17 @@ class XPathParagraphResolver final : public Print {
   int spineIndex = 0;
 
  private:
-  static void XMLCALL startElement(void* userData, const XML_Char* name, const XML_Char**) {
+  static void startElement(void* userData, const char* name, const char**) {
     auto* self = static_cast<XPathParagraphResolver*>(userData);
     self->onStartElement(name);
   }
 
-  static void XMLCALL endElement(void* userData, const XML_Char* name) {
+  static void endElement(void* userData, const char* name) {
     auto* self = static_cast<XPathParagraphResolver*>(userData);
     self->onEndElement(name);
   }
 
-  void onStartElement(const XML_Char* rawName) {
+  void onStartElement(const char* rawName) {
     const std::string name = stripPrefix(rawName);
 
     if (!insideBody) {
@@ -313,13 +305,13 @@ class XPathParagraphResolver final : public Print {
     if (paragraphCount == targetParagraph) {
       xpath = buildParagraphXPath(spineIndex, path, 0, 0);
       stopped = true;
-      XML_StopParser(parser, XML_FALSE);
+      parser.stop();
     }
 
     depth++;
   }
 
-  void onEndElement(const XML_Char* rawName) {
+  void onEndElement(const char* rawName) {
     const std::string name = stripPrefix(rawName);
 
     depth--;
@@ -342,7 +334,7 @@ class XPathParagraphResolver final : public Print {
     }
   }
 
-  XML_Parser parser = nullptr;
+  XmlParser parser;
   const int targetParagraph;
   bool parseOk = true;
   bool insideBody = false;
@@ -362,32 +354,28 @@ class XPathProgressResolver final : public Print {
   explicit XPathProgressResolver(const size_t targetVisibleChar,
                                  const BoundaryMode boundaryMode = BoundaryMode::Exclusive)
       : targetVisibleChar(targetVisibleChar), boundaryMode(boundaryMode) {
-    parser = XML_ParserCreate(nullptr);
-    if (!parser) {
+    if (!parser.create()) {
       LOG_ERR("KOX", "Failed to create XML parser");
       return;
     }
 
-    XML_SetUserData(parser, this);
-    XML_SetElementHandler(parser, &XPathProgressResolver::startElement, &XPathProgressResolver::endElement);
-    XML_SetCharacterDataHandler(parser, &XPathProgressResolver::characterData);
-    XML_SetCommentHandler(parser, &XPathProgressResolver::comment);
-    XML_SetProcessingInstructionHandler(parser, &XPathProgressResolver::processingInstruction);
-    XML_SetCdataSectionHandler(parser, &XPathProgressResolver::startCdataSection,
-                               &XPathProgressResolver::endCdataSection);
+    parser.setUserData(this);
+    parser.setElementHandler(&XPathProgressResolver::startElement, &XPathProgressResolver::endElement);
+    parser.setCharacterDataHandler(&XPathProgressResolver::characterData);
+    parser.setCommentHandler(&XPathProgressResolver::comment);
+    parser.setProcessingInstructionHandler(&XPathProgressResolver::processingInstruction);
+    parser.setCdataSectionHandler(&XPathProgressResolver::startCdataSection, &XPathProgressResolver::endCdataSection);
   }
 
-  ~XPathProgressResolver() override { destroyXmlParser(parser); }
-
-  bool ok() const { return parser != nullptr && parseOk; }
+  bool ok() const { return static_cast<bool>(parser) && parseOk; }
 
   bool finish() {
     if (!parser || !parseOk || stopped) {
       return parseOk;
     }
 
-    if (XML_Parse(parser, "", 0, XML_TRUE) == XML_STATUS_ERROR) {
-      LOG_ERR("KOX", "Final XML parse error: %s", XML_ErrorString(XML_GetErrorCode(parser)));
+    if (!parser.parse(nullptr, 0, true)) {
+      LOG_ERR("KOX", "Final XML parse error: %s", parser.errorString());
       parseOk = false;
     }
     return parseOk;
@@ -403,10 +391,9 @@ class XPathProgressResolver final : public Print {
       return size;
     }
 
-    if (XML_Parse(parser, reinterpret_cast<const char*>(buffer), static_cast<int>(size), XML_FALSE) != XML_STATUS_OK) {
-      const enum XML_Error error = XML_GetErrorCode(parser);
-      if (error != XML_ERROR_ABORTED) {
-        LOG_ERR("KOX", "XML parse error: %s", XML_ErrorString(error));
+    if (!parser.parse(buffer, size, false)) {
+      if (!parser.stopped()) {
+        LOG_ERR("KOX", "XML parse error: %s", parser.errorString());
         parseOk = false;
       }
     }
@@ -417,42 +404,42 @@ class XPathProgressResolver final : public Print {
   int spineIndex = 0;
 
  private:
-  static void XMLCALL startElement(void* userData, const XML_Char* name, const XML_Char**) {
+  static void startElement(void* userData, const char* name, const char**) {
     auto* self = static_cast<XPathProgressResolver*>(userData);
     self->onStartElement(name);
   }
 
-  static void XMLCALL endElement(void* userData, const XML_Char* name) {
+  static void endElement(void* userData, const char* name) {
     auto* self = static_cast<XPathProgressResolver*>(userData);
     self->onEndElement(name);
   }
 
-  static void XMLCALL characterData(void* userData, const XML_Char* data, const int len) {
+  static void characterData(void* userData, const char* data, const int len) {
     auto* self = static_cast<XPathProgressResolver*>(userData);
     self->onCharacterData(data, len);
   }
 
-  static void XMLCALL comment(void* userData, const XML_Char*) {
+  static void comment(void* userData, const char*) {
     auto* self = static_cast<XPathProgressResolver*>(userData);
     self->onMarkupBoundary();
   }
 
-  static void XMLCALL processingInstruction(void* userData, const XML_Char*, const XML_Char*) {
+  static void processingInstruction(void* userData, const char*, const char*) {
     auto* self = static_cast<XPathProgressResolver*>(userData);
     self->onMarkupBoundary();
   }
 
-  static void XMLCALL startCdataSection(void* userData) {
+  static void startCdataSection(void* userData) {
     auto* self = static_cast<XPathProgressResolver*>(userData);
     self->onMarkupBoundary();
   }
 
-  static void XMLCALL endCdataSection(void* userData) {
+  static void endCdataSection(void* userData) {
     auto* self = static_cast<XPathProgressResolver*>(userData);
     self->onMarkupBoundary();
   }
 
-  void onStartElement(const XML_Char* rawName) {
+  void onStartElement(const char* rawName) {
     const std::string name = stripPrefix(rawName);
 
     if (!insideBody) {
@@ -479,7 +466,7 @@ class XPathProgressResolver final : public Print {
     depth++;
   }
 
-  void onEndElement(const XML_Char* rawName) {
+  void onEndElement(const char* rawName) {
     const std::string name = stripPrefix(rawName);
 
     depth--;
@@ -515,7 +502,7 @@ class XPathProgressResolver final : public Print {
   // Visible-offset counting mirrors ChapterHtmlSlimParser::characterData (every body
   // codepoint outside non-visible elements), so offsets recorded by the page LUT line up
   // with what is counted here regardless of which elements hold the text.
-  void onCharacterData(const XML_Char* data, const int len) {
+  void onCharacterData(const char* data, const int len) {
     if (!insideBody || nonVisibleDepth > 0 || len <= 0 || stopped) {
       return;
     }
@@ -552,7 +539,7 @@ class XPathProgressResolver final : public Print {
       const size_t charOff = visibleChars - textNodeStartChars + delta;
       xpath = buildParagraphXPath(spineIndex, path, texNode, charOff);
       stopped = true;
-      XML_StopParser(parser, XML_FALSE);
+      parser.stop();
       return;
     }
 
@@ -567,7 +554,7 @@ class XPathProgressResolver final : public Print {
     pendingTextNode = true;
   }
 
-  XML_Parser parser = nullptr;
+  XmlParser parser;
   const size_t targetVisibleChar;
   const BoundaryMode boundaryMode;
   bool parseOk = true;

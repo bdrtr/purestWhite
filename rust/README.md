@@ -58,6 +58,12 @@ python3 emu/make_hyphenation_epub.py emu/books/hyphenation
 emu/compare.sh emu/reading.txt x4pro emu/books/hyphenation/hyphenation-test.epub \
     emu/books/hyphenation/card/.crosspoint=/
 
+# XML: kapsayıcı, paket belgesi, NCX ve nav; HTML varlıkları, CDATA, tablo, UTF-16, ISO-8859-1,
+# iç DTD ve 32 KB'tan uzun bir paragraf. Bozuk ikizi açılışta aynı hataları vermeli.
+python3 emu/make_xml_epub.py emu/books/xml
+emu/compare.sh emu/xml.txt x4pro emu/books/xml/xml-test.epub
+emu/compare.sh emu/open-book.txt x4pro emu/books/xml/broken/xml-broken.epub
+
 # Bozuk EPUB'lar (her biri kendi kartında):
 python3 emu/make_bad_epubs.py emu/books/bad
 emu/compare.sh emu/open-book.txt x4pro emu/books/bad/max-size-cover/max-size-cover.epub
@@ -89,14 +95,16 @@ açıklanır.
 - Rust tarafı C++ heap'ini kullanır (`device.rs`: `malloc`/`heap_caps_aligned_alloc`).
   Panic `abort()` çağırır; normal backtrace ve core dump üretir.
 - Sınırda veri: dilim (`ptr` + `len`) girer; çıktı ya çağıranın tamponuna yazılır
-  ya da `emit` geri çağrısıyla `std::string`'e (ya da bir `std::vector`'e) eklenir. Rust, C++'a
-  sahipliği devredilmiş bellek döndürmez.
-- Çağrılar arasında durum tutan bir Rust değeri C++'ın sağladığı opak bellekte durabilir
-  (`bb_css_rules`). Rust'ın bu değerde tuttuğu heap blokları Rust'ındır: bellek bir kez
-  `*_init` ile kurulur, bellek ömrü bitmeden `*_free` çağrılır, değer kopyalanmaz (C++
-  sınıfı kopyalanamaz ve taşınamaz). Heap tutmayan durum (`bb_inflate`, `bb_css_tokenizer`)
+  ya da `emit` geri çağrısıyla `std::string`'e (ya da bir `std::vector`'e) eklenir. Rust, C++'ın
+  `free` ile bırakacağı bellek döndürmez; döndürdüğü opak işaretçiyi C++ yine Rust'a (`*_free`) verir.
+- Çağrılar arasında durum tutan bir Rust değeri ya C++'ın sağladığı opak bellekte durur
+  (`bb_css_rules`), ya da Rust'ın heap'inde durur ve C++ ona işaretçiyle sahip olur
+  (`bb_xml_new`/`bb_xml_free`). İlki, değer sabit boyutlu olup C++ nesnesinin içinde ya da belli
+  bir bellekte durmalıysa; ikincisi, durum Rust'ın iç işiyse ve büyüyorsa. İkisinde de Rust'ın
+  tuttuğu heap blokları Rust'ındır: değer bir kez `*_init` (Rust heap'inde `*_new`) ile kurulur,
+  ömrü bitmeden `*_free` çağrılır, kopyalanmaz (C++ sınıfı kopyalanamaz ve taşınamaz). Heap tutmayan durum (`bb_inflate`, `bb_css_tokenizer`)
   serbest bırakma gerektirmez; Rust tarafı bunu `needs_drop` ile derleme anında denetler.
-- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`) `clippy::indexing_slicing`,
+- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`, `bembeyaz-xml`) `clippy::indexing_slicing`,
   `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla sınırsız bellek ayırmaz
   (ayırma sabit bir üst sınırla ya da zaten bellekte olan girdinin boyutuyla kısılır). Kesmeler ve tek bayt bozulmaları için panik
   olmadığını test eden bir mini-fuzz testi taşır.
@@ -114,7 +122,7 @@ Bağımlılıklara göre (önce yapraklar):
 
 | Aşama | Modüller | Not |
 | --- | --- | --- |
-| 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, XmlParserUtils, **MiniBidi ✅** (minibidi davranışıyla birebir; UAX #9 düzeltmeleri sırada), JsonParser | Donanım yok, testleri var |
+| 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, **XML ayrıştırıcı ✅** (expat'ın yerine; firmware `XmlParser.h`'yi, SDK'nın OPDS ve katalog okuyucuları `rust/include/expat.h`'deki expat API alt kümesini kullanır; metni expat'ın tamponunu taklit ederek aynı parçalarda verir, çünkü bölüm ayrıştırıcısı metni geri çağrı başına diziyor: o Rust'a geçince bu taklit kalkabilir), XmlParserUtils (yerel ad yardımcıları), **MiniBidi ✅** (minibidi davranışıyla birebir; UAX #9 düzeltmeleri sırada), JsonParser | Donanım yok, testleri var |
 | 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (kendi çözücümüz), **InflateReader ✅** (silindi; kullanıcıları InflateStream'e geçti), Serialization | Framebuffer ödünç alma C++'ta kaldı; Rust belleği çağırandan alır. ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
 | 3 — EPUB çekirdeği | Epub: **CSS ayrıştırıcı ✅** (önbellek biçimi aynı; dosya işlemleri C++'ta), **heceleme ✅** (hypher trie'leri crate'te; seçili dil C++'ta), OPF, ParsedText, Section | En büyük parça (~19k satır); alt modül alt modül |
 | 4 — görüntü/font | Png/JpegToBmp, EpdFont, GfxRenderer | Çerçeve tamponu sınırı |

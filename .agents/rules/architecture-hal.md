@@ -21,9 +21,9 @@ no custom core rebuild. Preserve pinned platforms, dependencies, and patches.
 Read the selected configuration rather than copying flag values from examples.
 Preserve the contracts behind:
 `EINK_DISPLAY_SINGLE_BUFFER_MODE`, `ARDUINO_USB_MODE`,
-`ARDUINO_USB_CDC_ON_BOOT`, `XML_CONTEXT_BYTES`, `USE_UTF8_LONG_NAMES`,
-`XML_GE` (general-entity security), and `DESTRUCTOR_CLOSES_FILE`.
-XML general entities remain disabled (`XML_GE=0`).
+`ARDUINO_USB_CDC_ON_BOOT`, `USE_UTF8_LONG_NAMES`, and `DESTRUCTOR_CLOSES_FILE`.
+The XML parser (`rust/crates/bembeyaz-xml`) expands no general entities and
+reads no external DTD; keep it that way.
 
 SdFat's `USE_SPI_ARRAY_TRANSFER` / `USE_SEPARATE_FAT_CACHE` depend on
 `scripts/patch_sdfat.py` and its dependency pin. SPI array transfers add

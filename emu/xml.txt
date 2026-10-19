@@ -1,0 +1,31 @@
+# Home -> file list -> open the book -> six page turns through its chapters -> back home
+ready
+shot:home
+touch:240,348
+wait-screen
+shot:files
+touch:240,138
+wait-log:Page render
+shot:page1
+heap:page1
+swipe:left
+wait-log:Page render
+shot:page2
+swipe:left
+wait-log:Page render
+shot:page3
+swipe:left
+wait-log:Page render
+shot:page4
+swipe:left
+wait-log:Page render
+shot:page5
+swipe:left
+wait-log:Page render
+shot:page6
+swipe:left
+wait-log:Page render
+shot:page7
+press:home
+wait-quiet:3
+shot:home-again

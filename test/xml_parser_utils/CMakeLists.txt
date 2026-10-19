@@ -9,7 +9,6 @@ target_include_directories(XmlParserUtilsTest PRIVATE
 
 target_link_libraries(XmlParserUtilsTest PRIVATE
   crosspoint_test_common
-  crosspoint_expat
   GTest::gtest_main
 )
 

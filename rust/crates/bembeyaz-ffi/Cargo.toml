@@ -19,4 +19,5 @@ bembeyaz-css = { path = "../bembeyaz-css" }
 bembeyaz-hyphenation = { path = "../bembeyaz-hyphenation" }
 bembeyaz-inflate = { path = "../bembeyaz-inflate" }
 bembeyaz-utf8 = { path = "../bembeyaz-utf8" }
+bembeyaz-xml = { path = "../bembeyaz-xml" }
 bembeyaz-zip = { path = "../bembeyaz-zip" }

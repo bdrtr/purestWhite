@@ -15,7 +15,6 @@ target_include_directories(SdkXmlParsersTest PRIVATE
 
 target_link_libraries(SdkXmlParsersTest PRIVATE
   crosspoint_test_common
-  crosspoint_expat
   GTest::gtest_main
 )
 

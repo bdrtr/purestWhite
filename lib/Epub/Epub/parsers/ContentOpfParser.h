@@ -1,5 +1,6 @@
 #pragma once
 #include <Print.h>
+#include <XmlParser.h>
 
 #include <algorithm>
 #include <deque>
@@ -7,7 +8,6 @@
 #include <vector>
 
 #include "Epub.h"
-#include "expat.h"
 
 class BookMetadataCache;
 
@@ -29,7 +29,7 @@ class ContentOpfParser final : public Print {
   const std::string& cachePath;
   const std::string& baseContentPath;
   size_t remainingSize;
-  XML_Parser parser = nullptr;
+  XmlParser parser;
   ParserState state = START;
   BookMetadataCache* cache;
   const bool metadataOnly;
@@ -78,9 +78,9 @@ class ContentOpfParser final : public Print {
     return hash;
   }
 
-  static void startElement(void* userData, const XML_Char* name, const XML_Char** atts);
-  static void characterData(void* userData, const XML_Char* s, int len);
-  static void endElement(void* userData, const XML_Char* name);
+  static void startElement(void* userData, const char* name, const char** atts);
+  static void characterData(void* userData, const char* s, int len);
+  static void endElement(void* userData, const char* name);
 
  public:
   std::string title;

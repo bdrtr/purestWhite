@@ -5,11 +5,13 @@
 // mutated, truncated and re-encoded. Each document is parsed whole, then fed a byte at a time and
 // seven bytes at a time with each text callback recorded: where expat's text splits depends on
 // how its input is cut, and the chapter parser lays text out by callback. The reports of each
-// group hash to a value recorded from expat 2.7.3 as the firmware builds it (XML_GE=0, no
-// XML_DTD); the error code is left out. A changed hash names the group; rerun with
-// XML_CORPUS_PRINT=<group> to list its cases.
+// group hash to a value recorded from expat 2.7.3 as the firmware built it (XML_GE=0, no XML_DTD)
+// until the Rust parser replaced it; the error code is left out. A changed hash names the group;
+// rerun with XML_CORPUS_PRINT=<group> to list its cases, and run the commit that added this test
+// (still on expat) the same way to see expat's. The hashes freeze the corpus: add new cases as a
+// new group, or to rust/crates/bembeyaz-xml/src/tests.rs.
 
-#include <expat.h>
+#include <XmlParser.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -103,39 +105,33 @@ class Recorder {
 std::string report(const std::string& doc, const size_t chunk, const bool split = false) {
   Recorder rec;
   rec.split = split;
-  XML_Parser parser = XML_ParserCreate(nullptr);
-  XML_SetUserData(parser, &rec);
-  XML_SetElementHandler(
-      parser,
-      [](void* r, const XML_Char* name, const XML_Char** atts) {
+  XmlParser parser;
+  parser.create();
+  parser.setUserData(&rec);
+  parser.setElementHandler(
+      [](void* r, const char* name, const char** atts) {
         auto* rec = static_cast<Recorder*>(r);
         rec->line('S', name);
         for (int i = 0; atts[i]; i += 2) rec->attribute(atts[i], atts[i + 1]);
       },
-      [](void* r, const XML_Char* name) { static_cast<Recorder*>(r)->line('E', name); });
-  XML_SetCharacterDataHandler(parser, [](void* r, const XML_Char* s, const int len) {
-    static_cast<Recorder*>(r)->text(s, static_cast<size_t>(len));
-  });
-  XML_SetCommentHandler(parser, [](void* r, const XML_Char* data) { static_cast<Recorder*>(r)->line('C', data); });
-  XML_SetProcessingInstructionHandler(parser, [](void* r, const XML_Char* target, const XML_Char* data) {
+      [](void* r, const char* name) { static_cast<Recorder*>(r)->line('E', name); });
+  parser.setCharacterDataHandler(
+      [](void* r, const char* s, const int len) { static_cast<Recorder*>(r)->text(s, static_cast<size_t>(len)); });
+  parser.setCommentHandler([](void* r, const char* data) { static_cast<Recorder*>(r)->line('C', data); });
+  parser.setProcessingInstructionHandler([](void* r, const char* target, const char* data) {
     static_cast<Recorder*>(r)->line('P', std::string(target) + ' ' + data);
   });
-  XML_SetCdataSectionHandler(
-      parser, [](void* r) { static_cast<Recorder*>(r)->line('[', ""); },
-      [](void* r) { static_cast<Recorder*>(r)->line(']', ""); });
-  XML_SetSkippedEntityHandler(parser,
-                              [](void* r, const XML_Char* name, int) { static_cast<Recorder*>(r)->line('K', name); });
+  parser.setCdataSectionHandler([](void* r) { static_cast<Recorder*>(r)->line('[', ""); },
+                                [](void* r) { static_cast<Recorder*>(r)->line(']', ""); });
+  parser.setSkippedEntityHandler([](void* r, const char* name) { static_cast<Recorder*>(r)->line('K', name); });
 
-  // Each piece through XML_GetBuffer and XML_ParseBuffer, as the firmware's readers feed it.
   const size_t step = chunk == 0 ? doc.size() : chunk;
   size_t at = 0;
   bool ok = true;
   do {
     const size_t n = std::min(step, doc.size() - at);
     const bool last = at + n == doc.size();
-    void* const buf = XML_GetBuffer(parser, static_cast<int>(n));
-    if (n > 0) std::memcpy(buf, doc.data() + at, n);
-    if (XML_ParseBuffer(parser, static_cast<int>(n), last) == XML_STATUS_ERROR) {
+    if (!parser.parse(doc.data() + at, n, last)) {
       rec.finish("error");
       ok = false;
       break;
@@ -143,7 +139,6 @@ std::string report(const std::string& doc, const size_t chunk, const bool split 
     at += n;
   } while (at < doc.size());
   if (ok) rec.finish("ok");
-  XML_ParserFree(parser);
   return rec.out;
 }
 
@@ -727,7 +722,7 @@ std::string show(const std::string& doc) {
   return shown;
 }
 
-// Recorded from expat 2.7.3 with XML_GE=0 and XML_CONTEXT_BYTES=1024, as lib/expat builds.
+// Recorded from expat 2.7.3 with XML_GE=0 and XML_CONTEXT_BYTES=1024, as lib/expat built.
 const uint64_t kHashes[] = {
     0xA92741C56582CF64ULL,  // documents
     0xD39DCDFFE418AFAFULL,  // prolog

@@ -43,8 +43,8 @@ void ActivityManager::begin() {
 #endif
 #if CROSSPOINT_VECTOR_FONTS
   // FreeType rasterization runs on this task, and the deepest observed chain
-  // is a glyph fault DURING LAYOUT: expat + parser + line-layout frames
-  // (~3.5KB on Xtensa) with the scan converter's FT_RENDER_POOL_SIZE (4KB)
+  // is a glyph fault DURING LAYOUT: XML parser + chapter parser + line-layout
+  // frames (~4KB on Xtensa) with the scan converter's FT_RENDER_POOL_SIZE (4KB)
   // stack-resident band pool on top — a measured ~8KB peak that trips the
   // canary on an 8KB stack. Vector-font boards all have PSRAM-class RAM.
   constexpr uint32_t renderTaskStackBytes = 16384;

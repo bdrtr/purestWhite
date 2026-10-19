@@ -1,55 +1,36 @@
 #include "ContainerParser.h"
 
 #include <Logging.h>
-#include <XmlParserUtils.h>
+
+#include <cstring>
 
 bool ContainerParser::setup() {
-  parser = XML_ParserCreate(nullptr);
-  if (!parser) {
+  if (!parser.create()) {
     LOG_ERR("CTR", "Couldn't allocate memory for parser");
     return false;
   }
 
-  XML_SetUserData(parser, this);
-  XML_SetElementHandler(parser, startElement, endElement);
+  parser.setUserData(this);
+  parser.setElementHandler(startElement, endElement);
   return true;
 }
-
-ContainerParser::~ContainerParser() { destroyXmlParser(parser); }
 
 size_t ContainerParser::write(const uint8_t data) { return write(&data, 1); }
 
 size_t ContainerParser::write(const uint8_t* buffer, const size_t size) {
   if (!parser) return 0;
 
-  const uint8_t* currentBufferPos = buffer;
-  auto remainingInBuffer = size;
-
-  while (remainingInBuffer > 0) {
-    void* const buf = XML_GetBuffer(parser, 1024);
-    if (!buf) {
-      LOG_DBG("CTR", "Couldn't allocate buffer");
-      destroyXmlParser(parser);
-      return 0;
-    }
-
-    const auto toRead = remainingInBuffer < 1024 ? remainingInBuffer : 1024;
-    memcpy(buf, currentBufferPos, toRead);
-
-    if (XML_ParseBuffer(parser, static_cast<int>(toRead), remainingSize == toRead) == XML_STATUS_ERROR) {
-      LOG_ERR("CTR", "Parse error: %s", XML_ErrorString(XML_GetErrorCode(parser)));
-      destroyXmlParser(parser);
-      return 0;
-    }
-
-    currentBufferPos += toRead;
-    remainingInBuffer -= toRead;
-    remainingSize -= toRead;
+  const bool last = remainingSize == size;
+  remainingSize -= size;
+  if (!parser.parse(buffer, size, last)) {
+    LOG_ERR("CTR", "Parse error: %s", parser.errorString());
+    parser.destroy();
+    return 0;
   }
   return size;
 }
 
-void XMLCALL ContainerParser::startElement(void* userData, const XML_Char* name, const XML_Char** atts) {
+void ContainerParser::startElement(void* userData, const char* name, const char** atts) {
   auto* self = static_cast<ContainerParser*>(userData);
 
   // Simple state tracking to ensure we are looking at the valid schema structure
@@ -82,7 +63,7 @@ void XMLCALL ContainerParser::startElement(void* userData, const XML_Char* name,
   }
 }
 
-void XMLCALL ContainerParser::endElement(void* userData, const XML_Char* name) {
+void ContainerParser::endElement(void* userData, const char* name) {
   auto* self = static_cast<ContainerParser*>(userData);
 
   if (self->state == IN_ROOTFILES && strcmp(name, "rootfiles") == 0) {

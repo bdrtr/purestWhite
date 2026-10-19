@@ -1,6 +1,6 @@
 #pragma once
 #include <Print.h>
-#include <expat.h>
+#include <XmlParser.h>
 
 #include <string>
 
@@ -11,7 +11,7 @@ class TocNcxParser final : public Print {
 
   const std::string& baseContentPath;
   size_t remainingSize;
-  XML_Parser parser = nullptr;
+  XmlParser parser;
   ParserState state = START;
   BookMetadataCache* cache;
 
@@ -19,14 +19,13 @@ class TocNcxParser final : public Print {
   std::string currentSrc;
   uint8_t currentDepth = 0;
 
-  static void startElement(void* userData, const XML_Char* name, const XML_Char** atts);
-  static void characterData(void* userData, const XML_Char* s, int len);
-  static void endElement(void* userData, const XML_Char* name);
+  static void startElement(void* userData, const char* name, const char** atts);
+  static void characterData(void* userData, const char* s, int len);
+  static void endElement(void* userData, const char* name);
 
  public:
   explicit TocNcxParser(const std::string& baseContentPath, const size_t xmlSize, BookMetadataCache* cache)
       : baseContentPath(baseContentPath), remainingSize(xmlSize), cache(cache) {}
-  ~TocNcxParser() override;
 
   bool setup();
 

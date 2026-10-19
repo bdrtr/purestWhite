@@ -1,7 +1,7 @@
 #pragma once
 
 #include <HalStorage.h>
-#include <expat.h>
+#include <XmlParser.h>
 
 #include <array>
 #include <climits>
@@ -230,11 +230,13 @@ class ChapterHtmlSlimParser {
   // Resumable parse state. The one-shot parseAndBuildPages() drives these
   // internally; the incremental section builder drives them across render ticks
   // so a large single chapter can yield between pages instead of blocking the UI
-  // until the whole thing is laid out. parseFile_ and the expat parser stay alive
+  // until the whole thing is laid out. parseFile_ and the XML parser stay alive
   // for the lifetime of the parse so it can be paused and resumed at buffer
   // boundaries.
-  XML_Parser xmlParser_ = nullptr;
+  XmlParser xmlParser_;
   HalFile parseFile_;
+  static constexpr size_t PARSE_BUFFER_SIZE = 1024;
+  char parseBuffer_[PARSE_BUFFER_SIZE];
   uint32_t parseStartTime_ = 0;
 
   void updateEffectiveInlineStyle();
@@ -278,10 +280,10 @@ class ChapterHtmlSlimParser {
   void pushDecorationStyleEntry(CssTextDecoration defaultDecoration, const CssStyle& cssStyle);
   void emitHorizontalRule(const BlockStyle& blockStyle);
   // XML callbacks
-  static void XMLCALL startElement(void* userData, const XML_Char* name, const XML_Char** atts);
-  static void XMLCALL characterData(void* userData, const XML_Char* s, int len);
-  static void XMLCALL defaultHandlerExpand(void* userData, const XML_Char* s, int len);
-  static void XMLCALL endElement(void* userData, const XML_Char* name);
+  static void startElement(void* userData, const char* name, const char** atts);
+  static void characterData(void* userData, const char* s, int len);
+  static void skippedEntity(void* userData, const char* name);
+  static void endElement(void* userData, const char* name);
 
  public:
   explicit ChapterHtmlSlimParser(

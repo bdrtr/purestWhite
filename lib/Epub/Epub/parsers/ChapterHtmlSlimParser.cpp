@@ -8,7 +8,6 @@
 #include <MemoryManager.h>
 #include <Utf8.h>
 #include <XmlParserUtils.h>
-#include <expat.h>
 
 #include <algorithm>
 #include <array>
@@ -26,7 +25,6 @@
 
 // Minimum file size (in bytes) to show indexing popup - smaller chapters don't benefit from it
 constexpr size_t MIN_SIZE_FOR_POPUP = 10 * 1024;  // 10KB
-constexpr size_t PARSE_BUFFER_SIZE = 1024;
 
 // This number comes from PR #73
 // If we have > 750 words buffered up, perform the layout and consume out all but the last line
@@ -100,7 +98,7 @@ bool matches(const char* tag_name, const char* const* possible_tags, size_t coun
 
 bool isNonVisibleTextTag(const char* name) { return VisibleTextUtils::isNonVisibleElement(name); }
 
-const char* getAttribute(const XML_Char** atts, const char* attrName) {
+const char* getAttribute(const char** atts, const char* attrName) {
   if (!atts) return nullptr;
   for (int i = 0; atts[i]; i += 2) {
     if (strcmp(atts[i], attrName) == 0) return atts[i + 1];
@@ -1286,7 +1284,7 @@ void ChapterHtmlSlimParser::finishTableRow() {
   clearLayoutLines();
 }
 
-void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char* name, const XML_Char** atts) {
+void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const char** atts) {
   auto* self = static_cast<ChapterHtmlSlimParser*>(userData);
   if (strcasecmp(name, "body") == 0) {
     // Case-insensitive to match ParagraphStreamer's tag matching (ProgressMapper). A case
@@ -1449,7 +1447,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
       HalFile tableFile;
       TableColumnMeasure measure;
       if (Storage.openFileForRead("EHP", self->filepath, tableFile) &&
-          tableFile.seek(static_cast<size_t>(XML_GetCurrentByteIndex(self->xmlParser_))) &&
+          tableFile.seek(static_cast<size_t>(self->xmlParser_.currentByteIndex())) &&
           self->measureTableColumns(tableFile, measure)) {
         self->planTableColumns(measure);
       }
@@ -2222,7 +2220,7 @@ void XMLCALL ChapterHtmlSlimParser::startElement(void* userData, const XML_Char*
   self->depth += 1;
 }
 
-void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char* s, const int len) {
+void ChapterHtmlSlimParser::characterData(void* userData, const char* s, const int len) {
   auto* self = static_cast<ChapterHtmlSlimParser*>(userData);
   const bool countVisibleOffsets = self->insideBody && self->nonVisibleTextDepth == 0 && !self->syntheticCharacterData;
   const uint32_t callbackVisibleOffset = self->visibleTextOffset;
@@ -2423,9 +2421,9 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
     }
 
     // Skip Zero Width No-Break Space / BOM (U+FEFF) = 0xEF 0xBB 0xBF
-    const XML_Char FEFF_BYTE_1 = static_cast<XML_Char>(0xEF);
-    const XML_Char FEFF_BYTE_2 = static_cast<XML_Char>(0xBB);
-    const XML_Char FEFF_BYTE_3 = static_cast<XML_Char>(0xBF);
+    const char FEFF_BYTE_1 = static_cast<char>(0xEF);
+    const char FEFF_BYTE_2 = static_cast<char>(0xBB);
+    const char FEFF_BYTE_3 = static_cast<char>(0xBF);
 
     if (s[i] == FEFF_BYTE_1) {
       // Check if the next two bytes complete the 3-byte sequence
@@ -2495,23 +2493,30 @@ void XMLCALL ChapterHtmlSlimParser::characterData(void* userData, const XML_Char
   }
 }
 
-void XMLCALL ChapterHtmlSlimParser::defaultHandlerExpand(void* userData, const XML_Char* s, const int len) {
-  // Check if this looks like an entity reference (&...;)
-  if (len >= 3 && s[0] == '&' && s[len - 1] == ';') {
-    const char* utf8Value = lookupHtmlEntity(s, static_cast<size_t>(len));
-    if (utf8Value != nullptr) {
-      // Known entity: expand to its UTF-8 value
-      characterData(userData, utf8Value, strlen(utf8Value));
-      return;
-    }
-    // Unknown entity: preserve original &...; sequence
-    characterData(userData, s, len);
+// An entity the document's external DTD may declare (HTML entities like &nbsp;): expand the HTML
+// ones, keep the others as written.
+void ChapterHtmlSlimParser::skippedEntity(void* userData, const char* name) {
+  char reference[48];
+  const size_t len = strlen(name);
+  if (len + 2 > sizeof(reference)) {
+    // Longer than any HTML entity: kept as written.
+    characterData(userData, "&", 1);
+    characterData(userData, name, static_cast<int>(len));
+    characterData(userData, ";", 1);
     return;
   }
-  // Not an entity we recognize - skip it
+  reference[0] = '&';
+  memcpy(reference + 1, name, len);
+  reference[len + 1] = ';';
+  const char* utf8Value = lookupHtmlEntity(reference, len + 2);
+  if (utf8Value != nullptr) {
+    characterData(userData, utf8Value, static_cast<int>(strlen(utf8Value)));
+  } else {
+    characterData(userData, reference, static_cast<int>(len + 2));
+  }
 }
 
-void XMLCALL ChapterHtmlSlimParser::endElement(void* userData, const XML_Char* name) {
+void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
   auto* self = static_cast<ChapterHtmlSlimParser*>(userData);
   if (self->nonVisibleTextDepth > 0) {
     self->nonVisibleTextDepth--;
@@ -2783,19 +2788,16 @@ bool ChapterHtmlSlimParser::beginParse() {
   paragraphAlignmentBlockStyle.alignment = align;
   startNewTextBlock(paragraphAlignmentBlockStyle);
 
-  xmlParser_ = XML_ParserCreate(nullptr);
-  if (!xmlParser_) {
+  if (!xmlParser_.create()) {
     LOG_ERR("EHP", "Couldn't allocate memory for parser");
     return false;
   }
 
-  // Handle HTML entities (like &nbsp;) that aren't in XML spec or DTD
-  // Using DefaultHandlerExpand preserves normal entity expansion from DOCTYPE
-  XML_SetDefaultHandlerExpand(xmlParser_, defaultHandlerExpand);
+  // HTML entities (like &nbsp;) behind an external DTD, which the parser does not read
+  xmlParser_.setSkippedEntityHandler(skippedEntity);
 
   if (!Storage.openFileForRead("EHP", filepath, parseFile_)) {
-    destroyXmlParser(xmlParser_);
-    xmlParser_ = nullptr;
+    xmlParser_.destroy();
     return false;
   }
 
@@ -2804,9 +2806,9 @@ bool ChapterHtmlSlimParser::beginParse() {
     popupFn();
   }
 
-  XML_SetUserData(xmlParser_, this);
-  XML_SetElementHandler(xmlParser_, startElement, endElement);
-  XML_SetCharacterDataHandler(xmlParser_, characterData);
+  xmlParser_.setUserData(this);
+  xmlParser_.setElementHandler(startElement, endElement);
+  xmlParser_.setCharacterDataHandler(characterData);
 
   parseStartTime_ = millis();
   return true;
@@ -2820,13 +2822,7 @@ ChapterHtmlSlimParser::ParseStatus ChapterHtmlSlimParser::parseStep() {
     return ParseStatus::Error;
   }
 
-  void* const buf = XML_GetBuffer(xmlParser_, PARSE_BUFFER_SIZE);
-  if (!buf) {
-    LOG_ERR("EHP", "Couldn't allocate memory for buffer");
-    return ParseStatus::Error;
-  }
-
-  const size_t len = parseFile_.read(buf, PARSE_BUFFER_SIZE);
+  const size_t len = parseFile_.read(parseBuffer_, PARSE_BUFFER_SIZE);
 
   if (len == 0 && parseFile_.available() > 0) {
     LOG_ERR("EHP", "File read error");
@@ -2835,13 +2831,13 @@ ChapterHtmlSlimParser::ParseStatus ChapterHtmlSlimParser::parseStep() {
 
   const int done = parseFile_.available() == 0;
 
-  if (XML_ParseBuffer(xmlParser_, static_cast<int>(len), done) == XML_STATUS_ERROR) {
+  if (!xmlParser_.parse(parseBuffer_, len, done)) {
     if (htmlEnded_) {
-      LOG_DBG("EHP", "Ignoring trailing data after </html>: %s", XML_ErrorString(XML_GetErrorCode(xmlParser_)));
+      LOG_DBG("EHP", "Ignoring trailing data after </html>: %s", xmlParser_.errorString());
       return ParseStatus::Done;
     }
-    LOG_ERR("EHP", "Parse error at line %lu:\n%s", XML_GetCurrentLineNumber(xmlParser_),
-            XML_ErrorString(XML_GetErrorCode(xmlParser_)));
+    LOG_ERR("EHP", "Parse error at byte %llu:\n%s", static_cast<unsigned long long>(xmlParser_.errorOffset()),
+            xmlParser_.errorString());
     return ParseStatus::Error;
   }
 
@@ -2849,10 +2845,7 @@ ChapterHtmlSlimParser::ParseStatus ChapterHtmlSlimParser::parseStep() {
 }
 
 void ChapterHtmlSlimParser::abortParse() {
-  if (xmlParser_) {
-    destroyXmlParser(xmlParser_);
-    xmlParser_ = nullptr;
-  }
+  xmlParser_.destroy();
   // Only close the file if it was successfully opened in beginParse()
   if (parseFile_.isOpen()) {
     parseFile_.close();
@@ -2869,8 +2862,7 @@ bool ChapterHtmlSlimParser::finishParse() {
 
   if (xmlParser_) {
     LOG_DBG("EHP", "Time to parse and build pages: %lu ms", millis() - parseStartTime_);
-    destroyXmlParser(xmlParser_);
-    xmlParser_ = nullptr;
+    xmlParser_.destroy();
   }
   parseFile_.close();
 

@@ -12,7 +12,6 @@ target_include_directories(ContentOpfParserTest PRIVATE
 
 target_link_libraries(ContentOpfParserTest PRIVATE
   crosspoint_test_common
-  crosspoint_expat
   GTest::gtest_main
 )
 

@@ -1,9 +1,8 @@
 #pragma once
 #include <Print.h>
+#include <XmlParser.h>
 
 #include <string>
-
-#include "expat.h"
 
 class ContainerParser final : public Print {
   enum ParserState {
@@ -13,17 +12,16 @@ class ContainerParser final : public Print {
   };
 
   size_t remainingSize;
-  XML_Parser parser = nullptr;
+  XmlParser parser;
   ParserState state = START;
 
-  static void startElement(void* userData, const XML_Char* name, const XML_Char** atts);
-  static void endElement(void* userData, const XML_Char* name);
+  static void startElement(void* userData, const char* name, const char** atts);
+  static void endElement(void* userData, const char* name);
 
  public:
   std::string fullPath;
 
   explicit ContainerParser(const size_t xmlSize) : remainingSize(xmlSize) {}
-  ~ContainerParser() override;
 
   bool setup();
 
