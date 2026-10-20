@@ -60,3 +60,45 @@ TEST(TocNavParser, ExpandsHtmlEntitiesBehindAnExternalDtd) {
             "Chapter\xC2\xA0"
             "1");
 }
+
+namespace {
+
+std::string nav(const std::string& body) {
+  return R"(<html xmlns:epub="http://www.idpf.org/2007/ops"><body>)" + body + "</body></html>";
+}
+
+}  // namespace
+
+TEST(TocNavParser, ResolvesPathsAndDecodesEscapes) {
+  const auto cache = parse(nav(R"(<nav epub:type="toc"><ol><li><a href="../Text/ch%201.xhtml#sec%202">A</a></li>)"
+                               R"(<li><a href="x.xhtml#">B</a></li></ol></nav>)"));
+  ASSERT_EQ(cache.toc.size(), 2u);
+  EXPECT_EQ(cache.toc[0].href, "Text/ch 1.xhtml");
+  EXPECT_EQ(cache.toc[0].anchor, "sec 2");
+  EXPECT_EQ(cache.toc[1].href, "OEBPS/x.xhtml");
+  EXPECT_EQ(cache.toc[1].anchor, "");
+}
+
+TEST(TocNavParser, ReadsOnlyTheTocNav) {
+  const auto cache = parse(nav(R"(<nav epub:type="landmarks"><ol><li><a href="l.xhtml">Landmark</a></li></ol></nav>)"
+                               R"(<div><nav type="toc"><ol><li><a href="t.xhtml">Toc</a></li></ol></nav></div>)"
+                               R"(<nav epub:type="page-list"><ol><li><a href="p.xhtml">Page</a></li></ol></nav>)"));
+  ASSERT_EQ(cache.toc.size(), 1u);
+  EXPECT_EQ(cache.toc[0].title, "Toc");
+}
+
+TEST(TocNavParser, CollectsTextInsideAnAnchor) {
+  const auto cache = parse(nav(R"(<nav epub:type="toc"><ol><li><a href="a.xhtml"><span>1.</span> <b>Bir</b></a></li>)"
+                               R"(<li><span>Heading only</span><ol><li><a href="b.xhtml">Child</a></li></ol></li>)"
+                               R"(<li><a>No href</a></li></ol></nav>)"));
+  ASSERT_EQ(cache.toc.size(), 2u);
+  EXPECT_EQ(cache.toc[0].title, "1. Bir");
+  EXPECT_EQ(cache.toc[1].title, "Child");
+  EXPECT_EQ(cache.toc[1].level, 2);
+}
+
+TEST(TocNavParser, NeedsHtmlAndBody) {
+  EXPECT_TRUE(parse(R"(<nav epub:type="toc"><ol><li><a href="a.xhtml">A</a></li></ol></nav>)").toc.empty());
+  EXPECT_TRUE(
+      parse(R"(<html><nav epub:type="toc"><ol><li><a href="a.xhtml">A</a></li></ol></nav></html>)").toc.empty());
+}
