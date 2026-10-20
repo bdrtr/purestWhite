@@ -9,3 +9,4 @@ publish.workspace = true
 bembeyaz-html = { path = "../bembeyaz-html" }
 bembeyaz-path = { path = "../bembeyaz-path" }
 bembeyaz-xml = { path = "../bembeyaz-xml" }
+bembeyaz-utf8 = { path = "../bembeyaz-utf8" }

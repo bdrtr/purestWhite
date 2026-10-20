@@ -7,7 +7,7 @@ use std::string::String;
 use std::vec::Vec;
 use std::{format, vec};
 
-use super::{Kind, MAX_LABEL, Sink, Toc, whole_characters};
+use super::{Kind, MAX_LABEL, Sink, Toc};
 
 #[derive(Default)]
 struct Entries(Vec<String>);
@@ -145,16 +145,4 @@ fn a_label_keeps_at_most_max_label_bytes_on_a_whole_character() {
         entries[0].split('|').nth(1).unwrap(),
         "\u{2014}".repeat(MAX_LABEL / 3)
     );
-}
-
-#[test]
-fn whole_characters_drops_only_a_cut_sequence() {
-    assert_eq!(whole_characters(b""), 0);
-    assert_eq!(whole_characters(b"ab"), 2);
-    assert_eq!(whole_characters("aé".as_bytes()), 3);
-    assert_eq!(whole_characters(&"aé".as_bytes()[..2]), 1);
-    assert_eq!(whole_characters(&"€".as_bytes()[..2]), 0);
-    assert_eq!(whole_characters(&"a😀".as_bytes()[..4]), 1);
-    assert_eq!(whole_characters("a😀".as_bytes()), 5);
-    assert_eq!(whole_characters(b"a\xff"), 2);
 }

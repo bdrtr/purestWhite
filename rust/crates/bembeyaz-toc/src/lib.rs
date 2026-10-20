@@ -152,27 +152,6 @@ fn set(out: &mut Vec<u8>, bytes: &[u8]) -> Result<(), Full> {
     push(out, bytes)
 }
 
-/// How many leading bytes of `text` end on a whole UTF-8 character: a sequence cut at the end is
-/// left out. Other bytes are not checked.
-fn whole_characters(text: &[u8]) -> usize {
-    // The last lead byte within the final four bytes, and how long its sequence should be.
-    for back in 1..=4.min(text.len()) {
-        let at = text.len() - back;
-        let Some(&b) = text.get(at) else { break };
-        if b & 0xC0 == 0x80 {
-            continue;
-        }
-        let need = match b {
-            0xC0..=0xDF => 2,
-            0xE0..=0xEF => 3,
-            0xF0..=0xF7 => 4,
-            _ => 1,
-        };
-        return if back < need { at } else { text.len() };
-    }
-    text.len()
-}
-
 /// The value of the first attribute named `name`, if any.
 fn attribute<'a>(tag: &StartTag<'a>, name: &[u8]) -> Option<Str<'a>> {
     tag.attributes()
@@ -367,7 +346,7 @@ impl Reader {
         let len = bembeyaz_path::decode_uri_escapes(&mut self.anchor);
         self.anchor.truncate(len);
         if self.label.len() == MAX_LABEL {
-            let whole = whole_characters(&self.label);
+            let whole = bembeyaz_utf8::safe_truncate_len(&self.label);
             self.label.truncate(whole);
         }
         sink.entry(&self.label, &self.href, &self.anchor, self.depth);
