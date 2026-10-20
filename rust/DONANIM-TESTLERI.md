@@ -289,10 +289,10 @@ kendi sertifikası), K wolfSSL kodu:
   hataları sayıyla yazılır: `wolfSSL_connect failed (...): -125` ya da `read failed: -125`
   (MEMORY_E); `-303` MEMORY_ERROR, `-2` MP_MEM.
 
-- [ ] CrossPoint Sync (varsayılan sunucu sync.crosspointreader.com): konum gönderip alın,
+- [x] CrossPoint Sync (varsayılan sunucu sync.crosspointreader.com): konum gönderip alın,
   çalışmalı. Seri günlükteki `[SecureClient] handshake ok (...) in N ms` sürelerini ve tüm
   eşitlemenin süresini önceki sürümle karşılaştırın (yukarıdaki ek süre beklenir).
-- [ ] OPDS: herkese açık bir katalogda (ör. `https://m.gutenberg.org/ebooks.opds/`) gezinip
+- [x] OPDS: herkese açık bir katalogda (ör. `https://m.gutenberg.org/ebooks.opds/`) gezinip
   bir kitap indirin.
 - [ ] Plugin Hub kataloğu ve kurulumu, Manage Fonts'tan yazı tipi indirme (GitHub) ve LCP
   korumalı bir kitabın indirilip açılması çalışmalı.
@@ -340,37 +340,40 @@ firmware is damaged" ile reddedildi; SD güncellemesi CrossPoint imajını app1'
 Emülatör yazılımla yeniden başlatmayı desteklemediği için geçişten sonraki yeniden başlatmanın
 kendisi yalnızca cihazda denenebilir.
 
-- [ ] CrossPoint çalışırken bu yazılımı Dosya Aktarımı (hotspot) ile SD kartın köküne koyup
+- [x] CrossPoint çalışırken bu yazılımı Dosya Aktarımı (hotspot) ile SD kartın köküne koyup
   CrossPoint'in SD Card Firmware Update'iyle yükleyin: Bembeyaz açılmalı; ayarlar ve kitaplar
   yerinde olmalı.
-- [ ] Settings → System'de "Start Other Firmware" görünmeli; onay penceresi "CrossPoint
+- [x] Settings → System'de "Start Other Firmware" görünmeli; onay penceresi "CrossPoint
   <sürüm>" yazmalı. Onaylayınca "Validating firmware..." ve ardından yeniden başlatma: cihaz
   CrossPoint ile açılmalı.
-- [ ] CrossPoint'te SD Card Firmware Update ile aynı `firmware.bin`'i yeniden seçin: Bembeyaz
+- [x] CrossPoint'te SD Card Firmware Update ile aynı `firmware.bin`'i yeniden seçin: Bembeyaz
   açılmalı. Gidiş-dönüşten sonra kitaplar açılmalı (önbellek yeniden kurulabilir).
-- [ ] Kurtarma kipi: cihaz kapalıyken Aşağı tuşunu basılı tutup Güç'e basın. Önce "Restart into
+- [x] Kurtarma kipi: cihaz kapalıyken Aşağı tuşunu basılı tutup Güç'e basın. Önce "Restart into
   the other firmware?" sorulmalı; Cancel deyince SD dosya seçme ekranı açılmalı.
 - [ ] Yukarı tuşu açılışta basılı tutulursa ekran donar (USB indirme modu). Bundan nasıl
   çıkıldığını not edin (güç tuşuna uzun basma, şarj kablosunu çıkarıp takma...).
 
 ## Ad: purestWhite / purestWhite next, sürüm 0.0.1
 
+2026-10-20: sahibi X4 Pro'da 2b45110'yu (purestWhite next 0.0.1) CrossPoint'in SD güncellemesiyle
+yükleyip işaretli maddeleri denedi; sorun yok.
+
 Yazılımın adı X4 Classic'te "purestWhite", X4 Pro'da "purestWhite next" oldu; sürümü 0.0.1
 (sürümde artık "-x4pro" eki yok). Sunucuların ve eklentilerin tanıdığı adlar CrossPoint'te
 kaldı: CrossPoint Sync, eklenti ailesi "crosspoint", "CrossPoint-ESP32-" kullanıcı aracısı,
 Calibre'nin keşif yanıtı.
 
-- [ ] Açılış ve uyku ekranında "purestWhite next" (X4 Pro) yazmalı, açılışta altta "0.0.1".
-- [ ] Settings → System → About'ta Firmware satırı "purestWhite next 0.0.1" olmalı.
-- [ ] Dosya Aktarımı → Create Hotspot: telefonda ağ "purestWhite next" adıyla görünmeli;
+- [x] Açılış ve uyku ekranında "purestWhite next" (X4 Pro) yazmalı, açılışta altta "0.0.1".
+- [x] Settings → System → About'ta Firmware satırı "purestWhite next 0.0.1" olmalı.
+- [x] Dosya Aktarımı → Create Hotspot: telefonda ağ "purestWhite next" adıyla görünmeli;
   `http://purestwhite.local` açılmalı, sayfa başlığı ve üst bilgi "purestWhite" olmalı.
 - [ ] Join a Network ile bağlanınca yönlendiricinin listesinde cihaz "purestWhite-<MAC>"
   adıyla görünmeli; `http://purestwhite.local` açılmalı.
 - [ ] Calibre Wireless: Calibre'deki CrossPoint Reader eklentisi cihazı yine bulmalı.
-- [ ] CrossPoint Sync ile ilerleme eşitlemesi eskisi gibi çalışmalı.
+- [x] CrossPoint Sync ile ilerleme eşitlemesi eskisi gibi çalışmalı.
 - [ ] Bilgisayara USB ile bağlanınca aygıt adı "purestWhite_next", üretici "purestWhite"
   olmalı (Linux: `lsusb -v`).
-- [ ] Start Other Firmware: diğer yuvada CrossPoint varsa onay "CrossPoint 1.6.x", bu
+- [x] Start Other Firmware: diğer yuvada CrossPoint varsa onay "CrossPoint 1.6.x", bu
   yazılımın bu sürümü ya da sonrası varsa "purestWhite next 0.0.1" yazmalı. Bu sürümden
   önceki Bembeyaz yapıları kimlik taşımadığı için "CrossPoint 1.6.5-x4pro" görünür.
 
@@ -379,6 +382,6 @@ Calibre'nin keşif yanıtı.
 Açılış ve uyku logosu ile web simgesi papatya oldu (`src/images/logo.svg`; cihaz görüntüsü
 `scripts/generate_logo.py` ile üretilir, çizgiler 2 piksel).
 
-- [ ] Açılış ekranında papatya dik ve ortada görünmeli; çizgiler kopuk olmamalı.
+- [x] Açılış ekranında papatya dik ve ortada görünmeli; çizgiler kopuk olmamalı.
 - [ ] Uyku ekranında (koyu) papatya beyaz çizgilerle görünmeli; açık uyku ekranı ayarında da.
-- [ ] Web sayfasının üst bilgisinde ve tarayıcı sekmesinde papatya simgesi görünmeli.
+- [x] Web sayfasının üst bilgisinde ve tarayıcı sekmesinde papatya simgesi görünmeli.
