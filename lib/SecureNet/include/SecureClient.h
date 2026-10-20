@@ -12,7 +12,12 @@
 // TLS stack compiled from source: wolfSSL, which supports TLS 1.3 + PSA.
 //
 // SecureClient is an Arduino Client wrapping a wolfSSL session over a plain
-// WiFiClient transport, independent of system mbedTLS.
+// WiFiClient transport.
+//
+// The server is checked against ESP-IDF's certificate bundle (the roots
+// esp-tls trusts): its chain must lead to one of them, and its certificate
+// must name the host. wolfSSL checks the chain; ESP-IDF's bundle code (on
+// mbedTLS) checks only its link to the bundle root.
 //
 // OPT-IN: enable with -DFREEINK_NET_WOLFSSL=1 and add wolfSSL to lib_deps. With
 // the flag off, this compiles to an inert no-op (connectSecure() returns false)
@@ -25,6 +30,8 @@
 #include <functional>
 #include <utility>
 
+struct WOLFSSL_X509_STORE_CTX;
+
 namespace freeink {
 
 class SecureClient : public Client {
@@ -36,8 +43,34 @@ class SecureClient : public Client {
   using AbortCallback = std::function<bool()>;
 
   // Certificate / verification configuration (applied before connect()).
+  // setCACert() trusts that one PEM root instead of the bundle; setInsecure()
+  // skips the check unless a verify policy is installed.
   void setCACert(const char* rootCA);
-  void setInsecure();  // skip peer verification (testing only)
+  void setInsecure(bool insecure = true);
+
+  // Decides, per host, whether a client without a pinned root checks the
+  // server. Once installed it overrides setInsecure(), so code that still
+  // calls that (the SDK's OPDS sign-in) follows the policy too. Process-wide:
+  // set it once, before the first connect(). It runs once per connect(),
+  // before the TCP connect, and may block (see the abort callback below).
+  using VerifyPolicy = bool (*)(const char* host);
+  static void setVerifyPolicy(VerifyPolicy policy);
+
+  // Whether a connection to host is checked: always with a pinned root;
+  // otherwise the policy decides, and without one, setInsecure() does.
+  static bool shouldVerify(bool insecure, bool pinnedRoot, VerifyPolicy policy, const char* host) {
+    if (pinnedRoot) return true;
+    return policy ? policy(host) : !insecure;
+  }
+
+  // True when the last connect() failed because the server's certificate was
+  // refused.
+  bool certificateRejected() const { return _certRejected; }
+
+  // True when the most recent connect() of any SecureClient failed because the
+  // server's certificate was refused: for callers that only see a failure from
+  // code that owns its client (the SDK's OPDS sign-in). HTTPS runs on one task.
+  static bool lastConnectRefused();
 
   // Polled during connect(): between the TCP connect and the handshake, on
   // every handshake round-trip, and between the two handshake attempts. A
@@ -46,7 +79,9 @@ class SecureClient : public Client {
   //
   // It cannot interrupt the blocking TCP connect itself, so the longest
   // uninterruptible stretch is one setConnectionTimeout() window rather than
-  // the four that a failing connect() can otherwise spend.
+  // the four that a failing connect() can otherwise spend. The verify policy
+  // runs before it and is not interruptible either (the firmware's policy
+  // waits for a clock that was never set).
   void setAbortCallback(AbortCallback cb) { _shouldAbort = std::move(cb); }
 
   // True when the last connect() returned because the abort callback fired
@@ -72,7 +107,10 @@ class SecureClient : public Client {
   static bool tls13Available();
 
  private:
-  int connectWithMethod(const char* host, uint16_t port, void* method, const char* label);
+  int connectWithMethod(const char* host, uint16_t port, bool verify, void* method, const char* label);
+
+  // wolfSSL's verify callback, called for each certificate that failed a check.
+  static int verifyPeer(int preverified, WOLFSSL_X509_STORE_CTX* store);
 
   // Polls _shouldAbort and latches _aborted so callers can tell a cancel from
   // a failure after connect() returns 0.
@@ -83,8 +121,10 @@ class SecureClient : public Client {
   bool _aborted = false;
   const char* _rootCA = nullptr;
   bool _insecure = false;
-  void* _ssl = nullptr;  // WOLFSSL* (opaque to keep wolfSSL headers out of here)
-  void* _ctx = nullptr;  // WOLFSSL_CTX*
+  bool _certRejected = false;
+  bool _certFailed = false;  // refused or not checked: the TLS 1.2 retry cannot help
+  void* _ssl = nullptr;      // WOLFSSL* (opaque to keep wolfSSL headers out of here)
+  void* _ctx = nullptr;      // WOLFSSL_CTX*
   bool _connected = false;
 };
 

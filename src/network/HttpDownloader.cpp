@@ -26,7 +26,6 @@ constexpr size_t MAX_RESPONSE_BYTES = 4096;
 
 void applyCommonClientSetup(freeink::SecureHttpClient& http) {
   http.setTimeout(HTTP_TIMEOUT_MS);
-  http.setInsecure();
   // setUserAgent replaces SecureHttpClient's built-in UA; addHeader would
   // append a second User-Agent header, which strict servers reject (aiohttp
   // answers 400 "Duplicate 'User-Agent' header found").
@@ -37,6 +36,8 @@ void applyCommonClientSetup(freeink::SecureHttpClient& http) {
 int g_lastStatus = 0;
 // Whether the last answer came from another origin than the request started at.
 bool g_lastRedirected = false;
+// Whether the last request failed on the server's certificate.
+bool g_lastCertificateRejected = false;
 
 // All HTTP(S) fetches go through wolfSSL (the firmware's only TLS stack: it
 // speaks TLS 1.3 and reads large bodies reliably). Plain-http URLs still use a
@@ -48,6 +49,7 @@ HttpDownloader::DownloadError runGetSecure(const std::string& url, const std::st
                                            const freeink::FetchSink& sink, const bool* cancelFlag = nullptr,
                                            size_t* bytesOut = nullptr, const bool downgradeRedirectsToHttp = false) {
   WifiPowerSaveGuard psGuard;
+  g_lastCertificateRejected = false;
   freeink::FetchOptions options;
   options.redirectToHttp = downgradeRedirectsToHttp;
   bool answeredBySameOrigin = true;
@@ -70,9 +72,14 @@ HttpDownloader::DownloadError runGetSecure(const std::string& url, const std::st
   // FetchResult::status is -1 when no response arrived (bad URL, DNS, connect, TLS).
   g_lastStatus = result.status < 0 ? 0 : result.status;
   g_lastRedirected = !answeredBySameOrigin;
+  g_lastCertificateRejected = result.certificateRejected;
 
   if (result.aborted) return HttpDownloader::ABORTED;
   if (result.stopped) return HttpDownloader::FILE_ERROR;
+  if (result.certificateRejected) {
+    LOG_ERR("HTTP", "server certificate refused: %s", url.c_str());
+    return HttpDownloader::CERTIFICATE_REJECTED;
+  }
   if (result.status == 401 || result.status == 403) {
     LOG_ERR("HTTP", "wolfSSL request unauthorized: status %d: %s", result.status, url.c_str());
     return HttpDownloader::UNAUTHORIZED;
@@ -93,6 +100,8 @@ HttpDownloader::DownloadError runGetSecure(const std::string& url, const std::st
 int HttpDownloader::lastStatus() { return g_lastStatus; }
 
 bool HttpDownloader::lastAnswerRedirected() { return g_lastRedirected; }
+
+bool HttpDownloader::lastCertificateRejected() { return g_lastCertificateRejected; }
 
 bool HttpDownloader::fetchUrl(const std::string& url, Stream& outContent, const std::string& username,
                               const std::string& password, const std::vector<Header>& headers) {
@@ -115,10 +124,12 @@ bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData
   // a manual redirect loop; catalog feeds are small enough that Range resume
   // isn't worth carrying here (books go through downloadToFile, which has it).
   WifiPowerSaveGuard psGuard;
+  g_lastCertificateRejected = false;
   std::string current = url;
   const std::string startOrigin = freeink::fetchOrigin(url);
   int status = 0;
   bool sinkStopped = false;
+  bool certificateRejected = false;
   for (int hop = 0; hop <= MAX_REDIRECTS; ++hop) {
     freeink::SecureHttpClient http;
     if (!http.begin(current)) {
@@ -151,6 +162,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData
       }
       return true;
     });
+    certificateRejected = http.certificateRejected();
     if (status == 301 || status == 302 || status == 303 || status == 307 || status == 308) {
       const std::string location = http.getHeader("location");
       if (location.empty() || !freeink::SecureHttpClient::resolveUrl(current, location, current)) break;
@@ -160,6 +172,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData
   }
   g_lastStatus = status > 0 ? status : 0;
   g_lastRedirected = freeink::fetchOrigin(current) != startOrigin;
+  g_lastCertificateRejected = certificateRejected;
   if (options.statusOut) *options.statusOut = g_lastStatus;
   return status >= 200 && status < 300 && !sinkStopped;
 }
@@ -167,6 +180,7 @@ bool HttpDownloader::fetchUrl(const std::string& url, const DataCallback& onData
 bool HttpDownloader::postForm(const std::string& url, const std::string& formBody, std::string& outResponse,
                               int* statusOut) {
   WifiPowerSaveGuard psGuard;
+  g_lastCertificateRejected = false;
   outResponse.clear();
   freeink::SecureHttpClient http;
   if (!http.begin(url)) {
@@ -184,6 +198,7 @@ bool HttpDownloader::postForm(const std::string& url, const std::string& formBod
                                         outResponse.append(reinterpret_cast<const char*>(data), std::min(len, room));
                                         return true;
                                       });
+  g_lastCertificateRejected = http.certificateRejected();
   if (statusOut) *statusOut = status > 0 ? status : 0;
   return status >= 200 && status < 300;
 }
@@ -193,6 +208,7 @@ HttpDownloader::DownloadError HttpDownloader::postToFile(const std::string& url,
                                                          ProgressCallback progress, const bool* cancelFlag) {
   LOG_DBG("HTTP", "POST download: %s -> %s", url.c_str(), destPath.c_str());
   WifiPowerSaveGuard psGuard;
+  g_lastCertificateRejected = false;
 
   const std::string partPath = destPath + ".part";
   Storage.remove(partPath.c_str());
@@ -230,9 +246,13 @@ HttpDownloader::DownloadError HttpDownloader::postToFile(const std::string& url,
   // otherwise close only after the remove.
   if (file.isOpen()) file.close();
 
+  g_lastCertificateRejected = http.certificateRejected();
   DownloadError result = OK;
   if (http.aborted()) {
     result = ABORTED;
+  } else if (g_lastCertificateRejected) {
+    LOG_ERR("HTTP", "server certificate refused: %s", url.c_str());
+    result = CERTIFICATE_REJECTED;
   } else if (writeFailed) {
     result = FILE_ERROR;
   } else if (status < 200 || status >= 300) {

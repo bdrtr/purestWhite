@@ -13,6 +13,7 @@
 #include <OpdsFeedParser.h>
 #include <OpdsPublicationDoc.h>
 #include <OpdsSearchTemplate.h>
+#include <SecureClient.h>
 #include <StreamingJsonParser.h>
 #include <Util.h>
 #include <WolfsslCrypto.h>
@@ -60,6 +61,7 @@ std::string uiAcceptLanguage() {
 // Tells a dead server from a catalog that wants a password; both are a bare
 // "failed" to the fetch itself. Read right after a failed fetch.
 StrId feedFailureMessage() {
+  if (HttpDownloader::lastCertificateRejected()) return StrId::STR_CERTIFICATE_REJECTED;
   switch (classifyFeedFailure(HttpDownloader::lastStatus(), HttpDownloader::lastAnswerRedirected())) {
     case OpdsFeedError::Unreachable:
       return StrId::STR_FEED_UNREACHABLE;
@@ -328,7 +330,9 @@ void OpdsBookBrowserActivity::fetchFeed(const std::string& path) {
         fail(StrId::STR_SET_CREDENTIALS_FIRST);
         break;
       case freeink::opds::OpdsClient::FetchStatus::AuthFailed:
-        fail(StrId::STR_OPDS_AUTH_FAILED);
+        // The sign-in runs its own clients; a refused certificate is the last thing it saw.
+        fail(freeink::SecureClient::lastConnectRefused() ? StrId::STR_CERTIFICATE_REJECTED
+                                                         : StrId::STR_OPDS_AUTH_FAILED);
         break;
       case freeink::opds::OpdsClient::FetchStatus::ParseFailed:
         fail(StrId::STR_PARSE_FEED_FAILED);

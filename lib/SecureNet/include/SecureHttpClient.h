@@ -15,7 +15,6 @@
 //
 // Usage:
 //   SecureHttpClient http;
-//   http.setInsecure();                 // or http.setCACert(rootPem)
 //   if (http.begin("https://host/path")) {
 //     http.addHeader("Accept", "application/json");
 //     int code = http.GET();            // < 0 on transport failure
@@ -63,14 +62,17 @@ class SecureHttpClient {
   SecureHttpClient(const SecureHttpClient&) = delete;
   SecureHttpClient& operator=(const SecureHttpClient&) = delete;
 
-  // Skip peer verification (SecureClient does likewise). Required today because
-  // the wolfSSL transport has no CA bundle wired up; see setCACert().
-  void setInsecure() { _insecure = true; }
+  // Skip peer verification, unless a verify policy is installed (see
+  // SecureClient.h).
+  void setInsecure(bool insecure = true) { _insecure = insecure; }
   // Verify against a single PEM root. Clears the insecure flag.
   void setCACert(const char* rootCA) {
     _rootCA = rootCA;
     _insecure = false;
   }
+  // True when the last request failed because the server's certificate was
+  // refused.
+  bool certificateRejected() const { return _secure.certificateRejected(); }
   void setTimeout(uint32_t ms) { _timeoutMs = ms; }
   // Progress reporting for response bodies (download meters). Called after
   // each delivered chunk with the running byte count; never called for
@@ -428,11 +430,8 @@ class SecureHttpClient {
     if (connectionMatches()) return true;
     closeConnection();
     if (_scheme == "https") {
-      if (_insecure) {
-        _secure.setInsecure();
-      } else if (_rootCA) {
-        _secure.setCACert(_rootCA);
-      }
+      _secure.setInsecure(_insecure);
+      _secure.setCACert(_rootCA);
       _secure.setTimeout(_timeoutMs);
       _secure.setAbortCallback(shouldAbort);
       if (!_secure.connect(_host.c_str(), _port)) {

@@ -2325,10 +2325,6 @@ void CrossPointWebServer::handleFetch() {
       url, options,
       [&](freeink::SecureHttpClient& http, const bool sameOrigin) {
         http.setUserAgent("CrossPoint");
-        // The SecureNet transport ships no CA bundle, so peer verification always
-        // fails (wolfSSL -188); skip it like HttpDownloader does. Traffic stays
-        // TLS-encrypted, just unauthenticated — matching the prior library-lending flow.
-        http.setInsecure();
         // Some delivery servers assemble books on the fly and can stall mid-body
         // while packaging; the default 15s no-data timeout truncates those downloads.
         http.setTimeout(60000);

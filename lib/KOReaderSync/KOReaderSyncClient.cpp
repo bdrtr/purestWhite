@@ -2,6 +2,7 @@
 
 #include <ArduinoJson.h>
 #include <HalMemory.h>
+#include <I18n.h>
 #include <Logging.h>
 #include <SecureHttpClient.h>
 #include <base64.h>
@@ -44,6 +45,11 @@ void applyCustomHeaders(freeink::SecureHttpClient& http) {
   }
 }
 
+// The error for a request that got no response.
+KOReaderSyncClient::Error transportError(const freeink::SecureHttpClient& http) {
+  return http.certificateRejected() ? KOReaderSyncClient::CERTIFICATE_REJECTED : KOReaderSyncClient::NETWORK_ERROR;
+}
+
 // True when free heap is too low to risk a TLS handshake.
 bool insufficientHeap() {
   const auto heap = HalMemory::getDefaultHeap();
@@ -69,7 +75,6 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
   if (insufficientHeap()) return LOW_MEMORY;
 
   freeink::SecureHttpClient http;
-  http.setInsecure();
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -82,7 +87,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::authenticate() {
 
   LOG_DBG("KOSync", "Auth response: %d", httpCode);
 
-  if (httpCode <= 0) return NETWORK_ERROR;
+  if (httpCode <= 0) return transportError(http);
   // Any 2xx is success. The reference kosync server answers 200, but
   // KOSync-compatible implementations differ (BookLore/grimmory is a Spring
   // service and uses the idiomatic codes) — see issue #2876.
@@ -109,7 +114,6 @@ KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
   serializeJson(doc, body);
 
   freeink::SecureHttpClient http;
-  http.setInsecure();
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -123,7 +127,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
 
   LOG_DBG("KOSync", "Create user response: %d", httpCode);
 
-  if (httpCode <= 0) return NETWORK_ERROR;
+  if (httpCode <= 0) return transportError(http);
   if (httpCode >= 200 && httpCode < 300) return OK;  // 2xx: created (see #2876)
   if (httpCode == 402) return USER_EXISTS;
   return SERVER_ERROR;
@@ -143,7 +147,6 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   if (insufficientHeap()) return LOW_MEMORY;
 
   freeink::SecureHttpClient http;
-  http.setInsecure();
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -157,7 +160,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
 
   if (httpCode <= 0) {
     http.end();
-    return NETWORK_ERROR;
+    return transportError(http);
   }
 
   // 204 = success with no stored progress for this document (Spring-style
@@ -277,7 +280,6 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   LOG_DBG("KOSync", "Request body: %s", body.c_str());
 
   freeink::SecureHttpClient http;
-  http.setInsecure();
   if (!http.begin(url)) {
     LOG_ERR("KOSync", "Bad URL: %s", url.c_str());
     return NETWORK_ERROR;
@@ -291,7 +293,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
 
   LOG_DBG("KOSync", "Update progress response: %d", httpCode);
 
-  if (httpCode <= 0) return NETWORK_ERROR;
+  if (httpCode <= 0) return transportError(http);
   // Any 2xx accepts the progress. The reference kosync server answers 200,
   // but Spring-based KOSync implementations (BookLore/grimmory) answer a PUT
   // with the idiomatic 201/204, which used to land in SERVER_ERROR and made
@@ -319,6 +321,8 @@ const char* KOReaderSyncClient::errorString(Error error) {
       return "No progress found";
     case LOW_MEMORY:
       return "Not enough memory for sync — please retry";
+    case CERTIFICATE_REJECTED:
+      return tr(STR_CERTIFICATE_REJECTED);
     default:
       return "Unknown error";
   }

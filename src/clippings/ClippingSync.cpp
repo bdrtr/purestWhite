@@ -130,7 +130,8 @@ bool decode(JsonObjectConst item, Clipping& clipping, std::string& text, bool& d
 }
 }  // namespace
 
-bool clippingSync::run(const std::string& bookPath, const std::string& documentHash) {
+bool clippingSync::run(const std::string& bookPath, const std::string& documentHash, bool* certificateRejected) {
+  if (certificateRejected) *certificateRejected = false;
   // Gate before loading files, allocating buffers, or contacting the server.
   if (!KOREADER_STORE.getSyncClippings()) return true;
   if (!KOREADER_STORE.hasCredentials()) return false;
@@ -146,12 +147,15 @@ bool clippingSync::run(const std::string& bookPath, const std::string& documentH
     LOG_ERR("CLIP", "Insufficient heap for clipping sync");
     return false;
   }
-  http->setInsecure();
   const std::string url = KOREADER_STORE.getBaseUrl() + "/api/v1/clippings/" + documentHash;
   JsonDocument doc;
   // Probe the extension before any upload, even when the user explicitly enabled it.
-  if (!request(*http, url + "?cursor=0&limit=1&format=reader", buffer.get(), doc) ||
-      doc["sync_version"].as<unsigned>() != 2) {
+  if (!request(*http, url + "?cursor=0&limit=1&format=reader", buffer.get(), doc)) {
+    // The probe opens the connection the rest of the sync reuses.
+    if (certificateRejected) *certificateRejected = http->certificateRejected();
+    return false;
+  }
+  if (doc["sync_version"].as<unsigned>() != 2) {
     LOG_ERR("CLIP", "Clipping sync requires a compatible crosspoint-sync server");
     return false;
   }

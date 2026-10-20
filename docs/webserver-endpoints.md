@@ -529,8 +529,10 @@ instructions plus WebSocket upload progress on the device screen.
 
 Device capabilities for browser-side SD plugins (`plugin.js`). Plugins normally
 reach these through the `PluginHost` wrappers (`api.relay`, `api.crypto`,
-`api.fetchToSd`, `api.writeFile`); the raw contracts are below. Outbound TLS is
-encrypted but the peer is not verified (the transport ships no CA bundle).
+`api.fetchToSd`, `api.writeFile`); the raw contracts are below. Outbound TLS
+checks the server certificate as the device's "Verify Server Certificates"
+setting says (CrossPoint, FreeInk and GitHub hosts always); a refused
+certificate surfaces as the endpoint's transport or relay failure.
 
 ### `GET /api/plugins`
 

@@ -42,12 +42,13 @@ struct FetchSink {
 };
 
 struct FetchResult {
-  int status = 0;         // last HTTP status; -1 on a bad URL or transport failure
-  size_t bytes = 0;       // bytes the sink holds, including startOffset
-  size_t total = 0;       // whole-resource size when the server reported it, else 0
-  bool complete = false;  // the full body arrived
-  bool stopped = false;   // the sink stopped the transfer (write/rewind returned false)
-  bool aborted = false;   // shouldAbort fired
+  int status = 0;                    // last HTTP status; -1 on a bad URL or transport failure
+  size_t bytes = 0;                  // bytes the sink holds, including startOffset
+  size_t total = 0;                  // whole-resource size when the server reported it, else 0
+  bool complete = false;             // the full body arrived
+  bool stopped = false;              // the sink stopped the transfer (write/rewind returned false)
+  bool aborted = false;              // shouldAbort fired
+  bool certificateRejected = false;  // the server's certificate was refused
 };
 
 // scheme://host:port, lowercased, with the scheme's default port made explicit
@@ -167,6 +168,7 @@ inline FetchResult fetchResumable(const std::string& startUrl, const FetchOption
           return true;
         },
         shouldAbort);
+    result.certificateRejected = http.certificateRejected();
 
     if (http.aborted()) {
       result.aborted = true;

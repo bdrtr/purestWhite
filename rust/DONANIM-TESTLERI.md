@@ -262,3 +262,59 @@ tanımın gelmemesi, donma ya da yeniden başlatma; sağlam bir dosyada günlük
 - [ ] BLE kumanda bağlıyken önbelleği silinmiş bir kitabı açın ve sözlükte bir kelime arayın:
   kumanda bağlı kalmalı, sayfa çevirme çalışmalı (çözücü durumu ~4,5 KB'tan ~11 KB'a çıktı;
   ödünç framebuffer'da ya da PSRAM'de durur).
+
+## Sunucu sertifikası doğrulaması ("net: SecureNet moves into the fork", "net: HTTPS checks server certificates")
+
+HTTPS artık sunucuyu doğruluyor: zincir ESP-IDF'in kök paketindeki (150 kök) bir köke varmalı,
+sertifika sunucunun adını taşımalı ve tarihleri geçerli olmalı. Ayar: Settings → System →
+Verify Server Certificates (Sunucu sertifikalarını doğrula), varsayılan açık. CrossPoint
+(crosspointreader.com), FreeInk (freeink.org) ve GitHub adresleri ayardan bağımsız hep
+doğrulanır. SDK'nın OPDS OAuth girişi de ayara uyar. wolfSSL'e SHA-384/512 ve hızlı P-384
+eklendi; P-384 imzalı zincirler (Let's Encrypt, Google, Sectigo) bunlarsız doğrulanamıyordu.
+
+Yeni bağlantı başına ek süre (emülatördeki komut sayısından 240 MHz için hesaplanan; cihazda biraz
+daha uzun olabilir): Let's Encrypt ECDSA zinciri (sync.crosspointreader.com) ≈1,6 s, SSL.com
+zinciri (ör. example.com) ≈1,2 s, github.com ≈1,0 s, Google Trust Services zinciri ≈0,7 s. KOSync
+her istek için yeni bağlantı açar; varsayılan sunucuyla bir eşitleme ≈5–6 s uzayabilir.
+
+Günlükteki `[SecureClient] certificate N refused: K` satırında N zincirdeki sıra (0 sunucunun
+kendi sertifikası), K wolfSSL kodu:
+- `-188` imzalayan bulunamadı: ara sertifika eksik ya da kök pakette yok. En üstteki sertifikanın
+  tarihi geçersizse ya da imzası tutmazsa da -188 çıkar. İmza hatasında üstünde
+  `esp-x509-crt-bundle: Certificate matched but signature verification failed` görünür; kök
+  pakette yoksa yalnız `Failed to verify certificate`. Önce saati denetleyin.
+- `-150` / `-151` henüz geçerli değil / süresi dolmuş (saat yanlışsa geçerli sunucuda da çıkar).
+- `-322` sertifika sunucunun adını taşımıyor; `-155` imza bozuk; `-232` hash türü derlenmemiş.
+- `certificate N not checked: low memory` bellek yetmedi demektir, sertifika reddi değil. Bellek
+  hataları sayıyla yazılır: `wolfSSL_connect failed (...): -125` ya da `read failed: -125`
+  (MEMORY_E); `-303` MEMORY_ERROR, `-2` MP_MEM.
+
+- [ ] CrossPoint Sync (varsayılan sunucu sync.crosspointreader.com): konum gönderip alın,
+  çalışmalı. Seri günlükteki `[SecureClient] handshake ok (...) in N ms` sürelerini ve tüm
+  eşitlemenin süresini önceki sürümle karşılaştırın (yukarıdaki ek süre beklenir).
+- [ ] OPDS: herkese açık bir katalogda (ör. `https://m.gutenberg.org/ebooks.opds/`) gezinip
+  bir kitap indirin.
+- [ ] Plugin Hub kataloğu ve kurulumu, Manage Fonts'tan yazı tipi indirme (GitHub) ve LCP
+  korumalı bir kitabın indirilip açılması çalışmalı.
+- [ ] Varsa OAuth ile oturum açılan bir OPDS kataloğu: ayar açıkken giriş çalışmalı. Giriş
+  sunucusunun sertifikası reddedilirse "Authentication failed" değil "Server certificate not
+  trusted" görünmeli.
+- [ ] Başka sunuculara HTTPS ile bağlanan bir eklenti (ör. ödünç kitap eklentisi): ayar açıkken
+  geçerli sertifikalı sunucularda çalışmalı.
+- [ ] Kendinden imzalı ya da IP adresiyle erişilen bir HTTPS ev sunucusu (Calibre-Web, COPS,
+  KOSync `https://<ip>:7200`): ayar açıkken OPDS ve CrossPoint Sync "Server certificate not
+  trusted" göstermeli (Sync Clippings açıkken de aynı mesaj); ayar kapalıyken eskisi gibi
+  çalışmalı. `http://` ile erişilen sunucular etkilenmez. Sonra ayarı yeniden açın.
+- [ ] badssl.com erişilebiliyorsa OPDS sunucusu olarak `https://expired.badssl.com/`,
+  `https://wrong.host.badssl.com/`, `https://self-signed.badssl.com/` ve
+  `https://untrusted-root.badssl.com/` ekleyin: hepsi "Server certificate not trusted"
+  vermeli. `https://ecc384.badssl.com/` sertifika hatası vermemeli (sayfa OPDS olmadığı için
+  akış hatası verir).
+- [ ] Saat: Settings → System → Clock doğru olmalı; sertifika tarihleri bu saatle denetlenir.
+  Saat hiç ayarlanmamışsa Wi-Fi bağlıyken ilk doğrulanan bağlantı SNTP için en çok 8 s bekler;
+  SNTP yanıt vermezse günlükte `Clock not set` görünür ve bu açılışta bir daha beklenmez.
+- [ ] TLS 1.3 isteyen bir KOSync sunucusu (ör. `https://kosync.ak-team.com:3042`) bağlanmalı.
+- [ ] Bellek: eşitleme ve OPDS indirmesi sırasında günlükte yukarıdaki bellek hataları ya da
+  `not checked: low memory` olmamalı, cihaz yeniden başlamamalı.
+- [ ] Şifre takımı: `handshake ok` satırındaki takım artık `TLS_AES_256_GCM_SHA384` olabilir
+  (SHA-384 açıldı); büyük bir kitabın indirme süresi önceki sürümden belirgin uzun olmamalı.

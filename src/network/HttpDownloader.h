@@ -9,8 +9,9 @@
 
 /**
  * HTTP client utility for fetching content and downloading files. Built on
- * esp_http_client: https is verified against the CA bundle, plain http is
- * used for local servers (transport is chosen from the URL scheme).
+ * SecureHttpClient: https goes through wolfSSL and is checked as TlsPolicy.h
+ * says, plain http is used for local servers (transport is chosen from the
+ * URL scheme).
  */
 class HttpDownloader {
  public:
@@ -24,7 +25,8 @@ class HttpDownloader {
     HTTP_ERROR,
     FILE_ERROR,
     ABORTED,
-    UNAUTHORIZED,  // 401/403: callers holding a refreshable credential can retry
+    UNAUTHORIZED,          // 401/403: callers holding a refreshable credential can retry
+    CERTIFICATE_REJECTED,  // the server's certificate was refused
   };
 
   // Pre-flight floor for starting a TLS transfer. Below this the session or
@@ -50,6 +52,12 @@ class HttpDownloader {
    * from such a hop, so a 401 there is not a wrong password.
    */
   static bool lastAnswerRedirected();
+
+  /**
+   * True when the last request got no response because the server's
+   * certificate was refused (see the "Verify Server Certificates" setting).
+   */
+  static bool lastCertificateRejected();
 
   /**
    * Fetch text content from a URL with optional credentials. `headers` are

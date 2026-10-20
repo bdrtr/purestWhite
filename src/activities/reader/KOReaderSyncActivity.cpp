@@ -163,11 +163,12 @@ void KOReaderSyncActivity::performSync() {
       statusMessage = tr(STR_SYNCING_CLIPPINGS);
     }
     requestUpdateAndWait();
-    if (!clippingSync::run(epubPath, documentHash)) {
+    bool certificateRejected = false;
+    if (!clippingSync::run(epubPath, documentHash, &certificateRejected)) {
       {
         RenderLock lock(*this);
         state = SYNC_FAILED;
-        statusMessage = tr(STR_CLIPPING_SYNC_FAILED);
+        statusMessage = certificateRejected ? tr(STR_CERTIFICATE_REJECTED) : tr(STR_CLIPPING_SYNC_FAILED);
       }
       requestUpdate(true);
       return;

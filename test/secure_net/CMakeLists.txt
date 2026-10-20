@@ -14,3 +14,19 @@ target_include_directories(SecureNetResumableFetchTest PRIVATE
 target_compile_options(SecureNetResumableFetchTest PRIVATE -UNDEBUG -Wall -Wextra -Werror)
 
 add_test(NAME SecureNetResumableFetch COMMAND SecureNetResumableFetchTest)
+
+add_executable(SecureClientVerifyTest
+  VerifyDecisionTest.cpp
+)
+
+target_include_directories(SecureClientVerifyTest PRIVATE
+  ${SECURE_NET_TEST_DIR}/stubs
+  ${REPO_ROOT}/lib/SecureNet/include
+)
+
+target_link_libraries(SecureClientVerifyTest PRIVATE
+  crosspoint_test_common
+  GTest::gtest_main
+)
+
+gtest_discover_tests(SecureClientVerifyTest)

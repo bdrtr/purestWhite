@@ -205,7 +205,7 @@ Books cannot be removed from your device through Calibre. Use the web interface 
 
 ### 3.6 Settings
 
-Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **Library**, and **Connectivity**. System contains language, keyboard layouts, hidden-file visibility, Clock (where available), firmware updates, and About. Library contains Use Book Metadata, Clear Read Books from Recent List, and Move Finished Books to Read Folder. Time to Sleep is under Display; Clear Reading Cache is under Reader. Connectivity contains Wi-Fi, Bluetooth Page Turner, CrossPoint Sync, OPDS, and the Plugins toggle. The options below describe these settings.
+Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **Library**, and **Connectivity**. System contains language, keyboard layouts, hidden-file visibility, server certificate checks, Clock (where available), firmware updates, and About. Library contains Use Book Metadata, Clear Read Books from Recent List, and Move Finished Books to Read Folder. Time to Sleep is under Display; Clear Reading Cache is under Reader. Connectivity contains Wi-Fi, Bluetooth Page Turner, CrossPoint Sync, OPDS, and the Plugins toggle. The options below describe these settings.
 
 #### 3.6.1 Display
 
@@ -352,6 +352,8 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
   - Selecting that Plugin Hub entry offers **Install**, **Hide**, or **Cancel**. **Install** downloads Plugin Hub over Wi-Fi. If you back out of Wi-Fi selection, installation is cancelled, Wi-Fi is turned back off, and you return to Plugins with the installer still available. **Hide** removes only the Plugin Hub install entry; it does not disable plugins or affect sideloaded plugins. **Cancel** leaves the entry unchanged.
   - **Hide** persists across reboots. Setting **Settings → Connectivity → Plugins** to **Enabled** again brings the installer back.
   - Plugin Hub is optional. Users who prefer manual installation can download it directly from [crosspoint-plugin-hub releases](https://github.com/crosspoint-reader/crosspoint-plugin-hub/releases) and copy/extract the `pluginhub` folder so it ends up at `/.crosspoint/plugins/pluginhub/`, `/plugins/pluginhub/`, or `/.plugins/pluginhub/`. Once installed, Plugin Hub appears as a normal entry under **Home → Plugins**.
+
+- **Verify Server Certificates** (**Settings → System**): On by default. Over HTTPS, a server must show a valid certificate for its name, issued by an authority in the device's built-in list, and must send its intermediate certificates too (on Let's Encrypt servers, `fullchain.pem` rather than `cert.pem`). Otherwise the request fails; CrossPoint Sync, OPDS and plugin catalog downloads show **Server certificate not trusted**. The check uses the device clock, so a wrong date makes every HTTPS server fail: check **Settings → System → Clock**. Turn this setting off to reach a home server with a self-signed certificate or one reached by IP address; the traffic stays encrypted, but the server is no longer authenticated. CrossPoint's own services, FreeInk's LCP service and GitHub are always checked. Plain `http://` servers are not affected.
 
 - **Language**: Set the UI language. CrossPoint supports 32 languages: English, Spanish, French, German, Czech, Brazilian Portuguese, European Portuguese, Russian, Swedish, Romanian, Catalan, Ukrainian, Belarusian, Italian, Polish, Finnish, Danish, Dutch, Turkish, Kazakh, Hungarian, Lithuanian, Slovenian, Valencian, Hebrew, Arabic, Slovak, Bosnian, Vietnamese, Norwegian Bokmål, Indonesian, and Orangutan.
 
@@ -538,7 +540,7 @@ If this returns `HTTP 402` with `{"code":2002,"message":"Username is already reg
    
    - Run **Authenticate**.
 
-If you use the HTTPS listener, use `https://<server-ip>:7200` (`curl -k` only for self-signed certificate testing).
+If you use the HTTPS listener, use `https://<server-ip>:7200` (`curl -k` only for self-signed certificate testing). Its certificate is self-signed and the server is reached by IP address, so turn off **Settings → System → Verify Server Certificates** first; the traffic stays encrypted, but the server is not authenticated.
 
 ##### Syncing While Reading
 

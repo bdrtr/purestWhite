@@ -81,7 +81,8 @@ class KOReaderSyncClient {
     JSON_ERROR,
     NOT_FOUND,
     LOW_MEMORY,
-    USER_EXISTS
+    USER_EXISTS,
+    CERTIFICATE_REJECTED  // the server's certificate was refused
   };
 
   /**
