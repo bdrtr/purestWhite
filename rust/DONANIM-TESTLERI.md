@@ -556,3 +556,14 @@ başarısız olur, ama hemen değil, istekte.
 - [ ] Oturum açılan (OAuth) bir OPDS kataloğunda giriş eskisi gibi çalışmalı.
 - [ ] OPDS 2 katalogda gezinme, indirme ve Plugin Hub (katalog ve eklenti indirme) eskisi gibi
   çalışmalı.
+
+## Sürüm 0.0.2 ("release: 0.0.2")
+
+0.0.1'den bu yana: TLS oturum sürdürme, KOSync'te eşitleme başına tek bağlantı, 204/304/HEAD
+yanıtlarında bekleme yok, Wi-Fi ile güncelleme kanalı (bdrtr/purestWhite sürümleri), JSON ve
+içindekiler okuyucuları Rust'ta, bozuk önbellek dizgisi çökertmiyor, içindekiler etiketi en çok
+1 KB, uzun OPDS açıklamaları kesilerek gösteriliyor. Bu sürümün dosyaları GitHub'da taslak olarak
+duruyor; yukarıdaki işaretsiz maddeler denendikten sonra yayımlanacak.
+
+- [ ] About'ta Firmware satırı "purestWhite next 0.0.2" olmalı, açılışta altta "0.0.2".
+- [ ] Taslak yayımlandıktan sonra 0.0.1 çalışan bir cihazda Check for Updates 0.0.2'yi önermeli.
