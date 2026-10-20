@@ -373,3 +373,12 @@ Calibre'nin keşif yanıtı.
 - [ ] Start Other Firmware: diğer yuvada CrossPoint varsa onay "CrossPoint 1.6.x", bu
   yazılımın bu sürümü ya da sonrası varsa "purestWhite next 0.0.1" yazmalı. Bu sürümden
   önceki Bembeyaz yapıları kimlik taşımadığı için "CrossPoint 1.6.5-x4pro" görünür.
+
+## Logo: papatya
+
+Açılış ve uyku logosu ile web simgesi papatya oldu (`src/images/logo.svg`; cihaz görüntüsü
+`scripts/generate_logo.py` ile üretilir, çizgiler 2 piksel).
+
+- [ ] Açılış ekranında papatya dik ve ortada görünmeli; çizgiler kopuk olmamalı.
+- [ ] Uyku ekranında (koyu) papatya beyaz çizgilerle görünmeli; açık uyku ekranı ayarında da.
+- [ ] Web sayfasının üst bilgisinde ve tarayıcı sekmesinde papatya simgesi görünmeli.
