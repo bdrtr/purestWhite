@@ -10,12 +10,15 @@
 //! against the package's directory as `bembeyaz-path` does. The manifest is kept in memory, within
 //! a limit the caller sets; a repeated id resolves to its first item, and a second manifest
 //! replaces the first.
+//!
+//! The `container` module reads `META-INF/container.xml`, which says where the package is.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 extern crate alloc;
 
+pub mod container;
 mod manifest;
 #[cfg(test)]
 extern crate std;

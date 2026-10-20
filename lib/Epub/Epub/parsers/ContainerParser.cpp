@@ -1,74 +1,40 @@
 #include "ContainerParser.h"
 
 #include <Logging.h>
+#include <bembeyaz/xml.h>
 
-#include <cstring>
+ContainerParser::~ContainerParser() { bb_container_free(container); }
 
 bool ContainerParser::setup() {
-  if (!parser.create()) {
+  bb_container_free(container);
+  container = bb_container_new(BB_XML_DEFAULT_LIMIT);
+  if (!container) {
     LOG_ERR("CTR", "Couldn't allocate memory for parser");
     return false;
   }
-
-  parser.setUserData(this);
-  parser.setElementHandler(startElement, endElement);
   return true;
 }
 
 size_t ContainerParser::write(const uint8_t data) { return write(&data, 1); }
 
 size_t ContainerParser::write(const uint8_t* buffer, const size_t size) {
-  if (!parser) return 0;
+  if (!container) return 0;
 
   const bool last = remainingSize == size;
   remainingSize -= size;
-  if (!parser.parse(buffer, size, last)) {
-    LOG_ERR("CTR", "Parse error: %s", parser.errorString());
-    parser.destroy();
+  const int result = bb_container_parse(container, reinterpret_cast<const char*>(buffer), size, last);
+  // Copied when it changes: a long path is not copied again for every later piece.
+  if (bb_container_take_path_changed(container)) {
+    size_t len = 0;
+    const char* path = bb_container_full_path(container, &len);
+    fullPath.assign(path, len);
+  }
+  if (result != BB_XML_OK) {
+    LOG_ERR("CTR", "Parse error at byte %llu: %s",
+            static_cast<unsigned long long>(bb_container_error_offset(container)), bb_xml_error_message(result));
+    bb_container_free(container);
+    container = nullptr;
     return 0;
   }
   return size;
-}
-
-void ContainerParser::startElement(void* userData, const char* name, const char** atts) {
-  auto* self = static_cast<ContainerParser*>(userData);
-
-  // Simple state tracking to ensure we are looking at the valid schema structure
-  if (self->state == START && strcmp(name, "container") == 0) {
-    self->state = IN_CONTAINER;
-    return;
-  }
-
-  if (self->state == IN_CONTAINER && strcmp(name, "rootfiles") == 0) {
-    self->state = IN_ROOTFILES;
-    return;
-  }
-
-  if (self->state == IN_ROOTFILES && strcmp(name, "rootfile") == 0) {
-    const char* mediaType = nullptr;
-    const char* path = nullptr;
-
-    for (int i = 0; atts[i]; i += 2) {
-      if (strcmp(atts[i], "media-type") == 0) {
-        mediaType = atts[i + 1];
-      } else if (strcmp(atts[i], "full-path") == 0) {
-        path = atts[i + 1];
-      }
-    }
-
-    // Check if this is the standard OEBPS package
-    if (mediaType && path && strcmp(mediaType, "application/oebps-package+xml") == 0) {
-      self->fullPath = path;
-    }
-  }
-}
-
-void ContainerParser::endElement(void* userData, const char* name) {
-  auto* self = static_cast<ContainerParser*>(userData);
-
-  if (self->state == IN_ROOTFILES && strcmp(name, "rootfiles") == 0) {
-    self->state = IN_CONTAINER;
-  } else if (self->state == IN_CONTAINER && strcmp(name, "container") == 0) {
-    self->state = START;
-  }
 }

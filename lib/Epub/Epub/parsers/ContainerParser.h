@@ -1,27 +1,22 @@
 #pragma once
 #include <Print.h>
-#include <XmlParser.h>
+#include <bembeyaz/container.h>
 
 #include <string>
 
+// Reads META-INF/container.xml streamed into it (rust/crates/bembeyaz-opf, container module):
+// fullPath is the package document's path read so far.
 class ContainerParser final : public Print {
-  enum ParserState {
-    START,
-    IN_CONTAINER,
-    IN_ROOTFILES,
-  };
-
   size_t remainingSize;
-  XmlParser parser;
-  ParserState state = START;
-
-  static void startElement(void* userData, const char* name, const char** atts);
-  static void endElement(void* userData, const char* name);
+  bb_container* container = nullptr;
 
  public:
   std::string fullPath;
 
   explicit ContainerParser(const size_t xmlSize) : remainingSize(xmlSize) {}
+  ~ContainerParser() override;
+  ContainerParser(const ContainerParser&) = delete;
+  ContainerParser& operator=(const ContainerParser&) = delete;
 
   bool setup();
 

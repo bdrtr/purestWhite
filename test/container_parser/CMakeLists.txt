@@ -6,7 +6,6 @@ add_executable(ContainerParserTest
 target_include_directories(ContainerParserTest PRIVATE
   ${REPO_ROOT}/test/toc_nav_parser/stubs
   ${REPO_ROOT}/lib/Epub/Epub/parsers
-  ${REPO_ROOT}/lib/XmlParserUtils
 )
 
 target_link_libraries(ContainerParserTest PRIVATE

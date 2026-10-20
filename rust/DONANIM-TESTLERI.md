@@ -567,3 +567,18 @@ duruyor; yukarıdaki işaretsiz maddeler denendikten sonra yayımlanacak.
 
 - [ ] About'ta Firmware satırı "purestWhite next 0.0.2" olmalı, açılışta altta "0.0.2".
 - [ ] Taslak yayımlandıktan sonra 0.0.1 çalışan bir cihazda Check for Updates 0.0.2'yi önermeli.
+
+## container.xml Rust'ta ("rust: our own container.xml reader")
+
+Kitabın paket belgesinin yerini söyleyen `META-INF/container.xml` artık `bembeyaz-opf`'in
+`container` modülüyle okunuyor. Eski C++ okuyucusuna karşı yazılmış 10 host testi değişmeden
+geçiyor. Geliştirme sırasında bir fark testi eski ve yeni okuyucuyu 50 000 üretilmiş belgede (bir
+kısmı bozulmuş; 5 627'sinde bir yol bulundu) rastgele parçalarla karşılaştırdı (bulunan yol ve her
+yazma sonucu aynıydı; kasıtlı bir değişiklik yakalandı). Emülatörde `emu/compare.sh` değiştirilmemiş
+CrossPoint'le aynı ekranları verdi.
+
+- [ ] Farklı kaynaklardan birkaç kitabın önbelleğini silin (kitap açıkken okuma menüsünde Delete
+  Book Cache / Kitap Önbelleğini Sil) ya da kitapları ilk kez açın: kitaplar açılmalı, kütüphanede
+  başlık ve kapak görünmeli; seri günlükte "Could not find valid rootfile in container.xml"
+  görünmemeli.
+- [ ] KOReader eşitlemesi eskisi gibi çalışmalı (o da container.xml okur).
