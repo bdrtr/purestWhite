@@ -1,5 +1,7 @@
 #pragma once
 
+#include <esp_partition.h>
+
 #include <cstddef>
 #include <cstdint>
 
@@ -61,6 +63,10 @@ Result flashFromSdPath(const char* sdPath, ProgressCb onProgress, void* ctx, boo
 // lookup). Streams the file in CHUNK-sized reads; the file is rewound on
 // success so the caller can immediately reread it for flashing.
 Result validateImageFile(const char* sdPath, size_t partitionSize);
+
+// The same checks on the image an app partition holds, which may end anywhere
+// before the partition does.
+Result validateImagePartition(const esp_partition_t* partition);
 
 const char* resultName(Result r);
 

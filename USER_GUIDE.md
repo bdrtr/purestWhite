@@ -346,6 +346,10 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
 
 - **Check for updates**: Check for Crosspoint firmware updates over Wi-Fi. Firmware can also be updated without a USB connection by placing a `firmware.bin` file on the SD card.
 
+- **Start Other Firmware** (**Settings → System**): The device keeps two firmwares. An SD card update writes the new one next to the running one, so the firmware it replaced (for example stock CrossPoint) stays on the device. This row appears while that firmware is there and restarts into it after a confirmation, without reflashing. The firmware is checked first; a damaged one is refused. To come back, install this firmware again with the other firmware's SD card update. Settings and books stay, but each switch may rebuild book caches.
+
+- **Recovery mode**: On the X4 Pro and X4 Classic, hold **Down** while pressing **Power** to start. Recovery first offers to start the other firmware, then lets you pick a `firmware.bin` from the SD card. Never hold **Up** while the device starts: that key puts the chip into its USB download mode, and the screen stays frozen until the device is restarted.
+
 - **Plugins** (**Settings → Connectivity**): Enable or disable SD-card plugins. Clean installs start disabled; upgrades with existing plugins are kept enabled automatically. Disabling plugins leaves all plugin files on the SD card but stops plugin discovery and execution until they are enabled again.
   - Enabling plugins immediately adds **Plugins** to the Home screen, even when no plugins are installed yet. Sideloaded SD-card plugins work without Plugin Hub.
   - Open **Home → Plugins** to view installed plugins. If no usable on-device Plugin Hub is available and its installer has not been hidden, a **Plugin Hub — Download, discover, and update plugins** entry is also shown. A manually sideloaded Hub with a valid `device.json` is recognized without requiring the optional README or browser files.

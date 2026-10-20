@@ -25,6 +25,7 @@ enum class SettingAction {
   ClearCache,
   CheckForUpdates,
   SdFirmwareUpdate,
+  StartOtherFirmware,
   Language,
   DownloadFonts,
   TextSettings,

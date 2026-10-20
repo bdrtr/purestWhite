@@ -8,17 +8,26 @@
 #include <esp_ota_ops.h>
 
 #include "MappedInputManager.h"
+#include "StartOtherFirmwareActivity.h"
 #include "activities/home/FileBrowserActivity.h"
 #include "activities/util/ConfirmationActivity.h"
 #include "components/UITheme.h"
 #include "fontIds.h"
 #include "network/FirmwareFlasher.h"
+#include "network/OtherFirmware.h"
 
 void SdFirmwareUpdateActivity::onEnter() {
   Activity::onEnter();
   // Build-identity marker — confirms which firmware build owns the SD update flow.
   LOG_INF("FW", "SdFirmwareUpdateActivity build=%s %s recovery=%d", __DATE__, __TIME__, recoveryMode ? 1 : 0);
   state = State::PICKING;
+  // Recovery first offers the firmware the last update replaced, still in the other slot.
+  other_firmware::Info otherFirmware;
+  if (recoveryMode && other_firmware::find(otherFirmware)) {
+    startActivityForResult(std::make_unique<StartOtherFirmwareActivity>(renderer, mappedInput),
+                           [this](const ActivityResult&) { launchPicker(); });
+    return;
+  }
   launchPicker();
 }
 

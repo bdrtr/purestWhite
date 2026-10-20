@@ -31,6 +31,7 @@
 #include "SdFirmwareUpdateActivity.h"
 #include "SettingsList.h"
 #include "SilentRestart.h"
+#include "StartOtherFirmwareActivity.h"
 #include "StatusBarSettingsActivity.h"
 #include "TextSettingsActivity.h"
 #include "activities/network/WifiSelectionActivity.h"
@@ -146,6 +147,11 @@ void SettingsActivity::rebuildSettings() {
     addAction(SettingsSection::General, StrId::STR_CHECK_UPDATES, SettingAction::CheckForUpdates);
   }
   addAction(SettingsSection::General, StrId::STR_SD_FIRMWARE_UPDATE, SettingAction::SdFirmwareUpdate);
+  // Only while the other OTA slot holds a firmware (the one an SD update replaced).
+  other_firmware::Info otherFirmware;
+  if (other_firmware::find(otherFirmware)) {
+    addAction(SettingsSection::General, StrId::STR_START_OTHER_FIRMWARE, SettingAction::StartOtherFirmware);
+  }
   addAction(SettingsSection::General, StrId::STR_ABOUT, SettingAction::About);
   rebuildRowItems();
 }
@@ -351,6 +357,9 @@ void SettingsActivity::toggleSelectedSetting() {
         break;
       case SettingAction::SdFirmwareUpdate:
         startActivityForResult(std::make_unique<SdFirmwareUpdateActivity>(renderer, mappedInput), resultHandler);
+        break;
+      case SettingAction::StartOtherFirmware:
+        startActivityForResult(std::make_unique<StartOtherFirmwareActivity>(renderer, mappedInput), resultHandler);
         break;
       case SettingAction::DownloadFonts:
         startActivityForResult(std::make_unique<FontDownloadActivity>(renderer, mappedInput),

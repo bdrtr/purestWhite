@@ -328,3 +328,27 @@ saat doğrulanamadığında çalışan akış kullanır.
 - [ ] Saati doğrulanmamış bir cihazda (ör. saat hiç ayarlanmamış ya da NVS silinmiş) süreli bir LCP
   kitabını açın, Wi-Fi'yi seçin: "Syncing time..." ardından "Sync failed" (Türkçe:
   "Eşitleme başarısız") penceresi çıkmamalı, kitap yeniden açılmalı.
+
+## İki yazılım yan yana ("feat: start the firmware in the other OTA slot")
+
+SD kart güncellemesi yeni yazılımı boştaki yuvaya yazar; eskisi (ör. CrossPoint) diğer yuvada
+kalır. Settings → System → Start Other Firmware (Diğer yazılımla başlat), o yazılımı denetleyip
+(segmentler, sağlama, SHA-256, çip, kart) yeniden yüklemeden onunla yeniden başlatır. Kurtarma
+kipi (Aşağı + Güç ile açılış) önce aynı seçeneği sunar, sonra SD karttan dosya seçtirir.
+Emülatörde: geçiş yazılan flash soğuk açılışta CrossPoint'i açtı; bozuk bir yuva "The other
+firmware is damaged" ile reddedildi; SD güncellemesi CrossPoint imajını app1'e birebir yazdı.
+Emülatör yazılımla yeniden başlatmayı desteklemediği için geçişten sonraki yeniden başlatmanın
+kendisi yalnızca cihazda denenebilir.
+
+- [ ] CrossPoint çalışırken bu yazılımı Dosya Aktarımı (hotspot) ile SD kartın köküne koyup
+  CrossPoint'in SD Card Firmware Update'iyle yükleyin: Bembeyaz açılmalı; ayarlar ve kitaplar
+  yerinde olmalı.
+- [ ] Settings → System'de "Start Other Firmware" görünmeli; onay penceresi "CrossPoint
+  <sürüm>" yazmalı. Onaylayınca "Validating firmware..." ve ardından yeniden başlatma: cihaz
+  CrossPoint ile açılmalı.
+- [ ] CrossPoint'te SD Card Firmware Update ile aynı `firmware.bin`'i yeniden seçin: Bembeyaz
+  açılmalı. Gidiş-dönüşten sonra kitaplar açılmalı (önbellek yeniden kurulabilir).
+- [ ] Kurtarma kipi: cihaz kapalıyken Aşağı tuşunu basılı tutup Güç'e basın. Önce "Restart into
+  the other firmware?" sorulmalı; Cancel deyince SD dosya seçme ekranı açılmalı.
+- [ ] Yukarı tuşu açılışta basılı tutulursa ekran donar (USB indirme modu). Bundan nasıl
+  çıkıldığını not edin (güç tuşuna uzun basma, şarj kablosunu çıkarıp takma...).
