@@ -70,10 +70,11 @@ TEST(TocNcxParser, KeepsTheLabelTextAsWritten) {
 }
 
 TEST(TocNcxParser, SkipsAPointWithoutLabelOrSource) {
-  const auto r = parse(ncx("<navPoint><content src=\"a.xhtml\"/></navPoint>"
-                           "<navPoint><navLabel><text>No source</text></navLabel><content/></navPoint>"
-                           "<navPoint><navLabel><text></text></navLabel><content src=\"b.xhtml\"/></navPoint>" +
-                           point("Kept", "c.xhtml")));
+  const auto r =
+      parse(ncx("<navPoint><content src=\"a.xhtml\"/></navPoint>"
+                "<navPoint><navLabel><text>No source</text></navLabel><content/></navPoint>"
+                "<navPoint><navLabel><text></text></navLabel><content src=\"b.xhtml\"/></navPoint>" +
+                point("Kept", "c.xhtml")));
   ASSERT_EQ(r.cache.toc.size(), 1u);
   EXPECT_EQ(r.cache.toc[0].title, "Kept");
 }
@@ -81,9 +82,8 @@ TEST(TocNcxParser, SkipsAPointWithoutLabelOrSource) {
 // The parser expects a point's label and content before its nested points (as the NCX spec orders
 // them); a parent whose label and content follow its children is listed after them.
 TEST(TocNcxParser, AParentWrittenAfterItsChildrenComesAfterThem) {
-  const auto r = parse(
-      ncx("<navPoint>" + point("Child", "child.xhtml") +
-          "<navLabel><text>Parent</text></navLabel><content src=\"parent.xhtml\"/></navPoint>"));
+  const auto r = parse(ncx("<navPoint>" + point("Child", "child.xhtml") +
+                           "<navLabel><text>Parent</text></navLabel><content src=\"parent.xhtml\"/></navPoint>"));
   ASSERT_EQ(r.cache.toc.size(), 2u);
   EXPECT_EQ(r.cache.toc[0].title, "Child");
   EXPECT_EQ(r.cache.toc[0].level, 2);
@@ -93,8 +93,9 @@ TEST(TocNcxParser, AParentWrittenAfterItsChildrenComesAfterThem) {
 }
 
 TEST(TocNcxParser, ASecondContentInAPointIsNotAnEntry) {
-  const auto r = parse(ncx("<navPoint><navLabel><text>Once</text></navLabel><content src=\"a.xhtml\"/>"
-                           "<content src=\"b.xhtml\"/></navPoint>"));
+  const auto r =
+      parse(ncx("<navPoint><navLabel><text>Once</text></navLabel><content src=\"a.xhtml\"/>"
+                "<content src=\"b.xhtml\"/></navPoint>"));
   ASSERT_EQ(r.cache.toc.size(), 1u);
   EXPECT_EQ(r.cache.toc[0].href, "OEBPS/a.xhtml");
 }
@@ -114,8 +115,8 @@ TEST(TocNcxParser, ADocumentWithoutNcxRootHasNoEntries) {
 }
 
 TEST(TocNcxParser, ReadsTheSameInAnyPieces) {
-  const std::string doc = ncx(point("Ünïcödé — one", "a%20b.xhtml#x", point("Two", "../c.xhtml")) +
-                              point("Three", "d.xhtml"));
+  const std::string doc =
+      ncx(point("Ünïcödé — one", "a%20b.xhtml#x", point("Two", "../c.xhtml")) + point("Three", "d.xhtml"));
   const auto whole = parse(doc);
   for (const size_t chunk : {1u, 2u, 3u, 7u, 64u}) {
     const auto pieces = parse(doc, chunk);
@@ -149,4 +150,15 @@ TEST(TocNcxParser, ABaseWithoutSlashIsJoinedAsWritten) {
   const auto r = parse(ncx(point("A", "c.xhtml")), 0, "");
   ASSERT_EQ(r.cache.toc.size(), 1u);
   EXPECT_EQ(r.cache.toc[0].href, "c.xhtml");
+}
+
+// A label keeps at most 1024 bytes (bembeyaz-toc's MAX_LABEL), ending on a whole character.
+TEST(TocNcxParser, ALongLabelIsCut) {
+  std::string label = "a";
+  for (int i = 0; i < 2000; ++i) label += "\xC3\xA9";  // é
+  const auto r = parse(ncx(point(label, "a.xhtml")), 101);
+  ASSERT_TRUE(r.complete);
+  ASSERT_EQ(r.cache.toc.size(), 1u);
+  EXPECT_EQ(r.cache.toc[0].title.size(), 1023u);
+  EXPECT_EQ(r.cache.toc[0].title, label.substr(0, 1023));
 }

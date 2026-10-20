@@ -10,7 +10,7 @@
 //! and its depth counts the `ol` elements around it. Nav documents use HTML entities without
 //! declaring them: those in labels are expanded, unknown ones kept as written. In an NCX an
 //! undeclared entity stops the document (or is dropped behind an external DTD). Depths are 8-bit
-//! and wrap, as the C++ readers did.
+//! and wrap, as the C++ readers did. Unlike them, a label keeps at most [`MAX_LABEL`] bytes.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -22,6 +22,11 @@ use bembeyaz_xml::{Error, Flow, Handler, Parser, StartTag, Str};
 
 #[cfg(test)]
 mod tests;
+
+/// The longest label kept, in bytes; the rest of a longer one is dropped, and it ends on a whole
+/// UTF-8 character. Far beyond any real entry: it keeps a damaged or hostile document from asking
+/// for megabytes, here and in the copies the caller makes.
+pub const MAX_LABEL: usize = 1024;
 
 /// Which document is read.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -147,6 +152,27 @@ fn set(out: &mut Vec<u8>, bytes: &[u8]) -> Result<(), Full> {
     push(out, bytes)
 }
 
+/// How many leading bytes of `text` end on a whole UTF-8 character: a sequence cut at the end is
+/// left out. Other bytes are not checked.
+fn whole_characters(text: &[u8]) -> usize {
+    // The last lead byte within the final four bytes, and how long its sequence should be.
+    for back in 1..=4.min(text.len()) {
+        let at = text.len() - back;
+        let Some(&b) = text.get(at) else { break };
+        if b & 0xC0 == 0x80 {
+            continue;
+        }
+        let need = match b {
+            0xC0..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF7 => 4,
+            _ => 1,
+        };
+        return if back < need { at } else { text.len() };
+    }
+    text.len()
+}
+
 /// The value of the first attribute named `name`, if any.
 fn attribute<'a>(tag: &StartTag<'a>, name: &[u8]) -> Option<Str<'a>> {
     tag.attributes()
@@ -242,9 +268,17 @@ impl Reader {
 
     fn text(&mut self, text: &[u8]) -> Result<(), Full> {
         if self.collecting() {
-            push(&mut self.label, text)?;
+            self.push_label(text)?;
         }
         Ok(())
+    }
+
+    fn push_label(&mut self, bytes: &[u8]) -> Result<(), Full> {
+        let room = MAX_LABEL.saturating_sub(self.label.len());
+        push(
+            &mut self.label,
+            bytes.get(..room.min(bytes.len())).unwrap_or_default(),
+        )
     }
 
     /// An entity the document does not declare: in a nav label, an HTML one is expanded and any
@@ -254,11 +288,11 @@ impl Reader {
             return Ok(());
         }
         if let Some(value) = bembeyaz_html::entity(name) {
-            push(&mut self.label, value.text())
+            self.push_label(value.text())
         } else {
-            push(&mut self.label, b"&")?;
-            push(&mut self.label, name)?;
-            push(&mut self.label, b";")
+            self.push_label(b"&")?;
+            self.push_label(name)?;
+            self.push_label(b";")
         }
     }
 
@@ -332,6 +366,10 @@ impl Reader {
         self.href.truncate(len);
         let len = bembeyaz_path::decode_uri_escapes(&mut self.anchor);
         self.anchor.truncate(len);
+        if self.label.len() == MAX_LABEL {
+            let whole = whole_characters(&self.label);
+            self.label.truncate(whole);
+        }
         sink.entry(&self.label, &self.href, &self.anchor, self.depth);
         Ok(())
     }

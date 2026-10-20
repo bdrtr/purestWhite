@@ -531,3 +531,11 @@ ve aynı ekranları verdi (`emu/make_xml_epub.py`'nin kitabı).
 - [ ] Açıklamasında `&quot;`, `&amp;`, `&mdash;` olan bir kitabın Ayrıntılar ekranında açıklama
   doğru görünmeli (varlık adı değil işaret).
 - [ ] KOReader eşitlemesi: konum eskisi gibi aktarılmalı.
+
+## İçindekiler etiketi en çok 1 KB ("fix: a TOC label keeps at most 1 KB")
+
+İçindekiler girdisinin adı artık en çok 1024 bayt tutuluyor (tam bir karakterde biter); eskiden
+sınırsızdı ve megabaytlarca metinli bozuk bir içindekiler belgesi kopyalanırken cihazı
+çökertebiliyordu. Gerçek bölüm adları bunun çok altındadır.
+
+- [ ] Uzun bölüm adlı bir kitapta içindekiler eskisi gibi görünmeli.

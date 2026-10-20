@@ -145,7 +145,7 @@ birikir; her commit kendi maddesini ekler.
   tuttuğu heap blokları Rust'ındır: değer bir kez `*_init` (Rust heap'inde `*_new`) ile kurulur,
   ömrü bitmeden `*_free` çağrılır, kopyalanmaz (C++ sınıfı kopyalanamaz ve taşınamaz). Heap tutmayan durum (`bb_css_tokenizer`)
   serbest bırakma gerektirmez; Rust tarafı bunu `needs_drop` ile derleme anında denetler.
-- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-json`, `bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-png`, `bembeyaz-jpeg`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`, `bembeyaz-xml`, `bembeyaz-opf`, `bembeyaz-path`, `bembeyaz-layout`) `clippy::indexing_slicing`,
+- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-json`, `bembeyaz-toc`, `bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-png`, `bembeyaz-jpeg`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`, `bembeyaz-xml`, `bembeyaz-opf`, `bembeyaz-path`, `bembeyaz-layout`) `clippy::indexing_slicing`,
   `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla sınırsız bellek ayırmaz
   (ayırma sabit bir üst sınırla ya da zaten bellekte olan girdinin boyutuyla kısılır). Kesmeler ve tek bayt bozulmaları için panik
   olmadığını test eden bir mini-fuzz testi taşır.
