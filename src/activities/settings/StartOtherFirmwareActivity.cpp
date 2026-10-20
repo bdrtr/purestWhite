@@ -17,9 +17,9 @@ void StartOtherFirmwareActivity::onEnter() {
     cancel();
     return;
   }
-  char version[33];
-  other_firmware::version(info, version, sizeof(version));
-  const std::string body = version[0] ? std::string("CrossPoint ") + version : std::string();
+  char name[48];
+  other_firmware::name(info, name, sizeof(name));
+  const std::string body = name;
   startActivityForResult(
       std::make_unique<ConfirmationActivity>(renderer, mappedInput, tr(STR_START_OTHER_FIRMWARE_PROMPT), body),
       [this](const ActivityResult& result) {

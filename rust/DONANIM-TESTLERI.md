@@ -352,3 +352,24 @@ kendisi yalnızca cihazda denenebilir.
   the other firmware?" sorulmalı; Cancel deyince SD dosya seçme ekranı açılmalı.
 - [ ] Yukarı tuşu açılışta basılı tutulursa ekran donar (USB indirme modu). Bundan nasıl
   çıkıldığını not edin (güç tuşuna uzun basma, şarj kablosunu çıkarıp takma...).
+
+## Ad: purestWhite / purestWhite next, sürüm 0.0.1
+
+Yazılımın adı X4 Classic'te "purestWhite", X4 Pro'da "purestWhite next" oldu; sürümü 0.0.1
+(sürümde artık "-x4pro" eki yok). Sunucuların ve eklentilerin tanıdığı adlar CrossPoint'te
+kaldı: CrossPoint Sync, eklenti ailesi "crosspoint", "CrossPoint-ESP32-" kullanıcı aracısı,
+Calibre'nin keşif yanıtı.
+
+- [ ] Açılış ve uyku ekranında "purestWhite next" (X4 Pro) yazmalı, açılışta altta "0.0.1".
+- [ ] Settings → System → About'ta Firmware satırı "purestWhite next 0.0.1" olmalı.
+- [ ] Dosya Aktarımı → Create Hotspot: telefonda ağ "purestWhite next" adıyla görünmeli;
+  `http://purestwhite.local` açılmalı, sayfa başlığı ve üst bilgi "purestWhite" olmalı.
+- [ ] Join a Network ile bağlanınca yönlendiricinin listesinde cihaz "purestWhite-<MAC>"
+  adıyla görünmeli; `http://purestwhite.local` açılmalı.
+- [ ] Calibre Wireless: Calibre'deki CrossPoint Reader eklentisi cihazı yine bulmalı.
+- [ ] CrossPoint Sync ile ilerleme eşitlemesi eskisi gibi çalışmalı.
+- [ ] Bilgisayara USB ile bağlanınca aygıt adı "purestWhite_next", üretici "purestWhite"
+  olmalı (Linux: `lsusb -v`).
+- [ ] Start Other Firmware: diğer yuvada CrossPoint varsa onay "CrossPoint 1.6.x", bu
+  yazılımın bu sürümü ya da sonrası varsa "purestWhite next 0.0.1" yazmalı. Bu sürümden
+  önceki Bembeyaz yapıları kimlik taşımadığı için "CrossPoint 1.6.5-x4pro" görünür.

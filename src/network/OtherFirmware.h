@@ -15,11 +15,12 @@ struct Info {
 // its header only, and does not check the image.
 bool find(Info& out);
 
-// The CrossPoint version the image names ("1.6.5-x4pro"), read from the
-// "CrossPoint-ESP32-<version>" user agent every CrossPoint build carries (its
-// app description names the Arduino library build instead). Empty when none
-// is found. Reads the whole image.
-void version(const Info& info, char* out, size_t outSize);
+// The firmware and version the image names: "purestWhite next 0.0.1" from
+// this firmware's ID, or "CrossPoint 1.6.5" from the "CrossPoint-ESP32-<version>"
+// user agent every CrossPoint build carries (the app description names the
+// Arduino library build instead). Empty when neither is found. Reads the
+// image's flash data segments.
+void name(const Info& info, char* out, size_t outSize);
 
 // Checks the whole image (segments, checksum, SHA-256, chip and board) and
 // makes it the next boot. The caller restarts.

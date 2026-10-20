@@ -11,6 +11,7 @@
 
 #include "MappedInputManager.h"
 #include "components/UITheme.h"
+#include "util/FirmwareName.h"
 
 namespace fui = freeink::ui;
 
@@ -97,7 +98,7 @@ void AboutActivity::onEnter() {
   // profile and applyXteinkDisplayController() may have promoted the display
   // controller to the panel actually found on the bus.
   rowValues_[ITEM_DEVICE] = BoardConfig::ACTIVE.name;
-  rowValues_[ITEM_FIRMWARE] = CROSSPOINT_VERSION;
+  rowValues_[ITEM_FIRMWARE] = firmware_name::NAME_AND_VERSION;
   snprintf(buf, sizeof(buf), "%s rev %u", ESP.getChipModel(), static_cast<unsigned>(ESP.getChipRevision()));
   rowValues_[ITEM_CHIP] = buf;
   snprintf(buf, sizeof(buf), "%u MB", static_cast<unsigned>(ESP.getFlashChipSize() / (1024u * 1024u)));
