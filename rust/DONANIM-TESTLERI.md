@@ -447,3 +447,15 @@ ekranından çıkılınca (cihaz yeniden başlar) kapanır.
 - [ ] Sonuç ekranında sunucudaki konum bölüm/sayfa olarak doğru gösterilmeli (kitap bağlantı
   açıkken yeniden yüklenir); günlükte bellek hatası (`-125`/`-303`) olmamalı, cihaz yeniden
   başlamamalı. Sonunda Sync Behavior'ı Smart Sync'e geri alın.
+
+## Gövdesiz yanıtlar ("fix: 204, 304 and HEAD replies end at their headers")
+
+204 ve 304 yanıtları ile HEAD isteklerinin yanıtı gövde taşımaz. İstemci, uzunluk başlığı yoksa
+bunların gövdesini bağlantı kapanana kadar bekliyordu; bağlantıyı açık tutan bir sunucuda bu
+15 s'lik zaman aşımı demekti. Spring tabanlı KOSync sunucuları (BookLore, grimmory) konumu
+olmayan bir kitap için 204 döner. Host testi, açık tutulan bir bağlantıda üçünün de beklemeden
+bittiğini ve bağlantının yeniden kullanıldığını sınar.
+
+- [ ] Varsa Spring tabanlı bir KOSync sunucusunda (BookLore, grimmory) sunucuda konumu olmayan bir
+  kitabı eşitleyin: "No remote progress found" beklemeden (≈15 s değil, hemen) görünmeli.
+- [ ] Varsayılan sunucuyla eşitleme, OPDS ve Plugin Hub eskisi gibi çalışmalı.

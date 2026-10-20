@@ -1,7 +1,9 @@
 #pragma once
 // Host stub: each connect() takes the next scripted server reply; the reply's
 // bytes are served and then the peer "closes", so a reply shorter than its
-// Content-Length is a mid-body drop. Requests are recorded for assertions.
+// Content-Length is a mid-body drop. With keepOpen() the peer instead keeps the
+// connection open after its reply, as a keep-alive server does. Requests are
+// recorded for assertions.
 #include <Client.h>
 
 #include <algorithm>
@@ -21,6 +23,10 @@ struct FakeNet {
   static std::vector<std::string>& hosts() {
     static std::vector<std::string> h;
     return h;
+  }
+  static bool& keepOpen() {
+    static bool k = false;
+    return k;
   }
 };
 
@@ -53,7 +59,7 @@ class WiFiClient : public Client {
   int peek() override { return available() > 0 ? static_cast<uint8_t>(reply_[pos_]) : -1; }
   void flush() override {}
   void stop() override { open_ = false; }
-  uint8_t connected() override { return open_ && pos_ < reply_.size(); }
+  uint8_t connected() override { return open_ && (FakeNet::keepOpen() || pos_ < reply_.size()); }
   operator bool() override { return connected(); }
   void setConnectionTimeout(unsigned long) {}
 

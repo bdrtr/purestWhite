@@ -38,6 +38,7 @@
 #include <cctype>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <functional>
 #include <iterator>
 #include <string>
@@ -278,7 +279,11 @@ class SecureHttpClient {
       _reportProgress = !discardBody && static_cast<bool>(_progress);
 
       bool reusableFraming = true;
-      if (transferEncoding.find("chunked") != std::string::npos) {
+      // These never carry a body, whatever their headers say (RFC 9112 6.3). Reading one until
+      // close would wait out the timeout on a keep-alive server.
+      if (_status == 204 || _status == 304 || strcmp(method, "HEAD") == 0) {
+        _bodyComplete = true;
+      } else if (transferEncoding.find("chunked") != std::string::npos) {
         _bodyComplete = readChunked(*_conn, bodySink, shouldAbort);
       } else if (transferEncoding.empty() || transferEncoding == "identity") {
         if (_haveContentLength) {

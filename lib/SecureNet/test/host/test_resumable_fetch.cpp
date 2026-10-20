@@ -3,6 +3,7 @@
 
 #include <cassert>
 #include <cstdio>
+#include <cstring>
 
 // SecureClient is only reached for https, which these tests avoid (the
 // redirect test proves an https target was stepped down to http).
@@ -215,6 +216,29 @@ int main() {
          "HTTP/1.1 206 Partial Content\r\nContent-Length: 0\r\n\r\n"});
   r = get("http://a/f", sink());
   assert(!r.complete && r.bytes == 5);
+
+  // 204, 304 and a HEAD reply have no body whatever their headers say (RFC 9112 6.3): the response
+  // ends at the headers, also on a connection the server keeps open, which stays reusable.
+  FakeNet::keepOpen() = true;
+  for (const char* method : {"GET204", "GET304", "HEAD"}) {
+    const bool head = strcmp(method, "HEAD") == 0;
+    const char* first = head                            ? "HTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\n"
+                        : strcmp(method, "GET304") == 0 ? "HTTP/1.1 304 Not Modified\r\nContent-Length: 5\r\n\r\n"
+                                                        : "HTTP/1.1 204 No Content\r\n\r\n";
+    const std::string script = std::string(first) + "HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok";
+    reset({script.c_str()});
+    freeink::SecureHttpClient http;
+    http.setTimeout(1000);
+    assert(http.begin("http://a/p"));
+    const unsigned long started = fakeNow();
+    const int status = head ? http.sendRequest("HEAD", nullptr, 0) : http.GET();
+    assert(status == (head ? 200 : strcmp(method, "GET304") == 0 ? 304 : 204));
+    assert(fakeNow() - started < 1000 && http.responseComplete() && http.getString().empty());
+    assert(http.begin("http://a/q"));
+    assert(http.GET() == 200 && http.getString() == "ok");
+    assert(FakeNet::hosts().size() == 1);
+  }
+  FakeNet::keepOpen() = false;
 
   puts("resumable fetch ok");
 }
