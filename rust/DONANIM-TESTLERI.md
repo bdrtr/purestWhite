@@ -318,3 +318,13 @@ kendi sertifikası), K wolfSSL kodu:
   `not checked: low memory` olmamalı, cihaz yeniden başlamamalı.
 - [ ] Şifre takımı: `handshake ok` satırındaki takım artık `TLS_AES_256_GCM_SHA384` olabilir
   (SHA-384 açıldı); büyük bir kitabın indirme süresi önceki sürümden belirgin uzun olmamalı.
+
+## Saat eşitlemesi ("fix: trustedtime::syncNow reports the sync it waited for")
+
+`syncNow()` başarılı bir SNTP eşitlemesini başarısız sayıyordu (ESP-IDF eşitleme durumunu
+okurken sıfırlıyor, işlev onu iki kez okuyordu). Bunu yalnızca süreli (ödünç) LCP kitabı açarken
+saat doğrulanamadığında çalışan akış kullanır.
+
+- [ ] Saati doğrulanmamış bir cihazda (ör. saat hiç ayarlanmamış ya da NVS silinmiş) süreli bir LCP
+  kitabını açın, Wi-Fi'yi seçin: "Syncing time..." ardından "Sync failed" (Türkçe:
+  "Eşitleme başarısız") penceresi çıkmamalı, kitap yeniden açılmalı.

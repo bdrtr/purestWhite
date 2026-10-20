@@ -127,10 +127,13 @@ bool syncNow(const uint32_t timeoutMs) {
   // configureSntp() (configTzTime) restarts SNTP if already running.
   configureSntp();
   const unsigned long deadline = millis() + timeoutMs;
-  while (sntp_get_sync_status() != SNTP_SYNC_STATUS_COMPLETED && static_cast<long>(deadline - millis()) > 0) {
+  // sntp_get_sync_status() reports a completed sync once and then resets, so
+  // each pass reads it exactly once.
+  bool synced = sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
+  while (!synced && static_cast<long>(deadline - millis()) > 0) {
     delay(100);
+    synced = sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
   }
-  const bool synced = sntp_get_sync_status() == SNTP_SYNC_STATUS_COMPLETED;
   if (synced) note();
   return synced;
 }

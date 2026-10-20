@@ -49,7 +49,12 @@ struct Preferences {
 #include <Arduino.h>
 constexpr int SNTP_SYNC_STATUS_COMPLETED = 1;
 inline bool esp_sntp_enabled() { return enabled; }
-inline int sntp_get_sync_status() { return completed ? SNTP_SYNC_STATUS_COMPLETED : 0; }
+// Like ESP-IDF's: a completed sync is reported once, and the status is reset as it is read.
+inline int sntp_get_sync_status() {
+  if (!completed) return 0;
+  completed = false;
+  return SNTP_SYNC_STATUS_COMPLETED;
+}
 inline void sntp_set_time_sync_notification_cb(void (*)(timeval*)) {}
 ''',
 }
