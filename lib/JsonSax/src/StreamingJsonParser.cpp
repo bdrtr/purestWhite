@@ -12,9 +12,14 @@ StreamingJsonParser::StreamingJsonParser(const JsonCallbacks& cb)
     : callbacks{cb.ctx,    cb.onKey,         cb.onString,    cb.onNumber,     cb.onBool,
                 cb.onNull, cb.onObjectStart, cb.onObjectEnd, cb.onArrayStart, cb.onArrayEnd} {
   bb_json_init(&state);
+  bb_json_truncate_long_strings(&state, true);
 }
 
 void StreamingJsonParser::reset() { bb_json_reset(&state); }
+
+void StreamingJsonParser::setTruncateLongStrings(const bool truncate) {
+  bb_json_truncate_long_strings(&state, truncate);
+}
 
 void StreamingJsonParser::feed(const char* data, size_t len) { bb_json_feed(&state, &callbacks, data, len); }
 

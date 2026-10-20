@@ -3,6 +3,7 @@
 extern crate std;
 
 use core::mem::MaybeUninit;
+use std::borrow::ToOwned;
 use std::boxed::Box;
 use std::string::String;
 use std::vec::Vec;
@@ -223,4 +224,46 @@ fn truncated_and_corrupted_input_never_panics() {
             let _ = read(&copy, 1 + (seed as usize % 9));
         }
     }
+}
+
+#[test]
+fn a_long_string_value_can_be_cut_instead_of_dropped() {
+    let read_cut = |json: &str| {
+        let mut p = parser();
+        p.truncate_long_strings(true);
+        let mut events = Recorder::default();
+        p.feed(json.as_bytes(), &mut events);
+        events.0
+    };
+    // The buffer keeps 2047 bytes; where that splits a character ("é…" alone, "aa€…", "a😀…"),
+    // the split one goes.
+    for (fill, piece) in [("a", "é"), ("", "é"), ("aa", "€"), ("a", "😀"), ("", "x")] {
+        let long = fill.to_owned() + &piece.repeat(TOKEN_BUF_SIZE);
+        let events = read_cut(&format!(r#"{{"k": "{long}", "n": 1}}"#));
+        let value = events[2].strip_prefix("str:").unwrap();
+        assert!(
+            long.starts_with(value)
+                && value.len() > TOKEN_BUF_SIZE - 5
+                && value.len() < TOKEN_BUF_SIZE,
+            "{fill}{piece}"
+        );
+        assert_eq!(events[3..], ["key:n", "num:1", "}"]);
+    }
+    // Keys and numbers that long are still dropped.
+    let key = "k".repeat(TOKEN_BUF_SIZE);
+    let number = "1".repeat(TOKEN_BUF_SIZE);
+    assert_eq!(
+        read_cut(&format!(r#"{{"{key}": 1, "a": [{number}, 2]}}"#)),
+        ["{", "num:1", "key:a", "[", "num:2", "]", "}"]
+    );
+    // reset keeps the choice.
+    let mut p = parser();
+    p.truncate_long_strings(true);
+    p.reset();
+    let mut events = Recorder::default();
+    p.feed(
+        format!(r#"["{}"]"#, "z".repeat(TOKEN_BUF_SIZE + 10)).as_bytes(),
+        &mut events,
+    );
+    assert_eq!(events.0[1].len(), "str:".len() + TOKEN_BUF_SIZE - 1);
 }

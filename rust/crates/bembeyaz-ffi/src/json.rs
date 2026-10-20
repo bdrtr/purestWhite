@@ -101,6 +101,13 @@ pub unsafe extern "C" fn bb_json_init(parser: *mut c_void) {
 }
 
 #[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_json_truncate_long_strings(parser: *mut c_void, truncate: bool) {
+    if let Some(parser) = unsafe { self::parser(parser) } {
+        parser.truncate_long_strings(truncate);
+    }
+}
+
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn bb_json_reset(parser: *mut c_void) {
     if let Some(parser) = unsafe { self::parser(parser) } {
         parser.reset();

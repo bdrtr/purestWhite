@@ -73,6 +73,9 @@ version = "0.1.0"
 [[package]]
 name = "bembeyaz-json"
 version = "0.1.0"
+dependencies = [
+ "bembeyaz-utf8",
+]
 
 [[package]]
 name = "bembeyaz-layout"

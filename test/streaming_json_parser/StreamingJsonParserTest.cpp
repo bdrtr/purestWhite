@@ -297,14 +297,47 @@ TEST(StreamingJsonParser, LargeTokenTruncation) {
   EXPECT_EQ(events[2].type, EventType::STRING);
   EXPECT_EQ(events[2].value, "ok");
 
+  // A string value longer than the buffer comes cut to TOKEN_BUF_SIZE - 1 bytes (the SDK's parser
+  // dropped it, so a long OPDS description showed nothing).
   bool foundLongKey = false;
-  bool foundLongValue = false;
+  std::string longValue;
   for (auto& e : events) {
     if (e.type == EventType::KEY && e.value == "long") foundLongKey = true;
-    if (e.type == EventType::STRING && e.value.size() > 500) foundLongValue = true;
+    if (e.type == EventType::STRING && e.value.size() > 500) longValue = e.value;
   }
   EXPECT_TRUE(foundLongKey);
-  EXPECT_FALSE(foundLongValue);
+  EXPECT_EQ(longValue, longVal.substr(0, StreamingJsonParser::TOKEN_BUF_SIZE - 1));
+}
+
+TEST(StreamingJsonParser, LongStringCutsOnAWholeCharacter) {
+  std::string longVal = "aa";
+  for (size_t i = 0; i < StreamingJsonParser::TOKEN_BUF_SIZE; ++i) longVal += "\xE2\x82\xAC";  // €
+  auto events = parse((R"(["é", ")" + longVal + R"("])").c_str());
+  ASSERT_EQ(events.size(), 4u);
+  EXPECT_EQ(events[2].type, EventType::STRING);
+  // 2047 bytes would split a €: the cut keeps 2 + 3 * 681 = 2045.
+  EXPECT_EQ(events[2].value, longVal.substr(0, 2045));
+}
+
+TEST(StreamingJsonParser, LongKeysAndNumbersAreStillDropped) {
+  const std::string key(StreamingJsonParser::TOKEN_BUF_SIZE, 'k');
+  const std::string number(StreamingJsonParser::TOKEN_BUF_SIZE, '1');
+  auto events = parse(("{\"" + key + "\": [" + number + ", 2]}").c_str());
+  ASSERT_EQ(events.size(), 5u);
+  EXPECT_EQ(events[1].type, EventType::ARRAY_START);
+  EXPECT_EQ(events[2].type, EventType::NUMBER);
+  EXPECT_EQ(events[2].value, "2");
+}
+
+TEST(StreamingJsonParser, TruncationOffDropsALongStringAsTheSdkDid) {
+  TestContext ctx;
+  StreamingJsonParser parser(makeCallbacks(&ctx));
+  parser.setTruncateLongStrings(false);
+  const std::string json = R"(["ok", ")" + std::string(StreamingJsonParser::TOKEN_BUF_SIZE + 5, 'x') + R"("])";
+  parser.feed(json.data(), json.size());
+  ASSERT_EQ(ctx.events.size(), 3u);
+  EXPECT_EQ(ctx.events[1].value, "ok");
+  EXPECT_EQ(ctx.events[2].type, EventType::ARRAY_END);
 }
 
 TEST(StreamingJsonParser, EmptyObject) {

@@ -490,8 +490,8 @@ karşılaştırıyor. Emülatörde güncelleme denetiminin JSON'u (sahte bir sü
 okundu ve sürüm kuruldu.
 
 - [ ] OPDS 2 (JSON) bir katalogda gezinin, bir yayının ayrıntı sayfasını açın, bir kitap indirin.
-  Birkaç paragraflık açıklama görünmeli; 2 KB'tan uzun açıklamalar SDK'da olduğu gibi hiç
-  gösterilmez, bu bir gerileme değildir.
+  Birkaç paragraflık açıklama görünmeli (2 KB'tan uzun açıklamalar için aşağıdaki "Uzun OPDS
+  açıklamaları kesilerek gösteriliyor" bölümüne bakın).
 - [ ] Oturum açılan bir OPDS kataloğu varsa giriş çalışmalı (kimlik doğrulama belgesi JSON).
 - [ ] Plugin Hub kataloğu listelenmeli; bir eklenti kurulmalı.
 - [ ] LCP korumalı bir kitabı ödünç alın/indirin, parolayı girin ve açın (lisans, cihaz kaydı ve
@@ -539,3 +539,20 @@ sınırsızdı ve megabaytlarca metinli bozuk bir içindekiler belgesi kopyalan�
 çökertebiliyordu. Gerçek bölüm adları bunun çok altındadır.
 
 - [ ] Uzun bölüm adlı bir kitapta içindekiler eskisi gibi görünmeli.
+
+## Uzun OPDS açıklamaları kesilerek gösteriliyor ("fix: a long JSON string value is cut, not dropped")
+
+JSON ayrıştırıcısının 2047 baytlık belirteç tamponuna sığmayan bir dizgi değeri SDK'daki gibi
+tamamen atılıyordu: 2 KB'tan uzun bir OPDS 2 kitap açıklaması hiç görünmüyordu. Artık değer bir
+UTF-8 karakter sınırında kesilerek veriliyor; çoğu okuyucu alanlarını zaten kendi sınırına
+kısaltıyor. Anahtarlar ve sayılar eskisi gibi atılıyor. Değeri bütün saklayan okuyucular (OAuth
+jetonu, eklenti kataloğu) böyle uzun bir jetonu ya da adresi kesik alır: giriş ya da indirme yine
+başarısız olur, ama hemen değil, istekte.
+
+- [ ] Açıklaması 2 KB'tan uzun (yayın JSON'unda description 2048 bayttan uzun) bir OPDS 2
+  yayınının ayrıntı ekranında "About this book" altında açıklamanın başı görünmeli (boş değil);
+  Details ile açılan açıklamanın son sayfasında yarım ya da bozuk karakter olmamalı.
+- [ ] HTML biçimli uzun bir açıklamanın sonunda yarım etiket ya da varlık metni görünmemeli.
+- [ ] Oturum açılan (OAuth) bir OPDS kataloğunda giriş eskisi gibi çalışmalı.
+- [ ] OPDS 2 katalogda gezinme, indirme ve Plugin Hub (katalog ve eklenti indirme) eskisi gibi
+  çalışmalı.

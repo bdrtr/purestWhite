@@ -37,6 +37,10 @@ typedef struct {
 } bb_json_callbacks;
 
 void bb_json_init(bb_json_parser* parser);
+// A string value longer than the buffer is reported by its first bytes (ending on a whole UTF-8
+// character) instead of being dropped; keys and numbers that long are still dropped. Off after
+// bb_json_init; bb_json_reset keeps it.
+void bb_json_truncate_long_strings(bb_json_parser* parser, bool truncate);
 void bb_json_reset(bb_json_parser* parser);
 void bb_json_feed(bb_json_parser* parser, const bb_json_callbacks* callbacks, const char* data, size_t len);
 bool bb_json_has_error(const bb_json_parser* parser);

@@ -1,18 +1,20 @@
 //! A streaming JSON reader, as the `FreeInk` SDK's `StreamingJsonParser` read JSON: bytes go in
 //! as they arrive, and each key, string, number, literal and container edge comes out as an
-//! event. Strings are decoded (escapes, `\uXXXX` with surrogate pairs) into a bounded buffer;
-//! one longer than the buffer is dropped, not cut. The reader is a lenient scanner, not a
-//! validator: what it does not expect it skips (an unknown escape is kept as written), and it
-//! stops only on a broken `\u` escape or literal, or on nesting deeper than [`MAX_NESTING`].
+//! event. Strings are decoded (escapes, `\uXXXX` with surrogate pairs) into a bounded buffer; a
+//! token longer than the buffer is dropped, as the SDK did, unless
+//! [`Parser::truncate_long_strings`] asked for string values to be cut instead. The reader is a
+//! lenient scanner, not a validator: what it does not expect it skips (an unknown escape is kept
+//! as written), and it stops only on a broken `\u` escape or literal, or on nesting deeper than
+//! [`MAX_NESTING`].
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 use core::mem::MaybeUninit;
 
-/// The buffer for a decoded key, string or number, NUL included: at most 2047 bytes of text; a
-/// longer one is dropped, not cut. The SDK's size: as there, a 2048-byte OPDS description (the
-/// detail parser's limit) is dropped. `BB_JSON_TOKEN_BUF_SIZE` in json.h.
+/// The buffer for a decoded key, string or number, NUL included: at most 2047 bytes of text. A
+/// longer token is dropped, unless [`Parser::truncate_long_strings`] is on, which cuts a string
+/// value to fit. The SDK's size. `BB_JSON_TOKEN_BUF_SIZE` in json.h.
 pub const TOKEN_BUF_SIZE: usize = 2048;
 /// Open objects and arrays allowed at once. `BB_JSON_MAX_NESTING` in json.h.
 pub const MAX_NESTING: usize = 32;
@@ -101,6 +103,8 @@ pub struct Parser {
     unicode_digits_left: u8,
     unicode_value: u16,
     pending_high_surrogate: u16,
+    /// A string value longer than the buffer is reported cut, not dropped (kept by `reset`).
+    truncate_long_strings: bool,
 }
 
 // All-zero bytes are the start state: `mem::zeroed` fails to compile here once a field has no
@@ -118,6 +122,13 @@ impl Parser {
             slot.as_mut_ptr().write_bytes(0, 1);
             slot.assume_init_mut()
         }
+    }
+
+    /// Reports a string value longer than the buffer by its first bytes (at most
+    /// `TOKEN_BUF_SIZE - 1`, ending on a whole UTF-8 character) instead of dropping it. Keys and
+    /// numbers that long are still dropped: a cut one would name or mean something else.
+    pub fn truncate_long_strings(&mut self, truncate: bool) {
+        self.truncate_long_strings = truncate;
     }
 
     /// Starts a new document.
@@ -377,6 +388,18 @@ impl Parser {
 
     fn end_string(&mut self, events: &mut impl Events) {
         let key = self.state == State::Key;
+        if !key && self.token_overflow && self.truncate_long_strings {
+            // The buffer holds the first bytes; a character cut at its end goes.
+            let kept = self
+                .token
+                .get(..usize::from(self.token_len))
+                .map_or(0, bembeyaz_utf8::safe_truncate_len);
+            #[allow(clippy::cast_possible_truncation)] // at most the buffer's length
+            {
+                self.token_len = kept as u16;
+            }
+            self.token_overflow = false;
+        }
         if let Some(token) = self.token() {
             if key {
                 events.key(token);

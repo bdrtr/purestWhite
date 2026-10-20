@@ -25,9 +25,13 @@ struct JsonCallbacks {
 class StreamingJsonParser {
  public:
   // The token buffer, NUL included: a decoded key, string or number of up to
-  // TOKEN_BUF_SIZE - 1 bytes; a longer one is dropped whole, not cut. It covers
-  // the OPDS readers' URLs (768-char hrefs/templates, see OpdsLimits); a
-  // description of 2048 bytes (the detail parser's limit) or more is dropped.
+  // TOKEN_BUF_SIZE - 1 bytes; it covers the OPDS readers' URLs (768-char hrefs
+  // and templates, see OpdsLimits). A longer string value is reported cut to at
+  // most that, ending on a whole UTF-8 character, so a long OPDS description
+  // shows its start instead of nothing. Readers that keep a value whole (the
+  // OAuth token reader, the plugin catalog) then get a cut token or URL that
+  // fails later, where a dropped one failed at once. A longer key or number is
+  // still dropped whole.
   static constexpr size_t TOKEN_BUF_SIZE = BB_JSON_TOKEN_BUF_SIZE;
   static constexpr size_t MAX_NESTING = BB_JSON_MAX_NESTING;
 
@@ -37,6 +41,10 @@ class StreamingJsonParser {
 
   void reset();
   void feed(const char* data, size_t len);
+
+  // On by default (reset() keeps it); off drops a long string value whole, as the
+  // SDK's parser did.
+  void setTruncateLongStrings(bool truncate);
 
   bool hasError() const;
 

@@ -175,6 +175,7 @@ void mutate(Rng& rng, std::string& doc) {
 void compare(const std::string& doc, Rng& rng, int round, uint32_t mask = ~0u) {
   Log mine, theirs;
   StreamingJsonParser ours(callbacks<JsonCallbacks>(&mine, mask));
+  ours.setTruncateLongStrings(false);  // the SDK drops a long string value
   SdkStreamingJsonParser sdk(callbacks<SdkJsonCallbacks>(&theirs, mask));
   for (int pass = 0; pass < 2; ++pass) {
     size_t pos = 0;
