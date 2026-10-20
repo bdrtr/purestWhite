@@ -1,8 +1,10 @@
 #pragma once
 #include <HalStorage.h>
 
+#include <cstring>
 #include <iostream>
 #include <limits>
+#include <type_traits>
 
 namespace serialization {
 template <typename T>
@@ -25,9 +27,14 @@ void readPod(std::istream& is, T& value) {
   is.read(reinterpret_cast<char*>(&value), sizeof(T));
 }
 
+// False when the file ended first. The value is then zero, not whatever the variable held, so a
+// count read from a cut or damaged file stays small.
 template <typename T>
-void readPod(HalFile& file, T& value) {
-  file.read(reinterpret_cast<uint8_t*>(&value), sizeof(T));
+bool readPod(HalFile& file, T& value) {
+  static_assert(std::is_trivially_copyable_v<T>, "readPod copies bytes");
+  if (file.read(reinterpret_cast<uint8_t*>(&value), sizeof(T)) == static_cast<int>(sizeof(T))) return true;
+  std::memset(&value, 0, sizeof(T));
+  return false;
 }
 
 template <typename T>
@@ -59,11 +66,20 @@ inline void readString(std::istream& is, std::string& s) {
   is.read(&s[0], len);
 }
 
-inline void readString(HalFile& file, std::string& s) {
-  uint32_t len;
-  readPod(file, len);
+// False, with s empty, when the file ends first. A length past the end means the file is damaged
+// (allocating it would abort, as there are no exceptions): the read skips to the end, so the reads
+// after it fail too.
+inline bool readString(HalFile& file, std::string& s) {
+  uint32_t len = 0;
+  const bool haveLength = readPod(file, len);
+  const int remaining = file.available();
+  if (!haveLength || remaining < 0 || len > static_cast<uint32_t>(remaining)) {
+    s.clear();
+    file.seek(file.size());
+    return false;
+  }
   s.resize(len);
-  file.read(&s[0], len);
+  return len == 0 || file.read(&s[0], len) == static_cast<int>(len);
 }
 
 inline bool tryReadString(HalFile& file, std::string& s, const size_t maxLength) {

@@ -497,3 +497,15 @@ okundu ve sürüm kuruldu.
 - [ ] LCP korumalı bir kitabı ödünç alın/indirin, parolayı girin ve açın (lisans, cihaz kaydı ve
   /unlock yanıtı JSON).
 - [ ] Settings → System → Check for Updates hatasız sonuç vermeli.
+
+## Bozuk önbellek dosyası çökertmiyor ("fix: a damaged cache string no longer aborts the reader")
+
+Kitap önbelleğinde bir dizginin uzunluk alanı bozulursa (SD kartta bit bozulması) okuyucu o
+uzunlukta bellek isteyip `abort()` ile çöküyordu; kitap her açılışta çökme raporu veriyordu.
+Emülatörde `book.bin`'deki başlık uzunluğu 0xFFFFFFF0 yapılınca kitap açılırken cihaz çöktü.
+Artık `HalFile`'dan okuyan `readString` dosyanın sonunu aşan uzunluğu reddediyor, `readPod` kesik
+dosyada sıfır veriyor; `BookMetadataCache::load` bunu görünce önbelleği yeniden kuruyor. Aynı
+bozuk kartla kitap açıldı ("Cache file damaged" ve yeniden kurulum günlükte).
+
+- [ ] Normal kullanımda kitap açma, sayfa çevirme ve kapanıp yeniden açma eskisi gibi olmalı
+  (önbellek gereksiz yere yeniden kurulmamalı: günlükte "Cache file damaged" görünmemeli).

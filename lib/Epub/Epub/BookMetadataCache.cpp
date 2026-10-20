@@ -470,15 +470,19 @@ bool BookMetadataCache::load() {
     return false;
   }
 
-  serialization::readPod(bookFile, lutOffset);
-  serialization::readPod(bookFile, spineCount);
-  serialization::readPod(bookFile, tocCount);
-
-  serialization::readString(bookFile, coreMetadata.title);
-  serialization::readString(bookFile, coreMetadata.author);
-  serialization::readString(bookFile, coreMetadata.language);
-  serialization::readString(bookFile, coreMetadata.coverItemHref);
-  serialization::readString(bookFile, coreMetadata.textReferenceHref);
+  // A damaged file is not loaded: the caller rebuilds the cache from the book.
+  const bool header = serialization::readPod(bookFile, lutOffset) && serialization::readPod(bookFile, spineCount) &&
+                      serialization::readPod(bookFile, tocCount) &&
+                      serialization::readString(bookFile, coreMetadata.title) &&
+                      serialization::readString(bookFile, coreMetadata.author) &&
+                      serialization::readString(bookFile, coreMetadata.language) &&
+                      serialization::readString(bookFile, coreMetadata.coverItemHref) &&
+                      serialization::readString(bookFile, coreMetadata.textReferenceHref);
+  if (!header) {
+    LOG_ERR("BMC", "Cache file damaged: %s", (cachePath + bookBinFile).c_str());
+    bookFile.close();
+    return false;
+  }
 
   // Spine entries follow the LUTs in index order; keep every SIZE_WINDOW-th cumulative size.
   windowStarts.clear();

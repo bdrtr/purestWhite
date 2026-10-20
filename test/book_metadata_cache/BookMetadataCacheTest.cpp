@@ -150,3 +150,27 @@ TEST(BookMetadataCacheSizes, SpineIndexForSizeMatchesLinearScan) {
     }
   }
 }
+
+// A damaged book.bin is not loaded (the reader then rebuilds it) instead of aborting on a string
+// length past the end of the file. Layout: version (1), LUT offset (4), spine and TOC counts (2+2),
+// then the title's length.
+TEST(BookMetadataCacheDamage, ALengthPastTheEndIsNotLoaded) {
+  const std::string dir = cacheDir();
+  buildBook(dir, 3);
+  {
+    std::fstream bin(dir + "/book.bin", std::ios::in | std::ios::out | std::ios::binary);
+    bin.seekp(9);
+    const uint32_t len = 0xFFFFFFF0u;
+    bin.write(reinterpret_cast<const char*>(&len), sizeof(len));
+  }
+  BookMetadataCache cache(dir);
+  EXPECT_FALSE(cache.load());
+}
+
+TEST(BookMetadataCacheDamage, ACutFileIsNotLoaded) {
+  const std::string dir = cacheDir();
+  buildBook(dir, 3);
+  std::filesystem::resize_file(dir + "/book.bin", 11);
+  BookMetadataCache cache(dir);
+  EXPECT_FALSE(cache.load());
+}
