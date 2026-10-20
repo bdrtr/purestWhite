@@ -107,7 +107,7 @@ class SecureClient : public Client {
   static bool tls13Available();
 
  private:
-  int connectWithMethod(const char* host, uint16_t port, bool verify, void* method, const char* label);
+  int connectWithMethod(const char* host, uint16_t port, bool verify, bool resume, void* method, const char* label);
 
   // wolfSSL's verify callback, called for each certificate that failed a check.
   static int verifyPeer(int preverified, WOLFSSL_X509_STORE_CTX* store);
@@ -123,8 +123,18 @@ class SecureClient : public Client {
   bool _insecure = false;
   bool _certRejected = false;
   bool _certFailed = false;  // refused or not checked: the TLS 1.2 retry cannot help
-  void* _ssl = nullptr;      // WOLFSSL* (opaque to keep wolfSSL headers out of here)
-  void* _ctx = nullptr;      // WOLFSSL_CTX*
+  // Resumption key of the current connection (see "TLS resumption" in SecureClient.cpp); its
+  // session is kept when the connection closes if the handshake succeeded, no fatal error followed
+  // and the server sent a ticket.
+  char _sessionHost[64] = {};
+  uint16_t _sessionPort = 0;
+  bool _sessionVerify = false;
+  bool _sessionKeyed = false;
+  bool _offeredSession = false;  // this handshake offered a kept session
+  bool _sessionUsable = false;
+  bool _gotTicket = false;
+  void* _ssl = nullptr;  // WOLFSSL* (opaque to keep wolfSSL headers out of here)
+  void* _ctx = nullptr;  // WOLFSSL_CTX*
   bool _connected = false;
 };
 

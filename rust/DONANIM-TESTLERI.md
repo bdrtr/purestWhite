@@ -276,6 +276,10 @@ Yeni bağlantı başına ek süre (emülatördeki komut sayısından 240 MHz iç
 daha uzun olabilir): Let's Encrypt ECDSA zinciri (sync.crosspointreader.com) ≈1,6 s, SSL.com
 zinciri (ör. example.com) ≈1,2 s, github.com ≈1,0 s, Google Trust Services zinciri ≈0,7 s. KOSync
 her istek için yeni bağlantı açar; varsayılan sunucuyla bir eşitleme ≈5–6 s uzayabilir.
+Oturum bileti gönderen ve oturum sürdüren sunucularda açılıştan sonraki ikinci bağlantıdan
+itibaren zincir yeniden denetlenmez (bkz. "TLS oturum sürdürme"). sync.crosspointreader.com ve
+github.com oturum sürdürmüyor (OpenSSL istemcisiyle de denendi; sunucu tarafında); bu sunucularda
+ek süre her bağlantıda kalır.
 
 Günlükteki `[SecureClient] certificate N refused: K` satırında N zincirdeki sıra (0 sunucunun
 kendi sertifikası), K wolfSSL kodu:
@@ -385,3 +389,32 @@ Açılış ve uyku logosu ile web simgesi papatya oldu (`src/images/logo.svg`; c
 - [x] Açılış ekranında papatya dik ve ortada görünmeli; çizgiler kopuk olmamalı.
 - [ ] Uyku ekranında (koyu) papatya beyaz çizgilerle görünmeli; açık uyku ekranı ayarında da.
 - [x] Web sayfasının üst bilgisinde ve tarayıcı sekmesinde papatya simgesi görünmeli.
+
+## TLS oturum sürdürme ("net: SecureClient resumes TLS sessions")
+
+Sunucu oturum bileti gönderirse SecureClient oturumu saklar: en çok 4 oturum (sunucu, port ve
+doğrulama ayarı başına; en eski kullanılan atılır), her biri ≈400 B iç RAM ve 512 bayta kadar
+bilet; yeniden başlatma, derin uyku ya da biletin süresi dolana kadar. Aynı sunucuya sonraki bağlantı sertifika zincirini yeniden denetlemez; günlükte
+`handshake ok (auto): TLSv1.3 / <takım>, resumed in N ms` görünür. Doğrulamalı ve doğrulamasız
+oturumlar ayrı tutulur; sabitlenmiş kök sertifikalı bağlantılar ve TLS 1.2 yeniden denemesi
+sürdürülmez. Emülatörde (gerçek geçen süre; cihazda farklı olabilir) ikinci bağlantı: sync.koreader.rocks
+1102 → 194 ms, kosync.ak-team.com 2452 → 788 ms, www.google.com 973 → 177 ms, yalnızca TLS 1.2
+konuşan yerel bir sunucu 3091 → 56 ms. sync.crosspointreader.com ve github.com sürdürmedi. Dört
+yuva doluyken oturumlar ≈2,5 KB iç RAM tutar; en büyük boş blok değişmedi.
+
+- [ ] Yeniden başlattıktan sonra KOSync sunucusunu sync.koreader.rocks ya da
+  `https://kosync.ak-team.com:3042` yapıp iki kez eşitleyin: ilk `handshake ok` satırında "resumed" yok, sonrakilerde `, resumed` ve çok daha
+  kısa süre olmalı; eşitleme çalışmalı.
+- [ ] Varsayılan sunucu sync.crosspointreader.com: "resumed" beklenmez; eşitleme eskisi gibi
+  çalışmalı.
+- [ ] Yeniden başlatın, Verify Server Certificates'ı kapatın ve sync.koreader.rocks ile
+  eşitleyin: ilk bağlantıda "resumed" olmamalı, sonrakilerde olabilir. Ayarı açıp yeniden
+  eşitleyin: bu açılışta ayar açıkken o sunucuya bağlanılmadıysa ilk bağlantıda "resumed"
+  olmamalı. Sonunda ayarı açık bırakın.
+- [ ] Derin uyku ya da yeniden başlatmadan sonra aynı sunucuya ilk bağlantıda "resumed"
+  görünmemeli (tam el sıkışma).
+- [ ] Bellek: 4'ten çok farklı HTTPS sunucusuna bağlanın (eşitleme, OPDS, Plugin Hub/GitHub,
+  bir eklenti); günlükte `-125`/`-303` ya da `not checked: low memory` olmamalı, cihaz yeniden
+  başlamamalı.
+- [ ] Varsa yalnızca TLS 1.2 konuşan bir ev sunucusu: ikinci bağlantıda `TLSv1.2 ..., resumed`
+  görünebilir; her durumda bağlanmalı.

@@ -15,6 +15,7 @@
 #include <array>
 #include <ctime>
 #include <memory>
+#include <mutex>
 #include <new>
 
 // ESP-IDF's bundle check (esp_crt_bundle.c). It is exported for mbedTLS's verify hook but not
@@ -139,6 +140,93 @@ BundleCheck checkAgainstBundle(const WOLFSSL_X509_STORE_CTX& store) {
 
 // Failures that say nothing about the certificate.
 bool outOfMemory(const int error) { return error == MEMORY_E || error == MEMORY_ERROR; }
+
+// TLS resumption: a resumed handshake skips the server's certificate chain, whose check costs up
+// to ~1.6 s. Sessions are keyed by host, port and verify mode, so one from an unchecked connection
+// never resumes a checked one. Only sessions with a server ticket are kept: TLS 1.3 resumes only
+// from a ticket. Each takes ~400 B of internal RAM, plus heap for a ticket over 174 B.
+// wolfSSL's own session cache is off: it would hold one more copy, and only of the last session.
+struct SessionSlot {
+  char host[64];
+  uint16_t port;
+  bool verified;
+  uint32_t lastUse;
+  WOLFSSL_SESSION* session;  // owned, and referenced by nothing else
+};
+// Each slot owns its session alone, so this lock covers every use of it (wolfSSL is built
+// SINGLE_THREADED: its reference counts are not atomic).
+std::mutex s_sessionLock;
+SessionSlot s_sessions[4] = {};
+uint32_t s_sessionUses = 0;
+// A longer ticket is not kept: the server would choose how much RAM each slot holds.
+constexpr int MAX_KEPT_TICKET = 512;
+
+SessionSlot* findSlot(const char* host, const uint16_t port, const bool verified) {
+  for (SessionSlot& slot : s_sessions) {
+    if (slot.session && slot.port == port && slot.verified == verified && strcmp(slot.host, host) == 0) return &slot;
+  }
+  return nullptr;
+}
+
+void freeSlot(SessionSlot* slot) {
+  if (!slot) return;
+  wolfSSL_SESSION_free(slot->session);
+  slot->session = nullptr;
+}
+
+// Sets ssl to resume the session kept for this host; false when there is none.
+bool offerSession(WOLFSSL* ssl, const char* host, const uint16_t port, const bool verified) {
+  std::lock_guard<std::mutex> lock(s_sessionLock);
+  SessionSlot* slot = findSlot(host, port, verified);
+  if (!slot) return false;
+  // wolfSSL writes into the session it resumes from: hand it a copy.
+  WOLFSSL_SESSION* copy = wolfSSL_SESSION_dup(slot->session);
+  const bool offered = copy && wolfSSL_set_session(ssl, copy) == WOLFSSL_SUCCESS;
+  wolfSSL_SESSION_free(copy);
+  if (offered) {
+    slot->lastUse = ++s_sessionUses;
+  } else {
+    freeSlot(slot);  // expired, or no memory for the copy
+  }
+  return offered;
+}
+
+void forgetSession(const char* host, const uint16_t port, const bool verified) {
+  std::lock_guard<std::mutex> lock(s_sessionLock);
+  freeSlot(findSlot(host, port, verified));
+}
+
+// Called by wolfSSL for each session ticket the server sends (TLS 1.2 and 1.3).
+int onTicket(WOLFSSL* /*ssl*/, const unsigned char* /*ticket*/, const int length, void* gotTicket) {
+  *static_cast<bool*>(gotTicket) = length <= MAX_KEPT_TICKET;
+  return 0;
+}
+
+// Takes the last reference to a closed connection's session. The slot gets a copy, allocated now
+// that the connection's buffers are freed, so it does not sit between them in the heap.
+void keepSession(const char* host, const uint16_t port, const bool verified, WOLFSSL_SESSION* session) {
+  WOLFSSL_SESSION* copy = wolfSSL_SESSION_dup(session);
+  wolfSSL_SESSION_free(session);
+  if (!copy) return;
+  std::lock_guard<std::mutex> lock(s_sessionLock);
+  SessionSlot* slot = findSlot(host, port, verified);
+  for (SessionSlot& candidate : s_sessions) {
+    if (slot) break;
+    if (!candidate.session) slot = &candidate;
+  }
+  if (!slot) {
+    slot = &s_sessions[0];
+    for (SessionSlot& candidate : s_sessions) {
+      if (candidate.lastUse < slot->lastUse) slot = &candidate;
+    }
+  }
+  freeSlot(slot);
+  snprintf(slot->host, sizeof(slot->host), "%s", host);
+  slot->port = port;
+  slot->verified = verified;
+  slot->lastUse = ++s_sessionUses;
+  slot->session = copy;
+}
 }  // namespace
 
 int SecureClient::verifyPeer(const int preverified, WOLFSSL_X509_STORE_CTX* store) {
@@ -159,8 +247,11 @@ int SecureClient::verifyPeer(const int preverified, WOLFSSL_X509_STORE_CTX* stor
   return 0;
 }
 
-int SecureClient::connectWithMethod(const char* host, uint16_t port, const bool verify, void* method,
+int SecureClient::connectWithMethod(const char* host, uint16_t port, const bool verify, const bool resume, void* method,
                                     const char* label) {
+  _offeredSession = false;
+  _gotTicket = false;
+  _sessionUsable = false;
 #if defined(FREEINK_WOLFSSL_DEBUG)
   // Routes wolfSSL's internal trace through wolfSSL_Arduino_Serial_Print (the
   // application provides that hook). Shows exactly where a handshake stalls.
@@ -192,6 +283,7 @@ int SecureClient::connectWithMethod(const char* host, uint16_t port, const bool 
     return 0;
   }
   _ctx = ctx;
+  wolfSSL_CTX_set_session_cache_mode(ctx, WOLFSSL_SESS_CACHE_OFF);
 
   if (!verify) {
     wolfSSL_CTX_set_verify(ctx, WOLFSSL_VERIFY_NONE, nullptr);
@@ -239,6 +331,13 @@ int SecureClient::connectWithMethod(const char* host, uint16_t port, const bool 
   // with a HelloRetryRequest and wolfSSL falls back to its group list.
   wolfSSL_UseKeyShare(ssl, WOLFSSL_ECC_X25519);
 #endif
+  // The TLS 1.2 retry neither offers nor keeps a session: a TLS 1.2 session would pin later
+  // handshakes with a TLS 1.3 server to TLS 1.2.
+  if (resume && _sessionKeyed) {
+    wolfSSL_UseSessionTicket(ssl);
+    wolfSSL_set_SessionTicket_cb(ssl, onTicket, &_gotTicket);
+    _offeredSession = offerSession(ssl, _sessionHost, port, verify);
+  }
 #ifdef HAVE_MAX_FRAGMENT
   // Ask the peer to cap TLS records at 2KB (RFC 6066 max_fragment_length).
   // wolfSSL sizes its receive buffer to each incoming record, so a default
@@ -277,9 +376,11 @@ int SecureClient::connectWithMethod(const char* host, uint16_t port, const bool 
     delay(5);
   }
   _connected = true;
+  _sessionUsable = true;
   if (Serial) {
-    Serial.printf("[SecureClient] handshake ok (%s): %s / %s in %lu ms\n", label, wolfSSL_get_version(ssl),
-                  wolfSSL_get_cipher(ssl), (unsigned long)(millis() - started));
+    Serial.printf("[SecureClient] handshake ok (%s): %s / %s%s in %lu ms\n", label, wolfSSL_get_version(ssl),
+                  wolfSSL_get_cipher(ssl), wolfSSL_session_reused(ssl) ? ", resumed" : "",
+                  (unsigned long)(millis() - started));
   }
   return 1;
 }
@@ -295,14 +396,25 @@ int SecureClient::connect(const char* host, uint16_t port) {
   _certRejected = false;
   _certFailed = false;
   s_lastConnectRefused = false;
+  // Closes the previous connection, keeping its session under its own host.
+  stop();
   // Decided once, before any socket: the policy may wait for the clock.
   const bool verify = shouldVerify(_insecure, _rootCA != nullptr, s_verifyPolicy, host);
+  // A pinned root is not part of the session key, so those connections are not resumed.
+  _sessionKeyed = !_rootCA && strlen(host) < sizeof(_sessionHost);
+  if (_sessionKeyed) {
+    snprintf(_sessionHost, sizeof(_sessionHost), "%s", host);
+    _sessionPort = port;
+    _sessionVerify = verify;
+  }
   if (abortRequested()) return 0;
   // Negotiate the highest mutually supported version rather than pinning TLS 1.3:
   // self-hosted / Let's Encrypt nginx often tops out at TLS 1.2, and a 1.3-only
   // client fails those handshakes outright. v23 still selects 1.3 when the peer
   // offers it (WOLFSSL_TLS13 is enabled) and falls back to 1.2 otherwise.
-  if (connectWithMethod(host, port, verify, wolfSSLv23_client_method(), "auto")) return 1;
+  if (connectWithMethod(host, port, verify, true, wolfSSLv23_client_method(), "auto")) return 1;
+  // The offered session may be why the handshake failed: drop it.
+  if (_offeredSession) forgetSession(_sessionHost, port, verify);
   // The retry is for servers that reject a TLS 1.3 ClientHello; one that got
   // as far as its certificate fails the same way under TLS 1.2.
   if (_aborted || _certFailed) return 0;
@@ -311,7 +423,7 @@ int SecureClient::connect(const char* host, uint16_t port) {
   // and abort with a fatal handshake_failure alert. Retry with an explicit
   // TLS 1.2 ClientHello before giving up.
   if (Serial) Serial.println("[SecureClient] retrying with TLS 1.2-only handshake");
-  return connectWithMethod(host, port, verify, wolfTLSv1_2_client_method(), "tls1.2");
+  return connectWithMethod(host, port, verify, /*resume=*/false, wolfTLSv1_2_client_method(), "tls1.2");
 }
 
 int SecureClient::connect(IPAddress ip, uint16_t port) {
@@ -322,8 +434,11 @@ int SecureClient::connect(IPAddress ip, uint16_t port) {
 
 size_t SecureClient::write(const uint8_t* buf, size_t size) {
   if (!_connected) return 0;
-  const int n = wolfSSL_write(static_cast<WOLFSSL*>(_ssl), buf, size);
-  return n > 0 ? static_cast<size_t>(n) : 0;
+  auto* ssl = static_cast<WOLFSSL*>(_ssl);
+  const int n = wolfSSL_write(ssl, buf, size);
+  if (n > 0) return static_cast<size_t>(n);
+  if (!isWantIo(wolfSSL_get_error(ssl, n))) _sessionUsable = false;
+  return 0;
 }
 
 int SecureClient::read(uint8_t* buf, size_t size) {
@@ -346,6 +461,7 @@ int SecureClient::read(uint8_t* buf, size_t size) {
                   (unsigned)ESP.getMaxAllocHeap());
   }
   _connected = false;
+  _sessionUsable = false;
   return -1;
 }
 
@@ -355,7 +471,10 @@ int SecureClient::available() {
 }
 
 void SecureClient::stop() {
+  WOLFSSL_SESSION* kept = nullptr;
   if (_ssl) {
+    // A connection the server closed with close_notify still has a usable session.
+    if (_sessionUsable && _sessionKeyed && _gotTicket) kept = wolfSSL_get1_session(static_cast<WOLFSSL*>(_ssl));
     wolfSSL_free(static_cast<WOLFSSL*>(_ssl));
     _ssl = nullptr;
   }
@@ -365,6 +484,8 @@ void SecureClient::stop() {
   }
   _transport.stop();
   _connected = false;
+  _sessionUsable = false;
+  if (kept) keepSession(_sessionHost, _sessionPort, _sessionVerify, kept);
 }
 
 uint8_t SecureClient::connected() { return _connected && _transport.connected(); }
