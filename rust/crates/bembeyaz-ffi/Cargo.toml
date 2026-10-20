@@ -18,6 +18,7 @@ bembeyaz-bidi = { path = "../bembeyaz-bidi" }
 bembeyaz-css = { path = "../bembeyaz-css" }
 bembeyaz-hyphenation = { path = "../bembeyaz-hyphenation" }
 bembeyaz-jpeg = { path = "../bembeyaz-jpeg" }
+bembeyaz-json = { path = "../bembeyaz-json" }
 bembeyaz-layout = { path = "../bembeyaz-layout" }
 bembeyaz-opf = { path = "../bembeyaz-opf" }
 bembeyaz-path = { path = "../bembeyaz-path" }

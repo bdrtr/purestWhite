@@ -111,9 +111,11 @@ birikir; her commit kendi maddesini ekler.
   değişmeden geçer; standarttan sapmalar sonra, her biri kendi commit'inde düzeltilir.
 - **Rust tarafı birebir çeviri değildir.** Crate'ler dilim, iterator, `Option` ve
   `Result` kullanır; NUL ile biten string, -1 gibi özel değerler ve sessiz hata yoktur.
-  Sınırın C biçimini (C string, `int` dönüş kodları) FFI katmanı ve shim taşır. Tek istisna
+  Sınırın C biçimini (C string, `int` dönüş kodları) FFI katmanı ve shim taşır. İki istisna var:
   `bembeyaz-layout`: renderer ve `TextBlock` C string aldığı için sözcükleri NUL ile biten
-  biçimde tutar, ölçer ve verir. `bembeyaz-jpeg`'in API'si bu kurala uyar ama iç yapısı
+  biçimde tutar, ölçer ve verir. `bembeyaz-json`: belirteç ayrıştırıcının tamponunda durur ve SDK
+  çağıranları onu C string olarak okur, bu yüzden ardından NUL gelir; `Token::bytes()` NUL'suz
+  görünümü verir. `bembeyaz-jpeg`'in API'si bu kurala uyar ama iç yapısı
   JPEGDEC'i işlev işlev izler ve onun bellek düzenini (okuma tamponundan Huffman tablolarına
   taşan okumalar, katsayıların üstüne yazılan pikseller) korur: bozuk dosyalarda bile çıktıyı
   oracle belirler. Bu düzeni değiştirmek bozuk dosyalarda çıktıyı değiştirebilir; böyle bir
@@ -141,7 +143,7 @@ birikir; her commit kendi maddesini ekler.
   tuttuğu heap blokları Rust'ındır: değer bir kez `*_init` (Rust heap'inde `*_new`) ile kurulur,
   ömrü bitmeden `*_free` çağrılır, kopyalanmaz (C++ sınıfı kopyalanamaz ve taşınamaz). Heap tutmayan durum (`bb_css_tokenizer`)
   serbest bırakma gerektirmez; Rust tarafı bunu `needs_drop` ile derleme anında denetler.
-- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-png`, `bembeyaz-jpeg`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`, `bembeyaz-xml`, `bembeyaz-opf`, `bembeyaz-path`, `bembeyaz-layout`) `clippy::indexing_slicing`,
+- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-json`, `bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-png`, `bembeyaz-jpeg`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`, `bembeyaz-xml`, `bembeyaz-opf`, `bembeyaz-path`, `bembeyaz-layout`) `clippy::indexing_slicing`,
   `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla sınırsız bellek ayırmaz
   (ayırma sabit bir üst sınırla ya da zaten bellekte olan girdinin boyutuyla kısılır). Kesmeler ve tek bayt bozulmaları için panik
   olmadığını test eden bir mini-fuzz testi taşır.
@@ -159,7 +161,7 @@ Bağımlılıklara göre (önce yapraklar):
 
 | Aşama | Modüller | Not |
 | --- | --- | --- |
-| 1 — saf metin | **Utf8 ✅**, AsciiText, HttpHeader, **XML ayrıştırıcı ✅** (expat'ın yerine; firmware `XmlParser.h`'yi, SDK'nın OPDS ve katalog okuyucuları `rust/include/expat.h`'deki expat API alt kümesini kullanır; metni expat'ın tamponunu taklit ederek aynı parçalarda verir, çünkü bölüm ayrıştırıcısı metni geri çağrı başına diziyor: o Rust'a geçince bu taklit kalkabilir), XmlParserUtils (yerel ad yardımcıları), **MiniBidi ✅** (minibidi davranışıyla birebir; UAX #9 düzeltmeleri sırada), JsonParser | Donanım yok, testleri var |
+| 1 — saf metin | **Utf8 ✅**, AsciiText (`constexpr` iki satırlık yardımcı; FFI arkasında yavaşlar) ve HttpHeader (`std::string` alanlı birkaç satırlık ayar ayrıştırma/biçimleme; taşımak kazançtan çok yük getirir) C++'ta kalır, çağıranlarıyla birlikte taşınır; **XML ayrıştırıcı ✅** (expat'ın yerine; firmware `XmlParser.h`'yi, SDK'nın OPDS ve katalog okuyucuları `rust/include/expat.h`'deki expat API alt kümesini kullanır; metni expat'ın tamponunu taklit ederek aynı parçalarda verir, çünkü bölüm ayrıştırıcısı metni geri çağrı başına diziyor: o Rust'a geçince bu taklit kalkabilir), XmlParserUtils (yerel ad yardımcıları; aynı nedenle C++'ta kalır), **MiniBidi ✅** (minibidi davranışıyla birebir; UAX #9 düzeltmeleri sırada), **JSON ayrıştırıcı ✅** (SDK'nın StreamingJsonParser'ının yerine `bembeyaz-json`; `lib/JsonSax` SDK'nın API'sini taşır; SDK'nın OPDS 2, katalog ve LCP okuyucuları ile firmware'in LCP cihaz kaydı ve kilit açma ayrıştırıcıları değişmeden kullanır; fark testi SDK'nın C++ uygulamasıyla olay olay karşılaştırır), ReleaseJsonParser (`lib/JsonParser`, güncelleme denetimi; C++'ta kalır, bu okuyucunun üstünde çalışır, aşama 5'te OTA ile taşınır) | Donanım yok, testleri var |
 | 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (S3 ROM'undaki miniz 1.15 `tinfl_decompress`: ESP-IDF'in sunduğu kullanılır, flash harcamaz; emülatörde çözmesi kendi çözücümüzden ~1,4–1,9 kat hızlı, bölüm oluşturma süresi değişmedi; `bembeyaz-inflate` yalnızca PNG çözücülerinde), **InflateReader ✅** (silindi; kullanıcıları InflateStream'e geçti), Serialization | Framebuffer ödünç alma ve inflate çağrısı C++'ta (`InflateStream`). ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
 | 3 — EPUB çekirdeği | Epub: **CSS ayrıştırıcı ✅** (önbellek biçimi aynı; dosya işlemleri C++'ta), **heceleme ✅** (hypher trie'leri crate'te; seçili dil C++'ta), **OPF ✅** (paket belgesi; manifest SD'deki geçici dosya yerine bellekte, 2 MiB ile sınırlı; yol çözümü `bembeyaz-path`, FsHelpers da onu kullanır), **ParsedText ✅** (paragraf yerleşimi: belirteçler, satır kırma, heceleme, iki yana yaslama, bidi, ruby; ölçümler GfxRenderer'dan geri çağrıyla; TextBlock, BlockStyle, bağlantı hedefleri ve satır içi yazı boyutu yuvaları C++'ta), Section | En büyük parça (~19k satır); alt modül alt modül |
 | 4 — görüntü/font | **PNG çözücüsü ✅** (bölüm resimleri, resim görüntüleyici, saydam uyku kaplaması, Ayrıntılar kapağı; PNGdec'in yerine `bembeyaz-png`; ölçekleme, titreme ve önbellek C++ dönüştürücüde kaldı), **JPEG çözücüsü ✅** (bölüm resimleri ve kapaklar; JPEGDEC'in yerine `bembeyaz-jpeg`, gri tonlu blok çıkışı; ölçekleme ve titreme C++ dönüştürücülerde kaldı), **PNG kapakları ✅** (PngToBmpConverter'ın kendi çözücüsünün yerine `bembeyaz-png`'nin `cover` okuyucusu; ölçekleme, titreme ve BMP yazımı C++'ta kaldı), EpdFont, GfxRenderer | Çerçeve tamponu sınırı |

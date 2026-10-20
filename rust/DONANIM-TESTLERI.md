@@ -478,3 +478,22 @@ yönlendirmesi izlendi, 5,4 MB'lık görüntü diğer yuvaya bayt bayt yazıldı
 - [ ] Aynı sürüm çalışırken Check for updates güncelleme önermemeli.
 - [ ] Güncellemeyi indirme sırasında Wi-Fi'yi kesin: kurulum yarıda kalmalı, cihaz eski sürümle
   açılmaya devam etmeli.
+
+## JSON ayrıştırıcı Rust'ta ("rust: our own JSON reader in place of the SDK's")
+
+SDK'nın akışlı JSON ayrıştırıcısı (StreamingJsonParser) artık `bembeyaz-json` ile çalışıyor;
+`lib/JsonSax` SDK'nın API'sini taşıyor. Kullananlar: OPDS 2 katalogları ve yayın sayfaları, OPDS
+kimlik doğrulama belgeleri, eklenti katalogları, LCP lisansları, LCP cihaz kaydı ve kilit açma
+yanıtları, Wi-Fi güncelleme denetimi. Host'ta bir fark testi SDK'nın C++ uygulamasını ve Rust'ı
+20 000 üretilmiş ve bozulmuş belgede, rastgele parçalarla besleyip her olayı ve hata durumunu
+karşılaştırıyor. Emülatörde güncelleme denetiminin JSON'u (sahte bir sürüm sunucusundan) doğru
+okundu ve sürüm kuruldu.
+
+- [ ] OPDS 2 (JSON) bir katalogda gezinin, bir yayının ayrıntı sayfasını açın, bir kitap indirin.
+  Birkaç paragraflık açıklama görünmeli; 2 KB'tan uzun açıklamalar SDK'da olduğu gibi hiç
+  gösterilmez, bu bir gerileme değildir.
+- [ ] Oturum açılan bir OPDS kataloğu varsa giriş çalışmalı (kimlik doğrulama belgesi JSON).
+- [ ] Plugin Hub kataloğu listelenmeli; bir eklenti kurulmalı.
+- [ ] LCP korumalı bir kitabı ödünç alın/indirin, parolayı girin ve açın (lisans, cihaz kaydı ve
+  /unlock yanıtı JSON).
+- [ ] Settings → System → Check for Updates hatasız sonuç vermeli.

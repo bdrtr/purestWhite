@@ -12,6 +12,7 @@ mod device;
 mod expat;
 mod hyphenation;
 mod jpeg;
+mod json;
 mod layout;
 mod opf;
 mod path;

@@ -1,0 +1,11 @@
+{
+  "name": "JsonSax",
+  "version": "1.0.0",
+  "description": "Streaming JSON SAX parser (StreamingJsonParser), the FreeInk SDK's API over this fork's Rust reader (rust/crates/bembeyaz-json): decodes escapes (\\uXXXX to UTF-8), bounded token buffer, no DOM.",
+  "keywords": "json, sax, parser, streaming",
+  "authors": [{"name": "FreeInk SDK Contributors"}],
+  "dependencies": {},
+  "platforms": "espressif32",
+  "frameworks": ["arduino"],
+  "notes": "Links against bembeyaz-ffi, which scripts/build_rust.py builds and adds to the link."
+}
