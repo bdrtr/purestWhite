@@ -275,7 +275,8 @@ eklendi; P-384 imzalı zincirler (Let's Encrypt, Google, Sectigo) bunlarsız do�
 Yeni bağlantı başına ek süre (emülatördeki komut sayısından 240 MHz için hesaplanan; cihazda biraz
 daha uzun olabilir): Let's Encrypt ECDSA zinciri (sync.crosspointreader.com) ≈1,6 s, SSL.com
 zinciri (ör. example.com) ≈1,2 s, github.com ≈1,0 s, Google Trust Services zinciri ≈0,7 s. KOSync
-her istek için yeni bağlantı açar; varsayılan sunucuyla bir eşitleme ≈5–6 s uzayabilir.
+eşitleme başına bir bağlantı açar (bkz. "KOSync: eşitleme başına tek bağlantı"); varsayılan sunucuyla
+bir eşitleme ≈1,6 s uzar, sonuç ekranında ≈1 dakikadan uzun beklenirse gönderme için bir kez daha.
 Oturum bileti gönderen ve oturum sürdüren sunucularda açılıştan sonraki ikinci bağlantıdan
 itibaren zincir yeniden denetlenmez (bkz. "TLS oturum sürdürme"). sync.crosspointreader.com ve
 github.com oturum sürdürmüyor (OpenSSL istemcisiyle de denendi; sunucu tarafında); bu sunucularda
@@ -418,3 +419,31 @@ yuva doluyken oturumlar ≈2,5 KB iç RAM tutar; en büyük boş blok değişmed
   başlamamalı.
 - [ ] Varsa yalnızca TLS 1.2 konuşan bir ev sunucusu: ikinci bağlantıda `TLSv1.2 ..., resumed`
   görünebilir; her durumda bağlanmalı.
+
+## KOSync: eşitleme başına tek bağlantı ("net: one KOSync connection per sync")
+
+Bir eşitlemenin istekleri (açıksa alıntı eşitlemesi, konum alma, konum gönderme) sunucuya tek bir
+bağlantıdan gider. Akıllı eşitlemede (Smart Sync, varsayılan) konum alındıktan hemen sonra
+gönderilir; Ask Every Time ile sonuç ekranında seçilir. İkisinde de oturum sürdürmeyen varsayılan
+sunucuda (sync.crosspointreader.com) gönderme ayrı bir tam el sıkışma (≈1,6–2,2 s) yapmaz. Sunucu
+boş bağlantıyı ≈57 s açık tutar (sync.koreader.rocks ≈17 s); daha uzun beklenirse bağlantı
+yeniden açılır (emülatörde, bağlantıyı 15 s'de kapatan bir sunucuyla hatasız). Bağlantı sonuç
+ekranı ya da "No remote progress found" ekranı açıkken ≈7,5 KB iç RAM tutar; konum gönderilince,
+sunucudaki konum uygulanınca, konumlar zaten eşitse, eşitleme başarısız olunca ya da eşitleme
+ekranından çıkılınca (cihaz yeniden başlar) kapanır.
+
+- [ ] Smart Sync açıkken, cihazdaki konum sunucudakinden ilerideyken varsayılan sunucuyla
+  eşitleyin: günlükte tek bir `handshake ok` satırı olmalı ve konum gönderilmeli.
+- [ ] Settings → CrossPoint Sync → Sync Behavior: Ask Every Time yapın; eşitleyip sonuç ekranında
+  birkaç saniye içinde "Upload local progress" seçin: konum alma ile gönderme arasında ikinci bir
+  `handshake ok` satırı olmamalı, gönderme hızlı bitmeli.
+- [ ] Aynısını sonuç ekranında bir dakikadan uzun bekleyip yapın: ikinci bir `handshake ok`
+  görünür; gönderme yine başarılı olmalı.
+- [ ] Sunucuda konumu olmayan bir kitapla (Ask Every Time) "No remote progress found" ekranında
+  "Upload" seçin: ikinci bir `handshake ok` olmamalı; gönderme başarılı olmalı, bellek hatası
+  olmamalı.
+- [ ] Sync Clippings açıkken varsayılan sunucuyla eşitleyin: alıntılardan konum almaya kadar
+  günlükte tek bir `handshake ok` satırı olmalı; alıntılar, sonuç ekranı ve gönderme çalışmalı.
+- [ ] Sonuç ekranında sunucudaki konum bölüm/sayfa olarak doğru gösterilmeli (kitap bağlantı
+  açıkken yeniden yüklenir); günlükte bellek hatası (`-125`/`-303`) olmamalı, cihaz yeniden
+  başlamamalı. Sonunda Sync Behavior'ı Smart Sync'e geri alın.

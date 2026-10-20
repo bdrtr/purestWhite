@@ -10,6 +10,10 @@
 #include "activities/Activity.h"
 #include "components/UiAppHost.h"
 
+namespace freeink {
+class SecureHttpClient;
+}
+
 /**
  * Activity for syncing reading progress with KOReader sync server.
  *
@@ -25,6 +29,7 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
   explicit KOReaderSyncActivity(GfxRenderer& renderer, MappedInputManager& mappedInput, const std::string& epubPath,
                                 CrossPointPosition localPosition, SavedProgressPosition localKoPos,
                                 std::string localChapterName);
+  ~KOReaderSyncActivity() override;
 
   void onEnter() override;
   void onExit() override;
@@ -47,6 +52,10 @@ class KOReaderSyncActivity final : public Activity, private UiAppHost {
   };
 
   std::shared_ptr<Epub> epub;  // null until lazy-loaded after TLS in performSync()
+  // One connection to the sync server for this sync's requests, so the upload after the
+  // result screen skips a TLS handshake while the server keeps the connection open. Null
+  // when it could not be allocated: each request then opens its own.
+  std::unique_ptr<freeink::SecureHttpClient> connection;
   std::string epubPath;
   std::string localChapterName;
   CrossPointPosition localPosition;

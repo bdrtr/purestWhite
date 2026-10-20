@@ -5,6 +5,10 @@
 #include <utility>
 #include <vector>
 
+namespace freeink {
+class SecureHttpClient;
+}
+
 /**
  * Optional document metadata sent alongside progress sync requests.
  * Mirrors the metadata object added in KOReader PR #15306 and adds bounded
@@ -103,16 +107,21 @@ class KOReaderSyncClient {
    * Get reading progress for a document.
    * @param documentHash The document hash (from KOReaderDocumentId)
    * @param outProgress Output: the progress data
+   * @param connection Optional client the caller keeps across one sync's requests: its open
+   *        connection to the server is reused, which saves a TLS handshake per request on
+   *        servers that do not resume sessions. Null opens and closes a connection.
    * @return OK on success, NOT_FOUND if no progress exists, error code on failure
    */
-  static Error getProgress(const std::string& documentHash, KOReaderProgress& outProgress);
+  static Error getProgress(const std::string& documentHash, KOReaderProgress& outProgress,
+                           freeink::SecureHttpClient* connection = nullptr);
 
   /**
    * Update reading progress for a document.
    * @param progress The progress data to upload
+   * @param connection As for getProgress()
    * @return OK on success, error code on failure
    */
-  static Error updateProgress(const KOReaderProgress& progress);
+  static Error updateProgress(const KOReaderProgress& progress, freeink::SecureHttpClient* connection = nullptr);
 
   /**
    * Get human-readable error message.

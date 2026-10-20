@@ -9,6 +9,7 @@
 #include <Utf8.h>
 
 #include <cstring>
+#include <memory>
 
 #include "ClippingStore.h"
 
@@ -130,7 +131,8 @@ bool decode(JsonObjectConst item, Clipping& clipping, std::string& text, bool& d
 }
 }  // namespace
 
-bool clippingSync::run(const std::string& bookPath, const std::string& documentHash, bool* certificateRejected) {
+bool clippingSync::run(const std::string& bookPath, const std::string& documentHash, bool* certificateRejected,
+                       freeink::SecureHttpClient* connection) {
   if (certificateRejected) *certificateRejected = false;
   // Gate before loading files, allocating buffers, or contacting the server.
   if (!KOREADER_STORE.getSyncClippings()) return true;
@@ -141,7 +143,9 @@ bool clippingSync::run(const std::string& bookPath, const std::string& documentH
   } unload;
 
   auto buffer = makeUniqueNoThrow<char[]>(BUFFER_SIZE);
-  auto http = makeUniqueNoThrow<freeink::SecureHttpClient>();
+  std::unique_ptr<freeink::SecureHttpClient> own;
+  if (!connection) own = makeUniqueNoThrow<freeink::SecureHttpClient>();
+  freeink::SecureHttpClient* http = connection ? connection : own.get();
   const auto heap = HalMemory::getDefaultHeap();
   if (!buffer || !http || heap.freeBytes < 40000 || heap.largestBlockBytes < 20000) {
     LOG_ERR("CLIP", "Insufficient heap for clipping sync");

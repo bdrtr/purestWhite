@@ -4,6 +4,8 @@
 #include <HalStorage.h>
 #include <I18n.h>
 #include <Logging.h>
+#include <Memory.h>
+#include <SecureHttpClient.h>
 #include <TrustedTime.h>
 #include <WiFi.h>
 #include <esp_wifi.h>
@@ -62,6 +64,8 @@ KOReaderSyncActivity::KOReaderSyncActivity(GfxRenderer& renderer, MappedInputMan
       remotePosition{},
       localProgress(std::move(localKoPos)) {}
 
+KOReaderSyncActivity::~KOReaderSyncActivity() = default;
+
 void KOReaderSyncActivity::ensureEpubLoaded() {
   if (!epub) {
     LOG_DBG("KOSync", "Loading epub for progress mapping (heap: %u)", (unsigned)ESP.getFreeHeap());
@@ -85,6 +89,7 @@ void KOReaderSyncActivity::saveProgressAndReturn(int spineIndex, int page) {
   if (remotePosition.hasVisibleTextOffset && remotePosition.spineIndex == spineIndex) {
     offset = remotePosition.visibleTextOffset;
   }
+  connection.reset();  // no further request
   if (!EpubReaderUtils::saveProgress(*epub, spineIndex, page, 0, offset)) {
     {
       RenderLock lock(*this);
@@ -106,6 +111,7 @@ bool KOReaderSyncActivity::smartSyncEnabled() const {
 void KOReaderSyncActivity::markAutoReturn() { autoReturnAt = millis() + AUTO_RETURN_DELAY_MS; }
 
 void KOReaderSyncActivity::completeAlreadySynced() {
+  connection.reset();  // no further request
   {
     RenderLock lock(*this);
     state = SYNC_COMPLETE;
@@ -154,6 +160,7 @@ void KOReaderSyncActivity::performSync() {
     return;
   }
   const std::string primaryHash = documentHash;
+  connection = makeUniqueNoThrow<freeink::SecureHttpClient>();
 
   LOG_DBG("KOSync", "Document hash (%s): %s", matchMethodName(primaryMethod), documentHash.c_str());
 
@@ -164,7 +171,8 @@ void KOReaderSyncActivity::performSync() {
     }
     requestUpdateAndWait();
     bool certificateRejected = false;
-    if (!clippingSync::run(epubPath, documentHash, &certificateRejected)) {
+    if (!clippingSync::run(epubPath, documentHash, &certificateRejected, connection.get())) {
+      connection.reset();  // a failed sync sends nothing more
       {
         RenderLock lock(*this);
         state = SYNC_FAILED;
@@ -183,7 +191,7 @@ void KOReaderSyncActivity::performSync() {
 
   // Fetch remote progress. In smart mode, retain the alternate document-id
   // record until both records can be mapped after the Epub is reloaded.
-  auto result = KOReaderSyncClient::getProgress(documentHash, remoteProgress);
+  auto result = KOReaderSyncClient::getProgress(documentHash, remoteProgress, connection.get());
   LOG_DBG("KOSync", "Primary remote (%s): result=%d http=%d doc=%s local=%.6f remote=%.6f xpath=%s",
           matchMethodName(primaryMethod), result, KOReaderSyncClient::lastHttpCode, documentHash.c_str(),
           localProgress.percentage, remoteProgress.percentage, remoteProgress.progress.c_str());
@@ -195,7 +203,7 @@ void KOReaderSyncActivity::performSync() {
     const std::string altHash = calculateDocumentHashForMethod(epubPath, altMethod);
     if (!altHash.empty() && altHash != documentHash) {
       KOReaderProgress altProgress;
-      const auto altResult = KOReaderSyncClient::getProgress(altHash, altProgress);
+      const auto altResult = KOReaderSyncClient::getProgress(altHash, altProgress, connection.get());
       LOG_DBG("KOSync", "Alternate remote (%s): result=%d http=%d doc=%s local=%.6f remote=%.6f xpath=%s",
               matchMethodName(altMethod), altResult, KOReaderSyncClient::lastHttpCode, altHash.c_str(),
               localProgress.percentage, altProgress.percentage, altProgress.progress.c_str());
@@ -232,6 +240,7 @@ void KOReaderSyncActivity::performSync() {
   }
 
   if (result != KOReaderSyncClient::OK) {
+    connection.reset();  // a failed sync sends nothing more
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
@@ -245,6 +254,7 @@ void KOReaderSyncActivity::performSync() {
   hasRemoteProgress = true;
   ensureEpubLoaded();
   if (!epub) {
+    connection.reset();  // a failed sync sends nothing more
     {
       RenderLock lock(*this);
       state = SYNC_FAILED;
@@ -388,16 +398,17 @@ void KOReaderSyncActivity::performUpload() {
     progress.metadata = std::move(meta);
   }
 
-  // Release the Epub before the network call so the TLS handshake has enough free heap
-  // (consistent with the release-before-sync pattern in performSync); nothing below needs it.
+  // Release the Epub before the network call: if the connection must be reopened, the TLS
+  // handshake needs the free heap. Nothing below needs it.
   epub.reset();
 
   KOReaderSyncClient::Error result;
   {
     // Restore power-save before esp_wifi_stop below; set_ps on a stopped radio fails.
     WifiPowerSaveGuard psGuard;
-    result = KOReaderSyncClient::updateProgress(progress);
+    result = KOReaderSyncClient::updateProgress(progress, connection.get());
   }
+  connection.reset();  // close the TLS connection before the radio stops
 
   // Drop the radio while user reads the result; full teardown happens at silent reboot.
   esp_wifi_stop();
@@ -453,6 +464,7 @@ void KOReaderSyncActivity::onEnter() {
 
 void KOReaderSyncActivity::onExit() {
   Activity::onExit();
+  connection.reset();  // before the radio goes down
 
   if (wifiActivated) {
     WiFi.disconnect(false);
