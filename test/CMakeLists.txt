@@ -105,6 +105,7 @@ add_subdirectory(zip_file)
 add_subdirectory(fs_helpers)
 add_subdirectory(http_header)
 add_subdirectory(tls_policy)
+add_subdirectory(ota_version)
 add_subdirectory(secure_net)
 add_subdirectory(txt_to_html)
 

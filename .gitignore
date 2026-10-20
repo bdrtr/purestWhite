@@ -36,3 +36,4 @@ flake.*
 /rust/target
 /emu/runs
 /emu/books
+/dist/

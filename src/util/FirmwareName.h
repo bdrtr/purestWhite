@@ -19,4 +19,6 @@ inline constexpr char ID_PREFIX[] = "purestWhite-firmware:";
 inline constexpr char ID[] = "purestWhite-firmware:" FIRMWARE_NAME " " CROSSPOINT_VERSION;
 // "purestWhite next 0.0.1"
 inline constexpr const char* NAME_AND_VERSION = ID + sizeof(ID_PREFIX) - 1;
+// Release assets are purestWhite-<version>-<board tag>.bin (see OtaUpdater.cpp).
+inline constexpr char RELEASE_ASSET_PREFIX[] = "purestWhite-";
 }  // namespace firmware_name

@@ -459,3 +459,22 @@ bittiğini ve bağlantının yeniden kullanıldığını sınar.
 - [ ] Varsa Spring tabanlı bir KOSync sunucusunda (BookLore, grimmory) sunucuda konumu olmayan bir
   kitabı eşitleyin: "No remote progress found" beklemeden (≈15 s değil, hemen) görünmeli.
 - [ ] Varsayılan sunucuyla eşitleme, OPDS ve Plugin Hub eskisi gibi çalışmalı.
+
+## Wi-Fi ile güncelleme: kendi sürüm kanalımız ("feat: update over Wi-Fi from bdrtr/purestWhite releases")
+
+Settings → System → Check for updates artık görünür ve github.com/bdrtr/purestWhite'ın en son
+yayımlanmış sürümünden `purestWhite-<sürüm>-<kart>.bin` dosyasını indirir. Sürümler
+`scripts/release.sh` ile taslak olarak hazırlanır, donanım testlerinden sonra elle yayımlanır.
+Güncelleme de SD güncellemesi gibi diğer yuvaya yazar: oradaki yazılımın (ör. CrossPoint)
+yerini alır. Emülatörde sahte bir sürüm sunucusuyla: doğru kartın dosyası seçildi, CDN
+yönlendirmesi izlendi, 5,4 MB'lık görüntü diğer yuvaya bayt bayt yazıldı ve önyükleme o yuvaya
+çevrildi. "v0.0.2" gibi bir etiket de anlaşılır; anlaşılmayan bir etiket hiç önerilmez.
+
+- [ ] Henüz yayımlanmış sürüm yokken Check for updates: hata vermeden "güncel" ya da "güncelleme
+  yok" demeli.
+- [ ] İlk sürüm yayımlandıktan sonra, daha eski bir sürüm çalışırken Check for updates: yeni sürümü
+  göstermeli, indirip kurmalı, cihaz yeni sürümle açılmalı (About'ta sürüm). Önceki yazılım
+  diğer yuvada kalmalı (Start Other Firmware onu adlandırmalı).
+- [ ] Aynı sürüm çalışırken Check for updates güncelleme önermemeli.
+- [ ] Güncellemeyi indirme sırasında Wi-Fi'yi kesin: kurulum yarıda kalmalı, cihaz eski sürümle
+  açılmaya devam etmeli.

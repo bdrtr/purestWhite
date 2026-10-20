@@ -54,6 +54,10 @@ Current version: **0.0.1** (based on CrossPoint 1.6.5).
 To go back, use **Start Other Firmware**. To update purestWhite without losing the other
 firmware, first switch to it, then install the new file from there.
 
+**Over Wi-Fi:** Settings → System → **Check for updates** installs the latest
+[release](https://github.com/bdrtr/purestWhite/releases). It also writes into the other slot,
+so it replaces the firmware kept there.
+
 **Recovery:** hold **Down** and press **Power** while the device is off. It first offers to
 start the firmware in the other slot, then lets you pick a `.bin` file from the SD card.
 On the X4 Pro, do not hold **Up** at power-on: it is GPIO0 and starts the chip's USB download
@@ -80,6 +84,11 @@ pio run -e x4pro -t upload       # flash over USB
 
 `scripts/build_rust.py` builds the `bembeyaz-ffi` static library for the board's MCU and
 links it in. The firmware ends up in `.pio/build/<env>/firmware.bin`.
+
+`scripts/release.sh` builds the release images (`x4pro-gh_release`, `x4c-gh_release`) for the
+version in `platformio.ini` and drafts a GitHub release with them, named
+`purestWhite-<version>-<board>.bin` as the updater expects. Publish the draft after the
+hardware tests; devices update from the latest published release.
 
 ## Checks
 

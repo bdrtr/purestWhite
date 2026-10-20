@@ -346,7 +346,7 @@ Settings are grouped into **System**, **Display**, **Reader**, **Controls**, **L
 
 - **Rebuild library index**: Rescan the SD card for books while preserving the arrival history of books already in the index.
 
-- **Check for updates**: Check for Crosspoint firmware updates over Wi-Fi. Firmware can also be updated without a USB connection by placing a `firmware.bin` file on the SD card.
+- **Check for updates**: Check for purestWhite updates over Wi-Fi, from the latest release of [github.com/bdrtr/purestWhite](https://github.com/bdrtr/purestWhite/releases). Like an SD card update, it writes the new firmware into the other slot, replacing the firmware there (for example stock CrossPoint): to keep that one, switch to it with **Start Other Firmware** and update from there instead. Firmware can also be updated without a USB connection by placing a `firmware.bin` file on the SD card.
 
 - **Start Other Firmware** (**Settings → System**): The device keeps two firmwares. An SD card update writes the new one next to the running one, so the firmware it replaced (for example stock CrossPoint) stays on the device. This row appears while that firmware is there and restarts into it after a confirmation that names it ("CrossPoint 1.6.5", "purestWhite next 0.0.1"), without reflashing. The firmware is checked first; a damaged one is refused. To come back, install this firmware again with the other firmware's SD card update. Settings and books stay, but each switch may rebuild book caches.
 

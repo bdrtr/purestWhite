@@ -3,7 +3,7 @@
 #include <string>
 
 // GitHub API URL of the release to update from (".../releases/latest"); its
-// assets are named crosspoint-<tag>-<board>.bin. Set it in platformio.ini.
+// assets are named purestWhite-<tag>-<board>.bin. Set it in platformio.ini.
 // Unset, the firmware has no update channel and offers no online update.
 #ifndef FIRMWARE_RELEASE_API_URL
 #define FIRMWARE_RELEASE_API_URL ""
