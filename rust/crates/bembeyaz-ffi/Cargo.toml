@@ -16,6 +16,7 @@ bench = false
 [dependencies]
 bembeyaz-bidi = { path = "../bembeyaz-bidi" }
 bembeyaz-css = { path = "../bembeyaz-css" }
+bembeyaz-html = { path = "../bembeyaz-html" }
 bembeyaz-hyphenation = { path = "../bembeyaz-hyphenation" }
 bembeyaz-jpeg = { path = "../bembeyaz-jpeg" }
 bembeyaz-json = { path = "../bembeyaz-json" }
@@ -23,6 +24,7 @@ bembeyaz-layout = { path = "../bembeyaz-layout" }
 bembeyaz-opf = { path = "../bembeyaz-opf" }
 bembeyaz-path = { path = "../bembeyaz-path" }
 bembeyaz-png = { path = "../bembeyaz-png" }
+bembeyaz-toc = { path = "../bembeyaz-toc" }
 bembeyaz-utf8 = { path = "../bembeyaz-utf8" }
 bembeyaz-xml = { path = "../bembeyaz-xml" }
 bembeyaz-zip = { path = "../bembeyaz-zip" }

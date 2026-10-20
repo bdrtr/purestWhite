@@ -509,3 +509,25 @@ bozuk kartla kitap açıldı ("Cache file damaged" ve yeniden kurulum günlükte
 
 - [ ] Normal kullanımda kitap açma, sayfa çevirme ve kapanıp yeniden açma eskisi gibi olmalı
   (önbellek gereksiz yere yeniden kurulmamalı: günlükte "Cache file damaged" görünmemeli).
+
+## İçindekiler okuyucuları Rust'ta ("rust: our own NCX and nav TOC readers")
+
+Kitabın içindekiler belgesi (EPUB 2 NCX ya da EPUB 3 nav) artık `bembeyaz-toc` ile okunuyor; HTML
+varlık tablosu (`&nbsp;`, `&quot;`, `&mdash;` …) `bembeyaz-html`'de ve bölüm metni, Ayrıntılar
+açıklaması, sözlük tanımları ve KOReader eşitlemesi de onu kullanıyor. Eski C++ okuyucularına
+karşı yazılmış 19 host testi değişmeden geçiyor. Geliştirme sırasında bir fark testi eski ve yeni
+okuyucuları 60 000 üretilmiş belgede (yarısı rastgele bozulmuş), rastgele parçalarla karşılaştırdı
+(her içindekiler girdisinin adı, derinliği, yolu ve çapası ile her yazma sonucu aynıydı; kasıtlı
+bir değişiklik yakalandı); eski tablodaki 253 varlığın hepsi aynı değeri veriyor. Emülatörde nav'lı
+bir kitap ve onun yalnızca NCX'li kopyası değiştirilmemiş CrossPoint'le aynı içindekileri (5 girdi)
+ve aynı ekranları verdi (`emu/make_xml_epub.py`'nin kitabı).
+
+- [ ] Bir EPUB 3 kitabın önbelleğini silin (kitap açıkken okuma menüsünde Delete Book Cache /
+  Kitap Önbelleğini Sil) ya da kitabı ilk kez açın; okuma menüsünde Select Chapter / Bölüm Seç:
+  bölümler doğru adlarla ve doğru girintiyle görünmeli, birini seçince o bölüme gitmeli.
+- [ ] Aynısını yalnızca NCX'i olan eski bir EPUB 2 kitapla yapın.
+- [ ] Bölüm adlarında `&mdash;`, `&hellip;` gibi varlıklar olan bir EPUB 3 (nav'lı) kitapta adlar
+  içindekilerde doğru görünmeli.
+- [ ] Açıklamasında `&quot;`, `&amp;`, `&mdash;` olan bir kitabın Ayrıntılar ekranında açıklama
+  doğru görünmeli (varlık adı değil işaret).
+- [ ] KOReader eşitlemesi: konum eskisi gibi aktarılmalı.

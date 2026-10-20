@@ -1,47 +1,10 @@
 #pragma once
-#include <Print.h>
-#include <XmlParser.h>
+#include "TocParser.h"
 
-#include <string>
-
-class BookMetadataCache;
-
-// Parser for EPUB 3 nav.xhtml navigation documents
-// Parses HTML5 nav elements with epub:type="toc" to extract table of contents
-class TocNavParser final : public Print {
-  enum ParserState {
-    START,
-    IN_HTML,
-    IN_BODY,
-    IN_NAV_TOC,  // Inside <nav epub:type="toc">
-    IN_OL,       // Inside <ol>
-    IN_LI,       // Inside <li>
-    IN_ANCHOR,   // Inside <a>
-  };
-
-  const std::string& baseContentPath;
-  size_t remainingSize;
-  XmlParser parser;
-  ParserState state = START;
-  BookMetadataCache* cache;
-
-  // Track nesting depth for <ol> elements to determine TOC depth
-  uint8_t olDepth = 0;
-  // Current entry data being collected
-  std::string currentLabel;
-  std::string currentHref;
-
-  static void startElement(void* userData, const char* name, const char** atts);
-  static void characterData(void* userData, const char* s, int len);
-  static void endElement(void* userData, const char* name);
-  static void skippedEntity(void* userData, const char* name);
-
+// An EPUB 3 nav document: entries are the links of <nav epub:type="toc">, their depth the nesting
+// of its lists.
+class TocNavParser final : public TocParser {
  public:
   explicit TocNavParser(const std::string& baseContentPath, const size_t xmlSize, BookMetadataCache* cache)
-      : baseContentPath(baseContentPath), remainingSize(xmlSize), cache(cache) {}
-
-  bool setup();
-
-  size_t write(uint8_t) override;
-  size_t write(const uint8_t* buffer, size_t size) override;
+      : TocParser(BB_TOC_NAV, "NAV", baseContentPath, xmlSize, cache) {}
 };

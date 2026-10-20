@@ -34,6 +34,7 @@ version = "0.1.0"
 dependencies = [
  "bembeyaz-bidi",
  "bembeyaz-css",
+ "bembeyaz-html",
  "bembeyaz-hyphenation",
  "bembeyaz-jpeg",
  "bembeyaz-json",
@@ -41,10 +42,15 @@ dependencies = [
  "bembeyaz-opf",
  "bembeyaz-path",
  "bembeyaz-png",
+ "bembeyaz-toc",
  "bembeyaz-utf8",
  "bembeyaz-xml",
  "bembeyaz-zip",
 ]
+
+[[package]]
+name = "bembeyaz-html"
+version = "0.1.0"
 
 [[package]]
 name = "bembeyaz-hyphenation"
@@ -94,6 +100,15 @@ name = "bembeyaz-png"
 version = "0.1.0"
 dependencies = [
  "bembeyaz-inflate",
+]
+
+[[package]]
+name = "bembeyaz-toc"
+version = "0.1.0"
+dependencies = [
+ "bembeyaz-html",
+ "bembeyaz-path",
+ "bembeyaz-xml",
 ]
 
 [[package]]

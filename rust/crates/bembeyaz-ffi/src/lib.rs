@@ -10,6 +10,7 @@ mod css;
 #[cfg(target_os = "none")]
 mod device;
 mod expat;
+mod html;
 mod hyphenation;
 mod jpeg;
 mod json;
@@ -18,6 +19,7 @@ mod opf;
 mod path;
 mod png;
 mod png_cover;
+mod toc;
 mod utf8;
 mod xml;
 mod zip;
