@@ -14,6 +14,8 @@ extern crate alloc;
 use alloc::vec::Vec;
 use bembeyaz_utf8 as utf8;
 
+pub mod format;
+
 #[cfg(test)]
 extern crate std;
 #[cfg(test)]

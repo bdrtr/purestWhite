@@ -2,6 +2,11 @@
 
 namespace library {
 
+// ClixValidity's numbers are format::Validity's, which bb_library_validate_header returns.
+static_assert(static_cast<int>(ClixValidity::BadMagic) == 1 && static_cast<int>(ClixValidity::StaleFoldVersion) == 3 &&
+                  static_cast<int>(ClixValidity::SectionsInconsistent) == 6,
+              "bb_library_validate_header results");
+
 const char* clixValidityName(const ClixValidity v) {
   switch (v) {
     case ClixValidity::Ok:

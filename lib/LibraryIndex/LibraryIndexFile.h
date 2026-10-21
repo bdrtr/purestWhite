@@ -5,7 +5,8 @@
 // Holds one open file handle and a few hundred bytes; nothing that scales with
 // the library stays resident. A page of rows is a handful of seeks, which is
 // what the fixed 128-byte record stride buys — record k is always at
-// recordStart + 128k, so no offset table has to be loaded to find it.
+// recordStart + 128k, so no offset table has to be loaded to find it. The
+// format logic lives in rust/crates/bembeyaz-library's format module.
 
 #include <HalStorage.h>
 
@@ -95,7 +96,10 @@ class LibraryIndexFile {
  private:
   bool openImpl(const char* path, bool acceptStaleFold);
   bool readAt(uint32_t offset, void* dst, size_t len);
-  bool readBlobField(const ClixRecord& record, uint8_t field, std::string& out);
+  // The file as rust/crates/bembeyaz-library's format reads it.
+  bb_library_index_file source();
+  // what: one of library.h's BB_LIBRARY_NAME ... BB_LIBRARY_PATH.
+  bool readString(const ClixRecord& record, uint8_t what, std::string& out);
 
   HalFile file;
   ClixHeader head{};

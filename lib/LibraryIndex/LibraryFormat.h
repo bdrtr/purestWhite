@@ -4,7 +4,8 @@
 // offset arithmetic around it.
 //
 // Deliberately free of HalStorage and Arduino so the whole layout is
-// host-testable (test/library_format). File I/O lives in LibraryIndexFile.
+// host-testable (test/library_format). File I/O lives in LibraryIndexFile; the
+// arithmetic, validation and reading are rust/crates/bembeyaz-library's format.
 //
 // Layout, in order, every section starting on a 512-byte boundary:
 //
@@ -20,6 +21,8 @@
 // straddles a record; and since recordStart is 512-aligned and 128 divides 512,
 // every chunk read is aligned by construction rather than by remembering to.
 
+#include <bembeyaz/library.h>
+
 #include <cstddef>
 #include <cstdint>
 
@@ -28,12 +31,12 @@ namespace library {
 inline constexpr char CLIX_MAGIC[4] = {'C', 'L', 'X', '1'};
 // Bumping this is the whole migration: an index from an older version fails
 // validation and is rebuilt. No previous development format is accepted.
-inline constexpr uint8_t CLIX_FORMAT_VERSION = 2;
+inline constexpr uint8_t CLIX_FORMAT_VERSION = BB_LIBRARY_FORMAT_VERSION;
 
 // Bump when the fold or a permutation's sort key changes.
 // Forces fold and ranks to be rebuilt while firstSeen values are preserved, so
 // arrival history survives.
-inline constexpr uint8_t CLIX_FOLD_VERSION = 4;
+inline constexpr uint8_t CLIX_FOLD_VERSION = BB_LIBRARY_FOLD_VERSION;
 
 inline constexpr uint32_t CLIX_ALIGN = 512;
 inline constexpr size_t CLIX_FOLD_BYTES = 96;
@@ -41,19 +44,12 @@ inline constexpr size_t CLIX_AUTHOR_KEY_BYTES = 12;
 
 // A 2000-book card already produces a 429 KiB index. This hard bound keeps every
 // record count and permutation ordinal representable by uint16_t.
-inline constexpr uint16_t CLIX_MAX_RECORDS = 4096;
+inline constexpr uint16_t CLIX_MAX_RECORDS = BB_LIBRARY_MAX_RECORDS;
 
 // Complete-path fingerprint stored in front of every record's name blob.
 // Shared by the builder's reconciliation and the browser's recent-book lookup,
 // which must agree byte-for-byte on the hash of the same path.
-inline uint64_t clixPathHash(const char* data, const size_t len) {
-  uint64_t hash = 14695981039346656037ULL;  // FNV-1a 64
-  for (size_t i = 0; i < len; i++) {
-    hash ^= static_cast<unsigned char>(data[i]);
-    hash *= 1099511628211ULL;
-  }
-  return hash;
-}
+inline uint64_t clixPathHash(const char* data, const size_t len) { return bb_library_path_hash(data, len); }
 
 enum ClixFlags : uint8_t {
   CLIX_FLAG_RANKS_DEGRADED = 1 << 0,
@@ -90,6 +86,8 @@ struct ClixHeader {
   uint8_t reserved[20];
 };
 static_assert(sizeof(ClixHeader) == 64, "ClixHeader must be exactly 64 bytes");
+// Checked against Header in rust/crates/bembeyaz-ffi/src/library.rs too.
+static_assert(offsetof(ClixHeader, folderStart) == 16 && offsetof(ClixHeader, selfSize) == 40, "ClixHeader layout");
 
 struct ClixRecord {
   uint32_t nameOff;   // from nameStart, into the per-record name blob
@@ -105,6 +103,7 @@ struct ClixRecord {
   uint32_t modificationTime;
 };
 static_assert(sizeof(ClixRecord) == 128, "ClixRecord must be exactly 128 bytes");
+static_assert(offsetof(ClixRecord, fold) == 16 && offsetof(ClixRecord, modificationTime) == 124, "ClixRecord layout");
 static_assert(CLIX_ALIGN % sizeof(ClixRecord) == 0, "records must tile a 512-byte sector");
 
 struct ClixFolderHeader {
@@ -114,18 +113,15 @@ static_assert(sizeof(ClixFolderHeader) == 1, "ClixFolderHeader must be 1 byte");
 
 #pragma pack(pop)
 
-inline uint32_t alignUp(const uint32_t value) { return (value + CLIX_ALIGN - 1) / CLIX_ALIGN * CLIX_ALIGN; }
+namespace detail {
+inline bb_library_header* rust(ClixHeader& h) { return reinterpret_cast<bb_library_header*>(&h); }
+inline const bb_library_header* rust(const ClixHeader& h) { return reinterpret_cast<const bb_library_header*>(&h); }
+}  // namespace detail
 
 // Fill in every offset and the expected file size from the counts alone, so the
 // writer and the reader can never disagree about where a section starts.
 inline void layoutSections(ClixHeader& h, const uint32_t folderBytes, const uint32_t nameBytes) {
-  h.folderStart = CLIX_ALIGN;
-  h.folderLen = folderBytes;
-  h.recordStart = alignUp(h.folderStart + folderBytes);
-  h.permStart = alignUp(h.recordStart + static_cast<uint32_t>(h.bookCount) * sizeof(ClixRecord));
-  h.nameStart = alignUp(h.permStart + static_cast<uint32_t>(h.bookCount) * 2u * sizeof(uint16_t));
-  h.nameLen = nameBytes;
-  h.selfSize = h.nameStart + nameBytes;
+  bb_library_layout_sections(detail::rust(h), folderBytes, nameBytes);
 }
 
 inline uint32_t recordOffset(const ClixHeader& h, const uint16_t ordinal) {
@@ -155,32 +151,11 @@ enum class ClixValidity : uint8_t {
 // sector already read, and strict enough that nothing downstream has to
 // re-check bounds.
 inline ClixValidity validateHeaderStructure(const ClixHeader& h, const uint64_t actualFileSize) {
-  for (size_t i = 0; i < sizeof(CLIX_MAGIC); i++) {
-    if (h.magic[i] != CLIX_MAGIC[i]) return ClixValidity::BadMagic;
-  }
-  if (h.formatVersion != CLIX_FORMAT_VERSION) return ClixValidity::UnknownFormatVersion;
-  if (h.bookCount > CLIX_MAX_RECORDS) return ClixValidity::CountOutOfRange;
-  if (h.metadataEnabled > 1) return ClixValidity::SectionsInconsistent;
-  if (actualFileSize != h.selfSize) return ClixValidity::SizeMismatch;
-
-  // Both lengths are attacker-controlled bytes. Capped against the real file
-  // size they cannot wrap the 32-bit section sums below, so the layout
-  // comparison stays sound instead of re-deriving the same wrapped values.
-  if (h.folderLen > actualFileSize || h.nameLen > actualFileSize) return ClixValidity::SectionsInconsistent;
-
-  ClixHeader expected = h;
-  layoutSections(expected, h.folderLen, h.nameLen);
-  if (expected.folderStart != h.folderStart || expected.recordStart != h.recordStart ||
-      expected.permStart != h.permStart || expected.nameStart != h.nameStart || expected.selfSize != h.selfSize) {
-    return ClixValidity::SectionsInconsistent;
-  }
-  return ClixValidity::Ok;
+  return static_cast<ClixValidity>(bb_library_validate_header(detail::rust(h), actualFileSize, true));
 }
 
 inline ClixValidity validateHeader(const ClixHeader& h, const uint64_t actualFileSize) {
-  const ClixValidity structure = validateHeaderStructure(h, actualFileSize);
-  if (structure != ClixValidity::Ok) return structure;
-  return h.foldVersion == CLIX_FOLD_VERSION ? ClixValidity::Ok : ClixValidity::StaleFoldVersion;
+  return static_cast<ClixValidity>(bb_library_validate_header(detail::rust(h), actualFileSize, false));
 }
 
 const char* clixValidityName(ClixValidity v);

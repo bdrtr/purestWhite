@@ -9,6 +9,7 @@ namespace library {
 // An author key fills the index record's field.
 static_assert(AUTHOR_KEY_MAX_BYTES == CLIX_AUTHOR_KEY_BYTES, "author key width");
 
+// bembeyaz-library's format::read_path joins the same way: keep them alike.
 std::string joinLibraryPath(const std::string_view folder, const std::string_view name) {
   std::string path;
   path.reserve(folder.size() + name.size() + 1);

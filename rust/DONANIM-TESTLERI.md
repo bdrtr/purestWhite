@@ -725,3 +725,20 @@ sınırını aşan baytlardan okunmuyor.
   Ş ile başlayan başlıklar ayrı harf olarak değil, C, O, S grubunda görünür. "Author" sekmesinde
   "Austen, Jane" ve "Jane Austen" yazımlı kitaplar tek yazar altında görünmeli.
 - [ ] Aramada (Search) aksansız "cicek" yazın: "Çiçek" başlıklı kitap bulunmalı.
+
+## Kütüphane dizin dosyasını okumak Rust'ta ("rust: our own Library index reader")
+
+Kütüphanenin karttaki dizin dosyasını (`CLX1`) doğrulayan ve okuyan kısım (başlık, bölümler, kitap
+kayıtları, adlar, yazar, başlık, klasör yolu, son okunanların sırası) artık `bembeyaz-library`'nin
+`format` modülünde; dosyayı açmak ve dizini yazan kurucu C++'ta kaldı. Biçim, dizin dosyası ve
+kurucu testleri dahil 912 host testi geçiyor. Geliştirme sırasında bir fark testi eski C++ kodunu
+Rust koduyla 20.000 üretilmiş (kimi bozuk ya da kesik) dizin dosyasında karşılaştırdı: sonuçlar
+aynıydı.
+
+- [ ] Kütüphaneyi açın, "Recent", "Title" ve "Author" sekmelerinde kaydırın ve bir kitap açın:
+  kitaplar, adları, yazarları ve açılan kitap eskisi gibi olmalı.
+- [ ] Kütüphane'de "Recent" sekmesini açın (arama boş): son okuduğunuz kitaplar en üstte olmalı ve
+  aşağıdaki listede ikinci kez görünmemeli. Sıralamayı ters çevirin: kitaplar tek tek, doğru sırada
+  listelenmeli.
+- [ ] Home'daki son okunanlar rafındaki başlıklar eskisi gibi görünmeli.
+- [ ] Kütüphaneyi açıp kapatın, sonra yeniden açın: ikinci açılışta dizin yeniden kurulmamalı.
