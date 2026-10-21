@@ -201,8 +201,7 @@ pub struct IntervalFault {
 }
 
 /// Checks a style's intervals one by one: sorted, not overlapping, each starting where the glyphs
-/// of the last ended, none past the glyphs. `bb_cpfont_intervals` in C.
-#[repr(C)]
+/// of the last ended, none past the glyphs.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct IntervalCheck {
     glyph_count: u32,

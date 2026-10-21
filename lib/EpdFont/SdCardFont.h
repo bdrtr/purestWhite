@@ -156,23 +156,12 @@ class SdCardFont {
     // the font has this style.
     bb_cpfont_style toc{};
 
-    // Full intervals loaded from file (kept in RAM for codepoint lookup)
-    EpdUnicodeInterval* fullIntervals = nullptr;
-    EPD_PACKED_BEGIN
-    struct BmpInterval16 {
-      uint16_t first;
-      uint16_t last;
-      uint16_t offset;
-    } EPD_PACKED_ATTR;
-    EPD_PACKED_END
-    static_assert(sizeof(BmpInterval16) == 6, "BmpInterval16 must remain compact");
-    BmpInterval16* bmpIntervals = nullptr;
-    bool intervalsAreBmp16 = false;
-    // True when bmpIntervals/fullIntervals above points at another style's table rather than
-    // this style's own allocation. Regular/bold/italic weights of the same family almost always
-    // cover the identical codepoint set, so a CJK font's multi-KB-per-style table is otherwise
-    // paid for once per style. Only the owning style frees it -- see freeStyleAll().
-    bool intervalsShared = false;
+    // This style's full coverage (unlike the page's mini intervals), kept in RAM for codepoint
+    // lookup (bb_cpfont_find_glyph). BMP-only styles with at most 65535 glyphs keep compact 6-byte
+    // records. Regular/bold/italic weights of the same family almost always cover the identical
+    // codepoint set, so a later style's table usually points at an earlier style's
+    // (intervals.shared); only the owning style frees it -- see freeStyleAll().
+    bb_cpfont_interval_table intervals{};
 
     // Ligature table (lazy-loaded on first prewarm). No kern table is resident:
     // buildMiniKernMatrix reads the class-table blocks (~3KB per side per style

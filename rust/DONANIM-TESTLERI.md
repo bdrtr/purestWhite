@@ -842,3 +842,29 @@ CrossPoint'le aynıydı; kısa bitmap'li fontla ekranlar bir önceki sürümle p
   olmayan glifler böyle yüklenir); karakterler eksiksiz görünmeli, boş kare ya da � çıkmamalı.
 - [ ] Seri günlükte `Prewarm: failed`, `short glyph read`, `short bitmap read`, `Overflow: failed`
   ya da `buildAdvanceTable: failed` satırları görünmemeli.
+
+## SD kart fontunun aralık tablosu Rust'ta ("rust: our own .cpfont interval tables")
+
+Karttaki bir font yüklenirken her stilin aralık tablosu (hangi karakterin hangi glife karşılık
+geldiği) artık `bembeyaz-font`'un `intervals` modülünde okunuyor ve denetleniyor. Uygunsa tablo 16
+bitlik sıkışık biçime çevriliyor; aralıkları aynı olan stiller tek bir tabloyu paylaşıyor. Bir
+karakterin glifini bu tabloda arayan kısım da aynı modülde. Tablonun belleği (PSRAM) eskisi gibi
+C++'ta ayrılıyor. Aralıkları aynı olup biri 65.535'ten çok glifli olduğu için sıkışık biçime
+sığmayan iki stil ve boş tablolu stiller için iki yeni test (19d1638d), ayrıca ikinci okumada SD
+hatası olunca tablo belleğinin serbest bırakıldığını denetleyen bir test dahil 934 host testi
+geçiyor. Geliştirme sırasında bir fark testi eski C++ kodunu Rust koduyla karşılaştırdı:
+yüklemede 60.000 üretilmiş font, dört gerçek font ve bunların bozulmuş kopyalarında, benzetilmiş
+bellek ayırma ve okuma hataları dahil, tablolar, paylaşımlar ve dosyadaki okuma sırası aynıydı;
+kerning okuyucusunda 127.470 kurulumda, glif okuyucularında 160.240 adımda sonuçlar aynıydı.
+Emülatörde sağlam, bozuk ve kısa bitmap'li fontlarla ekranlar ve SD font günlük satırları önceki
+sürümle aynıydı.
+
+- [ ] Liberation Serif `.cpfont`'unu (rust/README.md'deki komutla üretilir) okuma fontu seçin ya
+  da onunla bir kitap açın: geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğünde `Style 1:
+  sharing style 0's 28-interval table`, `Style 2: …` ve `Style 3: …` satırları görünmeli; kalın,
+  italik ve kalın-italik yerlerde harfler doğru ve eksiksiz olmalı, yanlış karakter çıkmamalı.
+- [ ] Bir CJK fontuyla Çince ya da Japonca bir kitapta birkaç sayfa okuyun: karakterler eksiksiz
+  ve doğru görünmeli.
+- [ ] Seri günlükte `invalid interval`, `Failed to read interval`, `Failed to read compact
+  interval`, `Failed to allocate … intervals` ya da `Failed to seek … intervals` satırları
+  görünmemeli.

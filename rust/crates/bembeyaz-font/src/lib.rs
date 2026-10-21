@@ -5,6 +5,7 @@
 
 pub mod cpfont;
 pub mod glyph;
+pub mod intervals;
 pub mod kern;
 
 /// The font file, read from the current position.

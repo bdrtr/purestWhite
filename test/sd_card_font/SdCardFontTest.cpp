@@ -8,10 +8,16 @@
 #include <cstdio>
 #include <cstdlib>
 #include <new>
+#include <set>
 #include <string>
+#include <vector>
 
 namespace {
 size_t failNextArraySize = 0;
+// Arrays from nothrow new[] that are not deleted yet, while counting.
+bool countArrays = false;
+std::set<void*> liveArrays;
+std::vector<size_t> arraySizes;
 }  // namespace
 
 // Keep array allocation and deletion paired, including arrays allocated by the test framework.
@@ -29,10 +35,18 @@ void* operator new[](size_t size, const std::nothrow_t&) noexcept {
     failNextArraySize = 0;
     return nullptr;
   }
-  return std::malloc(size == 0 ? 1 : size);
+  void* allocation = std::malloc(size == 0 ? 1 : size);
+  if (countArrays) {
+    liveArrays.insert(allocation);
+    arraySizes.push_back(size);
+  }
+  return allocation;
 }
 
-void operator delete[](void* allocation) noexcept { std::free(allocation); }
+void operator delete[](void* allocation) noexcept {
+  if (countArrays) liveArrays.erase(allocation);
+  std::free(allocation);
+}
 void operator delete[](void* allocation, size_t) noexcept { std::free(allocation); }
 void operator delete[](void* allocation, const std::nothrow_t&) noexcept { std::free(allocation); }
 
@@ -690,4 +704,22 @@ TEST(SdCardFontTest, AGlyphCutShortIsNotLoadedOnDemand) {
     EXPECT_EQ(nullptr, font.getEpdFont()->getGlyph(FIRST + 5));
     EXPECT_EQ(1U, sdFontTestReads);  // U+FFFD's record is past the end: its seek fails
   }
+}
+
+TEST(SdCardFontTest, AReadFailureAfterTheIntervalTableIsReservedFreesIt) {
+  makeFont();
+  liveArrays.clear();
+  arraySizes.clear();
+  countArrays = true;
+  {
+    SdCardFont font;
+    // Header, table of contents, two records checked; the first record read into the table fails.
+    sdFontTestFailRead = 5;
+    EXPECT_FALSE(font.load("fixture"));
+    sdFontTestFailRead = 0;
+    // The compact table (two 6-byte records) was reserved before the failing read.
+    EXPECT_NE(arraySizes.end(), std::find(arraySizes.begin(), arraySizes.end(), 12u));
+    EXPECT_TRUE(liveArrays.empty());
+  }
+  countArrays = false;
 }

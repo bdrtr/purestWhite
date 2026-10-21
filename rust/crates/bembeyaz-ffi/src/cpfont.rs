@@ -1,14 +1,15 @@
 //! Exports for lib/EpdFont's `SdCardFont` (see `rust/include/bembeyaz/cpfont.h`).
 
 use bembeyaz_font::Source;
-use bembeyaz_font::cpfont::{self, Header, IntervalCheck, IntervalFault, Style};
+use bembeyaz_font::cpfont::{self, Header, IntervalFault, Style};
 use bembeyaz_font::glyph::{self, Glyph};
+use bembeyaz_font::intervals;
 use bembeyaz_font::kern::{self, MiniKern};
 use core::ffi::{c_int, c_void};
 use core::ptr::null_mut;
 use core::slice;
 
-// cpfont.h's bb_cpfont_style, bb_cpfont_header, bb_cpfont_intervals, bb_cpfont_interval_fault,
+// cpfont.h's bb_cpfont_style, bb_cpfont_header, bb_cpfont_interval_fault,
 // BB_CPFONT_FORMAT_VERSION and BB_CPFONT_MAX_STYLES.
 const _: () = {
     use core::mem::offset_of;
@@ -25,10 +26,8 @@ const _: () = {
             && offset_of!(Header, two_bit) == 214
             && offset_of!(Header, style_count) == 215
             && offset_of!(Header, failed_entry) == 216
-            && size_of::<IntervalCheck>() == 16
             && size_of::<IntervalFault>() == 12
             && offset_of!(IntervalFault, span) == 8
-            && align_of::<IntervalCheck>() == 4
             && cpfont::VERSION == 4
             && cpfont::MAX_STYLES == 4
     );
@@ -79,54 +78,6 @@ pub unsafe extern "C" fn bb_cpfont_read_header(header: *mut Header, file: *mut F
         Ok(()) => 0,
         Err(error) => c_int::from(error as u8),
     }
-}
-
-/// # Safety
-///
-/// `check` is null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn bb_cpfont_intervals_init(check: *mut IntervalCheck, glyph_count: u32) {
-    if !check.is_null() {
-        // SAFETY: the caller's writable bb_cpfont_intervals, which may not be set up yet.
-        unsafe { check.write(IntervalCheck::new(glyph_count)) };
-    }
-}
-
-/// # Safety
-///
-/// `check` is null or a `bb_cpfont_intervals` set up by `bb_cpfont_intervals_init`; `fault` is
-/// null or writable.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn bb_cpfont_intervals_check(
-    check: *mut IntervalCheck,
-    first: u32,
-    last: u32,
-    offset: u32,
-    fault: *mut IntervalFault,
-) -> bool {
-    // SAFETY: the caller's bb_cpfont_intervals.
-    let Some(check) = (unsafe { check.as_mut() }) else {
-        return false;
-    };
-    match check.check(first, last, offset) {
-        Ok(()) => true,
-        Err(f) => {
-            if !fault.is_null() {
-                // SAFETY: the caller's writable fault, which may not be set yet.
-                unsafe { fault.write(f) };
-            }
-            false
-        }
-    }
-}
-
-/// # Safety
-///
-/// `check` is null or a `bb_cpfont_intervals` set up by `bb_cpfont_intervals_init`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn bb_cpfont_intervals_bmp16(check: *const IntervalCheck) -> bool {
-    // SAFETY: the caller's bb_cpfont_intervals.
-    unsafe { check.as_ref() }.is_some_and(IntervalCheck::bmp16)
 }
 
 /// cpfont.h's bb_cpfont_mini_kern.
@@ -440,4 +391,197 @@ pub unsafe extern "C" fn bb_cpfont_read_bitmaps(
         unsafe { seeks.write(made) };
     }
     code
+}
+
+/// cpfont.h's bb_cpfont_interval_table.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct IntervalTable {
+    entries: *mut u8,
+    count: u32,
+    compact: bool,
+    shared: bool,
+}
+
+/// cpfont.h's bb_cpfont_interval_load.
+#[repr(C)]
+#[derive(Default)]
+pub struct IntervalLoad {
+    record: u32,
+    first: u32,
+    last: u32,
+    bytes: u32,
+    fault: IntervalFault,
+    owner: u8,
+    compact: bool,
+}
+
+const _: () = {
+    use core::mem::offset_of;
+    let pointer = size_of::<usize>();
+    assert!(
+        offset_of!(IntervalTable, count) == pointer
+            && offset_of!(IntervalTable, compact) == pointer + 4
+            && offset_of!(IntervalTable, shared) == pointer + 5
+            && size_of::<IntervalTable>() == pointer * 2 + if pointer == 8 { 0 } else { 4 }
+            && size_of::<IntervalLoad>() == 32
+            && offset_of!(IntervalLoad, bytes) == 12
+            && offset_of!(IntervalLoad, fault) == 16
+            && offset_of!(IntervalLoad, owner) == 28
+            && offset_of!(IntervalLoad, compact) == 29
+    );
+};
+
+impl IntervalTable {
+    // SAFETY: `entries` holds `count` records of its form for 'a, or is null.
+    unsafe fn view<'a>(self) -> Option<intervals::Table<'a>> {
+        if self.entries.is_null() {
+            return None;
+        }
+        let bytes = intervals::Table::bytes(self.count, self.compact);
+        // SAFETY: as above; an empty table needs no memory.
+        let entries = if bytes == 0 {
+            &[][..]
+        } else {
+            unsafe { slice::from_raw_parts(self.entries, bytes) }
+        };
+        Some(intervals::Table {
+            entries,
+            compact: self.compact,
+        })
+    }
+}
+
+type ReserveTable = unsafe extern "C" fn(*mut c_void, usize) -> *mut u8;
+
+/// # Safety
+///
+/// As cpfont.h's `bb_cpfont_load_intervals` says: `file` is a `bb_cpfont_file`, `style`
+/// readable, `earlier` null or `earlier_count` pointers that are null or loaded tables, `table`
+/// and `result` writable; `reserve` returns null or memory for the records it was asked for.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn bb_cpfont_load_intervals(
+    file: *mut File,
+    style: *const Style,
+    earlier: *const *const IntervalTable,
+    earlier_count: usize,
+    table: *mut IntervalTable,
+    reserve: Option<ReserveTable>,
+    context: *mut c_void,
+    result: *mut IntervalLoad,
+) -> c_int {
+    // SAFETY: the caller's arguments, as documented above.
+    let (Some(file), Some(style), Some(reserve), false, false, false) = (
+        unsafe { file.as_mut() },
+        unsafe { style.as_ref() },
+        reserve,
+        table.is_null(),
+        result.is_null(),
+        earlier.is_null() && earlier_count != 0,
+    ) else {
+        return -1;
+    };
+    const STYLES: usize = cpfont::MAX_STYLES as usize;
+    let mut owners: [Option<IntervalTable>; STYLES] = [None; STYLES];
+    for (k, owner) in owners.iter_mut().enumerate().take(earlier_count) {
+        // SAFETY: the caller's array of table pointers.
+        *owner = unsafe { (*earlier.add(k)).as_ref() }.copied();
+    }
+    // SAFETY: the caller's loaded tables.
+    let views = owners.map(|o| o.and_then(|t| unsafe { t.view() }));
+    let mut out = IntervalLoad {
+        owner: u8::MAX,
+        ..IntervalLoad::default()
+    };
+    let mut entries = null_mut();
+    let ask = |_: bool, bytes: usize| {
+        // SAFETY: the caller's callback.
+        entries = unsafe { reserve(context, bytes) };
+        if entries.is_null() {
+            return None;
+        }
+        // SAFETY: memory for the bytes asked for; an empty table needs none.
+        Some(if bytes == 0 {
+            &mut [][..]
+        } else {
+            unsafe { slice::from_raw_parts_mut(entries, bytes) }
+        })
+    };
+    let loaded = intervals::load(file, style, &views[..earlier_count.min(STYLES)], ask);
+    let own = |compact: bool| IntervalTable {
+        entries,
+        count: style.interval_count,
+        compact,
+        shared: false,
+    };
+    let code = match loaded {
+        Ok(intervals::Loaded::Shared(k)) => {
+            // Only a loaded earlier table can be shared.
+            let Some(mut shared) = owners.get(k).copied().flatten() else {
+                return -1;
+            };
+            shared.shared = true;
+            // SAFETY: the caller's writable table.
+            unsafe { table.write(shared) };
+            out.owner = u8::try_from(k).unwrap_or(u8::MAX);
+            out.compact = shared.compact;
+            0
+        }
+        Ok(intervals::Loaded::Own(compact)) => {
+            // SAFETY: the caller's writable table.
+            unsafe { table.write(own(compact)) };
+            out.compact = compact;
+            0
+        }
+        Err(intervals::Error::Seek) => 1,
+        Err(intervals::Error::CheckRead(j)) => {
+            out.record = j;
+            2
+        }
+        Err(intervals::Error::Invalid(j, first, last, fault)) => {
+            out.record = j;
+            out.first = first;
+            out.last = last;
+            out.fault = fault;
+            3
+        }
+        Err(intervals::Error::SeekBack) => 4,
+        Err(intervals::Error::Reserve(compact)) => {
+            out.compact = compact;
+            5
+        }
+        Err(intervals::Error::CompactRead(j)) => {
+            // The reserved memory goes to the table, so the caller frees it with the style.
+            // SAFETY: the caller's writable table.
+            unsafe { table.write(own(true)) };
+            out.record = j;
+            out.compact = true;
+            6
+        }
+        Err(intervals::Error::FullRead) => {
+            // SAFETY: the caller's writable table; as above.
+            unsafe { table.write(own(false)) };
+            7
+        }
+    };
+    #[allow(clippy::cast_possible_truncation)]
+    {
+        out.bytes = intervals::Table::bytes(style.interval_count, out.compact) as u32;
+    }
+    // SAFETY: the caller's writable result.
+    unsafe { result.write(out) };
+    code
+}
+
+/// # Safety
+///
+/// `table` is null or a loaded `bb_cpfont_interval_table`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_cpfont_find_glyph(table: *const IntervalTable, codepoint: u32) -> i32 {
+    // SAFETY: the caller's loaded table.
+    let found = unsafe { table.as_ref() }
+        .and_then(|t| unsafe { t.view() })
+        .and_then(|t| t.find(codepoint));
+    found.and_then(|i| i32::try_from(i).ok()).unwrap_or(-1)
 }

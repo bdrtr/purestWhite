@@ -23,8 +23,8 @@
 using freeink::font::psramDeleteArray;
 using freeink::font::psramNewArray;
 
-static_assert(sizeof(EpdUnicodeInterval) == 12, "EpdUnicodeInterval must be 12 bytes to match .cpfont file layout");
-static_assert(sizeof(EpdKernClassEntry) == 3, "EpdKernClassEntry must be 3 bytes to match .cpfont file layout");
+static_assert(sizeof(EpdKernClassEntry) == 3,
+              "EpdKernClassEntry must be 3 bytes to match bembeyaz-font's mini kern tables");
 static_assert(sizeof(EpdLigaturePair) == 8, "EpdLigaturePair must be 8 bytes to match .cpfont file layout");
 // Checked against rust/crates/bembeyaz-ffi/src/cpfont.rs too.
 static_assert(sizeof(bb_cpfont_style) == 52 && offsetof(bb_cpfont_style, bitmap_offset) == 32 &&
@@ -33,8 +33,13 @@ static_assert(sizeof(bb_cpfont_style) == 52 && offsetof(bb_cpfont_style, bitmap_
                   sizeof(bb_cpfont_header) == 220 && offsetof(bb_cpfont_header, content_hash) == 208 &&
                   offsetof(bb_cpfont_header, version) == 212 && offsetof(bb_cpfont_header, two_bit) == 214 &&
                   offsetof(bb_cpfont_header, style_count) == 215 && offsetof(bb_cpfont_header, failed_entry) == 216 &&
-                  sizeof(bb_cpfont_intervals) == 16 && sizeof(bb_cpfont_interval_fault) == 12 &&
-                  offsetof(bb_cpfont_interval_fault, span) == 8,
+                  sizeof(bb_cpfont_interval_fault) == 12 && offsetof(bb_cpfont_interval_fault, span) == 8 &&
+                  offsetof(bb_cpfont_interval_table, count) == sizeof(void*) &&
+                  offsetof(bb_cpfont_interval_table, compact) == sizeof(void*) + 4 &&
+                  offsetof(bb_cpfont_interval_table, shared) == sizeof(void*) + 5 &&
+                  sizeof(bb_cpfont_interval_load) == 32 && offsetof(bb_cpfont_interval_load, bytes) == 12 &&
+                  offsetof(bb_cpfont_interval_load, fault) == 16 && offsetof(bb_cpfont_interval_load, owner) == 28 &&
+                  offsetof(bb_cpfont_interval_load, compact) == 29,
               "bb_cpfont layout");
 static_assert(sizeof(bb_cpfont_glyph) == 16 && sizeof(EpdGlyph) == 16 &&
                   alignof(bb_cpfont_glyph) == alignof(EpdGlyph) &&
@@ -172,14 +177,8 @@ void SdCardFont::freeStyleMiniKern(PerStyle& s) {
 void SdCardFont::freeStyleAll(PerStyle& s) {
   freeStyleMiniData(s);
   // An earlier style owns any shared interval table.
-  if (!s.intervalsShared) {
-    psramDeleteArray(s.fullIntervals);
-    psramDeleteArray(s.bmpIntervals);
-  }
-  s.fullIntervals = nullptr;
-  s.bmpIntervals = nullptr;
-  s.intervalsShared = false;
-  s.intervalsAreBmp16 = false;
+  if (!s.intervals.shared) psramDeleteArray(s.intervals.entries);
+  s.intervals = {};
   freeStyleLigatures(s);
   psramDeleteArray(s.kernBlockIndex);
   s.kernBlockIndex = nullptr;
@@ -406,7 +405,7 @@ void SdCardFont::applyGlyphMissCallback(uint8_t styleIdx) {
 bool SdCardFont::onCoverageQuery(void* ctx, const uint32_t codepoint) {
   const auto* octx = static_cast<OverflowContext*>(ctx);
   const PerStyle& s = octx->self->styles_[octx->styleIdx];
-  if (!s.fullIntervals && !s.bmpIntervals) return false;  // coverage index freed/never loaded
+  if (!s.intervals.entries) return false;  // coverage index freed/never loaded
   return octx->self->findGlobalGlyphIndex(s, codepoint) >= 0;
 }
 
@@ -465,131 +464,69 @@ bool SdCardFont::load(const char* path) {
   styleCount_ = font.style_count;
   contentHash_ = font.content_hash;
 
-  // Load full intervals into RAM for each present style. BMP-only fonts with
-  // fewer than 65536 glyphs use a compact 6-byte interval table instead of the
-  // on-disk 12-byte table; large sparse CJK subsets otherwise keep tens of KB
-  // of always-resident heap just for lookup metadata.
+  // Per present style: its interval table (see PerStyle::intervals), then its kern block index.
   for (uint8_t i = 0; i < MAX_STYLES; i++) {
     auto& s = styles_[i];
     if (!s.toc.present) continue;
 
-    if (!file.seekSet(s.toc.intervals_offset)) {
-      LOG_ERR("SDCF", "Failed to seek to intervals for style %u", i);
-      freeAll();
-      return false;
-    }
-
-    // Validate interval contents before any later code (findGlobalGlyphIndex,
-    // glyph reads) trusts them. A malformed file could otherwise drive
-    // out-of-range glyph indices into bogus on-disk reads.
-    bb_cpfont_intervals check{};
-    bb_cpfont_intervals_init(&check, s.toc.glyph_count);
-    EpdUnicodeInterval iv{};
-
-    // Regular/bold/italic weights of the same family almost always cover the identical codepoint
-    // set, so a later style's table is usually a byte-for-byte copy of an earlier one's. Sharing
-    // it saves a full table per style, which on a broad CJK font is tens of KB, and saves the
-    // PEAK rather than just the residency: allocating first and de-duplicating afterwards still
-    // needs both tables at once, and that peak is what fails on a tight heap.
-    // The decision rides along with the validation read below -- every record is already being
-    // read here -- so it costs no second pass over the table and no buffer to hold one.
-    // A style stays a candidate only while its table has matched every record so far.
-    uint8_t shareCandidates = 0;
+    // Validated before any later code (findGlobalGlyphIndex, glyph reads) trusts it: a malformed
+    // file could otherwise drive out-of-range glyph indices into bogus on-disk reads.
+    const bb_cpfont_interval_table* earlier[MAX_STYLES] = {};
     for (uint8_t k = 0; k < i; k++) {
-      const auto& owner = styles_[k];
-      if (!owner.toc.present || owner.toc.interval_count != s.toc.interval_count) continue;
-      if (!owner.bmpIntervals && !owner.fullIntervals) continue;
-      shareCandidates |= static_cast<uint8_t>(1u << k);
+      if (styles_[k].toc.present) earlier[k] = &styles_[k].intervals;
     }
-    for (uint32_t j = 0; j < s.toc.interval_count; ++j) {
-      if (file.read(reinterpret_cast<uint8_t*>(&iv), sizeof(iv)) != sizeof(iv)) {
-        LOG_ERR("SDCF", "Failed to read interval %u for style %u", j, i);
+    const auto reserve = [](void*, const size_t bytes) { return psramNewArray<uint8_t>(bytes); };
+    bb_cpfont_interval_load loaded{};
+    switch (bb_cpfont_load_intervals(&source, &s.toc, earlier, i, &s.intervals, reserve, nullptr, &loaded)) {
+      case 0:
+        break;
+      case BB_CPFONT_INTERVALS_SEEK:
+        LOG_ERR("SDCF", "Failed to seek to intervals for style %u", i);
         freeAll();
         return false;
-      }
-      bb_cpfont_interval_fault fault{};
-      if (!bb_cpfont_intervals_check(&check, iv.first, iv.last, iv.offset, &fault)) {
-        if (fault.reversed) {
-          LOG_ERR("SDCF", "Style %u: invalid interval %u (first 0x%lX > last 0x%lX)", i, j,
-                  static_cast<unsigned long>(iv.first), static_cast<unsigned long>(iv.last));
+      case BB_CPFONT_INTERVALS_READ:
+        LOG_ERR("SDCF", "Failed to read interval %u for style %u", loaded.record, i);
+        freeAll();
+        return false;
+      case BB_CPFONT_INTERVALS_INVALID:
+        if (loaded.fault.reversed) {
+          LOG_ERR("SDCF", "Style %u: invalid interval %u (first 0x%lX > last 0x%lX)", i, loaded.record,
+                  static_cast<unsigned long>(loaded.first), static_cast<unsigned long>(loaded.last));
         } else {
-          LOG_ERR("SDCF", "Style %u: invalid interval layout at %u (overlap=%d span=%u offMis=%d offOver=%d)", i, j,
-                  fault.overlaps, fault.span, fault.offset_mismatch, fault.offset_overruns);
+          LOG_ERR("SDCF", "Style %u: invalid interval layout at %u (overlap=%d span=%u offMis=%d offOver=%d)", i,
+                  loaded.record, loaded.fault.overlaps, loaded.fault.span, loaded.fault.offset_mismatch,
+                  loaded.fault.offset_overruns);
         }
         file.close();
         freeAll();
         return false;
-      }
-      for (uint8_t k = 0; k < i && shareCandidates != 0; k++) {
-        if ((shareCandidates & (1u << k)) == 0) continue;
-        const auto& owner = styles_[k];
-        // Compared by value, so an above-BMP record never equals a compact one and drops out here.
-        const bool same = owner.intervalsAreBmp16
-                              ? (owner.bmpIntervals[j].first == iv.first && owner.bmpIntervals[j].last == iv.last &&
-                                 owner.bmpIntervals[j].offset == iv.offset)
-                              : (owner.fullIntervals[j].first == iv.first && owner.fullIntervals[j].last == iv.last &&
-                                 owner.fullIntervals[j].offset == iv.offset);
-        if (!same) shareCandidates &= static_cast<uint8_t>(~(1u << k));
-      }
-    }
-    const bool canUseBmp16 = bb_cpfont_intervals_bmp16(&check);
-
-    // Survived every record: alias the earlier style's table instead of allocating a copy.
-    // freeStyleAll() releases the table through its owning style.
-    for (uint8_t k = 0; k < i && shareCandidates != 0; k++) {
-      if ((shareCandidates & (1u << k)) == 0) continue;
-      auto& owner = styles_[k];
-      // Identical content can still be held in the other resident form when the two styles
-      // disagree on glyph count; aliasing across forms would misread the table.
-      if (owner.intervalsAreBmp16 != canUseBmp16) continue;
-      s.bmpIntervals = owner.bmpIntervals;
-      s.fullIntervals = owner.fullIntervals;
-      s.intervalsAreBmp16 = owner.intervalsAreBmp16;
-      s.intervalsShared = true;
-      LOG_DBG("SDCF", "Style %u: sharing style %u's %u-interval table (%u B not allocated)", i, k, s.toc.interval_count,
-              s.toc.interval_count * (canUseBmp16 ? 6u : static_cast<uint32_t>(sizeof(EpdUnicodeInterval))));
-      break;
-    }
-
-    // Only the allocate-and-read path below needs the records again; a shared style is done.
-    if (!s.intervalsShared && !file.seekSet(s.toc.intervals_offset)) {
-      LOG_ERR("SDCF", "Failed to seek back to intervals for style %u", i);
-      freeAll();
-      return false;
-    }
-
-    if (s.intervalsShared) {
-      // Aliased above; fall through to the stub/metadata setup without touching the table.
-    } else if (canUseBmp16) {
-      s.bmpIntervals = psramNewArray<PerStyle::BmpInterval16>(s.toc.interval_count);
-      if (!s.bmpIntervals) {
-        LOG_ERR("SDCF", "Failed to allocate compact intervals for style %u", i);
+      case BB_CPFONT_INTERVALS_SEEK_BACK:
+        LOG_ERR("SDCF", "Failed to seek back to intervals for style %u", i);
         freeAll();
         return false;
-      }
-      for (uint32_t j = 0; j < s.toc.interval_count; ++j) {
-        if (file.read(reinterpret_cast<uint8_t*>(&iv), sizeof(iv)) != sizeof(iv)) {
-          LOG_ERR("SDCF", "Failed to read compact interval %u for style %u", j, i);
-          freeAll();
-          return false;
+      case BB_CPFONT_INTERVALS_RESERVE:
+        if (loaded.compact) {
+          LOG_ERR("SDCF", "Failed to allocate compact intervals for style %u", i);
+        } else {
+          LOG_ERR("SDCF", "Failed to allocate %u intervals for style %u", s.toc.interval_count, i);
         }
-        s.bmpIntervals[j] = {static_cast<uint16_t>(iv.first), static_cast<uint16_t>(iv.last),
-                             static_cast<uint16_t>(iv.offset)};
-      }
-      s.intervalsAreBmp16 = true;
-    } else {
-      s.fullIntervals = psramNewArray<EpdUnicodeInterval>(s.toc.interval_count);
-      if (!s.fullIntervals) {
-        LOG_ERR("SDCF", "Failed to allocate %u intervals for style %u", s.toc.interval_count, i);
         freeAll();
         return false;
-      }
-      size_t intervalsBytes = s.toc.interval_count * sizeof(EpdUnicodeInterval);
-      if (file.read(reinterpret_cast<uint8_t*>(s.fullIntervals), intervalsBytes) != static_cast<int>(intervalsBytes)) {
+      case BB_CPFONT_INTERVALS_COMPACT_READ:
+        LOG_ERR("SDCF", "Failed to read compact interval %u for style %u", loaded.record, i);
+        freeAll();
+        return false;
+      case BB_CPFONT_INTERVALS_FULL_READ:
         LOG_ERR("SDCF", "Failed to read intervals for style %u", i);
         freeAll();
         return false;
-      }
+      default:
+        freeAll();
+        return false;
+    }
+    if (s.intervals.shared) {
+      LOG_DBG("SDCF", "Style %u: sharing style %u's %u-interval table (%u B not allocated)", i, loaded.owner,
+              s.toc.interval_count, loaded.bytes);
     }
 
     if (s.toc.kern_left_entries > 0 && s.toc.kern_right_entries > 0) {
@@ -625,22 +562,7 @@ bool SdCardFont::load(const char* path) {
 // --- Codepoint lookup ---
 
 int32_t SdCardFont::findGlobalGlyphIndex(const PerStyle& s, uint32_t codepoint) const {
-  int left = 0;
-  int right = static_cast<int>(s.toc.interval_count) - 1;
-  while (left <= right) {
-    int mid = left + (right - left) / 2;
-    const uint32_t first = s.intervalsAreBmp16 ? s.bmpIntervals[mid].first : s.fullIntervals[mid].first;
-    const uint32_t last = s.intervalsAreBmp16 ? s.bmpIntervals[mid].last : s.fullIntervals[mid].last;
-    if (codepoint < first) {
-      right = mid - 1;
-    } else if (codepoint > last) {
-      left = mid + 1;
-    } else {
-      const uint32_t offset = s.intervalsAreBmp16 ? s.bmpIntervals[mid].offset : s.fullIntervals[mid].offset;
-      return static_cast<int32_t>(offset + (codepoint - first));
-    }
-  }
-  return -1;
+  return bb_cpfont_find_glyph(&s.intervals, codepoint);
 }
 
 // --- Prewarm ---
@@ -1585,7 +1507,7 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
 
   if (!self->loaded_ || styleIdx >= MAX_STYLES || !self->styles_[styleIdx].toc.present) return nullptr;
   const auto& s = self->styles_[styleIdx];
-  if (!s.fullIntervals && !s.bmpIntervals) return nullptr;
+  if (!s.intervals.entries) return nullptr;
 
   // Check overflow cache first (matching both codepoint and style)
   for (uint32_t i = 0; i < self->overflowCount_; i++) {

@@ -7,6 +7,8 @@
 
 inline std::vector<uint8_t> sdFontTestFile;
 inline size_t sdFontTestReads = 0;
+// When not 0, read number sdFontTestFailRead (counting from 1 after it is set) returns nothing.
+inline size_t sdFontTestFailRead = 0;
 
 struct SdFontTestEsp {
   size_t largestBlock = 200 * 1024;
@@ -23,6 +25,7 @@ class HalFile {
     return opened_ && position <= sdFontTestFile.size();
   }
   int read(void* output, size_t count) {
+    if (sdFontTestFailRead != 0 && --sdFontTestFailRead == 0) return 0;
     if (!opened_ || position_ > sdFontTestFile.size()) return 0;
     count = std::min(count, sdFontTestFile.size() - position_);
     std::memcpy(output, sdFontTestFile.data() + position_, count);

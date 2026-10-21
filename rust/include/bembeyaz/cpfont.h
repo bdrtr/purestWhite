@@ -77,11 +77,6 @@ typedef struct {
 // Returns 0, a BB_CPFONT_* reason (header keeps what was read so far) or -1 for a NULL argument.
 int bb_cpfont_read_header(bb_cpfont_header* header, bb_cpfont_file* file);
 
-// Checks a style's interval table record by record. Set up by bb_cpfont_intervals_init.
-typedef struct {
-  uint32_t opaque[4];
-} bb_cpfont_intervals;
-
 // How an interval breaks the table's layout.
 typedef struct {
   // first > last; the other fields are false and 0.
@@ -93,15 +88,6 @@ typedef struct {
   // Codepoints in the interval (wrapping).
   uint32_t span;
 } bb_cpfont_interval_fault;
-
-// Starts checking the intervals of a style with glyph_count glyphs.
-void bb_cpfont_intervals_init(bb_cpfont_intervals* check, uint32_t glyph_count);
-// Checks the next interval: sorted, not overlapping the last, starting where the last one's glyphs
-// ended, inside the glyphs. False, with fault set when not NULL, when it does not.
-bool bb_cpfont_intervals_check(bb_cpfont_intervals* check, uint32_t first, uint32_t last, uint32_t offset,
-                               bb_cpfont_interval_fault* fault);
-// Every interval checked so far fits the compact 16-bit table.
-bool bb_cpfont_intervals_bmp16(const bb_cpfont_intervals* check);
 
 // Why bb_cpfont_build_mini_kern fails.
 enum {
@@ -209,6 +195,68 @@ enum {
 int bb_cpfont_read_bitmaps(bb_cpfont_file* file, const bb_cpfont_style* style, bb_cpfont_glyph* glyphs,
                            size_t glyph_count, const uint32_t* order, size_t count, uint8_t* arena, size_t arena_len,
                            uint32_t* seeks);
+
+// A style's interval table: bembeyaz-font's records (read them through bb_cpfont_find_glyph) in
+// memory the caller owns.
+typedef struct {
+  // NULL when not loaded.
+  uint8_t* entries;
+  uint32_t count;
+  bool compact;
+  // entries belong to an earlier style's table.
+  bool shared;
+} bb_cpfont_interval_table;
+
+// Why bb_cpfont_load_intervals fails.
+enum {
+  // The table's start could not be reached.
+  BB_CPFONT_INTERVALS_SEEK = 1,
+  // Record result.record could not be read while checking.
+  BB_CPFONT_INTERVALS_READ = 2,
+  // Record result.record, result.first..result.last, breaks the layout as result.fault says.
+  BB_CPFONT_INTERVALS_INVALID = 3,
+  // The table's start could not be reached again.
+  BB_CPFONT_INTERVALS_SEEK_BACK = 4,
+  // reserve gave no memory for result.bytes bytes of form result.compact.
+  BB_CPFONT_INTERVALS_RESERVE = 5,
+  // Record result.record could not be read into the compact table. *table holds the reserved
+  // memory, for the caller to free.
+  BB_CPFONT_INTERVALS_COMPACT_READ = 6,
+  // The records could not be read into the full table; *table holds the memory as above.
+  BB_CPFONT_INTERVALS_FULL_READ = 7,
+};
+
+typedef struct {
+  uint32_t record;
+  uint32_t first;
+  uint32_t last;
+  // The table's size, allocated or shared.
+  uint32_t bytes;
+  bb_cpfont_interval_fault fault;
+  // The earlier style whose table was shared (its position in earlier), or 255.
+  uint8_t owner;
+  bool compact;
+} bb_cpfont_interval_load;
+
+// Loads style's interval table from file into *table. Every record is checked first, and compared
+// with the earlier styles' tables of the same length (earlier: earlier_count pointers, NULL for an
+// absent style; at most BB_CPFONT_MAX_STYLES are looked at); one that matched every record and has
+// the same form is shared. Otherwise reserve(context, bytes) is asked for the table, compact when
+// every value and the glyph count fit 16 bits; it returns that much memory (not NULL even for 0
+// bytes) or NULL when it cannot. The records are then read again into it: one read per record for
+// a compact table, one read for all of them otherwise. Returns 0 with *table, result->owner (255
+// when not shared), result->bytes and result->compact set, or a BB_CPFONT_INTERVALS_* reason with
+// *result filled as the reason says and *table untouched unless the reason says otherwise.
+// Returns -1, without writing *table or *result, for a NULL file, style, table, reserve or result,
+// or a NULL earlier with a count.
+int bb_cpfont_load_intervals(bb_cpfont_file* file, const bb_cpfont_style* style,
+                             const bb_cpfont_interval_table* const* earlier, size_t earlier_count,
+                             bb_cpfont_interval_table* table, uint8_t* (*reserve)(void* context, size_t bytes),
+                             void* context, bb_cpfont_interval_load* result);
+
+// The glyph index of codepoint in table, or -1 when it is not covered or table is NULL or not
+// loaded.
+int32_t bb_cpfont_find_glyph(const bb_cpfont_interval_table* table, uint32_t codepoint);
 
 #ifdef __cplusplus
 }
