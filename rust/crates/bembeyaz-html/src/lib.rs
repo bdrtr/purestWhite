@@ -6,9 +6,13 @@
 //! Each entry is a name of at most 8 bytes and a UTF-8 value of at most 3, both zero-padded: 12
 //! bytes with no pointers, and every value is followed by a NUL for the C++ API that returns it as
 //! a C string.
+//!
+//! [`text`] turns a plain text book into an XHTML body.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
+
+pub mod text;
 
 /// An entity's value.
 #[derive(Clone, Copy)]

@@ -742,3 +742,16 @@ aynıydı.
   listelenmeli.
 - [ ] Home'daki son okunanlar rafındaki başlıklar eskisi gibi görünmeli.
 - [ ] Kütüphaneyi açıp kapatın, sonra yeniden açın: ikinci açılışta dizin yeniden kurulmamalı.
+
+## TXT ve Markdown kitaplarını dönüştürmek Rust'ta ("rust: our own text to XHTML")
+
+TXT ve Markdown kitaplarının metnini okunabilir sayfaya çeviren kısım (satır sonları, satır başı
+girintileri, boşluklar, `&`, `<`, `>` kaçışları, bayt sırası işareti) artık `bembeyaz-html`'in
+`text` modülünde. TXT dönüştürme testleri dahil 912 host testi geçiyor. Geliştirme sırasında bir fark
+testi eski C++ kodunu Rust koduyla 100.000 rastgele metinde, rastgele okuma parçalarıyla karşılaştırdı:
+sonuçlar aynıydı. Emülatörde girintili, Türkçe karakterli bir TXT kitabı değiştirilmemiş CrossPoint'le
+aynı sayfaları verdi.
+
+- [ ] Bir `.txt` ve bir `.md` kitap açın (daha önce açtıysanız kitap açıkken okuma menüsünden Delete
+  Book Cache / Kitap Önbelleğini Sil; cihaz Ana ekrana döner, kitabı yeniden açın):
+  satır başı girintileri, boş satırlar ve Türkçe karakterler eskisi gibi görünmeli.

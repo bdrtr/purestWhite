@@ -3,6 +3,7 @@
 #include <FsHelpers.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <bembeyaz/html.h>
 
 #include <algorithm>
 #include <cstring>
@@ -61,61 +62,16 @@ bool TxtToHtml::stream(std::string_view filename, void* readerCtx, int (*readFn)
   }
   writeStr("</title></head>\n<body>\n");
 
-  bool isStart = true;
-  bool atLineStart = true;
-  size_t pendingSpaces = 0;
+  // The body is converted by rust/crates/bembeyaz-html's text module.
+  bb_text_html state;
+  bb_text_html_init(&state);
+  const auto write = [](void* context, const uint8_t* data, const size_t len) {
+    auto& writeBytes = *static_cast<decltype(writeStr)*>(context);
+    writeBytes(std::string_view(reinterpret_cast<const char*>(data), len));
+  };
   int bytesRead = 0;
-
   while ((bytesRead = readFn(readerCtx, inBuf.get(), IN_BUF_SIZE)) > 0) {
-    int startIdx = 0;
-    if (isStart) {
-      isStart = false;
-      if (bytesRead >= 3 && inBuf[0] == 0xEF && inBuf[1] == 0xBB && inBuf[2] == 0xBF) {
-        startIdx = 3;
-      }
-    }
-
-    for (int i = startIdx; i < bytesRead; i++) {
-      uint8_t b = inBuf[i];
-      if (b == '\r') continue;
-
-      if (b == '\n') {
-        pendingSpaces = 0;
-        writeStr("<br />");
-        atLineStart = true;
-        continue;
-      }
-
-      if (b == ' ') {
-        if (atLineStart) {
-          writeStr("&#160;");
-        } else {
-          pendingSpaces++;
-        }
-        continue;
-      }
-
-      if (pendingSpaces > 0) {
-        for (size_t s = 0; s < pendingSpaces - 1; s++) {
-          writeStr("&#160;");
-        }
-        writeByte(' ');
-        pendingSpaces = 0;
-      }
-      atLineStart = false;
-
-      if (b == '&') {
-        writeStr("&amp;");
-      } else if (b == '<') {
-        writeStr("&lt;");
-      } else if (b == '>') {
-        writeStr("&gt;");
-      } else if (b < 0x20 && b != '\t') {
-        writeByte(' ');
-      } else {
-        writeByte(b);
-      }
-    }
+    bb_text_html_feed(&state, inBuf.get(), static_cast<size_t>(bytesRead), write, &writeStr);
   }
 
   if (bytesRead < 0) {
