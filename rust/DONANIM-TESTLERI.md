@@ -652,3 +652,13 @@ ile üretilen 1 ve 2 bitlik iki kitapta değiştirilmemiş CrossPoint'le aynı e
   bir bölüme atlayınca doğru sayfa açılmalı.
 - [ ] Daha önce açılmamış (ya da önbelleği silinmiş) bir XTC kitabının Home'daki kapak küçük resmi
   (kitabın ilk sayfasından üretilir) eskisi gibi görünmeli.
+
+## XTC bölüm listesi için ön ayırma sınırlı ("xtc: bound the chapter list reservation")
+
+Bölüm tablosu dosyanın sonuna kadar uzanan (sayfa tablosu ve sayfa verisi bölümlerden önce gelen)
+bir XTC kitabında bölüm listesi, tablonun alabileceği her kayıt için önceden yer ayırıyordu; büyük
+bir dosyada bu megabaytlarca bellek demekti ve ayırma başarısız olunca cihaz çökerdi. Artık en çok 256 bölümlük
+yer önceden ayrılıyor, liste gerektikçe büyüyor. `test/xtc_parser`'daki yeni test bunu doğruluyor.
+
+- [ ] 256'dan fazla bölümü olan bir XTC ya da XTCH kitabında bölüm listesi eskisi gibi açılmalı,
+  son bölümler de görünmeli.

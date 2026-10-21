@@ -262,6 +262,24 @@ TEST(XtcParser, ChaptersAreOneBasedAndClamped) {
   EXPECT_EQ(read[1].endPage, 3);
 }
 
+TEST(XtcParser, AChapterTableToTheFileEndReservesLittle) {
+  // Page table and data offsets at the chapter table, so its room runs to the end of the file:
+  // thousands of records.
+  auto data = makeBook({{8, 1, 0}}, false, "", "", {{"One", 1, 1}, {"Two", 1, 1}});
+  const uint64_t chapterOffset = data[0x30] | (data[0x31] << 8);
+  put(data, 0x18, chapterOffset, 8);
+  put(data, 0x20, chapterOffset, 8);
+  data.resize(data.size() + 400 * 1024, 0);
+  XtcParser parser;
+  ASSERT_EQ(openBook(parser, data), XtcError::OK);
+  const auto& read = parser.getChapters();
+  ASSERT_GE(read.size(), 2u);
+  EXPECT_EQ(read[0].name, "One");
+  EXPECT_EQ(read[1].name, "Two");
+  // Far below the table's room of about 4,270 records.
+  EXPECT_LE(read.capacity(), 1024u);
+}
+
 TEST(XtcParser, ChapterNamesStopAt80Bytes) {
   XtcParser parser;
   ASSERT_EQ(openBook(parser, makeBook({{8, 1, 0}}, false, "", "", {{std::string(90, 'n'), 0, 0}})), XtcError::OK);

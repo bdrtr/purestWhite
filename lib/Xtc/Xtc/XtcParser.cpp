@@ -10,9 +10,14 @@
 #include <HalStorage.h>
 #include <Logging.h>
 
+#include <algorithm>
 #include <cstddef>
 
 namespace xtc {
+
+namespace {
+constexpr size_t MAX_RESERVED_CHAPTERS = 256;
+}  // namespace
 
 // Checked against Book in rust/crates/bembeyaz-ffi/src/xtc.rs too.
 static_assert(sizeof(bb_xtc) == 216 && offsetof(bb_xtc, page_count) == 16 && offsetof(bb_xtc, title) == 26 &&
@@ -115,8 +120,10 @@ XtcError XtcParser::readChapters() {
   const auto add = [](void* context, const char* name, const size_t len, const uint16_t first, const uint16_t last) {
     static_cast<std::vector<ChapterInfo>*>(context)->push_back(ChapterInfo{std::string(name, len), first, last});
   };
+  // The record count is only an upper bound: a chapter table that runs to the end of a large file
+  // would otherwise reserve megabytes, and a failed reserve aborts.
   const auto reserve = [](void* context, const size_t records) {
-    static_cast<std::vector<ChapterInfo>*>(context)->reserve(records);
+    static_cast<std::vector<ChapterInfo>*>(context)->reserve(std::min<size_t>(records, MAX_RESERVED_CHAPTERS));
   };
   const bb_xtc_file source = file();
   bool listed = false;
