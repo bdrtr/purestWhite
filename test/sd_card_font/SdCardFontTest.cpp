@@ -528,3 +528,89 @@ TEST(SdCardFontTest, SmallCapsPrepareOriginalAndUppercasePackedMetricsWithoutBit
     EXPECT_EQ(sdFontTestReads, 0u);
   }
 }
+
+namespace {
+// Where makeKerningFont() puts the class tables: left, then right, three bytes per entry.
+constexpr size_t KERN_TABLES = 64 + 24 + 7 * sizeof(EpdGlyph);
+
+void putKernEntry(size_t at, uint16_t codepoint, uint8_t classId) {
+  put16(at, codepoint);
+  sdFontTestFile[at + 2] = classId;
+}
+
+// Glyphs without bitmaps, so the file can end anywhere after the kern and ligature data.
+void dropBitmaps() {
+  for (uint32_t i = 0; i < 7; ++i) put16(64 + 24 + i * sizeof(EpdGlyph) + offsetof(EpdGlyph, dataLength), 0);
+}
+}  // namespace
+
+TEST(SdCardFontTest, AnUnsortedClassTableKernsOnlyWhatTheForwardScanFinds) {
+  makeKerningFont();
+  putKernEntry(KERN_TABLES, 'C', 2);  // left table: C before A
+  putKernEntry(KERN_TABLES + 3, 'A', 1);
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  ASSERT_EQ(0, font.prewarm("ABCD", 1, false, true, false));
+  EXPECT_EQ(0, font.getEpdFont()->getKerning('A', 'B'));
+  EXPECT_EQ(-5, font.getEpdFont()->getKerning('C', 'D'));
+  // With the block index filled in, the table's last codepoint (A) ends the search before C.
+  font.releaseResidentCaches();
+  ASSERT_EQ(0, font.prewarm("ABCD", 1, false, true, false));
+  EXPECT_EQ(0, font.getEpdFont()->getKerning('A', 'B'));
+  EXPECT_EQ(0, font.getEpdFont()->getKerning('C', 'D'));
+}
+
+TEST(SdCardFontTest, ARepeatedClassEntryTakesTheLaterClass) {
+  makeKerningFont();
+  putKernEntry(KERN_TABLES, 'A', 1);
+  putKernEntry(KERN_TABLES + 3, 'A', 2);  // replaces C's entry
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  ASSERT_EQ(0, font.prewarm("ABCD", 1, false, true, false));
+  EXPECT_EQ(4, font.getEpdFont()->getKerning('A', 'B'));
+  EXPECT_EQ(-5, font.getEpdFont()->getKerning('A', 'D'));
+  EXPECT_EQ(0, font.getEpdFont()->getKerning('C', 'D'));
+}
+
+TEST(SdCardFontTest, CodepointsAboveTheBmpNeverMatchAKernClass) {
+  makeKerningFont();
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  // U+10042 shares its low 16 bits with B.
+  ASSERT_EQ(1, font.prewarm("AB\xF0\x90\x81\x82", 1, false, true, false));
+  EXPECT_EQ(-3, font.getEpdFont()->getKerning('A', 'B'));
+  EXPECT_EQ(0, font.getEpdFont()->getKerning('A', 0x10042));
+}
+
+TEST(SdCardFontTest, AClassTableCutShortKernsAsNone) {
+  makeKerningFont();
+  dropBitmaps();
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  sdFontTestFile.resize(KERN_TABLES + 4);  // inside the left table's second entry
+  ASSERT_EQ(0, font.prewarm("ABCDEF", 1, false, true, false));
+  EXPECT_EQ(0, font.getEpdFont()->getKerning('A', 'B'));
+  EXPECT_EQ(0, font.getEpdFont()->getKerning('C', 'D'));
+}
+
+TEST(SdCardFontTest, AKernRowPastTheEndKernsAsNone) {
+  makeKerningFont();
+  dropBitmaps();
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  sdFontTestFile.resize(KERN_TABLES + 12 + 3);  // the matrix's second row is cut
+  ASSERT_EQ(0, font.prewarm("ABCD", 1, false, true, false));
+  EXPECT_EQ(0, font.getEpdFont()->getKerning('A', 'B'));
+  EXPECT_EQ(0, font.getEpdFont()->getKerning('C', 'D'));
+}
+
+TEST(SdCardFontTest, ALigatureTableCutShortLeavesNoLigaturesOrKerning) {
+  makeKerningFont(0, 2, 2, true);
+  dropBitmaps();
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  sdFontTestFile.resize(KERN_TABLES + 12 + 4 + 5);  // inside the one ligature pair
+  ASSERT_EQ(0, font.prewarm("ABCDEF", 1, false, true, false));
+  EXPECT_EQ(0u, font.getEpdFont()->getLigature('E', 'F'));
+  EXPECT_EQ(0, font.getEpdFont()->getKerning('A', 'B'));
+}
