@@ -636,3 +636,58 @@ TEST(SdCardFontTest, AGlyphWhoseBitmapIsShorterThanItsSizeIsDrawnBlank) {
     EXPECT_EQ(32 << 4, glyph->advanceX) << cp;
   }
 }
+
+namespace {
+constexpr size_t GLYPH_TABLE = 64 + 24;  // makeFont(): one style, two intervals
+}  // namespace
+
+TEST(SdCardFontTest, AGlyphTableCutShortFailsThePrewarm) {
+  makeFont(8);
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  sdFontTestFile.resize(GLYPH_TABLE + 3 * sizeof(EpdGlyph) + 5);  // inside the fourth record
+  // The four page glyphs and U+FFFD all count as missed.
+  EXPECT_EQ(5, font.prewarm(page(FIRST, 4).c_str(), 1, false, true, false));
+  // The records before the cut load one at a time, but their bitmaps are past it too.
+  EXPECT_EQ(nullptr, font.getEpdFont()->getGlyph(FIRST + 1));
+}
+
+TEST(SdCardFontTest, ABitmapCutShortFailsThePrewarmAndTheMiss) {
+  makeFont(8);
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  // Bitmaps are stored in reverse glyph order: the first glyph's is last and loses its end.
+  sdFontTestFile.resize(sdFontTestFile.size() - 10);
+  EXPECT_EQ(3, font.prewarm(page(FIRST, 2).c_str(), 1, false, true, false));
+  const EpdFont* epd = font.getEpdFont();
+  const EpdGlyph* replacement = epd->getGlyph(0xFFFD);
+  ASSERT_NE(nullptr, replacement);
+  EXPECT_EQ(replacement, epd->getGlyph(FIRST));  // its own bitmap cannot be read
+  const EpdGlyph* second = epd->getGlyph(FIRST + 1);
+  ASSERT_NE(nullptr, second);
+  EXPECT_NE(replacement, second);
+  EXPECT_EQ(BITMAP_BYTES, second->dataLength);
+}
+
+TEST(SdCardFontTest, AdvancesStopAtACutGlyphTable) {
+  makeFont(8);
+  for (uint32_t i = 0; i < 8; ++i)
+    put16(GLYPH_TABLE + i * sizeof(EpdGlyph) + offsetof(EpdGlyph, advanceX), (20 + i) << 4);
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  sdFontTestFile.resize(GLYPH_TABLE + 5 * sizeof(EpdGlyph) + 1);
+  ASSERT_EQ(0, font.buildAdvanceTable(page(FIRST, 7).c_str(), 1));
+  for (uint32_t i = 0; i < 7; ++i) EXPECT_EQ(i < 5 ? (20 + i) << 4 : 0, font.getAdvance(FIRST + i, 0)) << i;
+}
+
+TEST(SdCardFontTest, AGlyphCutShortIsNotLoadedOnDemand) {
+  makeFont(8);
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  sdFontTestFile.resize(GLYPH_TABLE + 5 * sizeof(EpdGlyph) + 8);  // inside the sixth record
+  for (int attempt = 0; attempt < 2; ++attempt) {                 // a failed miss is not cached
+    sdFontTestReads = 0;
+    EXPECT_EQ(nullptr, font.getEpdFont()->getGlyph(FIRST + 5));
+    EXPECT_EQ(1U, sdFontTestReads);  // U+FFFD's record is past the end: its seek fails
+  }
+}
