@@ -7,6 +7,8 @@
 //! 12-byte intervals, 16-byte glyphs, 3-byte left then right kern class entries, the class matrix,
 //! 8-byte ligature pairs and the bitmaps, in that order. Offsets are 32-bit and wrap.
 
+use crate::Source;
+
 pub const HEADER_SIZE: usize = 32;
 pub const TOC_ENTRY_SIZE: usize = 32;
 pub const INTERVAL_SIZE: u32 = 12;
@@ -17,7 +19,7 @@ const MAX_INTERVALS: u32 = 4096;
 const MAX_GLYPHS: u32 = 65536;
 const MAX_KERN_ENTRIES: u16 = 4096;
 const GLYPH_SIZE: u32 = 16;
-const KERN_ENTRY_SIZE: u32 = 3;
+pub(crate) const KERN_ENTRY_SIZE: u32 = 3;
 const LIGATURE_SIZE: u32 = 8;
 
 fn u16_at(b: &[u8], at: usize) -> u16 {
@@ -97,20 +99,17 @@ pub struct Header {
     pub failed_entry: u8,
 }
 
-/// Reads the header and the table of contents into `header`, one block per `read` call (fills its
-/// buffer and returns how many bytes it read), and lays out each style's sections.
+/// Reads the header and the table of contents into `header` from `file`'s current position, one
+/// read per 32-byte block, and lays out each style's sections.
 ///
 /// # Errors
 ///
 /// A short read, a wrong magic or version, a style count of 0 or more than [`MAX_STYLES`], a style
-/// id of [`MAX_STYLES`] or more, or counts no sane header has. `header` keeps what was read so far.
-pub fn read_header(
-    header: &mut Header,
-    mut read: impl FnMut(&mut [u8]) -> usize,
-) -> Result<(), Error> {
+/// id of [`MAX_STYLES`] or more, or counts no sane font has. `header` keeps what was read so far.
+pub fn read_header(header: &mut Header, file: &mut impl Source) -> Result<(), Error> {
     *header = Header::default();
     let mut b = [0u8; HEADER_SIZE];
-    if read(&mut b) != HEADER_SIZE {
+    if file.read(&mut b) != HEADER_SIZE {
         return Err(Error::HeaderEnded);
     }
     if b.get(..8) != Some(&MAGIC[..]) {
@@ -128,7 +127,7 @@ pub fn read_header(
     }
     for i in 0..header.style_count {
         let mut t = [0u8; TOC_ENTRY_SIZE];
-        if read(&mut t) != TOC_ENTRY_SIZE {
+        if file.read(&mut t) != TOC_ENTRY_SIZE {
             header.failed_entry = i;
             return Err(Error::TocEnded);
         }
@@ -271,22 +270,27 @@ mod tests {
     #![allow(clippy::indexing_slicing, clippy::unwrap_used)]
 
     use super::{Error, Header, IntervalCheck, MAX_STYLES, VERSION};
+    use crate::Source;
     use std::vec::Vec;
 
-    fn reader(bytes: &[u8]) -> impl FnMut(&mut [u8]) -> usize + '_ {
-        let mut at = 0;
-        move |buf: &mut [u8]| {
-            let n = buf.len().min(bytes.len() - at);
-            buf[..n].copy_from_slice(&bytes[at..at + n]);
-            at += n;
+    struct Reader<'a>(&'a [u8]);
+
+    impl Source for Reader<'_> {
+        fn read(&mut self, buf: &mut [u8]) -> usize {
+            let n = buf.len().min(self.0.len());
+            buf[..n].copy_from_slice(&self.0[..n]);
+            self.0 = &self.0[n..];
             n
+        }
+        fn seek(&mut self, _: u32) -> bool {
+            false
         }
     }
 
     #[allow(clippy::result_large_err)]
     fn read(bytes: &[u8]) -> Result<Header, (Error, Header)> {
         let mut font = Header::default();
-        match super::read_header(&mut font, reader(bytes)) {
+        match super::read_header(&mut font, &mut Reader(bytes)) {
             Ok(()) => Ok(font),
             Err(e) => Err((e, font)),
         }

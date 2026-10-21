@@ -778,3 +778,29 @@ değiştirilmemiş CrossPoint'le aynı göründü.
   `BOOK_CACHE_VERSION` artışı yüzünden bir kez yeniden kurulur.
 - [ ] Çince, Japonca ya da Korece bir SD fontu varsa onunla bir kitap açın: karakterler eskisi gibi
   görünmeli.
+
+## SD kart fontunun kerningi Rust'ta ("rust: our own .cpfont kern reader")
+
+Karttaki bir fontla okurken her sayfa için yalnızca o sayfanın harf çiftlerini içeren mini kerning
+matrisini kuran kısım (sınıf tablolarını 64 girdilik bloklar halinde okuma, sonraki sayfalarda
+gereksiz blokları atlayan blok dizini, sınıfları yeniden numaralama, matris satırlarını okuma) artık
+`bembeyaz-font`'un `kern` modülünde; dosyayı açıp okumak (okuma ve konumlama geri çağrıları),
+tablolar için bellek ayırmak, ligatür okuyucusu (tabloyu ayrıştırmadan kopyalar) ve glif
+okuyucuları C++'ta kaldı. Bozuk kerning ve ligatür verisi için altı yeni test (0bd8c048) dahil 926
+host testi geçiyor. Geliştirme sırasında bir fark testi eski C++ kodunu Rust koduyla 120.000
+üretilmiş durumda (rastgele, kimi bozuk, kesik ya da sırasız sınıf tabloları; bellek ayırma
+hataları) ve dört gerçek fontta 7.470 sayfada karşılaştırdı: sonuçlar, tablolar ve dosya okuma ve
+konumlama sırası aynıydı. Emülatörde SD fontuyla okunan sayfalar ve günlükteki kerning satırları
+değiştirilmemiş CrossPoint'le aynıydı.
+
+- [ ] Karttaki bir fontu okuma fontu olarak seçin (Liberation Serif `.cpfont`'u rust/README.md'deki
+  SD kart fontu komutuyla üretilebilir). Aynı sayfada "To"/"Ta" ile "Th", "AV"/"AT" ile "AN"
+  çiftlerini karşılaştırın: T'nin kolu o ve a'nın üstüne girmeli, A ile V birbirine yaklaşmalı; "Th"
+  ve "AN" normal aralıklı kalmalı, harfler üst üste binmemeli. Bunu kitabın ilk açılan sayfasında,
+  birkaç sayfa sonra ve geri dönünce; kalın ve italik bir yerde; Türkçe harfli ("Tü", "Yı") bir
+  sayfada yapın. Yazı boyutunu değiştirip geri dönün ve yeniden bakın.
+- [ ] Geliştirme derlemesiyle (`pio run -e x4pro`; yayın derlemeleri bu satırları yazmaz) seri
+  günlük açıkken (`pio device monitor`) bir bölümde birkaç sayfa ileri, sonra geri gidin:
+  sayfa çevirdikçe `[SDCF] Built mini kern: N×M matrix` satırları görünmeli; `Failed to read kern
+  classes`, `Failed to allocate mini kern`, `Failed to seek to kern row` ya da `Failed to read kern
+  row` görünmemeli.
