@@ -23,6 +23,8 @@ void utf8ComposeNfcInPlace(char* buffer) { bb_utf8_compose_nfc_in_place(buffer);
 
 uint32_t utf8NextCodepoint(const unsigned char** string) { return bb_utf8_next_codepoint(string); }
 
+uint32_t utf8SmallCapsUpper(const uint32_t cp) { return bb_utf8_small_caps_upper(cp); }
+
 void utf8AppendCodepoint(uint32_t cp, std::string& out) {
   char bytes[4];
   const char* end = utf8AppendCodepoint(bytes, cp);

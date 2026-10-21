@@ -161,3 +161,29 @@ TEST(Utf8ComposeNfcInPlace, PreservesMalformedAndTruncatedBytes) {
   utf8ComposeNfcInPlace(buffer);
   EXPECT_STREQ(buffer, "\xFF\xC3\xA9\xE1\x84");
 }
+
+namespace {
+// The C++ mapping bembeyaz-utf8's small_caps_upper replaced, kept to check it.
+uint32_t oldSmallCapsUpper(const uint32_t cp) {
+  if (cp >= 'a' && cp <= 'z') return cp - 0x20;
+  if (cp < 0xE0) return cp;
+  if (cp <= 0xFE) return cp == 0xF7 ? cp : cp - 0x20;  // Latin-1 (skips the division sign)
+  if (cp == 0xFF) return 0x178;
+  if (cp <= 0x17F) {
+    // Latin Extended-A pairs: lowercase on odd codepoints, except the two odd-aligned runs.
+    const bool oddAligned = (cp >= 0x139 && cp <= 0x148) || (cp >= 0x179 && cp <= 0x17E);
+    if (cp == 0x131 || cp == 0x138 || cp == 0x149 || cp == 0x17F) return cp;
+    return (cp % 2 == (oddAligned ? 0u : 1u)) ? cp - 1 : cp;
+  }
+  if (cp >= 0x3B1 && cp <= 0x3C9) return cp == 0x3C2 ? 0x3A3 : cp - 0x20;  // Greek (final sigma -> Sigma)
+  if (cp >= 0x430 && cp <= 0x44F) return cp - 0x20;                        // Cyrillic
+  if (cp >= 0x450 && cp <= 0x45F) return cp - 0x50;
+  return cp;
+}
+}  // namespace
+
+TEST(Utf8SmallCaps, MatchesTheReplacedMappingEverywhere) {
+  for (uint32_t cp = 0; cp <= 0x10FFFF; ++cp) {
+    ASSERT_EQ(oldSmallCapsUpper(cp), utf8SmallCapsUpper(cp)) << std::hex << cp;
+  }
+}

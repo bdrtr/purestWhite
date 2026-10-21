@@ -1,6 +1,7 @@
 //! Exports for lib/EpdFont's `SdCardFont` (see `rust/include/bembeyaz/cpfont.h`).
 
 use bembeyaz_font::Source;
+use bembeyaz_font::advance;
 use bembeyaz_font::cpfont::{self, Header, IntervalFault, Style};
 use bembeyaz_font::glyph::{self, Glyph};
 use bembeyaz_font::intervals;
@@ -754,4 +755,139 @@ pub unsafe extern "C" fn bb_cpfont_mini_codepoints(
 ) -> usize {
     // SAFETY: the caller's arrays.
     unsafe { page::mini_codepoints(view(mini, mini_count), view_mut(out, out_len)) }
+}
+
+// cpfont.h's bb_cpfont_advance.
+const _: () = {
+    use core::mem::offset_of;
+    assert!(size_of::<advance::Advance>() == 8 && offset_of!(advance::Advance, advance) == 4);
+};
+
+/// # Safety
+///
+/// `table` is null or holds `size` entries; `out` is null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_cpfont_find_advance(
+    table: *const advance::Advance,
+    size: usize,
+    codepoint: u32,
+    out: *mut u16,
+) -> bool {
+    // SAFETY: the caller's table.
+    let Some(found) = advance::find(unsafe { view(table, size) }, codepoint) else {
+        return false;
+    };
+    if !out.is_null() {
+        // SAFETY: the caller's writable advance.
+        unsafe { out.write(found) };
+    }
+    true
+}
+
+/// # Safety
+///
+/// `table` holds `capacity` writable entries, `entries` `count`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_cpfont_merge_advances(
+    table: *mut advance::Advance,
+    capacity: usize,
+    size: usize,
+    entries: *const advance::Advance,
+    count: usize,
+    limit: usize,
+) -> usize {
+    // The result never outgrows the table.
+    let limit = limit.min(capacity);
+    // SAFETY: the caller's arrays.
+    unsafe {
+        advance::merge(
+            view_mut(table, capacity),
+            size.min(capacity),
+            view(entries, count),
+            limit,
+        )
+    }
+}
+
+/// # Safety
+///
+/// `cached` holds `size` entries; `table` is null or a loaded table; `codepoints` and `out` hold
+/// `count` values; `missed` is null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_cpfont_plan_advances(
+    cached: *const advance::Advance,
+    size: usize,
+    table: *const IntervalTable,
+    codepoints: *const u32,
+    count: usize,
+    out: *mut page::Mapping,
+    missed: *mut u32,
+) -> usize {
+    // SAFETY: the caller's loaded table, if any; none covers nothing.
+    let table = (unsafe { table.as_ref() })
+        .and_then(|t| unsafe { t.view() })
+        .unwrap_or(intervals::Table {
+            entries: &[],
+            compact: false,
+        });
+    // SAFETY: the caller's arrays.
+    let (mapped, lacking) = unsafe {
+        advance::plan(
+            view(cached, size),
+            &table,
+            view(codepoints, count),
+            view_mut(out, count),
+        )
+    };
+    if !missed.is_null() {
+        // SAFETY: the caller's writable count.
+        unsafe { missed.write(lacking) };
+    }
+    mapped
+}
+
+/// # Safety
+///
+/// `segments` and `lengths` hold `segment_count` values, each segment that many bytes; `extra` is
+/// null or a C string; `out` holds `out_len` values; `cut` is null or writable.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn bb_cpfont_gather_advances(
+    segments: *const *const u8,
+    lengths: *const usize,
+    segment_count: usize,
+    extra: *const core::ffi::c_char,
+    max: usize,
+    small_caps: bool,
+    space: bool,
+    hyphen: bool,
+    out: *mut u32,
+    out_len: usize,
+    cut: *mut bool,
+) -> usize {
+    // SAFETY: the caller's arrays.
+    let (starts, lengths) =
+        unsafe { (view(segments, segment_count), view(lengths, segment_count)) };
+    // SAFETY: each segment holds its length in bytes.
+    let words = starts
+        .iter()
+        .zip(lengths)
+        .map(|(&start, &len)| unsafe { view(start, len) });
+    // SAFETY: the caller's C string, if any.
+    let extra = (!extra.is_null()).then(|| unsafe { core::ffi::CStr::from_ptr(extra) }.to_bytes());
+    let append: &[u32] = match (space, hyphen) {
+        (true, true) => &[0x20, 0x2D],
+        (true, false) => &[0x20],
+        (false, true) => &[0x2D],
+        (false, false) => &[],
+    };
+    // SAFETY: the caller's output.
+    let (count, was_cut) = advance::gather_words(words, extra, max, small_caps, append, unsafe {
+        view_mut(out, out_len)
+    });
+    if !cut.is_null() {
+        // SAFETY: the caller's writable flag.
+        unsafe { cut.write(was_cut) };
+    }
+    count
 }

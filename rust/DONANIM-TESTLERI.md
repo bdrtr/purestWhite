@@ -895,3 +895,29 @@ kısa bitmap'li font kartlarıyla ekranlar ve SD font günlük satırları önce
 - [ ] Yunanca kapsayan ve 12 pt boyutu olan bir SD ailesini (ör. Literata) okuma fontu seçip bölüm
   başlıkları Yunanca bir kitabın bölüm listesini açın ve aşağı kaydırın (liste, yerleşik fontta
   olmayan harfleri bu fontla çizer): satırlar eksiksiz görünmeli, boş kare çıkmamalı.
+
+## SD kart fontunun ilerleme genişliği tablosu Rust'ta ("rust: our own .cpfont advance table")
+
+Bölüm dizilirken her harfin genişliğini SD karttan tekrar tekrar okumamak için tutulan tablonun
+mantığı artık `bembeyaz-font`'un `advance` modülünde: sözcüklerden benzersiz kod noktalarının
+toplanması (küçük büyük harfli metinde harflerin büyük biçimleri, boşluk ve tire dahil), tabloda
+arama, fontta olmayan harflere U+FFFD'nin genişliğinin verilmesi ve sınırlı birleştirme. 4096 ve
+768 sınırları, tablonun belleği, büyütülmesi ve sıralamalar C++'ta kaldı. Küçük büyük harf eşlemesi
+(`utf8SmallCapsUpper`) de artık yalnızca Rust'ta; tüm Unicode aralığında eski C++ ile aynı olduğunu
+bir test denetliyor. Üç yeni pin testi (77ce50f5) ve bu eşleme testi dahil 943 host testi geçiyor.
+Geliştirme sırasında bir fark testi eski C++ kodunu Rust koduyla 20.000 üretilmiş fontta
+(paketlenmiş sözcükler, küçük büyük harfler, boşluk, tire, ek metin ve benzersiz kod noktası 4096'yı
+aşan metinlerle) toplam 160.248 adımda, ayrıca dört gerçek fontta karşılaştırdı: dönüş değerleri,
+glif ölçüleri, bitmap baytları, ilerleme genişlikleri ile dosyadaki okuma ve konumlama sırası
+aynıydı. Emülatörde ekranlar ve SD font günlük satırları değiştirilmemiş CrossPoint'le aynıydı;
+bölüm dizme süresi değişmedi (önceki sürümde 2.508, bu sürümde 2.512 ms).
+
+- [ ] Karttaki bir fontu okuma fontu seçip daha önce bu fontla açılmamış bir kitap açın ya da yazı
+  boyutunu değiştirip kitaba dönün (bölüm yeniden dizilir): sözcükler üst üste binmemeli, satırlar
+  sağ kenarı aşmamalı, iki yana yaslı satırlarda boşluklar eskisi gibi olmalı.
+- [ ] `python3 emu/make_css_epub.py emu/books/css` ile üretilen `css-test.epub`'ı karta kopyalayın;
+  Gömülü Stil açıkken karttaki bir fontu okuma fontu seçip açın: küçük büyük harfli "Stillerle
+  düzen" başlığı taşmamalı, harfler üst üste binmemeli ("i" eskisi gibi "I" olur, "İ" değil).
+- [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğündeki `Time to parse and build
+  pages` süresi önceki sürümden belirgin uzun olmamalı; `buildAdvanceTable: unique codepoint cap`,
+  `failed to allocate mappings` ya da `mergeIntoAdvanceTable: alloc failed` satırları görünmemeli.

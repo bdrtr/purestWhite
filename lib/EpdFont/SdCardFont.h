@@ -76,7 +76,8 @@ class SdCardFont {
   // Returns number of codepoints not found in font coverage.
   int buildAdvanceTable(const char* utf8Text, uint8_t styleMask = 0x0F, const char* extraText = nullptr);
   // Packed variant: each segment holds consecutive NUL-terminated words
-  // (paragraph word-arena chunks), scanned without per-word string objects.
+  // (paragraph word-arena chunks), scanned without per-word string objects. A
+  // word ends at its segment's end at the latest.
   // includeSmallCaps also prepares uppercase codepoints for small caps, retaining the originals.
   int buildAdvanceTablePacked(const char* const* segments, const size_t* segmentLens, size_t segmentCount,
                               bool includeSpace, bool includeHyphen, uint8_t styleMask = 0x0F,
@@ -269,16 +270,12 @@ class SdCardFont {
 
   // Compact advance-only table for layout measurement (per-style).
   // Built by buildAdvanceTable(), queried by getAdvance().
-  struct AdvanceEntry {
-    uint32_t codepoint;
-    uint16_t advanceX;  // 12.4 fixed-point
-  };
   // Per-style advance table. Sorted by codepoint for binary lookup.
   // Bounded to ADVANCE_CACHE_LIMIT entries; persists across layout passes
   // (across calls to clearCache()) so repeated indexing of the same font
   // amortizes SD reads. Cleared only on font unload or clearPersistentCache().
   static constexpr uint32_t ADVANCE_CACHE_LIMIT = 768;
-  AdvanceEntry* advanceTable_[MAX_STYLES] = {};
+  bb_cpfont_advance* advanceTable_[MAX_STYLES] = {};
   uint32_t advanceTableSize_[MAX_STYLES] = {};
   // Allocated entries. Merges fill spare capacity in place, and growth doubles it,
   // so a table moves a few times per section instead of on every layout pass.
@@ -287,7 +284,7 @@ class SdCardFont {
   // Merge sortedNew (sorted by codepoint, no overlap with existing) into the
   // advance table for styleIdx, preserving sort order; cap-truncates the tail.
   // Grows the table only when the merge exceeds its capacity.
-  void mergeIntoAdvanceTable(uint8_t styleIdx, const AdvanceEntry* sortedNew, uint32_t newCount);
+  void mergeIntoAdvanceTable(uint8_t styleIdx, const bb_cpfont_advance* sortedNew, uint32_t newCount);
   // Ensures room for `needed` entries, at least doubling the capacity when it grows.
   bool growAdvanceTable(uint8_t styleIdx, uint32_t needed);
 

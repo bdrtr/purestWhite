@@ -4,7 +4,7 @@
 
 use crate::intervals::Table;
 
-const REPLACEMENT: u32 = 0xFFFD;
+pub(crate) const REPLACEMENT: u32 = 0xFFFD;
 const LIGATURE: usize = 8;
 
 /// A run of codepoints and the position of its first glyph. `EpdUnicodeInterval` in C.
@@ -27,7 +27,7 @@ pub struct Mapping {
 // A plain scan that stops at the first match: `<[u32]>::contains` compares 16 at a time before
 // it can stop, which costs more on the ESP32-S3, and it would be inlined at every call.
 #[inline(never)]
-fn seen_before(seen: &[u32], cp: u32) -> bool {
+pub(crate) fn seen_before(seen: &[u32], cp: u32) -> bool {
     for &x in seen {
         if x == cp {
             return true;

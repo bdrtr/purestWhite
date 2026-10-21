@@ -3,6 +3,7 @@
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
+pub mod advance;
 pub mod cpfont;
 pub mod glyph;
 pub mod intervals;

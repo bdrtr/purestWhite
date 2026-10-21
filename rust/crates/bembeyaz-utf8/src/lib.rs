@@ -331,6 +331,35 @@ pub fn truncate_chars_len(s: &[u8], count: usize) -> usize {
     len
 }
 
+/// The uppercase partner of a lowercase Latin, Greek or Cyrillic letter, for synthesized small
+/// caps; other codepoints, and letters without a single-codepoint uppercase form (e.g. U+00DF),
+/// stay as they are (`test/utf8_compose` checks it against the C++ it replaced).
+#[must_use]
+#[allow(clippy::match_same_arms)] // the arms follow the C++ checks, in order
+pub fn small_caps_upper(cp: u32) -> u32 {
+    match cp {
+        0x61..=0x7A => cp - 0x20,
+        0..0xE0 => cp,
+        0xF7 => cp,
+        0xE0..=0xFE => cp - 0x20,
+        0xFF => 0x178,
+        0x131 | 0x138 | 0x149 | 0x17F => cp,
+        0x100..=0x17F => {
+            // Latin Extended-A pairs: lowercase on odd codepoints, except the two odd-aligned runs.
+            let odd_aligned = (0x139..=0x148).contains(&cp) || (0x179..=0x17E).contains(&cp);
+            if cp % 2 == u32::from(!odd_aligned) {
+                cp - 1
+            } else {
+                cp
+            }
+        }
+        0x3C2 => 0x3A3,
+        0x3B1..=0x3C9 | 0x430..=0x44F => cp - 0x20,
+        0x450..=0x45F => cp - 0x50,
+        _ => cp,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     extern crate std;

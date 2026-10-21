@@ -4,7 +4,6 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
-#include <Utf8.h>
 #include <bembeyaz/cpfont.h>
 
 #include <algorithm>
@@ -59,27 +58,6 @@ static_assert(SdCardFont::MAX_STYLES == BB_CPFONT_MAX_STYLES, "bb_cpfont styles"
 static_assert(CPFONT_VERSION == BB_CPFONT_FORMAT_VERSION, "bump bembeyaz-font's cpfont::VERSION too");
 
 namespace {
-
-// Walks a null-terminated UTF-8 string and appends each unique codepoint to
-// codepoints[0..cpCount-1] via O(n²) dedup.  Returns true if the buffer
-// reached maxCount (cap hit), false if all codepoints fit.
-bool collectUniqueCodepoints(const char* text, uint32_t* codepoints, uint32_t& cpCount, uint32_t maxCount,
-                             const bool includeSmallCaps) {
-  const auto append = [&](const uint32_t cp) {
-    if (std::find(codepoints, codepoints + cpCount, cp) == codepoints + cpCount) {
-      if (cpCount >= maxCount) return true;
-      codepoints[cpCount++] = cp;
-    }
-    return false;
-  };
-  const unsigned char* p = reinterpret_cast<const unsigned char*>(text);
-  while (*p) {
-    const uint32_t cp = utf8NextCodepoint(&p);
-    if (cp == 0) break;
-    if (append(cp) || (includeSmallCaps && append(utf8SmallCapsUpper(cp)))) return true;
-  }
-  return false;
-}
 
 // resetStyleMiniData retention bounds (see the PerStyle comment in the header).
 constexpr size_t MINI_RETAIN_MIN_FREE_HEAP = 40 * 1024;
@@ -1045,23 +1023,7 @@ void SdCardFont::clearPersistentCache() {
 }
 
 bool SdCardFont::advanceTableLookup(uint8_t styleIdx, uint32_t codepoint, uint16_t* outAdvance) const {
-  const AdvanceEntry* table = advanceTable_[styleIdx];
-  const uint32_t size = advanceTableSize_[styleIdx];
-  if (!table || size == 0) return false;
-  uint32_t lo = 0, hi = size;
-  while (lo < hi) {
-    uint32_t mid = lo + (hi - lo) / 2;
-    if (table[mid].codepoint < codepoint) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
-  }
-  if (lo < size && table[lo].codepoint == codepoint) {
-    if (outAdvance) *outAdvance = table[lo].advanceX;
-    return true;
-  }
-  return false;
+  return bb_cpfont_find_advance(advanceTable_[styleIdx], advanceTableSize_[styleIdx], codepoint, outAdvance);
 }
 
 bool SdCardFont::growAdvanceTable(const uint8_t styleIdx, const uint32_t needed) {
@@ -1069,14 +1031,14 @@ bool SdCardFont::growAdvanceTable(const uint8_t styleIdx, const uint32_t needed)
   constexpr uint32_t MIN_ADVANCE_CAPACITY = 64;
   uint32_t capacity = std::max({needed, advanceTableCapacity_[styleIdx] * 2, MIN_ADVANCE_CAPACITY});
   capacity = std::min(capacity, ADVANCE_CACHE_LIMIT);
-  AdvanceEntry* grown = psramNewArray<AdvanceEntry>(capacity);
+  bb_cpfont_advance* grown = psramNewArray<bb_cpfont_advance>(capacity);
   if (!grown && capacity > needed) {
     capacity = needed;
-    grown = psramNewArray<AdvanceEntry>(capacity);
+    grown = psramNewArray<bb_cpfont_advance>(capacity);
   }
   if (!grown) return false;
   if (advanceTableSize_[styleIdx] > 0) {
-    memcpy(grown, advanceTable_[styleIdx], advanceTableSize_[styleIdx] * sizeof(AdvanceEntry));
+    memcpy(grown, advanceTable_[styleIdx], advanceTableSize_[styleIdx] * sizeof(bb_cpfont_advance));
   }
   psramDeleteArray(advanceTable_[styleIdx]);
   advanceTable_[styleIdx] = grown;
@@ -1084,7 +1046,7 @@ bool SdCardFont::growAdvanceTable(const uint8_t styleIdx, const uint32_t needed)
   return true;
 }
 
-void SdCardFont::mergeIntoAdvanceTable(uint8_t styleIdx, const AdvanceEntry* sortedNew, uint32_t newCount) {
+void SdCardFont::mergeIntoAdvanceTable(uint8_t styleIdx, const bb_cpfont_advance* sortedNew, uint32_t newCount) {
   if (newCount == 0) return;
   const uint32_t oldSize = advanceTableSize_[styleIdx];
   if (oldSize >= ADVANCE_CACHE_LIMIT) return;  // already full
@@ -1100,22 +1062,8 @@ void SdCardFont::mergeIntoAdvanceTable(uint8_t styleIdx, const AdvanceEntry* sor
     return;
   }
 
-  // Merge from the back so existing entries move at most once and are never
-  // overwritten before they are read. The largest `drop` entries fall past the cap.
-  AdvanceEntry* table = advanceTable_[styleIdx];
-  uint32_t drop = oldSize + newCount - mergedCap;
-  uint32_t i = oldSize, j = newCount, k = oldSize + newCount;
-  while (j > 0) {
-    const bool takeNew = i == 0 || sortedNew[j - 1].codepoint >= table[i - 1].codepoint;
-    const AdvanceEntry entry = takeNew ? sortedNew[--j] : table[--i];
-    --k;
-    if (drop > 0) {
-      --drop;
-    } else {
-      table[k] = entry;
-    }
-  }
-  advanceTableSize_[styleIdx] = mergedCap;
+  advanceTableSize_[styleIdx] = static_cast<uint32_t>(bb_cpfont_merge_advances(
+      advanceTable_[styleIdx], advanceTableCapacity_[styleIdx], oldSize, sortedNew, newCount, ADVANCE_CACHE_LIMIT));
 }
 
 bool SdCardFont::hasAdvanceTable() const {
@@ -1127,23 +1075,9 @@ bool SdCardFont::hasAdvanceTable() const {
 
 uint16_t SdCardFont::getAdvance(uint32_t codepoint, uint8_t style) const {
   style &= (MAX_STYLES - 1);
-  if (!advanceTable_[style]) return 0;
-  const AdvanceEntry* table = advanceTable_[style];
-  const uint32_t size = advanceTableSize_[style];
-  // Binary search sorted by codepoint
-  uint32_t lo = 0, hi = size;
-  while (lo < hi) {
-    uint32_t mid = lo + (hi - lo) / 2;
-    if (table[mid].codepoint < codepoint) {
-      lo = mid + 1;
-    } else {
-      hi = mid;
-    }
-  }
-  if (lo < size && table[lo].codepoint == codepoint) {
-    return table[lo].advanceX;
-  }
-  return 0;
+  uint16_t advance = 0;  // left 0 when the table lacks it
+  bb_cpfont_find_advance(advanceTable_[style], advanceTableSize_[style], codepoint, &advance);
+  return advance;
 }
 
 // Given a sorted array of unique codepoints, resolve glyph indices per style,
@@ -1164,45 +1098,23 @@ int SdCardFont::fetchAdvancesForCodepoints(uint32_t* codepoints, uint32_t cpCoun
       continue;
     }
 
-    // For each codepoint in `codepoints`, skip those already cached, then
-    // resolve to a glyph index. Build a parallel array sorted by glyph index
-    // for sequential SD reads.
-    struct CpIdx {
-      uint32_t codepoint;
-      int32_t glyphIndex;
-    };
-    std::unique_ptr<CpIdx[]> mappings(new (std::nothrow) CpIdx[cpCount]);
+    // Glyph indices of the codepoints not cached yet (U+FFFD's for those the font lacks).
+    auto mappings = makeUniqueNoThrow<bb_cpfont_mapping[]>(cpCount);
     if (!mappings) {
       LOG_ERR("SDCF", "buildAdvanceTable: failed to allocate mappings for style %u", si);
       totalMissed += cpCount;
       continue;
     }
-
-    uint32_t needCount = 0;
     uint32_t missedThisStyle = 0;
-    const int32_t replacementIdx = findGlobalGlyphIndex(s, REPLACEMENT_GLYPH);
-    for (uint32_t i = 0; i < cpCount; i++) {
-      const uint32_t cp = codepoints[i];
-      if (advanceTableLookup(si, cp, nullptr)) continue;  // already cached
-      int32_t idx = findGlobalGlyphIndex(s, cp);
-      if (idx < 0) {
-        if (replacementIdx < 0) {
-          missedThisStyle++;
-          continue;
-        }
-        idx = replacementIdx;
-      }
-      mappings[needCount].codepoint = cp;
-      mappings[needCount].glyphIndex = idx;
-      needCount++;
-    }
+    const auto needCount = static_cast<uint32_t>(bb_cpfont_plan_advances(
+        advanceTable_[si], advanceTableSize_[si], &s.intervals, codepoints, cpCount, mappings.get(), &missedThisStyle));
     totalMissed += static_cast<int>(missedThisStyle);
 
     if (needCount == 0) continue;
 
     // Sort by glyph index so SD reads are mostly sequential.
     std::sort(mappings.get(), mappings.get() + needCount,
-              [](const CpIdx& a, const CpIdx& b) { return a.glyphIndex < b.glyphIndex; });
+              [](const bb_cpfont_mapping& a, const bb_cpfont_mapping& b) { return a.index < b.index; });
 
     // Open file once and read advanceX for each needed glyph.
     HalFile file;
@@ -1211,7 +1123,7 @@ int SdCardFont::fetchAdvancesForCodepoints(uint32_t* codepoints, uint32_t cpCoun
       continue;
     }
 
-    std::unique_ptr<AdvanceEntry[]> staged(new (std::nothrow) AdvanceEntry[needCount]);
+    std::unique_ptr<bb_cpfont_advance[]> staged(new (std::nothrow) bb_cpfont_advance[needCount]);
     if (!staged) {
       LOG_ERR("SDCF", "buildAdvanceTable: failed to allocate staging for style %u", si);
       file.close();
@@ -1219,8 +1131,8 @@ int SdCardFont::fetchAdvancesForCodepoints(uint32_t* codepoints, uint32_t cpCoun
     }
 
     struct AdvanceReads {
-      const CpIdx* mappings;
-      AdvanceEntry* staged;
+      const bb_cpfont_mapping* mappings;
+      bb_cpfont_advance* staged;
       uint32_t fetched;
     } reads{mappings.get(), staged.get(), 0};
     bb_cpfont_file source = cpfontFile(file);
@@ -1228,12 +1140,12 @@ int SdCardFont::fetchAdvancesForCodepoints(uint32_t* codepoints, uint32_t cpCoun
     const int glyphsRead = bb_cpfont_read_glyphs(
         &source, &s.toc, twoBit_, needCount,
         [](void* context, const size_t i) {
-          return static_cast<uint32_t>(static_cast<AdvanceReads*>(context)->mappings[i].glyphIndex);
+          return static_cast<uint32_t>(static_cast<AdvanceReads*>(context)->mappings[i].index);
         },
         [](void* context, const size_t i, const bb_cpfont_glyph* glyph) {
           auto* r = static_cast<AdvanceReads*>(context);
           r->staged[i].codepoint = r->mappings[i].codepoint;
-          r->staged[i].advanceX = glyph->advance_x;
+          r->staged[i].advance = glyph->advance_x;
           r->fetched = i + 1;
         },
         &reads, nullptr, &failedGlyph);
@@ -1248,7 +1160,7 @@ int SdCardFont::fetchAdvancesForCodepoints(uint32_t* codepoints, uint32_t cpCoun
     if (fetched > 0) {
       // Sort staged by codepoint, then merge into the persistent table.
       std::sort(staged.get(), staged.get() + fetched,
-                [](const AdvanceEntry& a, const AdvanceEntry& b) { return a.codepoint < b.codepoint; });
+                [](const bb_cpfont_advance& a, const bb_cpfont_advance& b) { return a.codepoint < b.codepoint; });
       mergeIntoAdvanceTable(si, staged.get(), fetched);
     }
 
@@ -1291,7 +1203,7 @@ int SdCardFont::buildAdvanceTablePacked(const char* const* segments, const size_
   if (includeSmallCaps) maxCodepoints = std::min<size_t>(MAX_UNIQUE_CODEPOINTS, maxCodepoints * 2);
   // Byte counts bound codepoints. Short table words need no heap scratch; paragraphs keep the existing cap.
   static constexpr size_t INLINE_CODEPOINTS = 32;
-  uint32_t inlineCodepoints[INLINE_CODEPOINTS + 2];  // space and hyphen can be injected below
+  uint32_t inlineCodepoints[INLINE_CODEPOINTS + 2] = {};  // space and hyphen can be injected below
   std::unique_ptr<uint32_t[]> heapCodepoints;
   uint32_t* codepoints = inlineCodepoints;
   if (maxCodepoints > INLINE_CODEPOINTS) {
@@ -1303,26 +1215,10 @@ int SdCardFont::buildAdvanceTablePacked(const char* const* segments, const size_
     }
     codepoints = heapCodepoints.get();
   }
-  uint32_t cpCount = 0;
   bool hitCap = false;
-
-  // Each segment holds consecutive NUL-terminated words; walk word by word.
-  for (size_t seg = 0; seg < segmentCount && !hitCap; ++seg) {
-    const char* p = segments[seg];
-    const char* const end = p + segmentLens[seg];
-    while (p < end && !hitCap) {
-      hitCap = collectUniqueCodepoints(p, codepoints, cpCount, maxCodepoints, includeSmallCaps);
-      p += strlen(p) + 1;
-    }
-  }
-  if (extraText && !hitCap) {
-    hitCap = collectUniqueCodepoints(extraText, codepoints, cpCount, maxCodepoints, includeSmallCaps);
-  }
-
-  if (includeSpace && std::none_of(codepoints, codepoints + cpCount, [](uint32_t c) { return c == ' '; }))
-    codepoints[cpCount++] = ' ';
-  if (includeHyphen && std::none_of(codepoints, codepoints + cpCount, [](uint32_t c) { return c == '-'; }))
-    codepoints[cpCount++] = '-';
+  const auto cpCount = static_cast<uint32_t>(
+      bb_cpfont_gather_advances(segments, segmentLens, segmentCount, extraText, maxCodepoints, includeSmallCaps,
+                                includeSpace, includeHyphen, codepoints, maxCodepoints + 2, &hitCap));
 
   if (hitCap) {
     LOG_ERR("SDCF", "buildAdvanceTable: unique codepoint cap (%u) hit, layout may be approximate",

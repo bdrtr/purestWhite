@@ -104,3 +104,9 @@ pub unsafe extern "C" fn bb_utf8_truncate_chars_len(
 ) -> usize {
     utf8::truncate_chars_len(unsafe { bytes(string, len) }, count)
 }
+
+/// See utf8.h.
+#[unsafe(no_mangle)]
+pub extern "C" fn bb_utf8_small_caps_upper(cp: u32) -> u32 {
+    utf8::small_caps_upper(cp)
+}

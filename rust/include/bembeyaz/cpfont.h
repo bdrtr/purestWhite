@@ -311,6 +311,40 @@ size_t bb_cpfont_build_mini_intervals(const bb_cpfont_mapping* mappings, size_t 
 // Writes the codepoints of the mini intervals into out, as many as fit out_len. Returns how many.
 size_t bb_cpfont_mini_codepoints(const bb_cpfont_interval* mini, size_t mini_count, uint32_t* out, size_t out_len);
 
+// A codepoint and its advance (12.4 fixed point), in a style's advance table.
+typedef struct {
+  uint32_t codepoint;
+  uint16_t advance;
+} bb_cpfont_advance;
+
+// Looks codepoint up in the size entries of table (sorted by codepoint; NULL reads as empty). True,
+// with *out set when out is not NULL, when it is there.
+bool bb_cpfont_find_advance(const bb_cpfont_advance* table, size_t size, uint32_t codepoint, uint16_t* out);
+
+// Merges the count entries (sorted) into the size entries of table (capacity entries, sorted),
+// keeping it sorted and at most limit long; the largest codepoints past the limit are dropped.
+// The entries must not already be in table. A size at or past limit, or no entries, leave table as
+// it is. Returns the new size.
+size_t bb_cpfont_merge_advances(bb_cpfont_advance* table, size_t capacity, size_t size,
+                                const bb_cpfont_advance* entries, size_t count, size_t limit);
+
+// Maps each of the count codepoints the size cached entries (sorted; NULL reads as empty) lack to
+// its glyph index in table, or to U+FFFD's when the font lacks it, into out (count entries); a
+// NULL or unloaded table maps none. Returns how many it mapped; *missed (when not NULL) is how
+// many it could not.
+size_t bb_cpfont_plan_advances(const bb_cpfont_advance* cached, size_t size, const bb_cpfont_interval_table* table,
+                               const uint32_t* codepoints, size_t count, bb_cpfont_mapping* out, uint32_t* missed);
+
+// Gathers the unique codepoints of the NUL-terminated words in the segments (lengths[i] bytes
+// each; a word ends at its segment's end at the latest) and of extra (NULL or a C string) into
+// out, in the order they first appear, each followed by its small-caps uppercase when small_caps,
+// up to max; then the space and the hyphen when asked for and missing, past max if need be
+// (out_len is max + 2). Returns how many there are; *cut (when not NULL) says whether max cut the
+// words short.
+size_t bb_cpfont_gather_advances(const char* const* segments, const size_t* lengths, size_t segment_count,
+                                 const char* extra, size_t max, bool small_caps, bool space, bool hyphen, uint32_t* out,
+                                 size_t out_len, bool* cut);
+
 #ifdef __cplusplus
 }
 #endif
