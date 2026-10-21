@@ -25,6 +25,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "bembeyaz-bmp"
+version = "0.1.0"
+
+[[package]]
 name = "bembeyaz-css"
 version = "0.1.0"
 
@@ -33,6 +37,7 @@ name = "bembeyaz-ffi"
 version = "0.1.0"
 dependencies = [
  "bembeyaz-bidi",
+ "bembeyaz-bmp",
  "bembeyaz-css",
  "bembeyaz-html",
  "bembeyaz-hyphenation",

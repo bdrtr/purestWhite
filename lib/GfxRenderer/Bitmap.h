@@ -1,6 +1,7 @@
 #pragma once
 
 #include <HalStorage.h>
+#include <bembeyaz/bmp.h>
 
 #include <cstdint>
 
@@ -71,30 +72,19 @@ class Bitmap {
   BmpReaderError parseHeaders();
   BmpReaderError readNextRow(uint8_t* data, uint8_t* rowBuffer) const;
   BmpReaderError rewindToData() const;
-  int getWidth() const { return width; }
-  int getHeight() const { return height; }
-  bool isTopDown() const { return topDown; }
-  bool hasGreyscale() const { return bpp > 1; }
-  int getRowBytes() const { return rowBytes; }
-  bool is1Bit() const { return bpp == 1; }
-  uint16_t getBpp() const { return bpp; }
+  int getWidth() const { return bmp.width; }
+  int getHeight() const { return bmp.height; }
+  bool isTopDown() const { return bmp.top_down; }
+  bool hasGreyscale() const { return bmp.bits_per_pixel > 1; }
+  int getRowBytes() const { return bmp.row_bytes; }
+  bool is1Bit() const { return bmp.bits_per_pixel == 1; }
+  uint16_t getBpp() const { return bmp.bits_per_pixel; }
 
  private:
-  static uint16_t readLE16(HalFile& f);
-  static uint32_t readLE32(HalFile& f);
-
   HalFile& file;
   bool dithering = false;
   bool originalThresholds = false;
-  int width = 0;
-  int height = 0;
-  bool topDown = false;
-  uint32_t bfOffBits = 0;
-  uint16_t bpp = 0;
-  uint32_t colorsUsed = 0;
-  bool nativePalette = false;  // true if all palette entries map to native gray levels
-  int rowBytes = 0;
-  uint8_t paletteLum[256] = {};
+  bb_bmp bmp{};
 
   // Dithering state (mutable for const methods)
   mutable int16_t* errorCurRow = nullptr;

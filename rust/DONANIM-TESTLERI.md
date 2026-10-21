@@ -599,3 +599,22 @@ boyunca değiştirilmemiş CrossPoint'le aynı ekranları verdi.
   tablosundaki satırlar hiçbir hücre kaybolmadan alt alta dizilmeli.
 - [ ] Tablolu bir kitabı (ör. bir programlama kitabı) önbelleğini silip yatay ekranda ve daha
   büyük yazıyla açın: tablo sütunları ekrana sığmalı, cihaz takılmamalı.
+
+## BMP okuyucusu Rust'ta ("rust: our own BMP reader")
+
+Uyku ekranı resimleri, resim görüntüleyici ve kapak küçük resimleri için BMP dosyalarının başlığı
+ve paleti artık `bembeyaz-bmp` ile okunuyor, satırları onunla parlaklığa çevriliyor; titreme ve
+ekranın gri tonlarına çevirme C++'ta kaldı. Yeni `test/bmp_reader` testleri dahil 898 host testi
+geçiyor; bu yeni testler eski kodla da geçiyor. Geliştirme sırasında bir fark testi eski C++ kodunu
+Rust koduyla 30 000 üretilmiş (kimi bozuk ya da kesik) BMP'de ve kart yedeğindeki 12 gerçek BMP'de,
+titremeli ve titremesiz, satır satır karşılaştırdı: sonuçlar aynıydı. Emülatörde
+`emu/compare.sh emu/bmp.txt` yedi BMP'de değiştirilmemiş CrossPoint'le aynı ekranları verdi.
+
+- [ ] Kartın kökündeki `sleep` klasörüne birkaç `.bmp` koyun, Ayarlar > Ekran > Uyku Ekranı'nı
+  "Özel" (Settings > Display > Sleep Screen > Custom) yapın ve cihazı uyutun: resimler eskisi gibi
+  görünmeli.
+- [ ] `python3 emu/make_bmp_files.py bmp` ile üretilen yedi dosyayı karta kopyalayıp dosya
+  listesinden tek tek açın: resim görüntüleyicide düzgün görünmeli; `7-cut.bmp` yalnızca kısmen
+  görünmeli, cihaz takılmamalı.
+- [ ] Home'daki kitap kapağı küçük resimleri eskisi gibi görünmeli (önbellek silmek gerekmez: Home
+  her çizişte bu BMP'leri yeniden okur).
