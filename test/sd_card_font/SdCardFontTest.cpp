@@ -771,3 +771,17 @@ TEST(SdCardFontTest, ASubsetHitStillCountsUncoveredCodepoints) {
   EXPECT_EQ(2, font.prewarm(text.c_str(), 1, false, false, false));
   EXPECT_EQ(0U, sdFontTestReads);
 }
+
+TEST(SdCardFontTest, APagesGlyphsAreResidentInCodepointOrderWhateverTheTextOrder) {
+  makeKerningFont(0, 2, 2, true);  // E+F -> A, which joins the page after E and F
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  ASSERT_EQ(0, font.prewarm("FDCE", 1, false, true, false));
+  const EpdFontData* data = font.getEpdFont()->data;
+  ASSERT_EQ(3U, data->intervalCount);  // A, C..F and U+FFFD
+  for (uint32_t i = 1; i < data->intervalCount; ++i) EXPECT_LT(data->intervals[i - 1].last, data->intervals[i].first);
+  for (const uint32_t cp : {'A', 'C', 'D', 'E', 'F'}) {
+    const EpdGlyph* glyph = font.getEpdFont()->getGlyph(cp);
+    EXPECT_FALSE(font.isOverflowGlyph(glyph)) << cp;  // found in the page, not loaded on demand
+  }
+}

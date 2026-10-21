@@ -25,7 +25,8 @@ using freeink::font::psramNewArray;
 
 static_assert(sizeof(EpdKernClassEntry) == 3,
               "EpdKernClassEntry must be 3 bytes to match bembeyaz-font's mini kern tables");
-static_assert(sizeof(EpdLigaturePair) == 8, "EpdLigaturePair must be 8 bytes to match .cpfont file layout");
+static_assert(sizeof(EpdLigaturePair) == 8 && offsetof(EpdLigaturePair, ligatureCp) == 4,
+              "EpdLigaturePair must match the .cpfont file layout");
 // Checked against rust/crates/bembeyaz-ffi/src/cpfont.rs too.
 static_assert(sizeof(bb_cpfont_style) == 52 && offsetof(bb_cpfont_style, bitmap_offset) == 32 &&
                   offsetof(bb_cpfont_style, ascender) == 36 && offsetof(bb_cpfont_style, kern_right_entries) == 42 &&
@@ -49,6 +50,11 @@ static_assert(sizeof(bb_cpfont_glyph) == 16 && sizeof(EpdGlyph) == 16 &&
                   offsetof(bb_cpfont_glyph, data_length) == offsetof(EpdGlyph, dataLength) &&
                   offsetof(bb_cpfont_glyph, data_offset) == offsetof(EpdGlyph, dataOffset),
               "bb_cpfont_glyph layout");
+static_assert(sizeof(bb_cpfont_interval) == sizeof(EpdUnicodeInterval) &&
+                  offsetof(bb_cpfont_interval, last) == offsetof(EpdUnicodeInterval, last) &&
+                  offsetof(bb_cpfont_interval, offset) == offsetof(EpdUnicodeInterval, offset) &&
+                  sizeof(bb_cpfont_mapping) == 8 && offsetof(bb_cpfont_ligatures, count) == sizeof(void*),
+              "bb_cpfont page layout");
 static_assert(SdCardFont::MAX_STYLES == BB_CPFONT_MAX_STYLES, "bb_cpfont styles");
 static_assert(CPFONT_VERSION == BB_CPFONT_FORMAT_VERSION, "bump bembeyaz-font's cpfont::VERSION too");
 
@@ -95,6 +101,14 @@ bool ensureArrayCapacity(T*& buf, CapT& capacity, const uint32_t needed) {
   buf = psramNewArray<T>(needed > 0 ? needed : 1);
   capacity = buf ? static_cast<CapT>(needed) : 0;
   return buf != nullptr;
+}
+
+// The page functions' view of the mini intervals (layout checked above).
+const bb_cpfont_interval* intervalsOf(const EpdUnicodeInterval* intervals) {
+  return reinterpret_cast<const bb_cpfont_interval*>(intervals);
+}
+bb_cpfont_interval* intervalsOf(EpdUnicodeInterval* intervals) {
+  return reinterpret_cast<bb_cpfont_interval*>(intervals);
 }
 
 // The Rust readers' view of an open .cpfont file.
@@ -619,93 +633,32 @@ int SdCardFont::prewarm(TextGetter getter, const void* ctx, uint32_t textCount, 
   }
   if (cpBudget == 0) return -1;
 
-  // Step 1: Extract unique codepoints from the UTF-8 texts (shared across all styles).
-  // Dedup uses O(n^2) linear scan — worst case is MAX_PAGE_GLYPHS (512) unique codepoints
-  // = ~131K comparisons, but in practice pages contain far fewer unique codepoints so the
-  // actual cost is much lower. This is dwarfed by SD I/O that follows. Alternatives (hash
-  // set, bitmap) exceed the 256-byte stack limit or add template bloat.
-  // Heap-allocated: MAX_PAGE_GLYPHS * 4 = 2048 bytes, too large for stack (limit < 256 bytes)
-  std::unique_ptr<uint32_t[]> codepoints(new (std::nothrow) uint32_t[MAX_PAGE_GLYPHS]);
+  // The page's codepoints, shared across all styles. Heap-allocated: MAX_PAGE_GLYPHS * 4 = 2048
+  // bytes, too large for the stack.
+  auto codepoints = makeUniqueNoThrow<uint32_t[]>(MAX_PAGE_GLYPHS);
   if (!codepoints) {
     LOG_ERR("SDCF", "Failed to allocate codepoint buffer (%u bytes)", MAX_PAGE_GLYPHS * 4);
     return -1;
   }
-  uint32_t cpCount = 0;
 
-  for (uint32_t ti = 0; ti < textCount && cpCount < cpBudget; ti++) {
-    const char* text = getter(ctx, ti);
-    if (text == nullptr) continue;
-    const unsigned char* p = reinterpret_cast<const unsigned char*>(text);
-    while (*p && cpCount < cpBudget) {
-      uint32_t cp = utf8NextCodepoint(&p);
-      if (cp == 0) break;
-
-      bool found = false;
-      for (uint32_t i = 0; i < cpCount; i++) {
-        if (codepoints[i] == cp) {
-          found = true;
-          break;
-        }
-      }
-      if (!found) {
-        codepoints[cpCount++] = cp;
-      }
-    }
-  }
-
-  // Always include the replacement character
-  {
-    bool hasReplacement = false;
-    for (uint32_t i = 0; i < cpCount; i++) {
-      if (codepoints[i] == REPLACEMENT_GLYPH) {
-        hasReplacement = true;
-        break;
-      }
-    }
-    if (!hasReplacement && cpCount < MAX_PAGE_GLYPHS) {
-      codepoints[cpCount++] = REPLACEMENT_GLYPH;
-    }
-  }
-
-  // Add ligature output codepoints from all styles being prewarmed.
-  // Skip during metadata-only prewarm (layout measurement): ligatures are
-  // loaded per style in prewarmStyle() during the full render prewarm.
+  // Ligature outputs join the page, so the ligatures load (once per style) first. A metadata-only
+  // or kern-free prewarm skips them; prewarmStyle loads them for the full render prewarm.
+  bb_cpfont_ligatures ligatures[MAX_STYLES] = {};
+  size_t ligatureTables = 0;
   if (!metadataOnly && loadKernLig) {
     for (uint8_t si = 0; si < MAX_STYLES; si++) {
       if (!(styleMask & (1 << si)) || !styles_[si].toc.present) continue;
       auto& s = styles_[si];
-
       loadStyleLigatures(s);
       if (s.ligaturePairs && s.toc.ligature_pairs > 0) {
-        for (uint8_t li = 0; li < s.toc.ligature_pairs && cpCount < MAX_PAGE_GLYPHS; li++) {
-          uint32_t leftCp = s.ligaturePairs[li].pair >> 16;
-          uint32_t rightCp = s.ligaturePairs[li].pair & 0xFFFF;
-          uint32_t outCp = s.ligaturePairs[li].ligatureCp;
-
-          bool hasLeft = false, hasRight = false;
-          for (uint32_t i = 0; i < cpCount; i++) {
-            if (codepoints[i] == leftCp) hasLeft = true;
-            if (codepoints[i] == rightCp) hasRight = true;
-            if (hasLeft && hasRight) break;
-          }
-          if (!hasLeft || !hasRight) continue;
-
-          bool hasOut = false;
-          for (uint32_t i = 0; i < cpCount; i++) {
-            if (codepoints[i] == outCp) {
-              hasOut = true;
-              break;
-            }
-          }
-          if (!hasOut) {
-            codepoints[cpCount++] = outCp;
-          }
-        }
+        ligatures[ligatureTables++] = {reinterpret_cast<const uint8_t*>(s.ligaturePairs), s.toc.ligature_pairs};
       }
     }
   }
-
-  // Sort codepoints for ordered interval building
+  const auto cpCount = static_cast<uint32_t>(bb_cpfont_gather_page(getter, ctx, textCount, cpBudget, ligatures,
+                                                                   ligatureTables, codepoints.get(), MAX_PAGE_GLYPHS));
+  // Sorted for ordered interval building. Here rather than in Rust: this std::sort<uint32_t*> is
+  // already in the firmware (buildAdvanceTablePacked), Rust's would add about 1.6 KB of flash.
   std::sort(codepoints.get(), codepoints.get() + cpCount);
 
   // Prewarm each requested style
@@ -751,26 +704,9 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   // page needs zero SD reads. A mini built metadata-only cannot serve a full
   // request (no bitmaps). Any uncovered codepoint falls through to the rebuild.
   if (s.miniGlyphCount > 0 && !(s.miniMetadataOnly && !metadataOnly)) {
-    bool covered = true;
-    int missedInMini = 0;
-    for (uint32_t i = 0; i < cpCount && covered; i++) {
-      const uint32_t cp = codepoints[i];
-      bool inMini = false;
-      for (uint32_t iv = 0; iv < s.miniIntervalCount; iv++) {
-        if (cp < s.miniIntervals[iv].first) break;  // intervals sorted ascending
-        if (cp <= s.miniIntervals[iv].last) {
-          inMini = true;
-          break;
-        }
-      }
-      if (inMini) continue;
-      if (findGlobalGlyphIndex(s, cp) < 0) {
-        missedInMini++;  // not in font coverage: the rebuild couldn't load it either
-      } else {
-        covered = false;
-      }
-    }
-    if (covered) {
+    const int32_t missedInMini =
+        bb_cpfont_mini_covers(codepoints, cpCount, intervalsOf(s.miniIntervals), s.miniIntervalCount, &s.intervals);
+    if (missedInMini >= 0) {
       // A kern-wanting request (reader path) can subset-hit a mini that a
       // kern-free UI prewarm built: top up the kern matrix and ligatures without
       // re-reading any glyphs. The matrix covers every resident glyph so later
@@ -779,12 +715,8 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
         auto resident = makeUniqueNoThrow<uint32_t[]>(s.miniGlyphCount);
         uint32_t residentCount = 0;
         if (resident) {
-          for (uint32_t iv = 0; iv < s.miniIntervalCount; iv++) {
-            for (uint32_t cp = s.miniIntervals[iv].first;
-                 cp <= s.miniIntervals[iv].last && residentCount < s.miniGlyphCount; cp++) {
-              resident[residentCount++] = cp;
-            }
-          }
+          residentCount = static_cast<uint32_t>(bb_cpfont_mini_codepoints(
+              intervalsOf(s.miniIntervals), s.miniIntervalCount, resident.get(), s.miniGlyphCount));
         } else {
           LOG_ERR("SDCF", "OOM: resident kern codepoints (%u) for style %u", s.miniGlyphCount, styleIdx);
         }
@@ -844,31 +776,9 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
     const uint32_t unionMax = s.miniGlyphCount + cpCount;
     unionCps.reset(new (std::nothrow) uint32_t[unionMax]);
     if (unionCps) {
-      // Two-way sorted merge: resident stream walks the mini intervals
-      // (ascending), request stream is the caller's sorted codepoint array.
-      uint32_t n = 0;
-      uint32_t ivIdx = 0;
-      uint32_t ivCp = s.miniIntervals[0].first;
-      bool ivActive = true;
-      uint32_t ri = 0;
-      while ((ivActive || ri < cpCount) && n < unionMax) {
-        uint32_t next;
-        if (ivActive && (ri >= cpCount || ivCp <= codepoints[ri])) {
-          next = ivCp;
-          if (ri < cpCount && codepoints[ri] == ivCp) ri++;
-          if (ivCp < s.miniIntervals[ivIdx].last) {
-            ivCp++;
-          } else if (++ivIdx < s.miniIntervalCount) {
-            ivCp = s.miniIntervals[ivIdx].first;
-          } else {
-            ivActive = false;
-          }
-        } else {
-          next = codepoints[ri++];
-        }
-        unionCps[n++] = next;
-      }
-      if (!ivActive && ri >= cpCount && n <= MAX_PAGE_GLYPHS) {
+      const auto n = static_cast<uint32_t>(bb_cpfont_merge_mini(intervalsOf(s.miniIntervals), s.miniIntervalCount,
+                                                                codepoints, cpCount, unionCps.get(), unionMax));
+      if (n > 0 && n <= MAX_PAGE_GLYPHS) {
         // A full mini must stay full: a metadata-only request may not drop
         // bitmaps other strings are still rendering from.
         metadataOnly = metadataOnly && s.miniMetadataOnly;
@@ -881,25 +791,13 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   }
 
   // Map codepoints to global glyph indices for this style
-  struct CpGlyphMapping {
-    uint32_t codepoint;
-    int32_t globalIndex;
-  };
-  auto mappings = makeUniqueNoThrow<CpGlyphMapping[]>(cpCount);
+  auto mappings = makeUniqueNoThrow<bb_cpfont_mapping[]>(cpCount);
   if (!mappings) {
     LOG_ERR("SDCF", "Failed to allocate mapping array for style %u", styleIdx);
     return static_cast<int>(cpCount);
   }
-
-  uint32_t validCount = 0;
-  for (uint32_t i = 0; i < cpCount; i++) {
-    int32_t idx = findGlobalGlyphIndex(s, codepoints[i]);
-    if (idx >= 0) {
-      mappings[validCount].codepoint = codepoints[i];
-      mappings[validCount].globalIndex = idx;
-      validCount++;
-    }
-  }
+  const auto validCount =
+      static_cast<uint32_t>(bb_cpfont_find_glyphs(&s.intervals, codepoints, cpCount, mappings.get()));
   int missed = static_cast<int>(cpCount - validCount);
 
   if (validCount == 0) {
@@ -925,17 +823,8 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
     return static_cast<int>(cpCount);
   }
 
-  s.miniIntervalCount = 0;
-  uint32_t rangeStart = 0;
-  for (uint32_t i = 1; i <= validCount; i++) {
-    if (i == validCount || mappings[i].codepoint != mappings[i - 1].codepoint + 1) {
-      s.miniIntervals[s.miniIntervalCount].first = mappings[rangeStart].codepoint;
-      s.miniIntervals[s.miniIntervalCount].last = mappings[i - 1].codepoint;
-      s.miniIntervals[s.miniIntervalCount].offset = rangeStart;
-      s.miniIntervalCount++;
-      rangeStart = i;
-    }
-  }
+  s.miniIntervalCount = static_cast<uint32_t>(
+      bb_cpfont_build_mini_intervals(mappings.get(), validCount, intervalsOf(s.miniIntervals), validCount));
 
   // Mini glyph array (reused across pages when it fits)
   if (!ensureArrayCapacity(s.miniGlyphs, s.miniGlyphCapacity, validCount)) {
@@ -954,7 +843,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   }
   for (uint32_t i = 0; i < validCount; i++) readOrder[i] = i;
   std::sort(readOrder.get(), readOrder.get() + validCount,
-            [&](uint32_t a, uint32_t b) { return mappings[a].globalIndex < mappings[b].globalIndex; });
+            [&](uint32_t a, uint32_t b) { return mappings[a].index < mappings[b].index; });
 
   HalFile file;
   if (!Storage.openFileForRead("SDCF", filePath_, file)) {
@@ -969,7 +858,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   // Glyph records in glyph index order.
   bb_cpfont_file source = cpfontFile(file);
   struct GlyphReads {
-    const CpGlyphMapping* mappings;
+    const bb_cpfont_mapping* mappings;
     const uint32_t* order;
     EpdGlyph* glyphs;
   } reads{mappings.get(), readOrder.get(), s.miniGlyphs};
@@ -979,7 +868,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
       &source, &s.toc, twoBit_, validCount,
       [](void* context, const size_t i) {
         const auto* r = static_cast<GlyphReads*>(context);
-        return static_cast<uint32_t>(r->mappings[r->order[i]].globalIndex);
+        return static_cast<uint32_t>(r->mappings[r->order[i]].index);
       },
       [](void* context, const size_t i, const bb_cpfont_glyph* glyph) {
         const auto* r = static_cast<GlyphReads*>(context);

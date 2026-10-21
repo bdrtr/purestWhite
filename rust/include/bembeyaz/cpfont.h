@@ -258,6 +258,59 @@ int bb_cpfont_load_intervals(bb_cpfont_file* file, const bb_cpfont_style* style,
 // loaded.
 int32_t bb_cpfont_find_glyph(const bb_cpfont_interval_table* table, uint32_t codepoint);
 
+// A run of codepoints and the position of its first glyph, laid out as EpdUnicodeInterval.
+typedef struct {
+  uint32_t first;
+  uint32_t last;
+  uint32_t offset;
+} bb_cpfont_interval;
+
+// A codepoint and its glyph index in the font.
+typedef struct {
+  uint32_t codepoint;
+  int32_t index;
+} bb_cpfont_mapping;
+
+// A style's ligature table: count 8-byte records laid out as EpdLigaturePair.
+typedef struct {
+  const uint8_t* pairs;
+  uint32_t count;
+} bb_cpfont_ligatures;
+
+// The page functions below read a NULL array as empty.
+
+// Gathers a page's codepoints into out, unsorted: those of the texts text(context, 0) ..
+// text(context, text_count - 1) (NULL ones are skipped) in the order they first appear, up to
+// budget, then U+FFFD and the outputs of the ligatures (ligature_tables tables, in order) whose two
+// parts are both on the page, while out_len has room (only the first BB_CPFONT_MAX_STYLES ligature
+// tables are used). Returns how many it wrote; 0 for a NULL text callback.
+size_t bb_cpfont_gather_page(const char* (*text)(const void* context, uint32_t i), const void* context,
+                             uint32_t text_count, size_t budget, const bb_cpfont_ligatures* ligatures,
+                             size_t ligature_tables, uint32_t* out, size_t out_len);
+
+// When the resident mini intervals (ascending) hold every codepoint of request that table covers
+// (a NULL or unloaded table covers none), how many request codepoints table lacks; otherwise -1.
+int32_t bb_cpfont_mini_covers(const uint32_t* request, size_t count, const bb_cpfont_interval* mini, size_t mini_count,
+                              const bb_cpfont_interval_table* table);
+
+// Merges the codepoints of the mini intervals with the ascending request into out, dropping
+// duplicates. Returns how many there are, or 0 when mini is empty or they do not fit out_len.
+size_t bb_cpfont_merge_mini(const bb_cpfont_interval* mini, size_t mini_count, const uint32_t* request, size_t count,
+                            uint32_t* out, size_t out_len);
+
+// Maps each of the count codepoints table covers to its glyph index, in order, into out (count
+// entries). Returns how many it covers; 0 for a NULL or unloaded table.
+size_t bb_cpfont_find_glyphs(const bb_cpfont_interval_table* table, const uint32_t* codepoints, size_t count,
+                             bb_cpfont_mapping* out);
+
+// Lays the count ascending mappings out as intervals of consecutive codepoints into out (out_len
+// entries), each pointing at its first mapping. Returns how many it wrote.
+size_t bb_cpfont_build_mini_intervals(const bb_cpfont_mapping* mappings, size_t count, bb_cpfont_interval* out,
+                                      size_t out_len);
+
+// Writes the codepoints of the mini intervals into out, as many as fit out_len. Returns how many.
+size_t bb_cpfont_mini_codepoints(const bb_cpfont_interval* mini, size_t mini_count, uint32_t* out, size_t out_len);
+
 #ifdef __cplusplus
 }
 #endif

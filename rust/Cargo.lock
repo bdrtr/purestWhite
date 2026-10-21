@@ -60,6 +60,9 @@ dependencies = [
 [[package]]
 name = "bembeyaz-font"
 version = "0.1.0"
+dependencies = [
+ "bembeyaz-utf8",
+]
 
 [[package]]
 name = "bembeyaz-html"

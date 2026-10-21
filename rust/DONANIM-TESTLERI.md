@@ -868,3 +868,30 @@ sürümle aynıydı.
 - [ ] Seri günlükte `invalid interval`, `Failed to read interval`, `Failed to read compact
   interval`, `Failed to allocate … intervals` ya da `Failed to seek … intervals` satırları
   görünmemeli.
+
+## SD kart fontunun sayfa kümesi Rust'ta ("rust: our own .cpfont page codepoint set")
+
+Bir sayfa çizilmeden önce hangi gliflerin bellekte tutulacağını belirleyen veri mantığı artık
+`bembeyaz-font`'un `page` modülünde: sayfa metninden benzersiz kod noktalarının toplanması (en çok
+512, U+FFFD ve sayfada iki parçası da bulunan ligatürlerin çıktı kod noktaları dahil), bellekteki
+sayfanın yeni isteği zaten karşılayıp karşılamadığının denetimi, ikisinin birleştirilmesi, kod
+noktalarının gliflere eşlenmesi ve mini aralık tablosunun kurulması. Sıralama, bellek ayırma ve
+tampon politikası C++'ta kaldı. Dört yeni pin testi (1124c056) ve kod noktası sırası testi dahil
+939 host testi geçiyor. Geliştirme sırasında bir fark testi eski C++ kodunu Rust koduyla 20.000
+üretilmiş fontta (ligatürlü, 512'den çok kod noktalı ve çok metinli sayfalarla) toplam 160.152
+adımda, ayrıca dört gerçek fontta karşılaştırdı: dönüş değerleri, glif ölçüleri, bitmap baytları,
+ilerleme genişlikleri ile dosyadaki okuma ve konumlama sırası aynıydı. Emülatörde sağlam, bozuk ve
+kısa bitmap'li font kartlarıyla ekranlar ve SD font günlük satırları önceki sürümle aynıydı.
+
+- [ ] Karttaki bir fontu okuma fontu seçip Latin bir kitapta birkaç sayfa ileri ve geri gidin, bir
+  sayfayı yeniden açın: harfler eksiksiz görünmeli; geliştirme derlemesinin (`pio run -e x4pro`)
+  seri günlüğünde `[SDCF] Overflow: loaded U+…` satırları önceki sürüme göre artmamalı (sayfanın
+  glifleri önceden yüklenir), `Prewarm: failed` ya da `Failed to allocate mapping array` satırları
+  görünmemeli.
+- [ ] Ligatürlü bir SD fontunu (ör. sd-fonts.yaml'deki Literata; rust/README.md'deki Liberation
+  Serif `.cpfont`'unda ligatür yok) okuma fontu seçip "fi", "fl" geçen bir sayfa açın: günlükte
+  `[SDCF] Ligatures loaded: N` (N > 0) görünmeli, `Overflow: loaded U+FB01` ya da `U+FB02`
+  görünmemeli; bağlar tek glif olarak çizilmeli.
+- [ ] Yunanca kapsayan ve 12 pt boyutu olan bir SD ailesini (ör. Literata) okuma fontu seçip bölüm
+  başlıkları Yunanca bir kitabın bölüm listesini açın ve aşağı kaydırın (liste, yerleşik fontta
+  olmayan harfleri bu fontla çizer): satırlar eksiksiz görünmeli, boş kare çıkmamalı.

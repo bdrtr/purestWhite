@@ -5,6 +5,7 @@ use bembeyaz_font::cpfont::{self, Header, IntervalFault, Style};
 use bembeyaz_font::glyph::{self, Glyph};
 use bembeyaz_font::intervals;
 use bembeyaz_font::kern::{self, MiniKern};
+use bembeyaz_font::page;
 use core::ffi::{c_int, c_void};
 use core::ptr::null_mut;
 use core::slice;
@@ -584,4 +585,173 @@ pub unsafe extern "C" fn bb_cpfont_find_glyph(table: *const IntervalTable, codep
         .and_then(|t| unsafe { t.view() })
         .and_then(|t| t.find(codepoint));
     found.and_then(|i| i32::try_from(i).ok()).unwrap_or(-1)
+}
+
+// cpfont.h's bb_cpfont_interval (EpdUnicodeInterval), bb_cpfont_mapping and bb_cpfont_ligatures.
+const _: () = {
+    use core::mem::offset_of;
+    assert!(
+        size_of::<page::Interval>() == 12
+            && offset_of!(page::Interval, offset) == 8
+            && size_of::<page::Mapping>() == 8
+            && offset_of!(page::Mapping, index) == 4
+            && offset_of!(Ligatures, count) == size_of::<usize>()
+    );
+};
+
+/// cpfont.h's bb_cpfont_ligatures.
+#[repr(C)]
+pub struct Ligatures {
+    pairs: *const u8,
+    count: u32,
+}
+
+type Text = unsafe extern "C" fn(*const c_void, u32) -> *const core::ffi::c_char;
+
+// SAFETY: `data` is null or holds `len` values; an empty slice needs no memory.
+unsafe fn view<'a, T>(data: *const T, len: usize) -> &'a [T] {
+    if data.is_null() || len == 0 {
+        &[]
+    } else {
+        unsafe { slice::from_raw_parts(data, len) }
+    }
+}
+
+// SAFETY: `data` is null or holds `len` writable values.
+unsafe fn view_mut<'a, T>(data: *mut T, len: usize) -> &'a mut [T] {
+    if data.is_null() || len == 0 {
+        &mut []
+    } else {
+        unsafe { slice::from_raw_parts_mut(data, len) }
+    }
+}
+
+/// # Safety
+///
+/// `text` returns null or a C string for each index below `text_count`; `ligatures` is null or
+/// holds `ligature_tables` entries of `count` 8-byte records each; `out` holds `out_len` values.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn bb_cpfont_gather_page(
+    text: Option<Text>,
+    context: *const c_void,
+    text_count: u32,
+    budget: usize,
+    ligatures: *const Ligatures,
+    ligature_tables: usize,
+    out: *mut u32,
+    out_len: usize,
+) -> usize {
+    let Some(text) = text else { return 0 };
+    let mut tables: [&[u8]; cpfont::MAX_STYLES as usize] = [&[]; cpfont::MAX_STYLES as usize];
+    // SAFETY: the caller's tables.
+    for (slot, t) in tables
+        .iter_mut()
+        .zip(unsafe { view(ligatures, ligature_tables) })
+    {
+        // SAFETY: `count` records of 8 bytes.
+        *slot = unsafe { view(t.pairs, t.count as usize * 8) };
+    }
+    let texts = (0..text_count).filter_map(|i| {
+        // SAFETY: the caller's callback and its C strings.
+        let s = unsafe { text(context, i) };
+        (!s.is_null()).then(|| unsafe { core::ffi::CStr::from_ptr(s) }.to_bytes())
+    });
+    let used = ligature_tables.min(tables.len());
+    // SAFETY: the caller's output.
+    page::gather(texts, budget, &tables[..used], unsafe {
+        view_mut(out, out_len)
+    })
+}
+
+/// # Safety
+///
+/// Each pointer is null or holds its count of values; `table` is null or a loaded table.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_cpfont_mini_covers(
+    request: *const u32,
+    count: usize,
+    mini: *const page::Interval,
+    mini_count: usize,
+    table: *const IntervalTable,
+) -> i32 {
+    // SAFETY: the caller's loaded table, if any; none covers nothing.
+    let table = (unsafe { table.as_ref() })
+        .and_then(|t| unsafe { t.view() })
+        .unwrap_or(intervals::Table {
+            entries: &[],
+            compact: false,
+        });
+    // SAFETY: the caller's arrays.
+    let covers = unsafe { page::mini_covers(view(request, count), view(mini, mini_count), &table) };
+    covers.and_then(|m| i32::try_from(m).ok()).unwrap_or(-1)
+}
+
+/// # Safety
+///
+/// Each pointer is null or holds its count of values.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_cpfont_merge_mini(
+    mini: *const page::Interval,
+    mini_count: usize,
+    request: *const u32,
+    count: usize,
+    out: *mut u32,
+    out_len: usize,
+) -> usize {
+    // SAFETY: the caller's arrays.
+    unsafe {
+        page::merge_mini(
+            view(mini, mini_count),
+            view(request, count),
+            view_mut(out, out_len),
+        )
+    }
+    .unwrap_or(0)
+}
+
+/// # Safety
+///
+/// `table` is null or a loaded table; the arrays hold `count` values each.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_cpfont_find_glyphs(
+    table: *const IntervalTable,
+    codepoints: *const u32,
+    count: usize,
+    out: *mut page::Mapping,
+) -> usize {
+    // SAFETY: the caller's loaded table, if any.
+    let Some(table) = (unsafe { table.as_ref() }).and_then(|t| unsafe { t.view() }) else {
+        return 0;
+    };
+    // SAFETY: the caller's arrays.
+    unsafe { page::find_glyphs(&table, view(codepoints, count), view_mut(out, count)) }
+}
+
+/// # Safety
+///
+/// `mappings` holds `count` values, `out` `out_len`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_cpfont_build_mini_intervals(
+    mappings: *const page::Mapping,
+    count: usize,
+    out: *mut page::Interval,
+    out_len: usize,
+) -> usize {
+    // SAFETY: the caller's arrays.
+    unsafe { page::build_mini_intervals(view(mappings, count), view_mut(out, out_len)) }
+}
+
+/// # Safety
+///
+/// `mini` holds `mini_count` values, `out` `out_len`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_cpfont_mini_codepoints(
+    mini: *const page::Interval,
+    mini_count: usize,
+    out: *mut u32,
+    out_len: usize,
+) -> usize {
+    // SAFETY: the caller's arrays.
+    unsafe { page::mini_codepoints(view(mini, mini_count), view_mut(out, out_len)) }
 }
