@@ -207,3 +207,23 @@ TEST(SdCardFontLoad, ARefusedTableOfContentsAfterALoadLeavesNothingLoaded) {
   EXPECT_EQ(font.contentHash(), 0u);
   for (const uint8_t style : {0, 1, 2, 3}) EXPECT_FALSE(font.hasStyle(style)) << int(style);
 }
+
+TEST(SdCardFontLoad, StylesWithTheSameIntervalsButDifferentTableFormsBothWork) {
+  SdCardFont font;
+  // 65536 glyphs need the full-width table; 26 fit the compact one.
+  Style wide{0, {{'A', 'Z', 0}}, 65536};
+  Style narrow{1, {{'A', 'Z', 0}}, 26};
+  ASSERT_TRUE(load(font, makeFont({wide, narrow})));
+  for (const uint8_t style : {0, 1}) {
+    EXPECT_TRUE(font.getEpdFont(style)->hasCodepoint('Q')) << int(style);
+    EXPECT_FALSE(font.getEpdFont(style)->hasCodepoint('a')) << int(style);
+  }
+}
+
+TEST(SdCardFontLoad, StylesWithoutIntervalsCoverNothing) {
+  SdCardFont font;
+  ASSERT_TRUE(load(font, makeFont({Style{0, {}, 0}, Style{1, {}, 0}, Style{2}})));
+  EXPECT_FALSE(font.getEpdFont(0)->hasCodepoint('A'));
+  EXPECT_FALSE(font.getEpdFont(1)->hasCodepoint('A'));
+  EXPECT_TRUE(font.getEpdFont(2)->hasCodepoint('A'));
+}
