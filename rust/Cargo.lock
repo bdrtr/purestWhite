@@ -50,6 +50,7 @@ dependencies = [
  "bembeyaz-toc",
  "bembeyaz-utf8",
  "bembeyaz-xml",
+ "bembeyaz-xtc",
  "bembeyaz-zip",
 ]
 
@@ -126,6 +127,10 @@ version = "0.1.0"
 
 [[package]]
 name = "bembeyaz-xml"
+version = "0.1.0"
+
+[[package]]
+name = "bembeyaz-xtc"
 version = "0.1.0"
 
 [[package]]

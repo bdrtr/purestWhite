@@ -1,0 +1,30 @@
+# Books from make_xtc_files.py: open the 1-bit book and turn two pages, then the same for the
+# 2-bit book (the second file in the list)
+ready
+touch:240,348
+wait-screen
+touch:240,138
+wait-log:Rendered page 1/
+shot:xtc-page1
+swipe:left
+wait-log:Rendered page 2/
+shot:xtc-page2
+swipe:left
+wait-log:Rendered page 3/
+shot:xtc-page3
+press:home
+wait-quiet:3
+touch:240,348
+wait-screen
+touch:240,200
+wait-log:Rendered page 1/
+shot:xtch-page1
+swipe:left
+wait-log:Rendered page 2/
+shot:xtch-page2
+swipe:left
+wait-log:Rendered page 3/
+shot:xtch-page3
+press:home
+wait-quiet:3
+shot:home

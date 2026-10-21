@@ -83,6 +83,10 @@ emu/compare.sh emu/bmp.txt x4pro emu/books/bmp/*.bmp
 emu/compare.sh emu/sleep.txt x4pro emu/books/bmp/overlay/card/sleep-overlay.bmp \
     emu/books/bmp/overlay/card/.crosspoint=/
 
+# XTC/XTCH (bembeyaz-xtc): 1 ve 2 bitlik iki kitap açılır, her birinde iki sayfa çevrilir.
+python3 emu/make_xtc_files.py emu/books/xtc
+emu/compare.sh emu/xtc.txt x4pro emu/books/xtc/book.xtc emu/books/xtc/book.xtch
+
 # JPEG (bembeyaz-jpeg): gri ton, 4:4:4/4:2:2/4:2:0, ilerlemeli, restart, CMYK, 1/2, 1/4 ve 1/8
 # ölçekte çözülen büyük resimler; JPEG kapak (Home'daki küçük resim, tam boyutta çözülür). Bozuk
 # ikizinin resminde bir başlık segmenti dosyanın sonunu aşıyor: eski sürüm onu açarken donar.
@@ -154,7 +158,7 @@ birikir; her commit kendi maddesini ekler.
   tuttuğu heap blokları Rust'ındır: değer bir kez `*_init` (Rust heap'inde `*_new`) ile kurulur,
   ömrü bitmeden `*_free` çağrılır, kopyalanmaz (C++ sınıfı kopyalanamaz ve taşınamaz). Heap tutmayan durum (`bb_css_tokenizer`)
   serbest bırakma gerektirmez; Rust tarafı bunu `needs_drop` ile derleme anında denetler.
-- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-json`, `bembeyaz-toc`, `bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-png`, `bembeyaz-jpeg`, `bembeyaz-bmp`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`, `bembeyaz-xml`, `bembeyaz-opf`, `bembeyaz-path`, `bembeyaz-layout`) `clippy::indexing_slicing`,
+- Güvenilmeyen girdiyi işleyen crate'ler (`bembeyaz-json`, `bembeyaz-toc`, `bembeyaz-zip`, `bembeyaz-inflate`, `bembeyaz-png`, `bembeyaz-jpeg`, `bembeyaz-bmp`, `bembeyaz-xtc`, `bembeyaz-bidi`, `bembeyaz-css`, `bembeyaz-hyphenation`, `bembeyaz-xml`, `bembeyaz-opf`, `bembeyaz-path`, `bembeyaz-layout`) `clippy::indexing_slicing`,
   `unwrap_used` ve `panic`'i yasaklar; dosyadan okunan boyutla sınırsız bellek ayırmaz
   (ayırma sabit bir üst sınırla ya da zaten bellekte olan girdinin boyutuyla kısılır). Kesmeler ve tek bayt bozulmaları için panik
   olmadığını test eden bir mini-fuzz testi taşır.
@@ -176,5 +180,5 @@ Bağımlılıklara göre (önce yapraklar):
 | 2 — sıkıştırma/veri | **ZipFile kapsayıcısı ✅**, **InflateStream ✅** (S3 ROM'undaki miniz 1.15 `tinfl_decompress`: ESP-IDF'in sunduğu kullanılır, flash harcamaz; emülatörde çözmesi kendi çözücümüzden ~1,4–1,9 kat hızlı, bölüm oluşturma süresi değişmedi; `bembeyaz-inflate` yalnızca PNG çözücülerinde), **InflateReader ✅** (silindi; kullanıcıları InflateStream'e geçti), Serialization | Framebuffer ödünç alma ve inflate çağrısı C++'ta (`InflateStream`). ContentProtection (SDK) kendi C miniz kopyasını kullanıyor |
 | 3 — EPUB çekirdeği | Epub: **içindekiler okuyucuları ✅** (TocNcxParser ve TocNavParser'ın yerine `bembeyaz-toc`: XML'i `bembeyaz-xml`, yolları `bembeyaz-path` doğrudan okur; ikisi de `TocParser` katmanı üstünde ince sınıflar), **HTML varlık tablosu ✅** (`bembeyaz-html`; `lookupHtmlEntity`/`htmlEntityText` C++ çağıranlar için katman), **CSS ayrıştırıcı ✅** (önbellek biçimi aynı; dosya işlemleri C++'ta), **heceleme ✅** (hypher trie'leri crate'te; seçili dil C++'ta), **OPF ✅** (paket belgesi; manifest SD'deki geçici dosya yerine bellekte, 2 MiB ile sınırlı; yol çözümü `bembeyaz-path`, FsHelpers da onu kullanır; ayrıca `META-INF/container.xml` de `bembeyaz-opf`'in `container` modülünde, ContainerParser onun üstünde ince bir C++ katmanı), **ParsedText ✅** (paragraf yerleşimi: belirteçler, satır kırma, heceleme, iki yana yaslama, bidi, ruby; ölçümler GfxRenderer'dan geri çağrıyla; TextBlock, BlockStyle, bağlantı hedefleri ve satır içi yazı boyutu yuvaları C++'ta), **tablo sütun genişlikleri ✅** (ChapterHtmlSlimParser'ın tablo ön taraması ve CSS auto table genişlik paylaşımı `bembeyaz-layout`'un `table` modülünde; dosyayı okuma ve yazı genişliği geri çağrıyla C++'ta), Section | En büyük parça (~19k satır); alt modül alt modül |
 | 4 — görüntü/font | **PNG çözücüsü ✅** (bölüm resimleri, resim görüntüleyici, saydam uyku kaplaması, Ayrıntılar kapağı; PNGdec'in yerine `bembeyaz-png`; ölçekleme, titreme ve önbellek C++ dönüştürücüde kaldı), **JPEG çözücüsü ✅** (bölüm resimleri ve kapaklar; JPEGDEC'in yerine `bembeyaz-jpeg`, gri tonlu blok çıkışı; ölçekleme ve titreme C++ dönüştürücülerde kaldı), **PNG kapakları ✅** (PngToBmpConverter'ın kendi çözücüsünün yerine `bembeyaz-png`'nin `cover` okuyucusu; ölçekleme, titreme ve BMP yazımı C++'ta kaldı), **BMP okuyucusu ✅** (GfxRenderer'ın `Bitmap`'i: uyku ekranı, resim görüntüleyici, kapak küçük resimleri; başlık, palet ve satırların parlaklığa çevrilmesi `bembeyaz-bmp`'de; titreme ve 2 bitlik paketleme C++'ta kaldı; SleepActivity'nin saydam uyku kaplaması da başlığı `Bitmap` ile okur), EpdFont, GfxRenderer | Çerçeve tamponu sınırı |
-| 5 — uygulama | LibraryIndex, Txt, Xtc, KOReaderSync, `src/` activity'leri | UI |
+| 5 — uygulama | LibraryIndex, Txt, Xtc (**XTC/XTCH ayrıştırıcısı ✅**: `XtcParser` başlığı, sayfa tablosunu, sayfa başlıklarını ve bölüm listesini `bembeyaz-xtc` ile okur; dosyayı açıp kapatmak C++'ta), KOReaderSync, `src/` activity'leri | UI |
 | 6 — platform | hal, freeink-sdk sürücüleri, `main` → Rust (esp-hal / esp-idf) | Arduino kalkar |

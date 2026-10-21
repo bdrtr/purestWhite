@@ -633,3 +633,22 @@ değiştirilmemiş CrossPoint'le aynı çizdi.
   seçeneğin Türkçesi yok) ve cihazı Güç düğmesine basılı tutarak uyutun. Üretilen dosyayla
   uyumadan önceki ekranın üstünde, içe doğru solan renkli bir halka görünmeli; halkanın dışında
   önceki ekran olduğu gibi kalmalı.
+
+## XTC/XTCH ayrıştırıcısı Rust'ta ("rust: our own XTC reader")
+
+Xteink'in önceden çizilmiş sayfa biçimi XTC/XTCH'nin dosya başlığı, sayfa tablosu, sayfa başlıkları
+ve bölüm listesi artık `bembeyaz-xtc` ile okunuyor; dosyayı açıp kapatmak C++'ta kaldı. Yeni
+`test/xtc_parser` testleri dahil 910 host testi geçiyor; bu yeni testler eski kodla da geçiyor.
+Geliştirme sırasında bir fark testi eski C++ kodunu Rust koduyla 30 000 üretilmiş (kimi bozuk ya da
+kesik) kitapta ve 205 gerçek XTCH kitabında (her sayfası, parça parça okuma ve bölümleriyle)
+karşılaştırdı: sonuçlar aynıydı. Emülatörde `emu/compare.sh emu/xtc.txt`, `emu/make_xtc_files.py`
+ile üretilen 1 ve 2 bitlik iki kitapta değiştirilmemiş CrossPoint'le aynı ekranları verdi.
+
+- [ ] Birkaç `.xtc` ve `.xtch` kitabı açın: sayfalar eskisi gibi çizilmeli, sayfa çevirmek eskisi
+  kadar hızlı olmalı; kitabı açtıktan sonra başlık ve yazar Home'daki son okunanlarda görünmeli.
+  `python3 emu/make_xtc_files.py xtc` ile üretilen iki kitapta her sayfada sayfa numarası kadar
+  siyah çubuk vardır.
+- [ ] Bölümleri olan bir XTCH kitabında bölüm listesini açın: bölümler eskisi gibi listelenmeli,
+  bir bölüme atlayınca doğru sayfa açılmalı.
+- [ ] Daha önce açılmamış (ya da önbelleği silinmiş) bir XTC kitabının Home'daki kapak küçük resmi
+  (kitabın ilk sayfasından üretilir) eskisi gibi görünmeli.

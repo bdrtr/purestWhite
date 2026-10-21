@@ -8,6 +8,7 @@
 #pragma once
 
 #include <HalStorage.h>
+#include <bembeyaz/xtc.h>
 
 #include <functional>
 #include <memory>
@@ -38,11 +39,10 @@ class XtcParser {
   bool isOpen() const { return m_isOpen; }
 
   // Header information access
-  const XtcHeader& getHeader() const { return m_header; }
-  uint16_t getPageCount() const { return m_header.pageCount; }
-  uint16_t getWidth() const { return m_defaultWidth; }
-  uint16_t getHeight() const { return m_defaultHeight; }
-  uint8_t getBitDepth() const { return m_bitDepth; }  // 1 = XTC/XTG, 2 = XTCH/XTH
+  uint16_t getPageCount() const { return m_book.page_count; }
+  uint16_t getWidth() const { return m_book.width; }
+  uint16_t getHeight() const { return m_book.height; }
+  uint8_t getBitDepth() const { return m_book.bit_depth; }  // 1 = XTC/XTG, 2 = XTCH/XTH
 
   // Page information
   bool getPageInfo(uint32_t pageIndex, PageInfo& info);
@@ -71,8 +71,8 @@ class XtcParser {
                              size_t chunkSize = 1024);
 
   // Get title/author from metadata
-  const std::string& getTitle() const { return m_title; }
-  const std::string& getAuthor() const { return m_author; }
+  std::string getTitle() const { return std::string(m_book.title, m_book.title_len); }
+  std::string getAuthor() const { return std::string(m_book.author, m_book.author_len); }
 
   bool hasChapters() const { return m_hasChapters; }
   const std::vector<ChapterInfo>& getChapters();
@@ -87,24 +87,17 @@ class XtcParser {
   HalFile m_file;
   std::string m_filepath;
   bool m_isOpen;
-  XtcHeader m_header;
+  bb_xtc m_book{};
   std::vector<ChapterInfo> m_chapters;
-  std::string m_title;
-  std::string m_author;
-  uint16_t m_defaultWidth;
-  uint16_t m_defaultHeight;
-  uint8_t m_bitDepth;  // 1 = XTC/XTG (1-bit), 2 = XTCH/XTH (2-bit)
   bool m_hasChapters;
   bool m_chaptersLoaded;
   XtcError m_lastError;
 
-  // Internal helper functions
-  XtcError readHeader();
-  XtcError readFirstPageInfo();
-  XtcError readTitle();
-  XtcError readAuthor();
   XtcError readChapters();
-  bool readPageTableEntry(uint32_t pageIndex, PageInfo& info);
+  // The bb_xtc_file over m_file, reopening it as needed.
+  bb_xtc_file file();
+  static int64_t readAt(void* context, uint64_t offset, uint8_t* buf, size_t len);
+  static uint64_t fileSize(void* context);
 
   // File handle management — reopen on demand, close after use
   bool ensureFileOpen();

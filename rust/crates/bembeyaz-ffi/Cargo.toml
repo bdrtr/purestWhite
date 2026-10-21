@@ -27,5 +27,6 @@ bembeyaz-path = { path = "../bembeyaz-path" }
 bembeyaz-png = { path = "../bembeyaz-png" }
 bembeyaz-toc = { path = "../bembeyaz-toc" }
 bembeyaz-utf8 = { path = "../bembeyaz-utf8" }
+bembeyaz-xtc = { path = "../bembeyaz-xtc" }
 bembeyaz-xml = { path = "../bembeyaz-xml" }
 bembeyaz-zip = { path = "../bembeyaz-zip" }

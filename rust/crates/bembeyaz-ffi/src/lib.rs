@@ -25,4 +25,5 @@ mod table;
 mod toc;
 mod utf8;
 mod xml;
+mod xtc;
 mod zip;

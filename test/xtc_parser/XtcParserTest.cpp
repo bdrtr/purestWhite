@@ -13,6 +13,11 @@ using xtc::XtcParser;
 
 namespace {
 
+constexpr uint32_t XTC_MAGIC = 0x00435458;   // "XTC\0"
+constexpr uint32_t XTCH_MAGIC = 0x48435458;  // "XTCH"
+constexpr uint32_t XTG_MAGIC = 0x00475458;   // "XTG\0"
+constexpr uint32_t XTH_MAGIC = 0x00485458;   // "XTH\0"
+
 void put(std::vector<uint8_t>& v, const size_t at, const uint64_t value, const int bytes) {
   if (v.size() < at + bytes) v.resize(at + bytes);
   for (int i = 0; i < bytes; i++) v[at + i] = static_cast<uint8_t>(value >> (8 * i));
@@ -34,7 +39,7 @@ struct Chapter {
 std::vector<uint8_t> makeBook(const std::vector<Page>& pages, const bool twoBit = false, const std::string& title = "",
                               const std::string& author = "", const std::vector<Chapter>& chapters = {}) {
   std::vector<uint8_t> v(56, 0);
-  put(v, 0, twoBit ? xtc::XTCH_MAGIC : xtc::XTC_MAGIC, 4);
+  put(v, 0, twoBit ? XTCH_MAGIC : XTC_MAGIC, 4);
   v[4] = 1;
   put(v, 6, pages.size(), 2);
   v[9] = title.empty() && author.empty() ? 0 : 1;
@@ -66,7 +71,7 @@ std::vector<uint8_t> makeBook(const std::vector<Page>& pages, const bool twoBit 
     put(v, table + 16 * i + 8, size + 22, 4);
     put(v, table + 16 * i + 12, p.width, 2);
     put(v, table + 16 * i + 14, p.height, 2);
-    put(v, at, twoBit ? xtc::XTH_MAGIC : xtc::XTG_MAGIC, 4);
+    put(v, at, twoBit ? XTH_MAGIC : XTG_MAGIC, 4);
     put(v, at + 4, p.width, 2);
     put(v, at + 6, p.height, 2);
     put(v, at + 10, size, 4);
@@ -185,7 +190,7 @@ TEST(XtcParser, PagesAreChecked) {
   const size_t table = 56;
   const size_t page1 = data[table + 16] | (data[table + 17] << 8) | (data[table + 18] << 16);
   const size_t page2 = data[table + 32] | (data[table + 33] << 8) | (data[table + 34] << 16);
-  data[page1] = 'Q';         // page 1: bad magic
+  data[page1] = 'Q';            // page 1: bad magic
   put(data, page2 + 10, 3, 4);  // page 2: declared size does not match 8x2
   XtcParser parser;
   ASSERT_EQ(openBook(parser, data), XtcError::OK);
@@ -241,8 +246,8 @@ TEST(XtcParser, StreamsAPageInChunks) {
 }
 
 TEST(XtcParser, ChaptersAreOneBasedAndClamped) {
-  const std::vector<Chapter> chapters = {
-      {"One", 1, 2}, {"Two", 3, 99}, {"Late", 7, 9}, {"Backwards", 3, 2}, {"", 0, 0}, {"After end", 1, 1}};
+  const std::vector<Chapter> chapters = {{"One", 1, 2},       {"Two", 3, 99}, {"Late", 7, 9},
+                                         {"Backwards", 3, 2}, {"", 0, 0},     {"After end", 1, 1}};
   XtcParser parser;
   ASSERT_EQ(openBook(parser, makeBook({{8, 1, 0}, {8, 1, 0}, {8, 1, 0}, {8, 1, 0}}, false, "", "", chapters)),
             XtcError::OK);
