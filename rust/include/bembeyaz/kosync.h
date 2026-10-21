@@ -29,8 +29,7 @@ enum {
 bb_kosync* bb_kosync_new(int kind, uint64_t target, uint32_t spine_index, size_t limit);
 void bb_kosync_free(bb_kosync* resolver);
 // Reads the next len bytes of the chapter, or with last ends it. Input after a failure or once the
-// target is found is ignored. BB_XML_OK, or the BB_XML_* error the chapter failed with here: with
-// last, BB_XML_ABORTED when the target was found only at the end.
+// target is found is ignored. BB_XML_OK, or the BB_XML_* error the chapter failed with here.
 int bb_kosync_parse(bb_kosync* resolver, const char* data, size_t len, bool last);
 // The chapter has failed (or resolver is NULL).
 bool bb_kosync_failed(const bb_kosync* resolver);

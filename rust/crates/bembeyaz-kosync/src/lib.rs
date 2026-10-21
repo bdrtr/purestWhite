@@ -468,9 +468,8 @@ impl Resolver {
         }
         match self.parser.feed(data, last, &mut self.state) {
             Ok(()) => Ok(()),
-            // Found while reading earlier input. Found only at the end of the chapter (input the
-            // parser held back), it fails like any error at the end, as the C++ resolver did.
-            Err(Error::Aborted) if !last && !self.state.out_of_memory => Ok(()),
+            // Found, possibly only at the end, in input the parser held back after a long token.
+            Err(Error::Aborted) if !self.state.out_of_memory => Ok(()),
             Err(error) => {
                 self.failed = true;
                 Err(if self.state.out_of_memory {
@@ -495,8 +494,7 @@ impl Resolver {
     ///
     /// # Errors
     ///
-    /// Why the chapter failed, when it fails here; [`Error::Aborted`] when the target was found
-    /// only now.
+    /// Why the chapter failed, when it fails here.
     pub fn finish(&mut self) -> Result<(), Error> {
         self.run(&[], true)
     }

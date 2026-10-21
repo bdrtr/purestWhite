@@ -133,14 +133,14 @@ fn corrupted_documents_never_panic() {
 }
 
 #[test]
-fn a_target_found_only_at_the_end_fails() {
+fn a_target_found_only_at_the_end_is_found() {
     // The long attribute makes the parser hold the rest back until the end.
     let doc = std::format!(
         r#"<html><body><p title="{}"/><p>end</p></body></html>"#,
         "a".repeat(3000)
     );
     let (xpath, _, ok) = run(&doc, Target::Paragraph(2), 1024);
-    assert!(!ok);
+    assert!(ok);
     assert_eq!(xpath.as_deref(), Some("/body/DocFragment[8]/body/p[2]"));
     let (_, count, ok) = run(&doc, Target::Count, 1024);
     assert!(ok);

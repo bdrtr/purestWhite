@@ -680,3 +680,13 @@ konum gönderirken çalışır; KOReader'dan konum almak başka koddan geçer.
   deneyin.
 - [ ] (Değişmeyen yön, eskisi gibi çalışmalı) KOReader'da ilerleyip burada "Uzak ilerlemeyi uygula"yı
   seçin: aynı sayfa açılmalı.
+
+## KOReader konumu uzun bir öğeden sonra da bulunuyor ("kosync: find positions held back to the end of a chapter")
+
+Bir bölümde 1 KB'tan uzun bir öğe (uzun bir SVG yolu, gömülü bir resim, uzun bir stil ya da yorum)
+varsa XML ayrıştırıcısı sonrasını bölümün sonuna kadar bekletir. Konum ancak o zaman bulunursa eski
+kod onu yok sayıyor, eşitleme bölümün başına ya da daha kaba bir konuma düşüyordu. Artık bulunuyor;
+`test/koreader_xpath_resolver`'daki yeni test bunu doğruluyor.
+
+- [ ] İçinde büyük gömülü resimler ya da SVG'ler olan bir bölümün son sayfasında "Okuma İlerlemesini
+  Senkronize Et" → "Yerel ilerlemeyi yükle"yi seçin: KOReader'da aynı yer açılmalı.

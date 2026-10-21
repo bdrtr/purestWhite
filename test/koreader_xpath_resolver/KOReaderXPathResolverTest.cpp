@@ -230,3 +230,14 @@ TEST(KOReaderXPathResolver, CountsHtmlEntitiesAsTheChapterShowsThem) {
     EXPECT_EQ(ChapterXPathResolver::findXPathForParagraph(epub, 0, 2), "/body/DocFragment[1]/body/p[2]");
   }
 }
+
+// A token longer than a 1 KB read makes the parser hold the rest of the chapter back until its
+// end; a position found only then still counts.
+TEST(KOReaderXPathResolver, FindsPositionsAfterALongToken) {
+  const auto epub = epubWith("<html><body><p title=\"" + std::string(3000, 'a') + "\"/><p>end</p></body></html>");
+
+  EXPECT_EQ(ChapterXPathResolver::findXPathForParagraph(epub, 0, 2), "/body/DocFragment[1]/body/p[2]");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForVisibleTextOffset(epub, 0, 1),
+            "/body/DocFragment[1]/body/p[2]/text()[1].1");
+  EXPECT_EQ(ChapterXPathResolver::findXPathForProgress(epub, 0, 1.0f), "/body/DocFragment[1]/body/p[2]/text()[1].3");
+}
