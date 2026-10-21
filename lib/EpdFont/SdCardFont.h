@@ -1,5 +1,7 @@
 #pragma once
 
+#include <bembeyaz/cpfont.h>
+
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -148,33 +150,11 @@ class SdCardFont {
   uint32_t contentHash() const { return contentHash_; }
 
  private:
-  // Per-style metadata (parsed from file header/TOC)
-  struct CpFontHeader {
-    uint32_t intervalCount = 0;
-    uint32_t glyphCount = 0;
-    uint8_t advanceY = 0;
-    int16_t ascender = 0;
-    int16_t descender = 0;
-    bool is2Bit = false;
-    uint16_t kernLeftEntryCount = 0;
-    uint16_t kernRightEntryCount = 0;
-    uint8_t kernLeftClassCount = 0;
-    uint8_t kernRightClassCount = 0;
-    uint8_t ligaturePairCount = 0;
-  };
-
   // All per-style data: file offsets, intervals, kern/lig, prewarm cache, EpdFont
   struct PerStyle {
-    CpFontHeader header{};
-
-    // File layout offsets for this style's data sections
-    uint32_t intervalsFileOffset = 0;
-    uint32_t glyphsFileOffset = 0;
-    uint32_t kernLeftFileOffset = 0;
-    uint32_t kernRightFileOffset = 0;
-    uint32_t kernMatrixFileOffset = 0;
-    uint32_t ligatureFileOffset = 0;
-    uint32_t bitmapFileOffset = 0;
+    // Counts, metrics and section offsets from the table of contents; toc.present says whether
+    // the font has this style.
+    bb_cpfont_style toc{};
 
     // Full intervals loaded from file (kept in RAM for codepoint lookup)
     EpdUnicodeInterval* fullIntervals = nullptr;
@@ -272,8 +252,6 @@ class SdCardFont {
 
     // The EpdFont whose data pointer we manage
     EpdFont epdFont{&stubData};
-
-    bool present = false;
   };
 
   PerStyle styles_[MAX_STYLES] = {};
@@ -326,6 +304,8 @@ class SdCardFont {
 
   Stats stats_;
   uint32_t contentHash_ = 0;
+  // Glyph bitmaps are 2-bit (else 1-bit) in every style.
+  bool twoBit_ = false;
   bool loaded_ = false;
 
   // Per-style helpers
