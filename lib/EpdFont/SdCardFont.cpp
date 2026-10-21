@@ -86,6 +86,16 @@ bool ensureArrayCapacity(T*& buf, CapT& capacity, const uint32_t needed) {
   return buf != nullptr;
 }
 
+// A glyph whose bitmap is shorter than its pixels would be read past its end when drawn: keep its
+// metrics for layout and draw nothing.
+void dropShortBitmap(EpdGlyph& glyph, const bool twoBit) {
+  const uint32_t bits = static_cast<uint32_t>(glyph.width) * glyph.height * (twoBit ? 2 : 1);
+  if (glyph.dataLength >= (bits + 7) / 8) return;
+  glyph.width = 0;
+  glyph.height = 0;
+  glyph.dataLength = 0;
+}
+
 // The Rust readers' view of an open .cpfont file.
 bb_cpfont_file cpfontFile(HalFile& file) {
   const auto read = [](void* f, uint8_t* buf, const size_t len) -> size_t {
@@ -1064,6 +1074,7 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
       freeStyleMiniData(s);
       return static_cast<int>(cpCount);
     }
+    dropShortBitmap(s.miniGlyphs[mapIdx], twoBit_);
     lastReadIndex = gIdx;
   }
 
@@ -1623,6 +1634,7 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
     LOG_ERR("SDCF", "Overflow: failed to read glyph metadata for U+%04X style %u", codepoint, styleIdx);
     return nullptr;
   }
+  dropShortBitmap(tempGlyph, self->twoBit_);
 
   // Read bitmap data into temporary (if any)
   uint8_t* tempBitmap = nullptr;

@@ -102,6 +102,10 @@ emu/compare.sh emu/reading.txt x4pro "$book" \
     emu/books/sdfont/good/.fonts=/ emu/books/sdfont/good/.crosspoint=/
 emu/compare.sh emu/reading.txt x4pro "$book" \
     emu/books/sdfont/bad/.fonts=/ emu/books/sdfont/bad/.crosspoint=/
+# Kısa bitmap'li ikizinde düz stilin "e" glifi 1 baytlık bitmap bildirir: eski sürüm "e" yerine
+# bitmap'in ötesindeki baytları çizer, bu sürüm "e"yi boş bırakır (sayfa ekranları kasıtlı farklı).
+emu/compare.sh emu/reading.txt x4pro "$book" \
+    emu/books/sdfont/short/.fonts=/ emu/books/sdfont/short/.crosspoint=/
 
 # JPEG (bembeyaz-jpeg): gri ton, 4:4:4/4:2:2/4:2:0, ilerlemeli, restart, CMYK, 1/2, 1/4 ve 1/8
 # ölçekte çözülen büyük resimler; JPEG kapak (Home'daki küçük resim, tam boyutta çözülür). Bozuk

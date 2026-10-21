@@ -614,3 +614,25 @@ TEST(SdCardFontTest, ALigatureTableCutShortLeavesNoLigaturesOrKerning) {
   EXPECT_EQ(0u, font.getEpdFont()->getLigature('E', 'F'));
   EXPECT_EQ(0, font.getEpdFont()->getKerning('A', 'B'));
 }
+
+TEST(SdCardFontTest, AGlyphWhoseBitmapIsShorterThanItsSizeIsDrawnBlank) {
+  makeKerningFont();
+  // B and D claim 32×32 1-bit pixels (128 bytes) but only 16 bytes of bitmap.
+  for (const uint32_t glyph : {1u, 3u}) put16(64 + 24 + glyph * sizeof(EpdGlyph) + offsetof(EpdGlyph, dataLength), 16);
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  ASSERT_EQ(0, font.prewarm("AB", 1, false, true, false));
+  const EpdFont* epd = font.getEpdFont();
+  const EpdGlyph* a = epd->getGlyph('A');
+  ASSERT_NE(nullptr, a);
+  EXPECT_EQ(32, a->width);
+  // Prewarmed and loaded on demand alike: no pixels, the advance kept.
+  for (const uint32_t cp : {'B', 'D'}) {
+    const EpdGlyph* glyph = epd->getGlyph(cp);
+    ASSERT_NE(nullptr, glyph) << cp;
+    EXPECT_EQ(0, glyph->width) << cp;
+    EXPECT_EQ(0, glyph->height) << cp;
+    EXPECT_EQ(0, glyph->dataLength) << cp;
+    EXPECT_EQ(32 << 4, glyph->advanceX) << cp;
+  }
+}

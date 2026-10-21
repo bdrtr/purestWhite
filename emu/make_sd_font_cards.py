@@ -4,6 +4,8 @@ bembeyaz-font):
 - good/: the font as given
 - bad/: the same font with the first style's second interval overlapping its first, which load
   refuses
+- short/: the same font with the regular style's "e" claiming a 1-byte bitmap, which an
+  unchecked reader draws past
 
 Each holds .fonts/<family>/<family>_<size>.cpfont and a .crosspoint/settings.json that selects the
 family. Make the font with lib/EpdFont/scripts/fontconvert_sdcard.py (it needs freetype-py), e.g.
@@ -27,7 +29,20 @@ intervals = struct.unpack_from("<I", bad, 32 + 24)[0]
 first_last = struct.unpack_from("<I", bad, intervals + 4)[0]
 struct.pack_into("<I", bad, intervals + 12, first_last)
 
-for name, content in (("good", data), ("bad", bytes(bad))):
+short = bytearray(data)
+for entry in range(data[12]):
+    toc = 32 + 32 * entry
+    if data[toc] != 0:
+        continue
+    count = struct.unpack_from("<I", data, toc + 4)[0]
+    offset = struct.unpack_from("<I", data, toc + 24)[0]
+    for i in range(count):
+        first, last, glyph = struct.unpack_from("<III", data, offset + 12 * i)
+        if first <= ord("e") <= last:
+            record = offset + 12 * count + 16 * (glyph + ord("e") - first)
+            struct.pack_into("<H", short, record + 8, 1)  # EpdGlyph::dataLength
+
+for name, content in (("good", data), ("bad", bytes(bad)), ("short", bytes(short))):
     card = out_dir / name
     folder = card / ".fonts" / family
     folder.mkdir(parents=True, exist_ok=True)

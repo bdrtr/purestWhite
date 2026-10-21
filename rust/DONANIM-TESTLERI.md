@@ -804,3 +804,16 @@ değiştirilmemiş CrossPoint'le aynıydı.
   sayfa çevirdikçe `[SDCF] Built mini kern: N×M matrix` satırları görünmeli; `Failed to read kern
   classes`, `Failed to allocate mini kern`, `Failed to seek to kern row` ya da `Failed to read kern
   row` görünmemeli.
+
+## Bitmap'i boyutundan kısa SD font glifleri boş çizilir ("fix: draw nothing for .cpfont glyphs …")
+
+Bir `.cpfont` glifi `genişlik × yükseklik` pikselden az bitmap baytı bildirirse çizici bitmap'in
+sonunu aşıp bellekteki başka baytları ekrana çiziyordu (bozuk ya da kötü niyetli bir fontta).
+Böyle bir glif artık boş çizilir; ilerleme genişliği korunduğu için sayfa düzeni değişmez.
+Dönüştürücünün ürettiği dört gerçek fontun 75.825 glifinin hiçbiri bu durumda değil, yani sağlam
+fontlarda hiçbir şey değişmez. Yeni bir test dahil 927 host testi geçiyor. Emülatörde "e" glifi
+bozulmuş bir fontla eski sürüm "e" yerine çizgili lekeler çizdi, bu sürüm boşluk bıraktı; sağlam
+fontla sayfalar değiştirilmemiş CrossPoint'le aynı.
+
+- [ ] Karttaki sağlam bir fontla birkaç sayfa okuyun: harfler eksiksiz görünmeli (hiçbir harf boş
+  kalmamalı).
