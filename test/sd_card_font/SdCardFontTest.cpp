@@ -723,3 +723,51 @@ TEST(SdCardFontTest, AReadFailureAfterTheIntervalTableIsReservedFreesIt) {
   }
   countArrays = false;
 }
+
+TEST(SdCardFontTest, ALigatureOutputJoinsAPageWithBothItsParts) {
+  makeKerningFont(0, 2, 2, true);  // E+F -> A
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  ASSERT_EQ(0, font.prewarm("EF", 1, false, true, false));
+  EXPECT_EQ(4U, residentCount(font));  // E, F, A and U+FFFD
+  font.releaseResidentCaches();
+  ASSERT_EQ(0, font.prewarm("E", 1, false, true, false));
+  EXPECT_EQ(2U, residentCount(font));
+  font.releaseResidentCaches();
+  ASSERT_EQ(0, font.prewarm("EF", 1, false, false, false));  // no ligatures wanted
+  EXPECT_EQ(3U, residentCount(font));
+  font.releaseResidentCaches();
+  ASSERT_EQ(0, font.prewarm("EF", 1, true, true, false));  // metadata only
+  EXPECT_EQ(3U, residentCount(font));
+}
+
+TEST(SdCardFontTest, APageKeepsItsFirst512Codepoints) {
+  makeFont(700);
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  ASSERT_EQ(0, font.prewarm(page(FIRST, 600).c_str(), 1, false, false, false));
+  EXPECT_EQ(512U, residentCount(font));  // no room left for U+FFFD
+  expectPageBitmaps(font, FIRST, 512);
+}
+
+TEST(SdCardFontTest, AnAccumulatedUnionPast512IsDroppedForTheRequest) {
+  makeFont(700);
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  ASSERT_EQ(0, font.prewarm(page(FIRST, 300).c_str(), 1, false, false, true));
+  ASSERT_EQ(0, font.prewarm(page(FIRST + 300, 250).c_str(), 1, false, false, true));
+  EXPECT_EQ(251U, residentCount(font));
+  expectPageBitmaps(font, FIRST + 300, 250);
+}
+
+TEST(SdCardFontTest, ASubsetHitStillCountsUncoveredCodepoints) {
+  makeFont();
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  const std::string text = page(FIRST, 3) + "AB";  // A and B are not in the font
+  ASSERT_EQ(2, font.prewarm(text.c_str(), 1, false, false, false));
+  font.clearCache();
+  sdFontTestReads = 0;
+  EXPECT_EQ(2, font.prewarm(text.c_str(), 1, false, false, false));
+  EXPECT_EQ(0U, sdFontTestReads);
+}
