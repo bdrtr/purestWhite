@@ -4,9 +4,11 @@
 # (release-fonts.yml) and both Python scripts (fontconvert_sdcard.py,
 # generate-font-manifest.py) read from here.
 #
-# The firmware C++ headers (SdCardFont.h, FontDownloadActivity.h) carry their
-# own copies — those must be bumped manually when the firmware is updated to
-# support a new version.
+# The firmware carries its own copies of CPFONT_VERSION: SdCardFont.h,
+# BB_CPFONT_FORMAT_VERSION in rust/include/bembeyaz/cpfont.h and VERSION in
+# rust/crates/bembeyaz-font/src/cpfont.rs (with the assert in
+# rust/crates/bembeyaz-ffi/src/cpfont.rs). Bump them by hand when the firmware
+# is updated to support a new version.
 
 # .cpfont binary format version. Bump when the on-disk struct layout changes.
 CPFONT_VERSION = 4

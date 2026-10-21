@@ -39,6 +39,7 @@ dependencies = [
  "bembeyaz-bidi",
  "bembeyaz-bmp",
  "bembeyaz-css",
+ "bembeyaz-font",
  "bembeyaz-html",
  "bembeyaz-hyphenation",
  "bembeyaz-jpeg",
@@ -55,6 +56,10 @@ dependencies = [
  "bembeyaz-xtc",
  "bembeyaz-zip",
 ]
+
+[[package]]
+name = "bembeyaz-font"
+version = "0.1.0"
 
 [[package]]
 name = "bembeyaz-html"

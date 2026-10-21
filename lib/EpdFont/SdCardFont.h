@@ -15,7 +15,9 @@
 // The canonical version for the build tooling lives in
 // lib/EpdFont/scripts/cpfont_version.py. This firmware-side copy must be
 // bumped manually when the firmware is updated to support a new format.
-// Reader enforcement: SdCardFont::load().
+// Reader enforcement: rust/crates/bembeyaz-font/src/cpfont.rs (VERSION). SdCardFont.cpp asserts
+// this equals BB_CPFONT_FORMAT_VERSION in rust/include/bembeyaz/cpfont.h, and bembeyaz-ffi asserts
+// VERSION equals 4: bump all three.
 #define CPFONT_VERSION 4
 
 class SdCardFont {
@@ -347,7 +349,6 @@ class SdCardFont {
   // Global helpers
   void freeAll();
   void clearOverflow();
-  static void computeStyleFileOffsets(PerStyle& s, uint32_t baseOffset);
 
   // Static callback for EpdFontData::glyphMissHandler (per-style via OverflowContext)
   static const EpdGlyph* onGlyphMiss(void* ctx, uint32_t codepoint);

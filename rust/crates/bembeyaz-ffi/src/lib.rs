@@ -8,6 +8,7 @@ extern crate alloc;
 mod bidi;
 mod bmp;
 mod container;
+mod cpfont;
 mod css;
 #[cfg(target_os = "none")]
 mod device;

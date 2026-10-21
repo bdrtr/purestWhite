@@ -755,3 +755,26 @@ aynı sayfaları verdi.
 - [ ] Bir `.txt` ve bir `.md` kitap açın (daha önce açtıysanız kitap açıkken okuma menüsünden Delete
   Book Cache / Kitap Önbelleğini Sil; cihaz Ana ekrana döner, kitabı yeniden açın):
   satır başı girintileri, boş satırlar ve Türkçe karakterler eskisi gibi görünmeli.
+
+## SD kart fontunun başlığını okumak Rust'ta ("rust: our own .cpfont header reader")
+
+Karttaki bir `.cpfont` fontunu açarken başlığını ve stillerin içindekiler tablosunu okuyan, sayı
+sınırlarını ve aralık tablosunu denetleyen, bölümlerin dosyadaki konumlarını ve içerik özetini
+(bölüm önbelleğindeki font kimliği bundan hesaplanır) çıkaran kısım artık `bembeyaz-font`'un
+`cpfont` modülünde; dosya okuma, bellek ayırma, stiller arasında tablo paylaşımı ve glif, kerning,
+ligatür okuyucuları C++'ta kaldı. SD font testleri dahil 920 host testi geçiyor. Geliştirme
+sırasında bir fark testi eski C++ kodunu Rust koduyla 60.000 üretilmiş (kimi bozuk ya da kesik) font
+dosyasında ve dört gerçek fontta (dört stilli Liberation Serif, Noto Sans Latin/Yunan/Kiril, Noto
+Serif ASCII, 10 MB'lık Noto Sans CJK) ve bunların 9.200 bozulmuş kopyasında karşılaştırdı: sonuçlar
+aynıydı. Emülatörde bir SD fontuyla okunan kitap ve bozuk bir fonttan yerleşik fonta dönüş
+değiştirilmemiş CrossPoint'le aynı göründü.
+
+- [ ] Ayarlar → Manage Fonts / Yazı Tiplerini Yönet'ten indirilmiş ya da `/.fonts` (veya `/fonts`)
+  altına konmuş bir fontu Text Settings / Metin ayarları → Font / Yazı tipi'nde okuma fontu olarak
+  seçin ve bir kitap açın: metin o fontla, kalın ve italik yerler doğru stille görünmeli.
+- [ ] Bu fontla bir kitap açın, kapatın, cihazı yeniden başlatıp kitabı yeniden açın: bölümler
+  yeniden oluşturulmadan hemen açılmalı (günlükte `Parameters do not match` görünmemeli). Cihaz
+  5f321eb'den eski bir sürümden geliyorsa, yüklemeden sonraki ilk açılışta kitap önbelleği
+  `BOOK_CACHE_VERSION` artışı yüzünden bir kez yeniden kurulur.
+- [ ] Çince, Japonca ya da Korece bir SD fontu varsa onunla bir kitap açın: karakterler eskisi gibi
+  görünmeli.

@@ -161,13 +161,13 @@ TEST(SdCardFontLoad, RefusesBadIntervalTables) {
     Style s{0, std::move(intervals), glyphs};
     return !load(font, makeFont({s}));
   };
-  EXPECT_TRUE(refuse({{'Z', 'A', 0}}, 26));                      // reversed
-  EXPECT_TRUE(refuse({{'A', 'M', 0}, {'M', 'Z', 13}}, 27));      // overlapping
-  EXPECT_TRUE(refuse({{'A', 'M', 0}, {'N', 'Z', 14}}, 27));      // offset gap
-  EXPECT_TRUE(refuse({{'A', 'Z', 0}}, 25));                      // span past the glyphs
-  EXPECT_TRUE(refuse({{'A', 'B', 0}, {'D', 'Z', 2}}, 20));       // offsets past the glyphs
-  EXPECT_FALSE(refuse({{'A', 'M', 0}, {'O', 'Z', 13}}, 25));     // a gap in codepoints is fine
-  EXPECT_FALSE(refuse({}, 0));                                   // no intervals
+  EXPECT_TRUE(refuse({{'Z', 'A', 0}}, 26));                   // reversed
+  EXPECT_TRUE(refuse({{'A', 'M', 0}, {'M', 'Z', 13}}, 27));   // overlapping
+  EXPECT_TRUE(refuse({{'A', 'M', 0}, {'N', 'Z', 14}}, 27));   // offset gap
+  EXPECT_TRUE(refuse({{'A', 'Z', 0}}, 25));                   // span past the glyphs
+  EXPECT_TRUE(refuse({{'A', 'B', 0}, {'D', 'Z', 2}}, 20));    // offsets past the glyphs
+  EXPECT_FALSE(refuse({{'A', 'M', 0}, {'O', 'Z', 13}}, 25));  // a gap in codepoints is fine
+  EXPECT_FALSE(refuse({}, 0));                                // no intervals
   auto cut = makeFont({Style{0, {{'A', 'M', 0}, {'O', 'Z', 13}}, 25}});
   cut.resize(cut.size() - 4);
   EXPECT_FALSE(load(font, cut));
@@ -183,4 +183,27 @@ TEST(SdCardFontLoad, AFailedLoadLeavesNothingLoaded) {
   EXPECT_FALSE(load(font, bad));
   EXPECT_FALSE(font.hasStyle(0));
   EXPECT_FALSE(font.hasStyle(1));
+}
+
+TEST(SdCardFontLoad, ALaterEntryWithTheSameIdReplacesTheEarlierOne) {
+  SdCardFont font;
+  const auto file = makeFont({Style{}, Style{0, {{'a', 'z', 0}}, 26}});
+  ASSERT_TRUE(load(font, file));
+  EXPECT_EQ(font.styleCount(), 2);
+  EXPECT_EQ(font.contentHash(), fnv(file, 32 + 2 * 32));
+  EXPECT_FALSE(font.hasStyle(1));
+  EXPECT_TRUE(font.getEpdFont(0)->hasCodepoint('q'));
+  EXPECT_FALSE(font.getEpdFont(0)->hasCodepoint('Q'));
+  EXPECT_EQ(font.getEpdFont(0)->data->advanceY, 31);
+}
+
+TEST(SdCardFontLoad, ARefusedTableOfContentsAfterALoadLeavesNothingLoaded) {
+  SdCardFont font;
+  const auto file = makeFont({Style{}, Style{1}, Style{2}, Style{3}});
+  ASSERT_TRUE(load(font, file));
+  EXPECT_EQ(font.contentHash(), fnv(file, 32 + 4 * 32));
+  EXPECT_FALSE(load(font, makeFont({Style{}, Style{4}})));
+  EXPECT_EQ(font.styleCount(), 0);
+  EXPECT_EQ(font.contentHash(), 0u);
+  for (const uint8_t style : {0, 1, 2, 3}) EXPECT_FALSE(font.hasStyle(style)) << int(style);
 }
