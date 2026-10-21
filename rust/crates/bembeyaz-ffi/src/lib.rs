@@ -20,6 +20,7 @@ mod opf;
 mod path;
 mod png;
 mod png_cover;
+mod table;
 mod toc;
 mod utf8;
 mod xml;

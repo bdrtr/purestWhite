@@ -582,3 +582,20 @@ CrossPoint'le aynı ekranları verdi.
   başlık ve kapak görünmeli; seri günlükte "Could not find valid rootfile in container.xml"
   görünmemeli.
 - [ ] KOReader eşitlemesi eskisi gibi çalışmalı (o da container.xml okur).
+
+## Tablo sütun genişlikleri Rust'ta ("rust: grid table column widths")
+
+Bir tablonun satırları dizilmeden önce yapılan ön tarama (her sütunun en uzun sözcüğü ve en uzun
+kırılmamış satırı) ve ekran genişliğinin sütunlara paylaştırılması artık `bembeyaz-layout`'un
+`table` modülünde. Bölüm ayrıştırıcısının tablo testleri dahil 890 host testi geçiyor. Geliştirme
+sırasında bir fark testi Rust kodunu eski C++ koduyla 300 000 üretilmiş (kimi bozuk, kimi 32 KB
+sınırını aşan) tabloda ve dört kitaptan 101 gerçek tabloda karşılaştırdı: ölçüm ve genişlikler
+aynıydı. Emülatörde `emu/compare.sh`, `test/epubs/crosspoint-table-edge-cases.epub` ile 12 sayfa
+boyunca değiştirilmemiş CrossPoint'le aynı ekranları verdi.
+
+- [ ] `test/epubs/crosspoint-table-edge-cases.epub`'ı karta kopyalayıp açın (daha önce açtıysanız
+  okuma menüsünden Delete Book Cache / Kitap Önbelleğini Sil): sütunlar içeriğe göre geniş ya da
+  dar olmalı; "Four columns" tablosu dört sütunu yan yana göstermeli; "Too many columns"
+  tablosundaki satırlar hiçbir hücre kaybolmadan alt alta dizilmeli.
+- [ ] Tablolu bir kitabı (ör. bir programlama kitabı) önbelleğini silip yatay ekranda ve daha
+  büyük yazıyla açın: tablo sütunları ekrana sığmalı, cihaz takılmamalı.

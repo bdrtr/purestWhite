@@ -8,6 +8,8 @@
 //! measures and hands out NUL-terminated text, because the renderer and `TextBlock` take C strings.
 //! Nothing here panics, and every allocation is fallible: a token or line that cannot be stored is
 //! dropped and [`Paragraph::dropped_words`] reports it, as the C++ did for its word arena.
+//!
+//! [`table`] plans the column widths of the chapter parser's grid tables.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -17,6 +19,7 @@ extern crate alloc;
 mod layout;
 mod offsets;
 mod store;
+pub mod table;
 mod text;
 #[cfg(test)]
 extern crate std;

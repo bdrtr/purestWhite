@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <XmlParser.h>
+#include <bembeyaz/table.h>
 
 #include <array>
 #include <climits>
@@ -166,11 +167,7 @@ class ChapterHtmlSlimParser {
   // Column widths planned from a pre-scan of the table's markup; 0 columns = equal widths.
   std::array<uint16_t, MAX_GRID_TABLE_COLUMNS> tableColumnWidths{};
   uint8_t tableColumnCount = 0;
-  struct TableColumnMeasure {
-    uint16_t minWidth[MAX_GRID_TABLE_COLUMNS] = {};   // longest word
-    uint16_t prefWidth[MAX_GRID_TABLE_COLUMNS] = {};  // longest unwrapped line
-    uint8_t columns = 0;
-  };
+  using TableColumnMeasure = bb_table_measure;
 
   // A font-size span that opens a block and holds all of its text sizes the whole block,
   // e.g. <p><span class="big">Chapter One</span></p>. Text after the span cancels it.

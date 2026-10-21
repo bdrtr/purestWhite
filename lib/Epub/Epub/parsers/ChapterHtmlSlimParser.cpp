@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstddef>
 #include <iterator>
 #include <new>
 
@@ -934,167 +935,39 @@ void ChapterHtmlSlimParser::addTableRowSeparator() {
 
 // Streams a table's raw markup from its opening tag and measures each column's
 // longest word and longest unwrapped line, so every row can share one set of
-// widths. Returns false when the table is too long or too wide to plan.
+// widths. Returns false when the table has fewer than two or more than four
+// columns, or does not end within the scan limit.
 bool ChapterHtmlSlimParser::measureTableColumns(HalFile& file, TableColumnMeasure& out) const {
-  out = TableColumnMeasure{};
-  constexpr size_t MAX_SCAN_BYTES = 32 * 1024;
-  const bool sdFont = renderer.isSdCardFont(fontId);
-  const int spaceWidth = renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR);
-
-  char buffer[96];
-  char word[40];
-  size_t wordLength = 0;
-  int wordWidth = 0;  // flushed chunks of a word longer than the buffer
-  char tagText[48];
-  size_t tagLength = 0;
-  bool inTag = false;
-  bool inEntity = false;
-  char quote = 0;
-  int tableNesting = 0;
-  int column = -1;
-  bool inCell = false;
-  bool skipCell = false;
-  int lineWidth = 0;
-  EpdFontFamily::Style style = EpdFontFamily::REGULAR;
-
-  const auto flushChunk = [&] {
-    if (wordLength == 0) return;
-    word[wordLength] = '\0';
-    if (sdFont) renderer.ensureSdCardFontReady(fontId, word, static_cast<uint8_t>(1u << style));
-    wordWidth += renderer.getTextAdvanceX(fontId, word, style);
-    wordLength = 0;
+  // Checked against Measure in rust/crates/bembeyaz-ffi/src/table.rs too.
+  static_assert(sizeof(bb_table_measure) == 18 && offsetof(bb_table_measure, columns) == 16 &&
+                    sizeof(bb_table_measure::min_width) / sizeof(uint16_t) == MAX_GRID_TABLE_COLUMNS,
+                "bb_table_measure layout");
+  struct Context {
+    HalFile& file;
+    const GfxRenderer& renderer;
+    int fontId;
+    bool sdFont;
+  } context{file, renderer, fontId, renderer.isSdCardFont(fontId)};
+  const auto read = [](void* raw, uint8_t* buf, const size_t len) -> size_t {
+    const int count = static_cast<Context*>(raw)->file.read(buf, len);
+    return count > 0 ? static_cast<size_t>(count) : 0;
   };
-  const auto finishWord = [&] {
-    flushChunk();
-    if (wordWidth == 0 || column < 0) return;
-    out.minWidth[column] = static_cast<uint16_t>(std::max<int>(out.minWidth[column], wordWidth));
-    lineWidth += (lineWidth > 0 ? spaceWidth : 0) + wordWidth;
-    wordWidth = 0;
+  const auto advance = [](void* raw, const char* word, const bool bold) -> int {
+    const auto* self = static_cast<Context*>(raw);
+    const auto style = bold ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
+    if (self->sdFont) self->renderer.ensureSdCardFontReady(self->fontId, word, static_cast<uint8_t>(1u << style));
+    return self->renderer.getTextAdvanceX(self->fontId, word, style);
   };
-  const auto finishLine = [&] {
-    finishWord();
-    if (column >= 0) out.prefWidth[column] = static_cast<uint16_t>(std::max<int>(out.prefWidth[column], lineWidth));
-    lineWidth = 0;
-  };
-  // Returns 1 when the table ends, -1 when it cannot be planned, 0 otherwise.
-  const auto handleTag = [&]() -> int {
-    tagText[tagLength] = '\0';
-    const bool closing = tagText[0] == '/';
-    const char* name = tagText + (closing ? 1 : 0);
-    size_t nameLength = 0;
-    while (name[nameLength] && !isWhitespace(name[nameLength]) && name[nameLength] != '/') ++nameLength;
-    const std::string_view tag(name, nameLength);
-    if (tag == "table") {
-      tableNesting += closing ? -1 : 1;
-      if (tableNesting == 0) return 1;
-      return 0;
-    }
-    if (tableNesting != 1) {
-      finishWord();
-      return 0;
-    }
-    if (tag == "tr" && !closing) {
-      if (inCell) finishLine();
-      inCell = false;
-      column = -1;
-    } else if (tag == "td" || tag == "th") {
-      if (inCell) finishLine();
-      inCell = !closing;
-      if (!closing) {
-        // Spanning cells lay out as stacked rows, so they don't shape the grid.
-        skipCell = strstr(tagText, "colspan") != nullptr || strstr(tagText, "rowspan") != nullptr;
-        if (++column >= static_cast<int>(MAX_GRID_TABLE_COLUMNS)) return -1;
-        out.columns = static_cast<uint8_t>(std::max<int>(out.columns, column + 1));
-        style = tag == "th" ? EpdFontFamily::BOLD : EpdFontFamily::REGULAR;
-      }
-    } else if (tag == "br") {
-      finishLine();
-    } else if (tag == "p" || tag == "div" || tag == "li" || (tag.size() == 2 && tag[0] == 'h')) {
-      finishWord();  // block markup inside a cell collapses to a word boundary
-    }
-    return 0;
-  };
-
-  size_t scanned = 0;
-  while (scanned < MAX_SCAN_BYTES) {
-    const size_t count = file.read(buffer, sizeof(buffer));
-    if (count == 0) return false;
-    scanned += count;
-    for (size_t i = 0; i < count; ++i) {
-      const char c = buffer[i];
-      if (inTag) {
-        if (quote) {
-          if (c == quote) quote = 0;
-        } else if (c == '"' || c == '\'') {
-          quote = c;
-        } else if (c == '>') {
-          inTag = false;
-          const int result = handleTag();
-          if (result != 0) return result > 0 && out.columns >= 2;
-          continue;
-        }
-        if (tagLength + 1 < sizeof(tagText)) {
-          tagText[tagLength++] = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-        }
-        continue;
-      }
-      if (c == '<') {
-        inTag = true;
-        tagLength = 0;
-        continue;
-      }
-      if (!inCell || skipCell || tableNesting != 1) continue;
-      if (inEntity) {
-        inEntity = c != ';';
-        continue;
-      }
-      if (isWhitespace(c)) {
-        finishWord();
-        continue;
-      }
-      if (wordLength + 1 >= sizeof(word)) flushChunk();
-      // An entity measures roughly as one character.
-      inEntity = c == '&';
-      word[wordLength++] = inEntity ? 'n' : c;
-    }
-  }
-  return false;
+  return bb_table_measure_columns(read, advance, &context, renderer.getSpaceWidth(fontId, EpdFontFamily::REGULAR),
+                                  &out);
 }
 
-// Distributes the viewport across columns the way CSS auto table layout does:
-// natural widths when they fit, otherwise each column keeps its longest word and
-// shares the rest in proportion to how much wrapping it would otherwise need.
+// Distributes the viewport across columns the way CSS auto table layout does.
 void ChapterHtmlSlimParser::planTableColumns(const TableColumnMeasure& measure) {
-  tableColumnCount = 0;
-  const int columns = measure.columns;
-  if (columns < 2 || columns > static_cast<int>(MAX_GRID_TABLE_COLUMNS)) return;
-  constexpr int padding = TABLE_CELL_HORIZONTAL_PADDING * 2;
-  const int available = viewportWidth;
-  int minWidth[MAX_GRID_TABLE_COLUMNS];
-  int prefWidth[MAX_GRID_TABLE_COLUMNS];
-  int minTotal = 0;
-  int prefTotal = 0;
-  for (int c = 0; c < columns; ++c) {
-    minWidth[c] = measure.minWidth[c] + padding;
-    prefWidth[c] = std::max(minWidth[c], measure.prefWidth[c] + padding);
-    minTotal += minWidth[c];
-    prefTotal += prefWidth[c];
-  }
-  int assigned = 0;
-  for (int c = 0; c < columns; ++c) {
-    int width;
-    if (prefTotal <= available) {
-      width = prefWidth[c] + (available - prefTotal) * prefWidth[c] / prefTotal;
-    } else if (minTotal <= available) {
-      width = minWidth[c] + (available - minTotal) * (prefWidth[c] - minWidth[c]) / (prefTotal - minTotal);
-    } else {
-      width = available * minWidth[c] / minTotal;
-    }
-    if (c + 1 == columns) width = available - assigned;
-    tableColumnWidths[c] = static_cast<uint16_t>(std::max(width, padding + 1));
-    assigned += width;
-  }
-  tableColumnCount = static_cast<uint8_t>(columns);
+  tableColumnCount =
+      bb_table_plan_columns(&measure, viewportWidth, TABLE_CELL_HORIZONTAL_PADDING, tableColumnWidths.data())
+          ? measure.columns
+          : 0;
 }
 
 void ChapterHtmlSlimParser::finishTableRow() {
@@ -1445,7 +1318,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     if (self->xmlParser_) {
       // Rows stream in one at a time, so plan shared column widths from the raw markup first.
       HalFile tableFile;
-      TableColumnMeasure measure;
+      TableColumnMeasure measure{};
       if (Storage.openFileForRead("EHP", self->filepath, tableFile) &&
           tableFile.seek(static_cast<size_t>(self->xmlParser_.currentByteIndex())) &&
           self->measureTableColumns(tableFile, measure)) {

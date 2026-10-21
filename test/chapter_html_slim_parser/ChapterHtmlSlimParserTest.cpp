@@ -1028,13 +1028,13 @@ TEST_F(ChapterTableBorderTest, ScansColumnWidthsFromMarkup) {
   }
   HalFile input;
   ASSERT_TRUE(input.open(path.c_str(), "rb"));
-  ChapterHtmlSlimParser::TableColumnMeasure measure;
+  ChapterHtmlSlimParser::TableColumnMeasure measure{};
   ASSERT_TRUE(parser.measureTableColumns(input, measure));
   EXPECT_EQ(renderer.coldMeasurements, 0u);
   EXPECT_EQ(measure.columns, 2);
-  EXPECT_EQ(measure.minWidth[0], 16);  // "ID"
-  EXPECT_EQ(measure.minWidth[1], 88);  // "description"
-  EXPECT_EQ(measure.prefWidth[1], 31 * 8 + 6 * 4);
+  EXPECT_EQ(measure.min_width[0], 16);  // "ID"
+  EXPECT_EQ(measure.min_width[1], 88);  // "description"
+  EXPECT_EQ(measure.pref_width[1], 31 * 8 + 6 * 4);
 
   parser.planTableColumns(measure);
   ASSERT_EQ(parser.tableColumnCount, 2);
