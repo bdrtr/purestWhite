@@ -1,7 +1,6 @@
 add_executable(FontDecompressorTest
   FontDecompressorTest.cpp
   ${REPO_ROOT}/lib/EpdFont/FontDecompressor.cpp
-  ${REPO_ROOT}/lib/Utf8/Utf8.cpp
   ${REPO_ROOT}/lib/InflateStream/InflateStream.cpp
   ${REPO_ROOT}/lib/Memory/BuildScratch.cpp
   ${REPO_ROOT}/lib/hal/HalMemory.cpp
@@ -9,7 +8,6 @@ add_executable(FontDecompressorTest
 target_include_directories(FontDecompressorTest PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/stubs
   ${REPO_ROOT}/lib/EpdFont
-  ${REPO_ROOT}/lib/Utf8
   ${REPO_ROOT}/lib/Memory
   ${REPO_ROOT}/lib/hal
   ${REPO_ROOT}/lib/InflateStream

@@ -4,6 +4,7 @@
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 pub mod advance;
+pub mod compressed;
 pub mod cpfont;
 pub mod glyph;
 pub mod intervals;

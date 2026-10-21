@@ -1,10 +1,12 @@
 #pragma once
 
+#include <bembeyaz/compressed_font.h>
+
 #include "EpdFontData.h"
 
 class FontDecompressor {
  public:
-  static constexpr uint16_t MAX_PAGE_GLYPHS = 512;
+  static constexpr uint16_t MAX_PAGE_GLYPHS = BB_COMPRESSED_MAX_PAGE_GLYPHS;
   static constexpr uint8_t MAX_PAGE_SLOTS = 8;  // One per font/style pair: body R/B/I/BI plus heading sizes
 
   FontDecompressor() = default;
@@ -46,15 +48,10 @@ class FontDecompressor {
 
   // Page buffer slots: each style gets its own flat glyph buffer with sorted lookup.
   // Up to MAX_PAGE_SLOTS font/style pairs can be prewarmed simultaneously.
-  struct PageGlyphEntry {
-    uint32_t glyphIndex;
-    uint32_t bufferOffset;
-    uint32_t alignedOffset;  // byte-aligned offset within its decompressed group (set during prewarm pre-scan)
-  };
   struct PageSlot {
     uint8_t* buffer = nullptr;
     const EpdFontData* fontData = nullptr;
-    PageGlyphEntry* glyphs = nullptr;
+    bb_compressed_entry* glyphs = nullptr;  // sorted by glyph
     uint16_t glyphCount = 0;
   };
   PageSlot pageSlots[MAX_PAGE_SLOTS] = {};
@@ -81,9 +78,5 @@ class FontDecompressor {
 
   void freePageBuffer();
   void freeHotGroup();
-  uint16_t getGroupIndex(const EpdFontData* fontData, uint32_t glyphIndex);
-  uint32_t getAlignedOffset(const EpdFontData* fontData, uint16_t groupIndex, uint32_t glyphIndex);
   bool decompressGroup(const EpdFontData* fontData, uint16_t groupIndex, uint8_t* outBuf, uint32_t outSize);
-  static void compactSingleGlyph(const uint8_t* alignedSrc, uint8_t* packedDst, uint8_t width, uint8_t height);
-  static int32_t findGlyphIndex(const EpdFontData* fontData, uint32_t codepoint);
 };

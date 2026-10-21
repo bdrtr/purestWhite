@@ -7,6 +7,7 @@ extern crate alloc;
 
 mod bidi;
 mod bmp;
+mod compressed;
 mod container;
 mod cpfont;
 mod css;
@@ -30,3 +31,21 @@ mod utf8;
 mod xml;
 mod xtc;
 mod zip;
+
+// SAFETY: `data` is null or holds `len` values; an empty slice needs no memory.
+pub(crate) unsafe fn view<'a, T>(data: *const T, len: usize) -> &'a [T] {
+    if data.is_null() || len == 0 {
+        &[]
+    } else {
+        unsafe { core::slice::from_raw_parts(data, len) }
+    }
+}
+
+// SAFETY: `data` is null or holds `len` writable values.
+pub(crate) unsafe fn view_mut<'a, T>(data: *mut T, len: usize) -> &'a mut [T] {
+    if data.is_null() || len == 0 {
+        &mut []
+    } else {
+        unsafe { core::slice::from_raw_parts_mut(data, len) }
+    }
+}

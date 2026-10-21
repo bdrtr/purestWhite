@@ -921,3 +921,32 @@ bölüm dizme süresi değişmedi (önceki sürümde 2.508, bu sürümde 2.512 m
 - [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğündeki `Time to parse and build
   pages` süresi önceki sürümden belirgin uzun olmamalı; `buildAdvanceTable: unique codepoint cap`,
   `failed to allocate mappings` ya da `mergeIntoAdvanceTable: alloc failed` satırları görünmemeli.
+
+## Yerleşik sıkıştırılmış fontlar Rust'ta ("rust: our own compressed font page cache")
+
+Firmware'e gömülü sıkıştırılmış okuma fontlarından (Noto Sans 12–18 pt; arayüzün Noto Sans 8 ve
+Ubuntu fontları sıkıştırılmamış, bu yoldan geçmez) bir sayfa için gereken glifleri açan
+`FontDecompressor`'ın veri mantığı artık `bembeyaz-font`'un `compressed` modülünde: sayfa
+metninden gerekli gliflerin (ligatür çıktıları dahil) toplanması, bunları tutan grupların bulunması,
+her glifin açılmış gruptaki yeri, satırları bayta hizalanmış bitmap'ten satır dolgusunun atılması
+ve sayfa tablosunun kurulup aranması. Bellek ayırma, sıkıştırmayı açma (ROM'daki tinfl), sayfa
+yuvaları ve anlık grup önbelleği C++'ta kaldı. Sayfa önbelleği, `glyphToGroup` tablolu fontlar,
+ligatürler, yuva sınırı, bozuk grup, grupta olmayan glif ve sıkıştırılmamış font için yedi yeni test
+(44073139) dahil 950 host testi geçiyor. Geliştirme sırasında bir fark testi eski C++ kodunu Rust
+koduyla firmware'in 21 yerleşik fontunda (16'sı sıkıştırılmış), sıkıştırılmışların `glyphToGroup`
+tablolu (gruplar aynı) ve bozuk kopyalarında, bellek ayırma hataları benzetilerek 129.526 adımda
+karşılaştırdı: dönüş değerleri, bitmap'ler ve istatistikler aynıydı. Emülatörde okuma ekranları
+değiştirilmemiş CrossPoint'le, ayarlar ekranları bir önceki sürümle aynıydı; sayfa çizme süresi bir
+önceki sürümden 2–3 ms uzundu (1.256–1.257 ms yerine 1.258–1.260 ms, ~%0,2; fark çizim
+geçişlerinde).
+
+- [ ] Ayarlar'da Okuyucu Yazı Tipi Ailesi Noto Sans iken dört boyutta (12, 14, 16, 18) birkaç
+  kitapta sayfa çevirin: harfler, kalın, italik ve kalın italik yerler eksiksiz olmalı; İngilizce
+  bir kitapta "fi", "fl", "ff", "ffi" bitişik harfleri doğru görünmeli; harflerde kayma ya da çizgi
+  görünmemeli.
+- [ ] Okurken "%'ye git" penceresini ve Ayarlar'da bir aralık seçimi penceresini açın: büyük başlık
+  (Noto Sans 18) düzgün olmalı. Ayarlar'daki yazı tipi önizlemesi, kitap Ayrıntılar ekranı ve bir
+  sözlük tanımı da düzgün görünmeli.
+- [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğünde `[FDC] Decompression failed`,
+  `[FDC] Glyph … not found in any group`, `[FDC] Failed to allocate`, `page buffer slots full` ya
+  da `Inflate state OOM` satırları görünmemeli.

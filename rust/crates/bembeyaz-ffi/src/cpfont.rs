@@ -1,5 +1,6 @@
 //! Exports for lib/EpdFont's `SdCardFont` (see `rust/include/bembeyaz/cpfont.h`).
 
+use crate::{view, view_mut};
 use bembeyaz_font::Source;
 use bembeyaz_font::advance;
 use bembeyaz_font::cpfont::{self, Header, IntervalFault, Style};
@@ -608,24 +609,6 @@ pub struct Ligatures {
 }
 
 type Text = unsafe extern "C" fn(*const c_void, u32) -> *const core::ffi::c_char;
-
-// SAFETY: `data` is null or holds `len` values; an empty slice needs no memory.
-unsafe fn view<'a, T>(data: *const T, len: usize) -> &'a [T] {
-    if data.is_null() || len == 0 {
-        &[]
-    } else {
-        unsafe { slice::from_raw_parts(data, len) }
-    }
-}
-
-// SAFETY: `data` is null or holds `len` writable values.
-unsafe fn view_mut<'a, T>(data: *mut T, len: usize) -> &'a mut [T] {
-    if data.is_null() || len == 0 {
-        &mut []
-    } else {
-        unsafe { slice::from_raw_parts_mut(data, len) }
-    }
-}
 
 /// # Safety
 ///
