@@ -2,6 +2,7 @@
 
 use bembeyaz_font::Source;
 use bembeyaz_font::cpfont::{self, Header, IntervalCheck, IntervalFault, Style};
+use bembeyaz_font::glyph::{self, Glyph};
 use bembeyaz_font::kern::{self, MiniKern};
 use core::ffi::{c_int, c_void};
 use core::ptr::null_mut;
@@ -284,4 +285,159 @@ pub unsafe extern "C" fn bb_cpfont_mini_kern_scratch_len(
 ) -> usize {
     // SAFETY: the caller's bb_cpfont_style.
     unsafe { style.as_ref() }.map_or(0, |style| kern::scratch_len(style, count))
+}
+
+// cpfont.h's bb_cpfont_glyph (EpdGlyph's layout).
+const _: () = {
+    use core::mem::offset_of;
+    assert!(
+        size_of::<Glyph>() == 16
+            && align_of::<Glyph>() == 4
+            && offset_of!(Glyph, advance_x) == 2
+            && offset_of!(Glyph, left) == 4
+            && offset_of!(Glyph, top) == 6
+            && offset_of!(Glyph, data_length) == 8
+            && offset_of!(Glyph, data_offset) == 12
+    );
+};
+
+type GlyphIndex = unsafe extern "C" fn(*mut c_void, usize) -> u32;
+type OnGlyph = unsafe extern "C" fn(*mut c_void, usize, *const Glyph);
+
+/// # Safety
+///
+/// `file` is a `bb_cpfont_file`, `style` readable, `seeks` and `failed` null or writable; the
+/// callbacks take the arguments cpfont.h documents.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn bb_cpfont_read_glyphs(
+    file: *mut File,
+    style: *const Style,
+    two_bit: bool,
+    count: usize,
+    index: Option<GlyphIndex>,
+    on_glyph: Option<OnGlyph>,
+    context: *mut c_void,
+    seeks: *mut u32,
+    failed: *mut u32,
+) -> c_int {
+    // SAFETY: the caller's arguments, as documented above.
+    let (Some(file), Some(style), Some(index), Some(on_glyph)) = (
+        unsafe { file.as_mut() },
+        unsafe { style.as_ref() },
+        index,
+        on_glyph,
+    ) else {
+        return -1;
+    };
+    // SAFETY (both closures): the caller's callbacks.
+    let indices = (0..count).map(|i| unsafe { index(context, i) });
+    let result = glyph::read_glyphs(file, style, two_bit, indices, |i, g| unsafe {
+        on_glyph(context, i, &g)
+    });
+    let (code, made, at) = match result {
+        Ok(made) => (0, made, 0),
+        Err(glyph::Error::Seek(at)) => (1, 0, at),
+        Err(glyph::Error::Read(at)) => (2, 0, at),
+    };
+    // SAFETY: the caller's writable outputs, if given.
+    unsafe {
+        if !seeks.is_null() {
+            seeks.write(made);
+        }
+        if !failed.is_null() {
+            failed.write(at);
+        }
+    }
+    code
+}
+
+/// # Safety
+///
+/// `file` is a `bb_cpfont_file`, `style` readable, `out` null or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_cpfont_read_glyph(
+    file: *mut File,
+    style: *const Style,
+    two_bit: bool,
+    index: u32,
+    out: *mut Glyph,
+) -> c_int {
+    // SAFETY: the caller's arguments, as documented above.
+    let (Some(file), Some(style), false) = (
+        unsafe { file.as_mut() },
+        unsafe { style.as_ref() },
+        out.is_null(),
+    ) else {
+        return -1;
+    };
+    // SAFETY: the caller's writable glyph.
+    match glyph::read_glyphs(file, style, two_bit, [index], |_, g| unsafe {
+        out.write(g)
+    }) {
+        Ok(_) => 0,
+        Err(glyph::Error::Seek(_)) => 1,
+        Err(glyph::Error::Read(_)) => 2,
+    }
+}
+
+/// # Safety
+///
+/// `file` is a `bb_cpfont_file`, `style` readable; `glyphs` holds `glyph_count` writable
+/// records, `order` `count` values and `arena` `arena_len` writable bytes (each may be null when
+/// its length is 0); `seeks` is null or writable.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn bb_cpfont_read_bitmaps(
+    file: *mut File,
+    style: *const Style,
+    glyphs: *mut Glyph,
+    glyph_count: usize,
+    order: *const u32,
+    count: usize,
+    arena: *mut u8,
+    arena_len: usize,
+    seeks: *mut u32,
+) -> c_int {
+    // SAFETY: the caller's arguments, as documented above.
+    let (Some(file), Some(style)) = (unsafe { file.as_mut() }, unsafe { style.as_ref() }) else {
+        return -1;
+    };
+    if (glyphs.is_null() && glyph_count != 0)
+        || (order.is_null() && count != 0)
+        || (arena.is_null() && arena_len != 0)
+    {
+        return -1;
+    }
+    // SAFETY: as documented above; empty slices need no memory.
+    let (glyphs, order, arena) = unsafe {
+        (
+            if glyph_count == 0 {
+                &mut [][..]
+            } else {
+                slice::from_raw_parts_mut(glyphs, glyph_count)
+            },
+            if count == 0 {
+                &[][..]
+            } else {
+                slice::from_raw_parts(order, count)
+            },
+            if arena_len == 0 {
+                &mut [][..]
+            } else {
+                slice::from_raw_parts_mut(arena, arena_len)
+            },
+        )
+    };
+    let (code, made) = match glyph::read_bitmaps(file, style, glyphs, order, arena) {
+        Ok(made) => (0, made),
+        Err(glyph::BitmapError::Arena(_)) => (-1, 0),
+        Err(glyph::BitmapError::Seek(_)) => (1, 0),
+        Err(glyph::BitmapError::Read(_)) => (2, 0),
+    };
+    if !seeks.is_null() {
+        // SAFETY: the caller's writable count.
+        unsafe { seeks.write(made) };
+    }
+    code
 }

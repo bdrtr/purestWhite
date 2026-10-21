@@ -158,6 +158,58 @@ int bb_cpfont_build_mini_kern(bb_cpfont_file* file, const bb_cpfont_style* style
                                               uint8_t** right, int8_t** matrix),
                               void* context, bb_cpfont_mini_kern* result);
 
+// A glyph record, laid out as EpdGlyph.
+typedef struct {
+  uint8_t width;
+  uint8_t height;
+  // 12.4 fixed point.
+  uint16_t advance_x;
+  int16_t left;
+  int16_t top;
+  uint16_t data_length;
+  // From the style's bitmaps in the file; into the arena after bb_cpfont_read_bitmaps.
+  uint32_t data_offset;
+} bb_cpfont_glyph;
+
+// Why bb_cpfont_read_glyphs or bb_cpfont_read_glyph fails; read_glyphs' failed is the glyph index.
+enum {
+  BB_CPFONT_GLYPH_SEEK = 1,
+  BB_CPFONT_GLYPH_READ = 2,
+};
+
+// Reads the records of glyphs index(context, 0) .. index(context, count - 1), in that order
+// (ascending, so runs of consecutive glyphs read without seeking; the first always seeks), and
+// passes each to on_glyph with its position. A glyph whose data_length is under the bytes its
+// width * height pixels need (1 or 2 bits each) gets width, height and data_length 0 and keeps its
+// other metrics. Returns 0 with *seeks set, a BB_CPFONT_GLYPH_* reason with *failed set (the
+// records before it were passed on), or -1 for a NULL file, style, index or on_glyph. seeks and
+// failed may be NULL.
+int bb_cpfont_read_glyphs(bb_cpfont_file* file, const bb_cpfont_style* style, bool two_bit, size_t count,
+                          uint32_t (*index)(void* context, size_t i),
+                          void (*on_glyph)(void* context, size_t i, const bb_cpfont_glyph* glyph), void* context,
+                          uint32_t* seeks, uint32_t* failed);
+
+// Reads the record of glyph index into out, as bb_cpfont_read_glyphs does. Returns 0, a
+// BB_CPFONT_GLYPH_* reason, or -1 for a NULL file, style or out.
+int bb_cpfont_read_glyph(bb_cpfont_file* file, const bb_cpfont_style* style, bool two_bit, uint32_t index,
+                         bb_cpfont_glyph* out);
+
+// Why bb_cpfont_read_bitmaps fails.
+enum {
+  BB_CPFONT_BITMAP_SEEK = 1,
+  BB_CPFONT_BITMAP_READ = 2,
+};
+
+// Reads the bitmaps of glyphs[order[0]] .. glyphs[order[count - 1]] into arena one after another
+// (order ascending by data_offset, so adjacent bitmaps read without seeking) and points each
+// glyph's data_offset at its place in arena; a glyph without a bitmap gets the place the next one
+// would take. Returns 0 with *seeks set, a BB_CPFONT_BITMAP_* reason, or -1 for a NULL file or
+// style, a NULL array whose length is not 0, an order entry past glyph_count or bitmaps that do
+// not fit arena. seeks may be NULL.
+int bb_cpfont_read_bitmaps(bb_cpfont_file* file, const bb_cpfont_style* style, bb_cpfont_glyph* glyphs,
+                           size_t glyph_count, const uint32_t* order, size_t count, uint8_t* arena, size_t arena_len,
+                           uint32_t* seeks);
+
 #ifdef __cplusplus
 }
 #endif

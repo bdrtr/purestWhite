@@ -18,7 +18,7 @@ const MAGIC: &[u8; 8] = b"CPFONT\0\0";
 const MAX_INTERVALS: u32 = 4096;
 const MAX_GLYPHS: u32 = 65536;
 const MAX_KERN_ENTRIES: u16 = 4096;
-const GLYPH_SIZE: u32 = 16;
+pub(crate) const GLYPH_SIZE: u32 = 16;
 pub(crate) const KERN_ENTRY_SIZE: u32 = 3;
 const LIGATURE_SIZE: u32 = 8;
 

@@ -8,7 +8,6 @@
 #include <bembeyaz/cpfont.h>
 
 #include <algorithm>
-#include <climits>
 #include <cstddef>
 #include <cstring>
 #include <memory>
@@ -24,7 +23,6 @@
 using freeink::font::psramDeleteArray;
 using freeink::font::psramNewArray;
 
-static_assert(sizeof(EpdGlyph) == 16, "EpdGlyph must be 16 bytes to match .cpfont file layout");
 static_assert(sizeof(EpdUnicodeInterval) == 12, "EpdUnicodeInterval must be 12 bytes to match .cpfont file layout");
 static_assert(sizeof(EpdKernClassEntry) == 3, "EpdKernClassEntry must be 3 bytes to match .cpfont file layout");
 static_assert(sizeof(EpdLigaturePair) == 8, "EpdLigaturePair must be 8 bytes to match .cpfont file layout");
@@ -38,6 +36,14 @@ static_assert(sizeof(bb_cpfont_style) == 52 && offsetof(bb_cpfont_style, bitmap_
                   sizeof(bb_cpfont_intervals) == 16 && sizeof(bb_cpfont_interval_fault) == 12 &&
                   offsetof(bb_cpfont_interval_fault, span) == 8,
               "bb_cpfont layout");
+static_assert(sizeof(bb_cpfont_glyph) == 16 && sizeof(EpdGlyph) == 16 &&
+                  alignof(bb_cpfont_glyph) == alignof(EpdGlyph) &&
+                  offsetof(bb_cpfont_glyph, advance_x) == offsetof(EpdGlyph, advanceX) &&
+                  offsetof(bb_cpfont_glyph, left) == offsetof(EpdGlyph, left) &&
+                  offsetof(bb_cpfont_glyph, top) == offsetof(EpdGlyph, top) &&
+                  offsetof(bb_cpfont_glyph, data_length) == offsetof(EpdGlyph, dataLength) &&
+                  offsetof(bb_cpfont_glyph, data_offset) == offsetof(EpdGlyph, dataOffset),
+              "bb_cpfont_glyph layout");
 static_assert(SdCardFont::MAX_STYLES == BB_CPFONT_MAX_STYLES, "bb_cpfont styles");
 static_assert(CPFONT_VERSION == BB_CPFONT_FORMAT_VERSION, "bump bembeyaz-font's cpfont::VERSION too");
 
@@ -84,16 +90,6 @@ bool ensureArrayCapacity(T*& buf, CapT& capacity, const uint32_t needed) {
   buf = psramNewArray<T>(needed > 0 ? needed : 1);
   capacity = buf ? static_cast<CapT>(needed) : 0;
   return buf != nullptr;
-}
-
-// A glyph whose bitmap is shorter than its pixels would be read past its end when drawn: keep its
-// metrics for layout and draw nothing.
-void dropShortBitmap(EpdGlyph& glyph, const bool twoBit) {
-  const uint32_t bits = static_cast<uint32_t>(glyph.width) * glyph.height * (twoBit ? 2 : 1);
-  if (glyph.dataLength >= (bits + 7) / 8) return;
-  glyph.width = 0;
-  glyph.height = 0;
-  glyph.dataLength = 0;
 }
 
 // The Rust readers' view of an open .cpfont file.
@@ -1048,34 +1044,37 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
   unsigned long sdStart = millis();
   uint32_t seekCount = 0;
 
-  // Read glyph metadata. lastReadIndex tracks sequential reads to skip redundant
-  // seeks; INT32_MIN guarantees the first iteration always seeks to the correct
-  // offset (otherwise when gIdx == 0, the "gIdx != lastReadIndex + 1" check would
-  // be false and we'd read from the file's current position — the header — which
-  // decodes to a garbage EpdGlyph with a massive advanceX, inflating any word
-  // containing that codepoint beyond page width).
-  int32_t lastReadIndex = INT32_MIN;
-  for (uint32_t i = 0; i < validCount; i++) {
-    uint32_t mapIdx = readOrder[i];
-    int32_t gIdx = mappings[mapIdx].globalIndex;
-
-    uint32_t fileOff = s.toc.glyphs_offset + static_cast<uint32_t>(gIdx) * sizeof(EpdGlyph);
-    if (gIdx != lastReadIndex + 1) {
-      if (!file.seekSet(fileOff)) {
-        LOG_ERR("SDCF", "Prewarm: failed to seek to glyph %d (style %u)", gIdx, styleIdx);
-        file.close();
-        freeStyleMiniData(s);
-        return static_cast<int>(cpCount);
-      }
-      seekCount++;
-    }
-    if (file.read(reinterpret_cast<uint8_t*>(&s.miniGlyphs[mapIdx]), sizeof(EpdGlyph)) != sizeof(EpdGlyph)) {
-      LOG_ERR("SDCF", "Prewarm: short glyph read (style %u, glyph %d)", styleIdx, gIdx);
-      freeStyleMiniData(s);
-      return static_cast<int>(cpCount);
-    }
-    dropShortBitmap(s.miniGlyphs[mapIdx], twoBit_);
-    lastReadIndex = gIdx;
+  // Glyph records in glyph index order.
+  bb_cpfont_file source = cpfontFile(file);
+  struct GlyphReads {
+    const CpGlyphMapping* mappings;
+    const uint32_t* order;
+    EpdGlyph* glyphs;
+  } reads{mappings.get(), readOrder.get(), s.miniGlyphs};
+  uint32_t glyphSeeks = 0;
+  uint32_t failedGlyph = 0;
+  const int glyphsRead = bb_cpfont_read_glyphs(
+      &source, &s.toc, twoBit_, validCount,
+      [](void* context, const size_t i) {
+        const auto* r = static_cast<GlyphReads*>(context);
+        return static_cast<uint32_t>(r->mappings[r->order[i]].globalIndex);
+      },
+      [](void* context, const size_t i, const bb_cpfont_glyph* glyph) {
+        const auto* r = static_cast<GlyphReads*>(context);
+        memcpy(&r->glyphs[r->order[i]], glyph, sizeof(EpdGlyph));
+      },
+      &reads, &glyphSeeks, &failedGlyph);
+  seekCount += glyphSeeks;
+  if (glyphsRead == BB_CPFONT_GLYPH_SEEK) {
+    LOG_ERR("SDCF", "Prewarm: failed to seek to glyph %d (style %u)", static_cast<int>(failedGlyph), styleIdx);
+    file.close();
+    freeStyleMiniData(s);
+    return static_cast<int>(cpCount);
+  }
+  if (glyphsRead != 0) {
+    LOG_ERR("SDCF", "Prewarm: short glyph read (style %u, glyph %d)", styleIdx, static_cast<int>(failedGlyph));
+    freeStyleMiniData(s);
+    return static_cast<int>(cpCount);
   }
 
   // Mapping is no longer needed once glyph metadata has been read.
@@ -1145,36 +1144,21 @@ int SdCardFont::prewarmStyle(uint8_t styleIdx, const uint32_t* codepoints, uint3
     std::sort(readOrder.get(), readOrder.get() + validCount,
               [&](uint32_t a, uint32_t b) { return s.miniGlyphs[a].dataOffset < s.miniGlyphs[b].dataOffset; });
 
-    uint32_t miniBitmapOffset = 0;
-    uint32_t lastBitmapEnd = UINT32_MAX;
-    for (uint32_t i = 0; i < validCount; i++) {
-      uint32_t mapIdx = readOrder[i];
-      EpdGlyph& glyph = s.miniGlyphs[mapIdx];
-
-      if (glyph.dataLength == 0) {
-        glyph.dataOffset = miniBitmapOffset;
-        continue;
-      }
-
-      uint32_t fileOff = s.toc.bitmap_offset + glyph.dataOffset;
-      if (fileOff != lastBitmapEnd) {
-        if (!file.seekSet(fileOff)) {
-          LOG_ERR("SDCF", "Prewarm: failed to seek to bitmap (style %u)", styleIdx);
-          file.close();
-          freeStyleMiniData(s);
-          return static_cast<int>(cpCount);
-        }
-        seekCount++;
-      }
-      if (file.read(s.miniBitmap + miniBitmapOffset, glyph.dataLength) != static_cast<int>(glyph.dataLength)) {
-        LOG_ERR("SDCF", "Prewarm: short bitmap read (style %u)", styleIdx);
-        freeStyleMiniData(s);
-        return static_cast<int>(cpCount);
-      }
-      lastBitmapEnd = fileOff + glyph.dataLength;
-
-      glyph.dataOffset = miniBitmapOffset;
-      miniBitmapOffset += glyph.dataLength;
+    uint32_t bitmapSeeks = 0;
+    const int bitmapsRead =
+        bb_cpfont_read_bitmaps(&source, &s.toc, reinterpret_cast<bb_cpfont_glyph*>(s.miniGlyphs), validCount,
+                               readOrder.get(), validCount, s.miniBitmap, totalBitmapSize, &bitmapSeeks);
+    seekCount += bitmapSeeks;
+    if (bitmapsRead == BB_CPFONT_BITMAP_SEEK) {
+      LOG_ERR("SDCF", "Prewarm: failed to seek to bitmap (style %u)", styleIdx);
+      file.close();
+      freeStyleMiniData(s);
+      return static_cast<int>(cpCount);
+    }
+    if (bitmapsRead != 0) {
+      LOG_ERR("SDCF", "Prewarm: short bitmap read (style %u)", styleIdx);
+      freeStyleMiniData(s);
+      return static_cast<int>(cpCount);
     }
   }
 
@@ -1423,27 +1407,31 @@ int SdCardFont::fetchAdvancesForCodepoints(uint32_t* codepoints, uint32_t cpCoun
       continue;
     }
 
-    uint32_t fetched = 0;
-    EpdGlyph tempGlyph;
-    int32_t lastReadIndex = INT32_MIN;
-    for (uint32_t i = 0; i < needCount; i++) {
-      int32_t gIdx = mappings[i].glyphIndex;
-      uint32_t fileOff = s.toc.glyphs_offset + static_cast<uint32_t>(gIdx) * sizeof(EpdGlyph);
-      if (gIdx != lastReadIndex + 1) {
-        if (!file.seekSet(fileOff)) {
-          LOG_ERR("SDCF", "buildAdvanceTable: failed to seek to glyph %d (style %u)", gIdx, si);
-          break;
-        }
-      }
-      if (file.read(reinterpret_cast<uint8_t*>(&tempGlyph), sizeof(EpdGlyph)) != sizeof(EpdGlyph)) {
-        LOG_ERR("SDCF", "buildAdvanceTable: short glyph read (style %u, glyph %d)", si, gIdx);
-        break;
-      }
-      lastReadIndex = gIdx;
-      staged[fetched].codepoint = mappings[i].codepoint;
-      staged[fetched].advanceX = tempGlyph.advanceX;
-      fetched++;
+    struct AdvanceReads {
+      const CpIdx* mappings;
+      AdvanceEntry* staged;
+      uint32_t fetched;
+    } reads{mappings.get(), staged.get(), 0};
+    bb_cpfont_file source = cpfontFile(file);
+    uint32_t failedGlyph = 0;
+    const int glyphsRead = bb_cpfont_read_glyphs(
+        &source, &s.toc, twoBit_, needCount,
+        [](void* context, const size_t i) {
+          return static_cast<uint32_t>(static_cast<AdvanceReads*>(context)->mappings[i].glyphIndex);
+        },
+        [](void* context, const size_t i, const bb_cpfont_glyph* glyph) {
+          auto* r = static_cast<AdvanceReads*>(context);
+          r->staged[i].codepoint = r->mappings[i].codepoint;
+          r->staged[i].advanceX = glyph->advance_x;
+          r->fetched = i + 1;
+        },
+        &reads, nullptr, &failedGlyph);
+    if (glyphsRead == BB_CPFONT_GLYPH_SEEK) {
+      LOG_ERR("SDCF", "buildAdvanceTable: failed to seek to glyph %d (style %u)", static_cast<int>(failedGlyph), si);
+    } else if (glyphsRead != 0) {
+      LOG_ERR("SDCF", "buildAdvanceTable: short glyph read (style %u, glyph %d)", si, static_cast<int>(failedGlyph));
     }
+    const uint32_t fetched = reads.fetched;
     file.close();
 
     if (fetched > 0) {
@@ -1624,17 +1612,18 @@ const EpdGlyph* SdCardFont::onGlyphMiss(void* ctx, uint32_t codepoint) {
   }
 
   EpdGlyph tempGlyph = {};
-  uint32_t glyphFileOff = s.toc.glyphs_offset + static_cast<uint32_t>(globalIdx) * sizeof(EpdGlyph);
-  if (!file.seekSet(glyphFileOff)) {
+  bb_cpfont_file source = cpfontFile(file);
+  const int glyphRead = bb_cpfont_read_glyph(&source, &s.toc, self->twoBit_, static_cast<uint32_t>(globalIdx),
+                                             reinterpret_cast<bb_cpfont_glyph*>(&tempGlyph));
+  if (glyphRead == BB_CPFONT_GLYPH_SEEK) {
     LOG_ERR("SDCF", "Overflow: failed to seek to glyph for U+%04X style %u", codepoint, styleIdx);
     file.close();
     return nullptr;
   }
-  if (file.read(reinterpret_cast<uint8_t*>(&tempGlyph), sizeof(EpdGlyph)) != sizeof(EpdGlyph)) {
+  if (glyphRead != 0) {
     LOG_ERR("SDCF", "Overflow: failed to read glyph metadata for U+%04X style %u", codepoint, styleIdx);
     return nullptr;
   }
-  dropShortBitmap(tempGlyph, self->twoBit_);
 
   // Read bitmap data into temporary (if any)
   uint8_t* tempBitmap = nullptr;

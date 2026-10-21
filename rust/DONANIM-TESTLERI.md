@@ -817,3 +817,28 @@ fontla sayfalar değiştirilmemiş CrossPoint'le aynı.
 
 - [ ] Karttaki sağlam bir fontla birkaç sayfa okuyun: harfler eksiksiz görünmeli (hiçbir harf boş
   kalmamalı).
+
+## SD kart fontunun glif okuyucuları Rust'ta ("rust: our own .cpfont glyph readers")
+
+Karttaki bir fontun glif kayıtlarını çözen kısım (bitmap'i boyutundan kısa glifin boş çizilmesi
+dahil), bu kayıtların üç yerde okunması (sayfa önbelleği, düzen için ilerleme genişliği tablosu ve
+sayfa önbelleğinde olmayan bir glifin anlık yüklenmesi) ve sayfa bitmap'lerinin tampona okunması
+artık `bembeyaz-font`'un `glyph` modülünde; dosya okuma, bellek ayırma ve tampon politikası,
+okuma sıralarının sıralanması, anlık yüklenen glifin bitmap okuması ve kod noktası araması C++'ta
+kaldı. Yarıda kesilmiş glif tablosu ve bitmap'ler için dört yeni test (e3faa164) dahil 931 host
+testi geçiyor. Geliştirme sırasında bir fark testi eski C++ kodunu Rust koduyla 20.000 üretilmiş
+fontta (kimi boyutları bozuk, bitmap'i kısa ya da dosyası kesik; bellek ayırma hataları da
+benzetildi) toplam 160.240 adımda, ayrıca dört gerçek fontta karşılaştırdı: dönüş değerleri, glif
+ölçüleri, bitmap baytları, ilerleme genişlikleri ile dosyadaki okuma ve konumlama sırası aynıydı.
+Emülatörde sağlam ve bozuk fontlarla okunan sayfalar ve SD font günlük satırları değiştirilmemiş
+CrossPoint'le aynıydı; kısa bitmap'li fontla ekranlar bir önceki sürümle piksel piksel aynıydı.
+
+- [ ] Karttaki bir fontla daha önce bu fontla açılmamış bir kitap açın ya da yazı boyutunu
+  değiştirip geri dönün (bölüm yeniden dizilir); birkaç sayfa ileri ve geri gidin: harfler, kalın
+  ve italik yerler eksiksiz görünmeli, sözcükler üst üste binmemeli, satırlar sağ kenarı aşmamalı.
+- [ ] CJK karakterli bir SD fontunu (ör. Noto Sans CJK) okuma fontu yapıp Çince ya da Japonca bir
+  kitabı ilk kez açın ve birkaç bölüm ilerleyin: geliştirme derlemesinin (`pio run -e x4pro`)
+  seri günlüğünde `[SDCF] Overflow: loaded U+…` satırları görünmeli (sayfa önbelleğinde
+  olmayan glifler böyle yüklenir); karakterler eksiksiz görünmeli, boş kare ya da � çıkmamalı.
+- [ ] Seri günlükte `Prewarm: failed`, `short glyph read`, `short bitmap read`, `Overflow: failed`
+  ya da `buildAdvanceTable: failed` satırları görünmemeli.

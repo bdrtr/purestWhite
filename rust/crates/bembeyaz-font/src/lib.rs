@@ -4,6 +4,7 @@
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 pub mod cpfont;
+pub mod glyph;
 pub mod kern;
 
 /// The font file, read from the current position.
