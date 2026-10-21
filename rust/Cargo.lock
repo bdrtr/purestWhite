@@ -45,6 +45,7 @@ dependencies = [
  "bembeyaz-json",
  "bembeyaz-kosync",
  "bembeyaz-layout",
+ "bembeyaz-library",
  "bembeyaz-opf",
  "bembeyaz-path",
  "bembeyaz-png",
@@ -99,6 +100,13 @@ version = "0.1.0"
 dependencies = [
  "bembeyaz-bidi",
  "bembeyaz-hyphenation",
+ "bembeyaz-utf8",
+]
+
+[[package]]
+name = "bembeyaz-library"
+version = "0.1.0"
+dependencies = [
  "bembeyaz-utf8",
 ]
 

@@ -16,7 +16,6 @@ enum {
 };
 
 uint32_t bb_utf8_next_codepoint(const unsigned char** string);
-uint32_t bb_utf8_decomposed_base(uint32_t cp);
 int bb_utf8_compose_nfc(const char* input, size_t len, bool (*on_absorbed)(uint32_t index, void* context),
                         void* absorbed_context, void (*emit)(const char* data, size_t len, void* context),
                         void* emit_context);

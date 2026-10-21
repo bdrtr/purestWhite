@@ -4,8 +4,6 @@
 
 // Implemented in Rust (rust/crates/bembeyaz-utf8); this file adapts std::string.
 
-uint32_t utf8DecomposedBase(const uint32_t cp) { return bb_utf8_decomposed_base(cp); }
-
 std::string utf8ComposeNfc(const std::string& in, bool (*onAbsorbed)(uint32_t, void*), void* context) {
   std::string out;
   const auto append = [](const char* data, const size_t len, void* target) {

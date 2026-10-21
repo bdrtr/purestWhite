@@ -40,11 +40,6 @@ pub unsafe extern "C" fn bb_utf8_next_codepoint(string: *mut *const u8) -> u32 {
     }
 }
 
-#[unsafe(no_mangle)]
-pub extern "C" fn bb_utf8_decomposed_base(cp: u32) -> u32 {
-    utf8::decomposed_base(cp).unwrap_or(0)
-}
-
 /// Composes `input` to NFC, writing the result through `emit` in chunks.
 /// Returns one of the `BB_UTF8_COMPOSE_*` codes; `emit` is not called when
 /// the input is unchanged.

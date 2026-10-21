@@ -708,3 +708,20 @@ sonuçlar aynıydı. Bu kod çoğunlukla konum alırken çalışır; gönderirke
   bir liste maddesinde ve bir bölümün başında ilerlemeyi gönderin; burada aynı kitapta okuma
   menüsünden "Okuma İlerlemesini Senkronize Et" → "Uzak ilerlemeyi uygula"yı seçin: her seferinde
   aynı yer açılmalı.
+
+## Kütüphane metni Rust'ta ("rust: our own Library text")
+
+Kütüphanenin arama ve sıralamada kullandığı metin işlevleri (aksanları kaldıran katlama, harf grubu,
+yazar adını düzeltme, aynı kişinin farklı yazımlarını birleştiren yazar anahtarı, arama eşleşmesi,
+soyadına göre sıralama) artık `bembeyaz-library`'de. Kütüphane metni, kurucusu ve dizin dosyası
+testleri dahil 912 host testi geçiyor. Geliştirme sırasında bir fark testi eski C++ kodunu Rust
+koduyla 300.000 rastgele metinde (aksanlı, ayrışık, çeşitli yazılar, bozuk baytlar) karşılaştırdı:
+sonuçlar aynıydı. Emülatörde Kütüphane'nin "Recent", "Title" ve "Author" sekmeleri değiştirilmemiş
+CrossPoint'le aynı göründü. Tek fark: bozuk bir dizin kaydında bir kitabın harf grubu artık kaydın
+sınırını aşan baytlardan okunmuyor.
+
+- [ ] Kütüphaneyi (Library) açın: "Title" ve "Author" sekmelerinde kitaplar eskisi gibi sıralanmalı.
+  "Title" sekmesinde bir kitabı basılı tutup harf gruplarını açın: gruplar eskisi gibi olmalı; Ç, Ö,
+  Ş ile başlayan başlıklar ayrı harf olarak değil, C, O, S grubunda görünür. "Author" sekmesinde
+  "Austen, Jane" ve "Jane Austen" yazımlı kitaplar tek yazar altında görünmeli.
+- [ ] Aramada (Search) aksansız "cicek" yazın: "Çiçek" başlıklı kitap bulunmalı.

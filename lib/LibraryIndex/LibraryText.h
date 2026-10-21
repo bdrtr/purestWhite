@@ -7,8 +7,9 @@
 // metadata; a book whose metadata carries no title falls back to its filename
 // stem, unparsed, and one with no author is grouped under Unknown.
 //
-// Pure functions over UTF-8, no hardware and no allocation beyond the returned
-// strings, so the whole unit is host-testable (test/library_text).
+// Pure functions over UTF-8 with no hardware, so the whole unit is host-testable
+// (test/library_text). All but joinLibraryPath are implemented in
+// rust/crates/bembeyaz-library; out of memory, they return an empty string.
 //
 // Design notes that are easy to get wrong and were measured on a real card
 // (docs/superpowers/specs/2026-08-05-addendum-a-findability.md, A2.1-A2.8):
@@ -26,6 +27,8 @@
 //     "Last, First", surnameKey takes the last word — because showing
 //     "Austen, Jane" and "Jane Austen" as two people is worse than the guess.
 
+#include <bembeyaz/library.h>
+
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -34,7 +37,7 @@ namespace library {
 
 // Longest author key written into an index record. Sized so a key fits the
 // record's fixed field; measured to collide 0 times over a 69-book library.
-inline constexpr size_t AUTHOR_KEY_MAX_BYTES = 12;
+inline constexpr size_t AUTHOR_KEY_MAX_BYTES = BB_LIBRARY_AUTHOR_KEY_MAX_BYTES;
 
 // Join an indexed folder with its basename using exactly one separator. The
 // root folder is stored as "/"; treating it like a normal directory would
@@ -77,7 +80,7 @@ std::string cleanPersonName(std::string_view author);
 // them. "Lu, Xun", "Xun, Lu" and "Lu Xun [Xun, Lu]" all
 // collapse to one key. Truncation uses the longest complete UTF-8 byte prefix,
 // not a token boundary: the sort puts a short forename first, so a whole-token cut would reduce
-// "Wollstonecraft, Mary" to "alex" and merge every Alex in the library; the byte
+// "Wollstonecraft, Mary" to "mary" and merge every Mary in the library; the byte
 // cut keeps "mary wollsto", still a prefix of the full key.
 std::string authorKey(std::string_view author);
 

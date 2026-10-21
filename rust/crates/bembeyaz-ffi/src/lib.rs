@@ -18,6 +18,7 @@ mod jpeg;
 mod json;
 mod kosync;
 mod layout;
+mod library;
 mod opf;
 mod path;
 mod png;

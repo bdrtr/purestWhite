@@ -23,6 +23,7 @@ bembeyaz-jpeg = { path = "../bembeyaz-jpeg" }
 bembeyaz-json = { path = "../bembeyaz-json" }
 bembeyaz-kosync = { path = "../bembeyaz-kosync" }
 bembeyaz-layout = { path = "../bembeyaz-layout" }
+bembeyaz-library = { path = "../bembeyaz-library" }
 bembeyaz-opf = { path = "../bembeyaz-opf" }
 bembeyaz-path = { path = "../bembeyaz-path" }
 bembeyaz-png = { path = "../bembeyaz-png" }
