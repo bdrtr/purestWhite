@@ -8,6 +8,8 @@ dithers images whose palette is not near the display's gray levels:
 - 5-24bit.bmp: 24 bits, a color gradient, width not a multiple of 4
 - 6-32bit.bmp: 32 bits BI_BITFIELDS (BGRA, no masks: the reader ignores them), top-down
 - 7-cut.bmp: 24 bits with its pixel data cut short
+- overlay/card: a 32-bit BMP with transparency as /sleep-overlay.bmp, and the settings file that
+  picks the transparent sleep screen (emu/sleep.txt)
 
   python3 emu/make_bmp_files.py OUT_DIR
 """
@@ -62,3 +64,18 @@ files["7-cut.bmp"] = cut[: len(cut) // 2]
 for name, data in files.items():
     (out_dir / name).write_bytes(data)
     print(out_dir / name)
+
+# A ring, opaque on the edge and fading inward, over a transparent background.
+overlay = []
+for y in range(H):
+    row = bytearray()
+    for x in range(W):
+        d = ((x - W / 2) ** 2 + (y - H / 2) ** 2) ** 0.5
+        alpha = 255 if 110 < d < 140 else max(0, 255 - int(abs(d - 125) * 4)) if d < 140 else 0
+        row += bytes((x % 256, y % 256, 40, alpha))
+    overlay.append(bytes(row))
+card = out_dir / "overlay" / "card"
+(card / ".crosspoint").mkdir(parents=True, exist_ok=True)
+(card / "sleep-overlay.bmp").write_bytes(bmp(W, H, 32, overlay, compression=3))
+(card / ".crosspoint" / "settings.json").write_text('{"sleepScreen": 7}\n')
+print(card)

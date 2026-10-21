@@ -79,6 +79,7 @@ class Bitmap {
   int getRowBytes() const { return bmp.row_bytes; }
   bool is1Bit() const { return bmp.bits_per_pixel == 1; }
   uint16_t getBpp() const { return bmp.bits_per_pixel; }
+  uint32_t getDataOffset() const { return bmp.data_offset; }
 
  private:
   HalFile& file;

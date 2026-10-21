@@ -1,0 +1,8 @@
+# Card from make_bmp_files.py (overlay/card): hold Power to sleep; the transparent sleep screen
+# draws /sleep-overlay.bmp over the current screen
+ready
+shot:home
+press:power:2000
+wait-screen
+wait-quiet:5
+shot:sleep

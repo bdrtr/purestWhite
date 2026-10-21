@@ -618,3 +618,18 @@ titremeli ve titremesiz, satır satır karşılaştırdı: sonuçlar aynıydı. 
   görünmeli, cihaz takılmamalı.
 - [ ] Home'daki kitap kapağı küçük resimleri eskisi gibi görünmeli (önbellek silmek gerekmez: Home
   her çizişte bu BMP'leri yeniden okur).
+
+## Saydam uyku kaplaması BMP başlığını `Bitmap` ile okuyor ("sleep: read the overlay BMP header with Bitmap")
+
+SleepActivity'nin saydam uyku kaplaması için kendi yazdığı BMP başlık okuyucusu kaldırıldı; başlık
+artık `Bitmap` (yani `bembeyaz-bmp`) ile okunuyor. Tek fark: başlığında 256'dan fazla palet rengi
+bildiren 32 bitlik bir dosya artık kaplama olarak çizilmiyor (normal uyku resmi olarak da zaten
+reddediliyordu); bu `test/bmp_reader`'da sabitlendi. Emülatörde `emu/sleep.txt` kaplamayı
+değiştirilmemiş CrossPoint'le aynı çizdi.
+
+- [ ] Kartın köküne 32 bitlik, saydam alanları olan bir `sleep-overlay.bmp` koyun (örneğin
+  `python3 emu/make_bmp_files.py bmp` ile üretilen `bmp/overlay/card/sleep-overlay.bmp`), Ayarlar >
+  Ekran > Uyku Ekranı'nı "Transparent" yapın (Settings > Display > Sleep Screen > Transparent; bu
+  seçeneğin Türkçesi yok) ve cihazı Güç düğmesine basılı tutarak uyutun. Üretilen dosyayla
+  uyumadan önceki ekranın üstünde, içe doğru solan renkli bir halka görünmeli; halkanın dışında
+  önceki ekran olduğu gibi kalmalı.

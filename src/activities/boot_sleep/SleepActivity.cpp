@@ -18,7 +18,6 @@
 #include <cmath>
 #include <cstdint>
 #include <cstring>
-#include <limits>
 #include <string>
 
 #include "CrossPointSettings.h"
@@ -77,27 +76,6 @@ struct OverlayBmpInfo {
   uint32_t dataOffset = 0;
   uint32_t rowBytes = 0;
 };
-
-uint16_t readLE16(HalFile& file) {
-  const int c0 = file.read();
-  const int c1 = file.read();
-  const auto b0 = static_cast<uint8_t>(c0 < 0 ? 0 : c0);
-  const auto b1 = static_cast<uint8_t>(c1 < 0 ? 0 : c1);
-  return static_cast<uint16_t>(b0) | (static_cast<uint16_t>(b1) << 8);
-}
-
-uint32_t readLE32(HalFile& file) {
-  const int c0 = file.read();
-  const int c1 = file.read();
-  const int c2 = file.read();
-  const int c3 = file.read();
-  const auto b0 = static_cast<uint8_t>(c0 < 0 ? 0 : c0);
-  const auto b1 = static_cast<uint8_t>(c1 < 0 ? 0 : c1);
-  const auto b2 = static_cast<uint8_t>(c2 < 0 ? 0 : c2);
-  const auto b3 = static_cast<uint8_t>(c3 < 0 ? 0 : c3);
-  return static_cast<uint32_t>(b0) | (static_cast<uint32_t>(b1) << 8) | (static_cast<uint32_t>(b2) << 16) |
-         (static_cast<uint32_t>(b3) << 24);
-}
 
 uint32_t readBE32(HalFile& file) {
   const int c0 = file.read();
@@ -175,60 +153,15 @@ BitmapPlacement calculateBitmapPlacement(const int bitmapWidth, const int bitmap
   return placement;
 }
 
-bool parseOverlayBmpHeader(HalFile& file, OverlayBmpInfo& info, const bool logErrors) {
-  if (!file) return false;
-  if (!file.seek(0)) return false;
-
-  if (readLE16(file) != 0x4D42) {
-    if (logErrors) LOG_ERR("SLP", "Transparent overlay is not a BMP");
-    return false;
-  }
-
-  file.seekCur(8);
-  info.dataOffset = readLE32(file);
-
-  const uint32_t dibSize = readLE32(file);
-  if (dibSize < 40) {
-    if (logErrors) LOG_ERR("SLP", "Unsupported BMP DIB header: %u", static_cast<unsigned>(dibSize));
-    return false;
-  }
-
-  info.width = static_cast<int32_t>(readLE32(file));
-  const auto rawHeight = static_cast<int32_t>(readLE32(file));
-  if (rawHeight == std::numeric_limits<int32_t>::min()) {
-    if (logErrors) LOG_ERR("SLP", "Bad transparent overlay dimensions: %dx%d", info.width, rawHeight);
-    return false;
-  }
-  info.topDown = rawHeight < 0;
-  info.height = info.topDown ? -rawHeight : rawHeight;
-
-  const uint16_t planes = readLE16(file);
-  const uint16_t bpp = readLE16(file);
-  const uint32_t compression = readLE32(file);
-
-  // Match Bitmap::parseHeaders(): accept BI_RGB (0) and 32bpp BI_BITFIELDS (3), but keep the same
-  // byte-layout assumption as custom sleep BMPs. The renderer below treats pixels as BGRA and does not parse masks.
-  if (planes != 1 || bpp != 32 || !(compression == 0 || compression == 3)) {
-    if (logErrors) {
-      LOG_ERR("SLP", "Transparent overlay must be 32-bit BGRA BMP (planes=%u bpp=%u comp=%u)", planes, bpp,
-              static_cast<unsigned>(compression));
-    }
-    return false;
-  }
-
-  constexpr int MAX_IMAGE_WIDTH = 2048;
-  constexpr int MAX_IMAGE_HEIGHT = 3072;
-  if (info.width <= 0 || info.height <= 0 || info.width > MAX_IMAGE_WIDTH || info.height > MAX_IMAGE_HEIGHT) {
-    if (logErrors) LOG_ERR("SLP", "Bad transparent overlay dimensions: %dx%d", info.width, info.height);
-    return false;
-  }
-
-  info.rowBytes = static_cast<uint32_t>(info.width) * 4u;
-  if (!file.seek(info.dataOffset)) {
-    if (logErrors) LOG_ERR("SLP", "Failed to seek transparent overlay pixel data");
-    return false;
-  }
-
+// Bitmap's checks, and 32 bits per pixel: the renderer below reads BGRA pixels and does not parse masks.
+bool parseOverlayBmpHeader(HalFile& file, OverlayBmpInfo& info) {
+  Bitmap bitmap(file);
+  if (bitmap.parseHeaders() != BmpReaderError::Ok || bitmap.getBpp() != 32) return false;
+  info.width = bitmap.getWidth();
+  info.height = bitmap.getHeight();
+  info.topDown = bitmap.isTopDown();
+  info.dataOffset = bitmap.getDataOffset();
+  info.rowBytes = static_cast<uint32_t>(bitmap.getRowBytes());
   return true;
 }
 
@@ -351,7 +284,7 @@ AlphaScanResult scanForUsefulAlpha(HalFile& file, const OverlayBmpInfo& info, ui
 
 AlphaOverlayResult tryRenderTransparentOverlayBmp(HalFile& file, GfxRenderer& renderer, const char* pathForLog) {
   OverlayBmpInfo info;
-  if (!parseOverlayBmpHeader(file, info, false)) return AlphaOverlayResult::NotAlphaOverlay;
+  if (!parseOverlayBmpHeader(file, info)) return AlphaOverlayResult::NotAlphaOverlay;
 
   const auto placement = calculateBitmapPlacement(info.width, info.height, renderer);
   auto row = makeUniqueNoThrow<uint8_t[]>(info.rowBytes);

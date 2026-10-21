@@ -113,6 +113,8 @@ TEST(BmpReader, RefusesWhatItCannotShow) {
   check(makeBmp(8, 8, 24, 3, 0, {}, {}), BmpReaderError::UnsupportedCompression);
   check(makeBmp(8, 8, 32, 3, 0, {}, std::vector<uint8_t>(256)), BmpReaderError::Ok);
   check(makeBmp(8, 8, 8, 0, 300, {}, {}), BmpReaderError::PaletteTooLarge);
+  // Also at 32 bits: the transparent sleep overlay relies on this refusal.
+  check(makeBmp(8, 8, 32, 3, 300, {}, std::vector<uint8_t>(256)), BmpReaderError::PaletteTooLarge);
   check(makeBmp(-8, 8, 24, 0, 0, {}, {}), BmpReaderError::BadDimensions);
   check(makeBmp(8, 0, 24, 0, 0, {}, {}), BmpReaderError::BadDimensions);
   check(makeBmp(2049, 8, 24, 0, 0, {}, {}), BmpReaderError::ImageTooLarge);
