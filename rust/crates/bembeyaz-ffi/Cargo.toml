@@ -21,6 +21,7 @@ bembeyaz-html = { path = "../bembeyaz-html" }
 bembeyaz-hyphenation = { path = "../bembeyaz-hyphenation" }
 bembeyaz-jpeg = { path = "../bembeyaz-jpeg" }
 bembeyaz-json = { path = "../bembeyaz-json" }
+bembeyaz-kosync = { path = "../bembeyaz-kosync" }
 bembeyaz-layout = { path = "../bembeyaz-layout" }
 bembeyaz-opf = { path = "../bembeyaz-opf" }
 bembeyaz-path = { path = "../bembeyaz-path" }

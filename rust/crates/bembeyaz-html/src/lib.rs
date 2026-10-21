@@ -29,6 +29,15 @@ impl Value {
     }
 }
 
+/// Elements whose text is not shown: `head`, `style`, `script`, `title` and `rp`, in any case.
+/// lib/Epub's `VisibleTextUtils::isNonVisibleElement` keeps the same list for the chapter parser.
+#[must_use]
+pub fn is_non_visible_element(name: &[u8]) -> bool {
+    [&b"head"[..], b"style", b"script", b"title", b"rp"]
+        .iter()
+        .any(|tag| name.eq_ignore_ascii_case(tag))
+}
+
 /// The value of the entity `name` (without `&` and `;`), case-sensitive.
 #[must_use]
 pub fn entity(name: &[u8]) -> Option<Value> {

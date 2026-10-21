@@ -1175,6 +1175,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     return;
   }
 
+  // rust/crates/bembeyaz-kosync counts <p> and <li> the same way for KOReader positions.
   if (strcmp(name, "p") == 0) {
     self->xpathParagraphIndex++;
   }

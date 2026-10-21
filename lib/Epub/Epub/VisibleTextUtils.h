@@ -14,6 +14,8 @@ inline bool equalsTag(const std::string_view name, const std::string_view tag) {
   return true;
 }
 
+// bembeyaz_html::is_non_visible_element (rust/crates/bembeyaz-html) keeps the same list for KOReader
+// positions.
 inline bool isNonVisibleElement(const std::string_view name) {
   return equalsTag(name, "head") || equalsTag(name, "style") || equalsTag(name, "script") || equalsTag(name, "title") ||
          equalsTag(name, "rp");

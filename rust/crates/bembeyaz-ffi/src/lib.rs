@@ -16,6 +16,7 @@ mod html;
 mod hyphenation;
 mod jpeg;
 mod json;
+mod kosync;
 mod layout;
 mod opf;
 mod path;

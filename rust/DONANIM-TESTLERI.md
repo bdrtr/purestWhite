@@ -662,3 +662,21 @@ yer önceden ayrılıyor, liste gerektikçe büyüyor. `test/xtc_parser`'daki ye
 
 - [ ] 256'dan fazla bölümü olan bir XTC ya da XTCH kitabında bölüm listesi eskisi gibi açılmalı,
   son bölümler de görünmeli.
+
+## KOReader bölüm konumları Rust'ta ("rust: our own KOReader XPath resolver")
+
+KOReader eşitlemesinin bir okuma konumunu KOReader'ın anladığı yola
+(`/body/DocFragment[3]/body/div[2]/p[4]/text()[1].12` gibi) çeviren kısmı artık `bembeyaz-kosync`'te;
+bölümü kitaptan okumak C++'ta kaldı. Bölüm XPath testleri dahil 911 host testi geçiyor. Geliştirme
+sırasında bir fark testi eski C++ kodunu Rust koduyla 20 000 üretilmiş bölümde (iç içe öğeler, gizli
+öğeler, HTML varlıkları, yorumlar, CDATA, bozuk ya da kesik belgeler) ve dört kitabın 1518 gerçek
+bölümünde, paragraf, konum ve ilerleme hedefleriyle karşılaştırdı: sonuçlar aynıydı. Bu kod yalnızca
+konum gönderirken çalışır; KOReader'dan konum almak başka koddan geçer.
+
+- [ ] Ayarlar → CrossPoint Sync'te Server Type "KoSync" olsun ve hesap bilgileri girilmiş olsun. Bir
+  EPUB'da bir paragrafın ortasına ve bir liste maddesine gidin; okuma menüsünden "Okuma
+  İlerlemesini Senkronize Et" → "Yerel ilerlemeyi yükle"yi seçin. KOReader'da aynı kitabı açıp
+  ilerlemeyi çekin: aynı paragraf ve yaklaşık aynı satır açılmalı. Bir bölümün son sayfasında da
+  deneyin.
+- [ ] (Değişmeyen yön, eskisi gibi çalışmalı) KOReader'da ilerleyip burada "Uzak ilerlemeyi uygula"yı
+  seçin: aynı sayfa açılmalı.
