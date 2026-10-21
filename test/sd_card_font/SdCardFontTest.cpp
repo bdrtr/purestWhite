@@ -785,3 +785,38 @@ TEST(SdCardFontTest, APagesGlyphsAreResidentInCodepointOrderWhateverTheTextOrder
     EXPECT_FALSE(font.isOverflowGlyph(glyph)) << cp;  // found in the page, not loaded on demand
   }
 }
+
+TEST(SdCardFontTest, AnUncoveredCodepointTakesTheReplacementAdvance) {
+  makeFont(8);
+  put16(GLYPH_TABLE + 7 * sizeof(EpdGlyph) + offsetof(EpdGlyph, advanceX), 9 << 4);  // U+FFFD
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  ASSERT_EQ(0, font.buildAdvanceTable("A", 1));  // A is not in the font
+  EXPECT_EQ(9 << 4, font.getAdvance('A', 0));
+}
+
+TEST(SdCardFontTest, WithoutAReplacementGlyphUncoveredCodepointsAreMissed) {
+  makeFont(8);
+  put32(76, 0xFFFC);  // the second interval no longer holds U+FFFD
+  put32(80, 0xFFFC);
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  EXPECT_EQ(2, font.buildAdvanceTable(("AB" + page(FIRST, 1)).c_str(), 1));
+  EXPECT_EQ(0, font.getAdvance('A', 0));
+  EXPECT_EQ(32 << 4, font.getAdvance(FIRST, 0));
+}
+
+TEST(SdCardFontTest, PackedAdvancesCanAddTheSpaceAndTheHyphen) {
+  makeFont(8);
+  SdCardFont font;
+  ASSERT_TRUE(font.load("fixture"));
+  const std::string words = page(FIRST, 1) + '\0' + page(FIRST + 1, 1);
+  const char* segments[] = {words.c_str()};
+  const size_t lengths[] = {words.size() + 1};
+  // Neither is in the font: they take the replacement advance.
+  ASSERT_EQ(0, font.buildAdvanceTablePacked(segments, lengths, 1, true, true, 1));
+  for (const uint32_t cp : {static_cast<uint32_t>(' '), static_cast<uint32_t>('-'), FIRST, FIRST + 1}) {
+    EXPECT_EQ(32 << 4, font.getAdvance(cp, 0)) << cp;
+  }
+  EXPECT_EQ(0, font.getAdvance(FIRST + 2, 0));
+}
