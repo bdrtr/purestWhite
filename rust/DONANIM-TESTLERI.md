@@ -673,7 +673,8 @@ sırasında bir fark testi eski C++ kodunu Rust koduyla 20 000 üretilmiş böl�
 bölümünde, paragraf, konum ve ilerleme hedefleriyle karşılaştırdı: sonuçlar aynıydı. Bu kod yalnızca
 konum gönderirken çalışır; KOReader'dan konum almak başka koddan geçer.
 
-- [ ] Ayarlar → CrossPoint Sync'te Server Type "KoSync" olsun ve hesap bilgileri girilmiş olsun. Bir
+- [ ] Ayarlar → CrossPoint Sync'te Server Type "KoSync" ve Senkronizasyon Davranışı "Her seferinde
+  sor" olsun, hesap bilgileri girilmiş olsun. Bir
   EPUB'da bir paragrafın ortasına ve bir liste maddesine gidin; okuma menüsünden "Okuma
   İlerlemesini Senkronize Et" → "Yerel ilerlemeyi yükle"yi seçin. KOReader'da aynı kitabı açıp
   ilerlemeyi çekin: aynı paragraf ve yaklaşık aynı satır açılmalı. Bir bölümün son sayfasında da
@@ -690,3 +691,20 @@ kod onu yok sayıyor, eşitleme bölümün başına ya da daha kaba bir konuma d
 
 - [ ] İçinde büyük gömülü resimler ya da SVG'ler olan bir bölümün son sayfasında "Okuma İlerlemesini
   Senkronize Et" → "Yerel ilerlemeyi yükle"yi seçin: KOReader'da aynı yer açılmalı.
+
+## KOReader'dan gelen konumu bulmak Rust'ta ("rust: our own KOReader position locator")
+
+KOReader eşitlemesinde sunucudan gelen konum yolunu (`/body/DocFragment[3]/body/div[2]/p[4]/text()[1].12`
+gibi) okuyup bölümde bulan kısım artık `bembeyaz-kosync`'in `locate` modülünde; bölümü kitaptan
+okumak ve bulunan konumu sayfaya çevirmek C++'ta kaldı. 912 host testi geçiyor. Geliştirme sırasında
+bir fark testi eski C++ kodunu Rust koduyla 30 000 üretilmiş bölüm ve yolda (bozuk olanlar dahil)
+ve dört kitabın 1518 gerçek bölümünden üretilmiş 64 504 yolda, her arama biçimiyle karşılaştırdı:
+sonuçlar aynıydı. Bu kod çoğunlukla konum alırken çalışır; gönderirken yalnızca bölüm XPath
+çözücüsü yol bulamazsa son çare olarak kullanılır.
+
+- [ ] Ayarlar → CrossPoint Sync'te Server Type "KoSync" ve Senkronizasyon Davranışı "Her seferinde
+  sor" olsun (varsayılan "Akıllı senkronizasyon" bu seçimi sormaz), hesap bilgileri girilmiş olsun.
+  KOReader'da bir kitabın ortasında,
+  bir liste maddesinde ve bir bölümün başında ilerlemeyi gönderin; burada aynı kitapta okuma
+  menüsünden "Okuma İlerlemesini Senkronize Et" → "Uzak ilerlemeyi uygula"yı seçin: her seferinde
+  aynı yer açılmalı.

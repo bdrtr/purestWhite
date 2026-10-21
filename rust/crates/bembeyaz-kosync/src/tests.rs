@@ -146,3 +146,174 @@ fn a_target_found_only_at_the_end_is_found() {
     assert!(ok);
     assert_eq!(count, 3);
 }
+
+mod locate {
+    #![allow(clippy::indexing_slicing)]
+
+    use crate::locate::{Locator, Mode, XPath};
+
+    #[allow(clippy::large_types_passed_by_value)]
+    fn locate(doc: &str, mode: Mode) -> Locator {
+        let mut l = Locator::new(mode);
+        l.feed(doc.as_bytes());
+        l
+    }
+
+    const DOC: &str = "<html><head><title>T</title></head><body><div><p>Alpha bravo</p><ul><li id=\"x\">One</li><li><a id='y'/>Two &amp; three</li></ul></div></body></html>";
+
+    #[test]
+    fn reads_paths() {
+        let x = XPath::parse(b"/body/DocFragment[3]/body/div[1]/ul/li[2]/text()[1].4");
+        assert_eq!(
+            (
+                x.doc_fragment,
+                x.paragraph,
+                x.char_offset,
+                x.text_node,
+                x.step_count
+            ),
+            (3, -1, 4, 1, 3)
+        );
+        assert_eq!(&x.steps[2].tag[..3], b"li\0");
+        assert_eq!((x.steps[1].index, x.steps[2].index), (0, 2));
+        assert!(!x.body_text && !x.chapter_start);
+        let start = XPath::parse(b"/body/DocFragment[2]/body/div/text().0");
+        assert!(start.chapter_start);
+        let body = XPath::parse(b"/body/DocFragment[2]/body/text()[2].7");
+        assert!(body.body_text);
+        assert_eq!(
+            (body.step_count, body.text_node, body.char_offset),
+            (0, 2, 7)
+        );
+        assert_eq!(
+            XPath::parse(b"/body/DocFragment[2]/body/p[12].3").paragraph,
+            12
+        );
+        assert_eq!(XPath::parse(b"garbage").doc_fragment, -1);
+    }
+
+    #[test]
+    fn finds_steps_paragraphs_and_anchors() {
+        // The self-closing <a/> ends text node 1 of li[2], so its text is text()[2].
+        let x = XPath::parse(b"/body/DocFragment[1]/body/div[1]/ul/li[2]/text()[2].4");
+        let l = locate(
+            DOC,
+            Mode::Steps {
+                steps: x.steps,
+                count: x.step_count,
+                char_offset: x.char_offset,
+                text_node: x.text_node,
+                relax: false,
+            },
+        );
+        // "Alpha bravo" (11) + "One" (3) + 4 into "Two & three".
+        assert!(l.found());
+        assert_eq!((l.target_visible(), l.total_visible()), (18, 25));
+        assert_eq!(l.anchor(), Some(&b"y"[..]));
+        assert_eq!((l.paragraph_at_match(), l.list_item_at_match()), (1, 2));
+        let p = locate(
+            DOC,
+            Mode::Paragraph {
+                paragraph: 1,
+                char_offset: 6,
+                text_node: 1,
+            },
+        );
+        assert!(p.found());
+        assert_eq!(p.target_visible(), 6);
+        let f = locate(DOC, Mode::Forward { target: 60 });
+        assert_eq!(f.paragraph_count(), 1);
+    }
+
+    #[test]
+    fn corrupted_documents_and_paths_never_panic() {
+        let mut seed = 0x5EED_1234_u32;
+        let paths: [&[u8]; 4] = [
+            b"/body/DocFragment[1]/body/div[1]/ul/li[2]/text()[1].4",
+            b"/body/DocFragment[1]/body/text()[3].99999999999",
+            b"/body/DocFragment[1]/body/a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r.1",
+            b"/body/DocFragment[]/body/.",
+        ];
+        for i in 0..DOC.len() {
+            seed ^= seed << 13;
+            seed ^= seed >> 17;
+            seed ^= seed << 5;
+            let mut doc = DOC.as_bytes().to_vec();
+            doc[i] = seed.to_le_bytes()[0];
+            let mut path = paths[seed as usize % paths.len()].to_vec();
+            let at = seed as usize % path.len();
+            path[at] = seed.to_le_bytes()[1];
+            let x = XPath::parse(&path);
+            for mode in [
+                Mode::Forward {
+                    target: u64::from(seed % 300),
+                },
+                Mode::Paragraph {
+                    paragraph: x.paragraph,
+                    char_offset: x.char_offset,
+                    text_node: x.text_node,
+                },
+                Mode::Steps {
+                    steps: x.steps,
+                    count: x.step_count,
+                    char_offset: x.char_offset,
+                    text_node: x.text_node,
+                    relax: seed.is_multiple_of(2),
+                },
+                Mode::BodyText {
+                    char_offset: x.char_offset,
+                    text_node: x.text_node,
+                },
+            ] {
+                let mut l = Locator::new(mode);
+                l.feed(&doc);
+                let _ = (
+                    l.found(),
+                    l.anchor(),
+                    l.target_visible(),
+                    l.paragraph_count(),
+                );
+            }
+        }
+    }
+}
+
+/// The two halves agree: a path the resolver writes for a visible codepoint is found at that
+/// codepoint by the locator, on ordinary chapters.
+#[test]
+fn written_paths_are_found_again() {
+    use crate::locate::{Locator, Mode, XPath};
+    const CHAPTERS: [&str; 4] = [
+        "<html><body><div><section><p>Alpha bravo</p><p>Second <em>nested</em> tail</p></section></div></body></html>",
+        "<html><body><ul><li>One</li><li>Two <b>bold</b> three</li></ul><p>Last line.</p></body></html>",
+        "<html><head><title>T</title></head><body><div><div><p>Deep \u{e7}i\u{e7}ek &amp; more</p></div></div></body></html>",
+        "<html><body><h1>Title</h1><p>a</p><p>bb</p><p>ccc <i>dd</i> e</p></body></html>",
+    ];
+    for doc in CHAPTERS {
+        let total = run(doc, Target::Count, 4096).1;
+        for target in 0..total {
+            let (xpath, _, ok) = run(
+                doc,
+                Target::Offset {
+                    target,
+                    inclusive: false,
+                },
+                4096,
+            );
+            assert!(ok);
+            let xpath = xpath.unwrap();
+            let x = XPath::parse(xpath.as_bytes());
+            assert!(x.step_count > 0, "{xpath}");
+            let mut l = Locator::new(Mode::Steps {
+                steps: x.steps,
+                count: x.step_count,
+                char_offset: x.char_offset,
+                text_node: x.text_node,
+                relax: false,
+            });
+            l.feed(doc.as_bytes());
+            assert!(l.found(), "{doc} {xpath}");
+            assert_eq!(l.target_visible(), target, "{doc} {xpath}");
+        }
+    }
+}

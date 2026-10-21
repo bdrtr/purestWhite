@@ -21,6 +21,8 @@ use alloc::vec::Vec;
 use bembeyaz_xml::{Error, Flow, Handler, Parser, StartTag, Str};
 use core::fmt::Write;
 
+pub mod locate;
+
 /// What to look for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Target {

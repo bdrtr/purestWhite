@@ -2,768 +2,66 @@
 
 #include <GfxRenderer.h>
 #include <Logging.h>
+#include <bembeyaz/kosync.h>
+#include <strings.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstddef>
 #include <cstring>
 
 #include "ChapterXPathResolver.h"
 #include "Epub/Section.h"
-#include "Epub/VisibleTextUtils.h"
-#include "Epub/htmlEntities.h"
-#include "Utf8.h"
 
 namespace {
-int parseIndex(const std::string& xpath, const char* prefix, bool last = false) {
-  const size_t prefixLen = strlen(prefix);
-  const size_t pos = last ? xpath.rfind(prefix) : xpath.find(prefix);
-  if (pos == std::string::npos) return -1;
-  const size_t numStart = pos + prefixLen;
-  const size_t numEnd = xpath.find(']', numStart);
-  if (numEnd == std::string::npos || numEnd == numStart) return -1;
-  int val = 0;
-  for (size_t i = numStart; i < numEnd; i++) {
-    if (xpath[i] < '0' || xpath[i] > '9') return -1;
-    val = val * 10 + (xpath[i] - '0');
-  }
-  return val;
-}
+// Checked against rust/crates/bembeyaz-ffi/src/kosync.rs too.
+static_assert(sizeof(bb_kosync_step) == 16 && sizeof(bb_kosync_path) == 280 && offsetof(bb_kosync_path, steps) == 20 &&
+                  offsetof(bb_kosync_path, chapter_start) == 277,
+              "bb_kosync_path layout");
+static_assert(offsetof(bb_kosync_location, total_visible) == 16 &&
+                  offsetof(bb_kosync_location, anchor_len) == 16 + 2 * sizeof(uint64_t) + sizeof(const char*),
+              "bb_kosync_location layout");
 
-int parseCharOffset(const std::string& xpath) {
-  const size_t textPos = xpath.rfind("text()");
-  const size_t dotPos = (textPos != std::string::npos) ? xpath.find('.', textPos) : xpath.rfind('.');
-  if (dotPos == std::string::npos || dotPos + 1 >= xpath.size()) return 0;
-  int val = 0;
-  for (size_t i = dotPos + 1; i < xpath.size(); i++) {
-    if (xpath[i] < '0' || xpath[i] > '9') return 0;
-    val = val * 10 + (xpath[i] - '0');
-  }
-  return val;
-}
-
-// Parse the N from text()[N] in the XPath (1-based; defaults to 1 if absent or 1).
-int parseTextNodeIndex(const std::string& xpath) {
-  const size_t textPos = xpath.rfind("text()[");
-  if (textPos == std::string::npos) return 1;
-  const size_t numStart = textPos + 7;  // strlen("text()[")
-  const size_t numEnd = xpath.find(']', numStart);
-  if (numEnd == std::string::npos || numEnd == numStart) return 1;
-  int val = 0;
-  for (size_t i = numStart; i < numEnd; i++) {
-    if (xpath[i] < '0' || xpath[i] > '9') return 1;
-    val = val * 10 + (xpath[i] - '0');
-  }
-  return val > 0 ? val : 1;
-}
-
-bool isChapterStartXPath(const std::string& xpath) {
-  if (xpath.find("/p[") != std::string::npos || xpath.find("/li[") != std::string::npos) {
-    return false;
-  }
-
-  static constexpr char kDocFragment[] = "/body/DocFragment[";
-  const size_t docFragPos = xpath.find(kDocFragment);
-  if (docFragPos == std::string::npos) {
-    return false;
-  }
-  const size_t docFragEnd = xpath.find(']', docFragPos + strlen(kDocFragment));
-  if (docFragEnd == std::string::npos) {
-    return false;
-  }
-  if (docFragEnd + 1 == xpath.size()) {
-    return true;
-  }
-  if (xpath[docFragEnd + 1] == '.') {
-    if (docFragEnd + 2 >= xpath.size()) {
-      return false;
-    }
-    for (size_t i = docFragEnd + 2; i < xpath.size(); i++) {
-      if (xpath[i] != '0') return false;
-    }
-    return true;
-  }
-
-  static constexpr char kDocBody[] = "]/body";
-  const size_t docBodyPos = xpath.find(kDocBody);
-  if (docBodyPos == std::string::npos) {
-    return false;
-  }
-  size_t bodyContentStart = docBodyPos + strlen(kDocBody);
-  if (bodyContentStart == xpath.size()) {
-    return true;
-  }
-  if (xpath[bodyContentStart] != '/') {
-    return false;
-  }
-  bodyContentStart++;
-  if (bodyContentStart == xpath.size()) {
-    return true;
-  }
-
-  const size_t dotPos = xpath.rfind('.');
-  if (dotPos == std::string::npos || dotPos <= bodyContentStart || dotPos + 1 >= xpath.size()) {
-    return false;
-  }
-  size_t terminalEnd = dotPos;
-  static constexpr char kTextNode[] = "/text()";
-  const size_t textNodePos = xpath.rfind(kTextNode, dotPos);
-  if (textNodePos != std::string::npos && textNodePos >= bodyContentStart) {
-    terminalEnd = textNodePos;
-  }
-  if (xpath.find('/', bodyContentStart) < terminalEnd) {
-    return false;
-  }
-
-  for (size_t i = dotPos + 1; i < xpath.size(); i++) {
-    if (xpath[i] != '0') return false;
-  }
-  return parseTextNodeIndex(xpath) <= 1;
-}
-
-bool isBodyTextXPath(const std::string& xpath) {
-  static constexpr char kBodyFrag[] = "/body/DocFragment[";
-  const size_t fragPos = xpath.find(kBodyFrag);
-  if (fragPos == std::string::npos) return false;
-  const size_t afterBracket = xpath.find(']', fragPos + strlen(kBodyFrag));
-  if (afterBracket == std::string::npos) return false;
-  static constexpr char kBody[] = "/body/";
-  if (xpath.compare(afterBracket + 1, strlen(kBody), kBody) != 0) return false;
-  const size_t contentPos = afterBracket + 1 + strlen(kBody);
-  return xpath.compare(contentPos, strlen("text()"), "text()") == 0;
-}
-
-// Parsed representation of one step in the XPath ancestry.
-struct XPathStep {
-  char tag[12];      // element name, null-terminated
-  int siblingIndex;  // 1-based sibling index, or 0 if unspecified (match any)
-};
-
-static constexpr int MAX_XPATH_DEPTH = 16;
-
-// Parse the XPath segment between /body/DocFragment[N]/body/ and the terminal position
-// into an ordered sequence of steps. Returns step count, 0 on failure.
-// Example input: "/body/DocFragment[1]/body/div[1]/ul/li[4]/text()[1].51"
-// Fills steps with: {div,1}, {ul,1}, {li,4}
-int parseXPathSteps(const std::string& xpath, XPathStep steps[MAX_XPATH_DEPTH]) {
-  static const char kBodyFrag[] = "/body/DocFragment[";
-  const size_t fragPos = xpath.find(kBodyFrag);
-  if (fragPos == std::string::npos) return 0;
-  const size_t afterBracket = xpath.find(']', fragPos + strlen(kBodyFrag));
-  if (afterBracket == std::string::npos) return 0;
-  static const char kBody[] = "/body/";
-  if (xpath.compare(afterBracket + 1, strlen(kBody), kBody) != 0) return 0;
-  size_t pos = afterBracket + 1 + strlen(kBody);
-
-  size_t stepsEnd = xpath.rfind("/text()");
-  if (stepsEnd == std::string::npos) {
-    stepsEnd = xpath.rfind('.');
-    if (stepsEnd == std::string::npos || stepsEnd <= pos || stepsEnd + 1 >= xpath.size()) return 0;
-    for (size_t i = stepsEnd + 1; i < xpath.size(); i++) {
-      if (xpath[i] < '0' || xpath[i] > '9') return 0;
-    }
-  }
-  if (stepsEnd <= pos) return 0;
-
-  int count = 0;
-  while (pos < stepsEnd && count < MAX_XPATH_DEPTH) {
-    const size_t slash = xpath.find('/', pos);
-    const size_t segEnd = (slash < stepsEnd) ? slash : stepsEnd;
-
-    XPathStep& step = steps[count];
-    const size_t bracket = xpath.find('[', pos);
-    const size_t nameEnd = (bracket != std::string::npos && bracket < segEnd) ? bracket : segEnd;
-    const size_t nameLen = nameEnd - pos;
-    if (nameLen == 0 || nameLen >= sizeof(step.tag)) return 0;
-    memcpy(step.tag, xpath.c_str() + pos, nameLen);
-    step.tag[nameLen] = '\0';
-
-    if (bracket != std::string::npos && bracket < segEnd) {
-      const size_t closeBracket = xpath.find(']', bracket + 1);
-      if (closeBracket == std::string::npos || closeBracket > segEnd) return 0;
-      int idx = 0;
-      for (size_t i = bracket + 1; i < closeBracket; i++) {
-        if (xpath[i] < '0' || xpath[i] > '9') return 0;
-        idx = idx * 10 + (xpath[i] - '0');
-      }
-      step.siblingIndex = idx;
-    } else {
-      step.siblingIndex = 0;
-    }
-
-    count++;
-    pos = (slash < stepsEnd) ? slash + 1 : stepsEnd;
-  }
-  return count;
-}
-
-class ParagraphStreamer final : public Print {
-  size_t bytesWritten = 0;
-  bool globalInTag = false;
-  bool globalInEntity = false;
-  static constexpr size_t MAX_ENTITY_SIZE = 16;
-  char entityBuffer[MAX_ENTITY_SIZE] = {};
-  size_t entityLen = 0;
-  bool prevCR = false;  // last counted visible byte was a CR (XML line-ending normalization)
-
-  // Forward mode: count <p> paragraphs at a byte offset (legacy, used by generateXPath)
-  size_t fwdTarget;
-  int fwdResult = 0;
-  bool fwdCaptured = false;
-
-  // Reverse mode shared state
-  int revChar;
-  bool revPFound = false;
-  bool revDone = false;
-  int revVisChars = 0;
-  size_t totalVisChars = 0;
-  size_t targetVisChars = 0;
-
-  // --- Legacy reverse mode (paragraph index only, no ancestry) ---
-  int revParagraph = 0;
-  int pCount = 0;
-  int paragraphAtMatch = 0;
-  int liCount = 0;
-  int liCountAtMatch = 0;
-  int targetTextNode = 1;
-  int currentTextNode = 0;
-  int paragraphHtmlDepth = -1;
-
-  // --- Ancestry-aware reverse mode ---
-  const XPathStep* steps = nullptr;
-  int stepCount = 0;
-  int siblingCounters[MAX_XPATH_DEPTH] = {};
-  bool insideStep[MAX_XPATH_DEPTH] = {};
-  int htmlDepth = 0;
-  int bodyHtmlDepth = -1;
-  int stepEnteredAtDepth[MAX_XPATH_DEPTH] = {};
-  bool relaxFirstStepDepth = false;
-
-  // Tag name accumulation
-  enum TagParseState { TAG_IDLE, TAG_IN_NAME, TAG_ATTRS } tagState = TAG_IDLE;
-  bool tagIsClose = false;
-  char tagName[12] = {};
-  int tagNameLen = 0;
-
-  int matchedDepth = 0;
-
-  // Anchor ID capture
-  static constexpr int MAX_ANCHOR_ID = 64;
-  char capturedAnchorId[MAX_ANCHOR_ID] = {};
-  int capturedAnchorIdLen = 0;
-  bool capturingAnchorTag = false;
-  enum AnchorAttrState {
-    ATTR_FIND_NAME,
-    ATTR_READ_NAME,
-    ATTR_AFTER_NAME,
-    ATTR_BEFORE_VALUE,
-    ATTR_CAPTURE_D,
-    ATTR_CAPTURE_S
-  } attrState = ATTR_FIND_NAME;
-  uint8_t attrNameLen = 0;
-  bool currentAttrIsId = false;
-  bool inAttrQuote =
-      false;  // true while inside a quoted attribute value (prevents '/' from being treated as self-close)
-  char attrQuoteChar = 0;
-  uint8_t nonVisibleDepth = 0;
-  bool insideBody = false;
-  bool targetBodyText = false;
-
-  bool isNonVisibleTag() const { return VisibleTextUtils::isNonVisibleElement(tagName); }
-
-  static bool isAttrWhitespace(uint8_t c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r'; }
-
-  static bool isAttrNameChar(uint8_t c) {
-    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' ||
-           c == ':' || c == '.';
-  }
-
-  void resetAnchorAttrScan() {
-    attrState = ATTR_FIND_NAME;
-    attrNameLen = 0;
-    currentAttrIsId = false;
-  }
-
-  void finishCapturedAnchorId() {
-    capturedAnchorId[capturedAnchorIdLen] = '\0';
-    capturingAnchorTag = false;
-    resetAnchorAttrScan();
-  }
-
-  void beginAnchorIdScan() {
-    capturingAnchorTag = true;
-    resetAnchorAttrScan();
-  }
-
-  void endAnchorIdScan() {
-    if (capturingAnchorTag) {
-      capturedAnchorIdLen = 0;
-    }
-    capturingAnchorTag = false;
-    resetAnchorAttrScan();
-  }
-
-  void appendCapturedAnchorId(uint8_t c) {
-    if (capturedAnchorIdLen + 1 < MAX_ANCHOR_ID) {
-      capturedAnchorId[capturedAnchorIdLen++] = c;
-    }
-  }
-
-  void scanAnchorAttribute(uint8_t c) {
-    switch (attrState) {
-      case ATTR_FIND_NAME:
-        if (isAttrNameChar(c)) {
-          attrState = ATTR_READ_NAME;
-          attrNameLen = 1;
-          currentAttrIsId = c == 'i';
-        }
-        break;
-      case ATTR_READ_NAME:
-        if (isAttrNameChar(c)) {
-          if (attrNameLen == 1) {
-            currentAttrIsId = currentAttrIsId && c == 'd';
-          } else {
-            currentAttrIsId = false;
-          }
-          attrNameLen++;
-        } else {
-          currentAttrIsId = currentAttrIsId && attrNameLen == 2;
-          if (isAttrWhitespace(c)) {
-            attrState = ATTR_AFTER_NAME;
-          } else if (c == '=') {
-            attrState = ATTR_BEFORE_VALUE;
-          } else {
-            resetAnchorAttrScan();
-          }
-        }
-        break;
-      case ATTR_AFTER_NAME:
-        if (isAttrWhitespace(c)) {
-          break;
-        }
-        if (c == '=') {
-          attrState = ATTR_BEFORE_VALUE;
-        } else if (isAttrNameChar(c)) {
-          attrState = ATTR_READ_NAME;
-          attrNameLen = 1;
-          currentAttrIsId = c == 'i';
-        } else {
-          resetAnchorAttrScan();
-        }
-        break;
-      case ATTR_BEFORE_VALUE:
-        if (isAttrWhitespace(c)) {
-          break;
-        }
-        if (currentAttrIsId && c == '"') {
-          capturedAnchorIdLen = 0;
-          attrState = ATTR_CAPTURE_D;
-        } else if (currentAttrIsId && c == '\'') {
-          capturedAnchorIdLen = 0;
-          attrState = ATTR_CAPTURE_S;
-        } else if (c == '"') {
-          attrState = ATTR_CAPTURE_D;
-        } else if (c == '\'') {
-          attrState = ATTR_CAPTURE_S;
-        } else {
-          resetAnchorAttrScan();
-        }
-        break;
-      case ATTR_CAPTURE_D:
-        if (c == '"') {
-          if (currentAttrIsId) {
-            finishCapturedAnchorId();
-          } else {
-            resetAnchorAttrScan();
-          }
-        } else if (currentAttrIsId) {
-          appendCapturedAnchorId(c);
-        }
-        break;
-      case ATTR_CAPTURE_S:
-        if (c == '\'') {
-          if (currentAttrIsId) {
-            finishCapturedAnchorId();
-          } else {
-            resetAnchorAttrScan();
-          }
-        } else if (currentAttrIsId) {
-          appendCapturedAnchorId(c);
-        }
-        break;
-    }
-  }
-
-  void onVisibleCodepoint() {
-    totalVisChars++;
-    if (revPFound && !revDone) {
-      // Ancestry mode: count only while inside the fully-matched element and in the target text node.
-      // Legacy mode: count only while still inside the matched paragraph and in the target text node.
-      const bool inTargetNode =
-          (stepCount > 0)
-              ? (matchedDepth == stepCount && htmlDepth == stepEnteredAtDepth[stepCount - 1] &&
-                 currentTextNode == targetTextNode)
-              : (paragraphHtmlDepth >= 0 && htmlDepth == paragraphHtmlDepth && currentTextNode == targetTextNode);
-      if (inTargetNode) {
-        revVisChars++;
-        if (revVisChars >= revChar) {
-          targetVisChars = totalVisChars;
-          revDone = true;
-        }
-      }
-    }
-  }
-
-  void onVisibleText(const char* text) {
-    if (!text) return;
-    const unsigned char* ptr = reinterpret_cast<const unsigned char*>(text);
-    while (*ptr != 0) {
-      utf8NextCodepoint(&ptr);
-      onVisibleCodepoint();
-    }
-  }
-
-  void flushEntityAsLiteral() {
-    for (size_t i = 0; i < entityLen; i++) onVisibleCodepoint();
-  }
-
-  void finishEntity() {
-    entityBuffer[entityLen] = '\0';
-    const char* resolved = lookupHtmlEntity(entityBuffer, entityLen);
-    if (resolved)
-      onVisibleText(resolved);
-    else if (entityLen >= 3 && entityBuffer[1] == '#')
-      // Numeric character reference (&#NNN; / &#xHH;): the XML parser -- which builds the page LUT --
-      // decodes it to a single codepoint. Count one here too, not the raw "&#NNN" characters.
-      onVisibleCodepoint();
-    else
-      flushEntityAsLiteral();
-    globalInEntity = false;
-    entityLen = 0;
-  }
-
-  void onLegacyP() {
-    pCount++;
-    if (!revPFound && revParagraph > 0 && pCount >= revParagraph) {
-      revPFound = true;
-      revVisChars = 0;
-      paragraphHtmlDepth = htmlDepth;
-      currentTextNode = 1;
-      if (revChar <= 0 && targetTextNode <= 1) {
-        targetVisChars = totalVisChars;
-        revDone = true;
-      }
-    }
-  }
-
-  void onOpenTag() {
-    htmlDepth++;
-
-    if (strcasecmp(tagName, "body") == 0) {
-      insideBody = true;
-      bodyHtmlDepth = htmlDepth;
-      if (targetBodyText) {
-        revPFound = true;
-        paragraphHtmlDepth = htmlDepth;
-        currentTextNode = 1;
-        if (revChar <= 0 && targetTextNode <= 1) {
-          targetVisChars = totalVisChars;
-          revDone = true;
-        }
-      }
-      return;
-    }
-    if (!insideBody) return;
-
-    if (nonVisibleDepth > 0 || isNonVisibleTag()) {
-      nonVisibleDepth++;
-      return;
-    }
-
-    if (stepCount == 0) {
-      if (strcasecmp(tagName, "p") == 0) onLegacyP();
-      return;
-    }
-
-    // Capture a child <a id> inside the fully-matched element even after target char is found.
-    if (revPFound && matchedDepth == stepCount && capturedAnchorIdLen == 0 && strcasecmp(tagName, "a") == 0) {
-      beginAnchorIdScan();
-    }
-
-    if (revDone) return;
-
-    if (strcasecmp(tagName, "p") == 0) pCount++;
-    if (strcasecmp(tagName, "li") == 0) liCount++;
-
-    if (matchedDepth < stepCount) {
-      const XPathStep& target = steps[matchedDepth];
-      if (strcasecmp(tagName, target.tag) == 0) {
-        // Count only direct children of the previously matched ancestor step.
-        // For step 0 any depth is valid; subsequent steps must be exactly one level deeper.
-        const bool atCorrectDepth = (matchedDepth == 0) ? (relaxFirstStepDepth || htmlDepth == bodyHtmlDepth + 1)
-                                                        : (htmlDepth == stepEnteredAtDepth[matchedDepth - 1] + 1);
-        if (!atCorrectDepth) return;
-        siblingCounters[matchedDepth]++;
-        if (target.siblingIndex == 0 || siblingCounters[matchedDepth] == target.siblingIndex) {
-          insideStep[matchedDepth] = true;
-          stepEnteredAtDepth[matchedDepth] = htmlDepth;
-          matchedDepth++;
-          if (matchedDepth == stepCount) {
-            beginAnchorIdScan();
-            paragraphAtMatch = pCount;
-            liCountAtMatch = liCount;
-            revPFound = true;
-            capturedAnchorIdLen = 0;
-            revVisChars = 0;
-            currentTextNode = 1;  // Reset text node counter for this element
-            if (revChar <= 0 && targetTextNode <= 1) {
-              targetVisChars = totalVisChars;
-              revDone = true;
-            }
-          }
-        }
-      }
-    }
-  }
-
-  void onCloseTag() {
-    if (strcasecmp(tagName, "body") == 0) {
-      insideBody = false;
-      if (htmlDepth > 0) htmlDepth--;
-      return;
-    }
-    if (!insideBody) {
-      if (htmlDepth > 0) htmlDepth--;
-      return;
-    }
-
-    if (nonVisibleDepth > 0) {
-      nonVisibleDepth--;
-      if (htmlDepth > 0) htmlDepth--;
-      return;
-    }
-
-    // Legacy mode: each direct child element closing advances the text node index.
-    if (stepCount == 0 && revPFound && !revDone && paragraphHtmlDepth >= 0 && htmlDepth == paragraphHtmlDepth + 1) {
-      currentTextNode++;
-      if (currentTextNode == targetTextNode && revChar <= 0) {
-        targetVisChars = totalVisChars;
-        revDone = true;
-      }
-    }
-    // Legacy mode: stop tracking when the matched paragraph itself closes.
-    if (stepCount == 0 && revPFound && !revDone && paragraphHtmlDepth >= 0 && htmlDepth == paragraphHtmlDepth) {
-      revPFound = false;
-      paragraphHtmlDepth = -1;
-    }
-
-    // Ancestry mode: advance text node when a direct child of the fully-matched element closes.
-    if (stepCount > 0 && matchedDepth == stepCount && revPFound && !revDone) {
-      const int elementDepth = stepEnteredAtDepth[stepCount - 1];
-      if (htmlDepth == elementDepth + 1) {
-        currentTextNode++;
-        if (currentTextNode == targetTextNode && revChar <= 0) {
-          targetVisChars = totalVisChars;
-          revDone = true;
-        }
-      }
-    }
-
-    if (stepCount > 0 && matchedDepth > 0) {
-      const int step = matchedDepth - 1;
-      if (insideStep[step] && htmlDepth == stepEnteredAtDepth[step]) {
-        insideStep[step] = false;
-        matchedDepth--;
-        // If the fully-matched element just closed without finding the target, abort.
-        if (matchedDepth < stepCount && revPFound && !revDone) {
-          revPFound = false;
-        }
-        for (int i = matchedDepth + 1; i < stepCount; i++) {
-          siblingCounters[i] = 0;
-          insideStep[i] = false;
-          stepEnteredAtDepth[i] = -1;
-        }
-      }
-    }
-    if (htmlDepth > 0) htmlDepth--;
-  }
-
-  void processByteInTag(uint8_t c) {
-    switch (tagState) {
-      case TAG_IDLE:
-        if (c == '/') {
-          tagIsClose = true;
-          tagState = TAG_IN_NAME;
-        } else if (c != '!' && c != '?') {
-          tagIsClose = false;
-          tagName[0] = static_cast<char>(c);
-          tagNameLen = 1;
-          tagState = TAG_IN_NAME;
-        }
-        break;
-      case TAG_IN_NAME:
-        if (c == '>' || c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '/') {
-          tagName[tagNameLen] = '\0';
-          if (tagNameLen > 0) {
-            if (tagIsClose)
-              onCloseTag();
-            else
-              onOpenTag();
-            // Self-closing open tag (<br/>). Don't double-fire for close tags (</br/>).
-            if (c == '/' && !tagIsClose) onCloseTag();
-          }
-          tagNameLen = 0;
-          tagState = (c == '>') ? TAG_IDLE : TAG_ATTRS;
-        } else if (tagNameLen + 1 < static_cast<int>(sizeof(tagName))) {
-          tagName[tagNameLen++] = static_cast<char>(c);
-        }
-        break;
-      case TAG_ATTRS:
-        // Track quoted attribute values so '/' inside them is not mistaken for self-closing.
-        if (!inAttrQuote) {
-          if (c == '"' || c == '\'') {
-            inAttrQuote = true;
-            attrQuoteChar = c;
-          }
-        } else if (c == attrQuoteChar) {
-          inAttrQuote = false;
-          attrQuoteChar = 0;
-        }
-        if (capturingAnchorTag) {
-          scanAnchorAttribute(c);
-        }
-        // Only treat '/' as self-closing when outside a quoted attribute value.
-        if (c == '/' && !inAttrQuote) {
-          endAnchorIdScan();
-          onCloseTag();
-        }
-        break;
-    }
-  }
-
+// A chapter streamed into a bembeyaz-kosync locator.
+class Locator final : public Print {
  public:
-  explicit ParagraphStreamer(size_t targetByte) : fwdTarget(targetByte), revChar(0) {
-    memset(stepEnteredAtDepth, -1, sizeof(stepEnteredAtDepth));
+  Locator(const int mode, const bb_kosync_path* path, const uint64_t forwardTarget = 0)
+      : locator(bb_kosync_locator_new(mode, path, forwardTarget)) {
+    if (!locator) LOG_ERR("PM", "OOM: locator");
   }
+  ~Locator() override { bb_kosync_locator_free(locator); }
+  Locator(const Locator&) = delete;
+  Locator& operator=(const Locator&) = delete;
 
-  ParagraphStreamer(int paragraph, int charOff, int textNodeIdx = 1)
-      : fwdTarget(SIZE_MAX), revChar(charOff), revParagraph(paragraph), targetTextNode(textNodeIdx) {
-    memset(stepEnteredAtDepth, -1, sizeof(stepEnteredAtDepth));
-  }
-
-  ParagraphStreamer(const XPathStep* xpathSteps, int xpathStepCount, int charOff, int textNodeIdx = 1,
-                    bool relaxFirstStep = false)
-      : fwdTarget(SIZE_MAX),
-        revChar(charOff),
-        steps(xpathSteps),
-        stepCount(xpathStepCount),
-        targetTextNode(textNodeIdx),
-        relaxFirstStepDepth(relaxFirstStep) {
-    memset(stepEnteredAtDepth, -1, sizeof(stepEnteredAtDepth));
-  }
-
-  ParagraphStreamer(bool resolveBodyText, int charOff, int textNodeIdx)
-      : fwdTarget(SIZE_MAX), revChar(charOff), targetTextNode(textNodeIdx), targetBodyText(resolveBodyText) {
-    memset(stepEnteredAtDepth, -1, sizeof(stepEnteredAtDepth));
-  }
-
-  size_t write(uint8_t c) override {
-    if (!fwdCaptured && bytesWritten >= fwdTarget) {
-      fwdResult = pCount;
-      fwdCaptured = true;
-    }
-    bytesWritten++;
-
-    if (globalInEntity) {
-      if (entityLen + 1 < MAX_ENTITY_SIZE) {
-        entityBuffer[entityLen++] = static_cast<char>(c);
-      } else {
-        flushEntityAsLiteral();
-        globalInEntity = false;
-        entityLen = 0;
-      }
-      if (globalInEntity) {
-        if (c == ';') {
-          finishEntity();
-        } else if (c == '<' || c == ' ' || c == '\t' || c == '\n' || c == '\r') {
-          flushEntityAsLiteral();
-          globalInEntity = false;
-          entityLen = 0;
-        }
-      }
-      return 1;
-    }
-
-    // XML 1.0 §2.11 line-ending normalization: the XML parser (which builds the page LUT) collapses a
-    // "\r\n" pair and a lone "\r" to a single "\n". Mirror that so this byte counter -- which the
-    // resolved offset is measured against -- stays codepoint-for-codepoint identical. prevCR is
-    // set only by the visible-text branch below, so any non-text byte clears it here.
-    const bool afterCR = prevCR;
-    prevCR = false;
-
-    if (c == '<') {
-      globalInTag = true;
-      tagState = TAG_IDLE;
-      tagNameLen = 0;
-      tagIsClose = false;
-      capturingAnchorTag = false;
-      resetAnchorAttrScan();
-      inAttrQuote = false;
-      attrQuoteChar = 0;
-    } else if (c == '>') {
-      if (tagState == TAG_ATTRS) {
-        endAnchorIdScan();
-      }
-      globalInTag = false;
-      inAttrQuote = false;
-      if (tagState == TAG_IN_NAME && tagNameLen > 0) {
-        tagName[tagNameLen] = '\0';
-        if (tagIsClose)
-          onCloseTag();
-        else
-          onOpenTag();
-        tagNameLen = 0;
-      }
-      tagState = TAG_IDLE;
-    } else if (globalInTag) {
-      processByteInTag(c);
-    } else if (!insideBody || nonVisibleDepth > 0) {
-      // Ignore head/style/script/title text. KOReader XPaths are body-relative, and CSS text
-      // should not contribute to intra-spine progress.
-    } else {
-      if (c == '&') {
-        globalInEntity = true;
-        entityBuffer[0] = '&';
-        entityLen = 1;
-      } else if (c == '\n' && afterCR) {
-        // Second half of a CRLF: the newline was already counted on the preceding CR.
-      } else {
-        const bool startsCodepoint = (c & 0xC0) != 0x80;
-        if (startsCodepoint) onVisibleCodepoint();
-        prevCR = (c == '\r');  // a lone/leading CR is the newline; swallow any '\n' that follows
-      }
-    }
-    return 1;
-  }
-
+  size_t write(uint8_t c) override { return write(&c, 1); }
   size_t write(const uint8_t* buffer, size_t size) override {
-    for (size_t i = 0; i < size; i++) write(buffer[i]);
+    bb_kosync_locator_feed(locator, buffer, size);
     return size;
   }
 
-  int paragraphCount() const { return fwdCaptured ? fwdResult : pCount; }
-  int getParagraphAtMatch() const { return paragraphAtMatch; }
-  int getListItemAtMatch() const { return liCountAtMatch; }
-  const char* getCapturedAnchorId() const { return capturedAnchorIdLen > 0 ? capturedAnchorId : nullptr; }
-  size_t totalBytes() const { return bytesWritten; }
-  bool found() const { return revDone; }
-  size_t getTotalVisChars() const { return totalVisChars; }
-  size_t getTargetVisChars() const { return targetVisChars; }
-  float progress() const {
-    return totalVisChars > 0 ? static_cast<float>(targetVisChars) / static_cast<float>(totalVisChars) : 0.0f;
+  // Valid until the locator is fed again.
+  bb_kosync_location location() const {
+    bb_kosync_location out{};
+    bb_kosync_locator_get_location(locator, &out);
+    return out;
   }
+  bool ok() const { return locator != nullptr; }
+  bool found() const { return locator && location().found; }
+
+ private:
+  bb_kosync_locator* locator;
 };
 
-bool streamSpine(const std::shared_ptr<Epub>& epub, int spineIndex, ParagraphStreamer& s) {
+float progressOf(const bb_kosync_location& at) {
+  return at.total_visible > 0 ? static_cast<float>(at.target_visible) / static_cast<float>(at.total_visible) : 0.0f;
+}
+
+uint32_t clampedOffset(const bb_kosync_location& at) {
+  return static_cast<uint32_t>(std::min<uint64_t>(at.target_visible, UINT32_MAX));
+}
+
+bool streamSpine(const std::shared_ptr<Epub>& epub, int spineIndex, Locator& s) {
+  if (!s.ok()) return false;  // out of memory: nothing to find, so do not inflate the chapter
   const auto href = epub->getSpineItem(spineIndex).href;
   return !href.empty() && epub->readItemContentsToStream(href, s, 1024);
 }
@@ -872,17 +170,19 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
   const float clampedPercentage = std::max(0.0f, std::min(1.0f, koPos.percentage));
   const size_t targetBytes = static_cast<size_t>(static_cast<float>(bookSize) * clampedPercentage);
 
-  const int docFrag = parseIndex(koPos.xpath, "/body/DocFragment[");
-  const int xpathP = parseIndex(koPos.xpath, "/p[", true);
-  const int xpathChar = parseCharOffset(koPos.xpath);
-  const int xpathTextNode = parseTextNodeIndex(koPos.xpath);
+  bb_kosync_path path{};
+  bb_kosync_parse_xpath(koPos.xpath.data(), koPos.xpath.size(), &path);
+  const int docFrag = path.doc_fragment;
+  const int xpathP = path.paragraph;
+  const int xpathChar = path.char_offset;
+  const int xpathTextNode = path.text_node;
   const int xpathSpine = (docFrag >= 1) ? (docFrag - 1) : -1;
 
-  XPathStep xpathSteps[MAX_XPATH_DEPTH];
-  const int xpathStepCount = parseXPathSteps(koPos.xpath, xpathSteps);
+  const bb_kosync_step* xpathSteps = path.steps;
+  const int xpathStepCount = path.step_count;
   // Use ancestry mode whenever the XPath has a structured path (always more accurate than global counting).
   const bool useAncestry = xpathStepCount > 0;
-  const bool useBodyText = !useAncestry && isBodyTextXPath(koPos.xpath);
+  const bool useBodyText = path.body_text;
 
   if (xpathSpine >= 0 && xpathSpine < spineCount) {
     result.spineIndex = xpathSpine;
@@ -917,63 +217,70 @@ CrossPointPosition ProgressMapper::toCrossPoint(const std::shared_ptr<Epub>& epu
 
   float intra = 0.0f;
   if (useAncestry) {
-    const auto applyResolvedXPath = [&](const ParagraphStreamer& s) {
-      result.visibleTextOffset =
-          static_cast<uint32_t>(std::min<size_t>(s.getTargetVisChars(), static_cast<size_t>(UINT32_MAX)));
+    const auto applyResolvedXPath = [&](const Locator& s) {
+      const bb_kosync_location at = s.location();
+      result.visibleTextOffset = clampedOffset(at);
       result.hasVisibleTextOffset = true;
-      const int pAtMatch = s.getParagraphAtMatch();
+      const int pAtMatch = at.paragraph_at_match;
       if (pAtMatch > 0) {
         result.paragraphIndex = static_cast<uint16_t>(pAtMatch);
         result.hasParagraphIndex = true;
       }
       if (xpathStepCount > 0 && strcasecmp(xpathSteps[xpathStepCount - 1].tag, "li") == 0) {
-        const int liAtMatch = s.getListItemAtMatch();
+        const int liAtMatch = at.list_item_at_match;
         if (liAtMatch > 0) {
           result.liIndex = static_cast<uint16_t>(liAtMatch);
           result.hasLiIndex = true;
         }
       }
-      const char* anchorId = s.getCapturedAnchorId();
-      if (anchorId) {
-        strncpy(result.xpathAnchorId, anchorId, sizeof(result.xpathAnchorId) - 1);
+      if (at.anchor) {
+        const size_t len = std::min(at.anchor_len, sizeof(result.xpathAnchorId) - 1);
+        memcpy(result.xpathAnchorId, at.anchor, len);
+        result.xpathAnchorId[len] = '\0';
       }
+      const char* anchorId = at.anchor ? result.xpathAnchorId : nullptr;
       LOG_DBG("PM", "XPath ancestry(%s[%d])/text()[%d]+%d -> %.1f%% (target=%zu total=%zu p~%d li~%d anchor=%s)",
-              xpathSteps[xpathStepCount - 1].tag, xpathSteps[xpathStepCount - 1].siblingIndex, xpathTextNode, xpathChar,
-              s.progress() * 100, s.getTargetVisChars(), s.getTotalVisChars(), pAtMatch,
-              result.hasLiIndex ? static_cast<int>(result.liIndex) : 0, anchorId ? anchorId : "none");
+              xpathSteps[xpathStepCount - 1].tag, static_cast<int>(xpathSteps[xpathStepCount - 1].index), xpathTextNode,
+              xpathChar, progressOf(at) * 100, static_cast<size_t>(at.target_visible),
+              static_cast<size_t>(at.total_visible), pAtMatch, result.hasLiIndex ? static_cast<int>(result.liIndex) : 0,
+              anchorId ? anchorId : "none");
     };
 
-    ParagraphStreamer strict(xpathSteps, xpathStepCount, xpathChar, xpathTextNode);
-    if (streamSpine(epub, result.spineIndex, strict) && strict.found()) {
-      applyResolvedXPath(strict);
-    } else {
+    bool resolved = false;
+    {
+      Locator strict(BB_KOSYNC_LOCATE_STEPS, &path);
+      if (streamSpine(epub, result.spineIndex, strict) && strict.found()) {
+        applyResolvedXPath(strict);
+        resolved = true;
+      }
+    }
+    if (!resolved) {
       // Some KOReader producers omit an unindexed wrapper from the ancestry
       // (the compatibility case covered by PR #2777). Retry only after the
       // structurally exact path fails, allowing the first step at any body depth.
-      ParagraphStreamer relaxed(xpathSteps, xpathStepCount, xpathChar, xpathTextNode, true);
+      Locator relaxed(BB_KOSYNC_LOCATE_STEPS_RELAXED, &path);
       if (streamSpine(epub, result.spineIndex, relaxed) && relaxed.found()) {
         applyResolvedXPath(relaxed);
       }
     }
   } else if (useBodyText) {
-    ParagraphStreamer s(true, xpathChar, xpathTextNode);
+    Locator s(BB_KOSYNC_LOCATE_BODY_TEXT, &path);
     if (streamSpine(epub, result.spineIndex, s) && s.found()) {
-      result.visibleTextOffset =
-          static_cast<uint32_t>(std::min<size_t>(s.getTargetVisChars(), static_cast<size_t>(UINT32_MAX)));
+      result.visibleTextOffset = clampedOffset(s.location());
       result.hasVisibleTextOffset = true;
       LOG_DBG("PM", "XPath body/text()[%d]+%d -> offset=%u", xpathTextNode, xpathChar, result.visibleTextOffset);
     }
   } else if (xpathP > 0) {
-    ParagraphStreamer s(xpathP, xpathChar, xpathTextNode);
+    Locator s(BB_KOSYNC_LOCATE_PARAGRAPH, &path);
     if (streamSpine(epub, result.spineIndex, s) && s.found()) {
-      result.visibleTextOffset =
-          static_cast<uint32_t>(std::min<size_t>(s.getTargetVisChars(), static_cast<size_t>(UINT32_MAX)));
+      const bb_kosync_location at = s.location();
+      result.visibleTextOffset = clampedOffset(at);
       result.hasVisibleTextOffset = true;
       LOG_DBG("PM", "XPath p[%d]/text()[%d]+%d -> %.1f%% (target=%zu total=%zu)", xpathP, xpathTextNode, xpathChar,
-              s.progress() * 100, s.getTargetVisChars(), s.getTotalVisChars());
+              progressOf(at) * 100, static_cast<size_t>(at.target_visible), static_cast<size_t>(at.total_visible));
     }
   }
-  if (!result.hasVisibleTextOffset && xpathSpine >= 0 && xpathSpine < spineCount && isChapterStartXPath(koPos.xpath)) {
+  if (!result.hasVisibleTextOffset && xpathSpine >= 0 && xpathSpine < spineCount && path.chapter_start) {
     // Only fall back to "chapter start" when no intra-chapter offset was resolved above --
     // otherwise a resolved deep position (e.g. body/div[3]/text().0) would be clobbered to page 0.
     result.visibleTextOffset = 0;
@@ -1072,9 +379,9 @@ std::string ProgressMapper::generateXPath(const std::shared_ptr<Epub>& epub, int
   const auto href = epub->getSpineItem(spineIndex).href;
   if (href.empty() || !epub->getItemSize(href, &spineSize) || spineSize == 0) return base;
 
-  ParagraphStreamer s(static_cast<size_t>(spineSize * std::min(intra, 1.0f)));
+  Locator s(BB_KOSYNC_LOCATE_FORWARD, nullptr, static_cast<size_t>(spineSize * std::min(intra, 1.0f)));
   if (!streamSpine(epub, spineIndex, s)) return base;
 
-  const int p = s.paragraphCount();
+  const int p = s.location().paragraph_count;
   return (p > 0) ? base + "/p[" + std::to_string(p) + "]" : base;
 }
