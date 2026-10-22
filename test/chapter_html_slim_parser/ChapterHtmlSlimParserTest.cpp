@@ -2054,3 +2054,72 @@ TEST_F(ChapterInlineStyleTest, LinksAndSizedTagsKeepTheirOwnStyles) {
   // A link is underlined (4) and may be raised (16).
   EXPECT_EQ(styled(), (std::vector<std::string>{"1:20", "s:2", "t:9"}));
 }
+
+// The exact size each word is set in: synthetic variants name the scale (font id * 1000 + scale in
+// hundredths).
+class ChapterFontScaleTest : public ChapterTextTokenTest {
+ protected:
+  void SetUp() override {
+    ChapterTextTokenTest::SetUp();
+    installSyntheticVariants(renderer);
+  }
+  std::vector<std::string> scales() {
+    std::vector<std::string> out;
+    for (const PageElement* element : elementsWithTag(TAG_PageLine)) {
+      const auto& block = *static_cast<const PageLine*>(element)->getBlock();
+      for (uint16_t i = 0; i < block.wordCount(); ++i) {
+        out.push_back(std::string(block.wordText(i)) + ":" + std::to_string(block.wordFontId(i, parser.fontId)));
+      }
+    }
+    return out;
+  }
+};
+
+TEST_F(ChapterFontScaleTest, HeadingsScaleFromTheirParent) {
+  open("div", "font-size: 0.8em");
+  for (const char* tag : {"h1", "h2", "h3", "h4", "h5", "h6"}) {
+    open(tag, nullptr);
+    text(tag);
+    close(tag);
+  }
+  open("h2", "font-size: 1.1rem");
+  text("rem");
+  close("h2");
+  close("div");
+  // 0.8 times 2, 1.5, 1.17, 1, 0.83, 0.67; a rem size ignores the parent.
+  EXPECT_EQ(scales(), (std::vector<std::string>{"h1:160", "h2:120", "h3:94", "h4:80", "h5:66", "h6:54", "rem:110"}));
+}
+
+TEST_F(ChapterFontScaleTest, InlineSizesCompoundAndRemResets) {
+  open("p", "font-size: 1.2em");
+  text("a ");
+  open("span", "font-size: 1.5em");
+  text("b ");
+  open("small", nullptr);
+  text("c ");
+  open("span", "font-size: 0.9rem");
+  text("d ");
+  open("big", nullptr);
+  text("e ");
+  close("big");
+  close("span");
+  close("small");
+  close("span");
+  text("f");
+  close("p");
+  // small is 0.83 of its parent, a rem size resets; e (big: 1.08) takes the nearest of the
+  // paragraph's size slots, which are all taken.
+  EXPECT_EQ(scales(), (std::vector<std::string>{"a:120", "b:180", "c:149", "d:90", "e:90", "f:120"}));
+}
+
+TEST_F(ChapterFontScaleTest, ABlockInsideASizedSpanStartsFromTheSpan) {
+  open("p", nullptr);
+  open("span", "font-size: 2em");
+  text("x ");
+  open("div", "font-size: 0.75em");
+  text("y");
+  close("div");
+  close("span");
+  close("p");
+  EXPECT_EQ(scales(), (std::vector<std::string>{"x:200", "y:150"}));
+}
