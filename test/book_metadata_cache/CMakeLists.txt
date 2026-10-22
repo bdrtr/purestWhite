@@ -1,5 +1,6 @@
 add_executable(BookMetadataCacheTest
   BookMetadataCacheTest.cpp
+  BookMetadataCacheFormatTest.cpp
   ${REPO_ROOT}/lib/Epub/Epub/BookMetadataCache.cpp
   ${REPO_ROOT}/lib/Utf8/Utf8.cpp
 )
