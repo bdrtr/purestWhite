@@ -2123,3 +2123,21 @@ TEST_F(ChapterFontScaleTest, ABlockInsideASizedSpanStartsFromTheSpan) {
   close("p");
   EXPECT_EQ(scales(), (std::vector<std::string>{"x:200", "y:150"}));
 }
+
+TEST_F(ChapterFontScaleTest, ASpanHoldingTheWholeBlockSizesItLikeABlock) {
+  const auto sized = [&](const char* paragraph, std::initializer_list<const char*> spans) {
+    open("p", paragraph);
+    for (const char* span : spans) open("span", span);
+    text("Chapter One");
+    for (size_t i = 0; i < spans.size(); ++i) close("span");
+    close("p");
+  };
+  sized("font-size: 1.2em", {"font-size: 2em"});
+  sized(nullptr, {"font-size: 5em"});
+  sized(nullptr, {"font-size: 0.3rem"});
+  sized("font-size: 1.2em", {"font-size: 1.5em", "font-size: 0.9rem"});
+  sized("font-size: 1.2em", {"font-size: 1.5em", "font-size: 0.5em"});
+  // A multiple of the paragraph's size or of the spans' so far, rem replacing it; within 0.5 to 3.
+  EXPECT_EQ(scales(), (std::vector<std::string>{"Chapter:240", "One:240", "Chapter:300", "One:300", "Chapter:50",
+                                                "One:50", "Chapter:90", "One:90", "Chapter:90", "One:90"}));
+}
