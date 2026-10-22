@@ -1267,3 +1267,24 @@ büyüdü, RAM değişmedi.
   kitap açın: büyük ilk harf ve önündeki tırnak ya da noktalama eskisi gibi görünmeli; paragrafın
   geri kalanı harfin yanında akmalı. (Böyle bir kitap `python3 emu/make_css_epub.py <klasör>` ile
   üretilebilir: `p.drop::first-letter` kuralı içerir.)
+
+## Satır içi stil yığını Rust'ta ("rust: our own inline style stack")
+
+Bir bölüm ayrıştırılırken metin stili belirleyen her açık öğe (bloklar, kalın, italik, altı ya da
+üstü çizili, dipnot bağlantısı, üst ve alt simge, stilli span, `small`/`big`) yığına bir stil
+girdisi koyar; sözcüklerin stili bu girdilerin bloğun stili üzerine sırayla birleştirilmesiyle
+bulunur: çizgiler birikir ve bir çocuk atalarının çizgisini kaldıramaz, üst ve alt simge birbirinin
+yerini alır, kalınlık ve italiklik miras alınıp değiştirilebilir. Girdilerin kurulması ve
+birleştirilmesi artık `bembeyaz-css`'in `inline` modülünde; yığın C++'ta, Rust'la ortak
+`bb_css_inline_entry` girdileriyle tutuluyor. Bir önceki commit (f960d2c9) birleştirmeyi 4 testle
+sabitledi; toplam 1021 host testi geçiyor. Bölüm ayrıştırıcısının fark testi, etiket havuzuna `u`,
+`s`, `strike`, `del`, `big`, `ins` ve yön, hizalama, dekorasyon ve kalınlık stilleri eklenerek 4000
+rastgele bölümde eski ve yeni sayfaları bayt bayt aynı buldu; koda bilerek konan bir hata yakalandı
+("üst simge alt simgeyi siler" kuralını kaldıran ikinci bir hata görünür bir fark yaratmadı: sözcük
+stilinde üst simge zaten alt simgeye üstün gelir). Emülatörde okuma ve alıntı senaryoları ile CSS,
+iki yönlü, heceleme ve XML kitaplarının açılışı bir önceki sürümle aynı ekranları verdi. x4pro'da
+flash 568 bayt büyüdü (C++ nesnesi 1073 bayt küçüldü), RAM değişmedi.
+
+- [ ] Kalın, italik, altı çizili ve üstü çizili metin, üst ve alt simgeler (dipnot numaraları), küçük
+  büyük harf ve sağdan sola metin içeren kitapları açın (`python3 emu/make_css_epub.py <klasör>` bir
+  kısmını üretir): bu stiller eskisi gibi görünmeli.

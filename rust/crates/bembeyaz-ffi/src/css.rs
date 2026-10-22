@@ -278,3 +278,104 @@ pub unsafe extern "C" fn bb_css_cache_save(
         write(context, data.as_ptr(), data.len())
     })
 }
+
+use bembeyaz_css::Decoration;
+use bembeyaz_css::inline::{self, Effective, Entry, Kind};
+
+// css.h's bb_css_inline_entry and bb_css_effective.
+const _: () = {
+    use core::mem::offset_of;
+    assert!(
+        size_of::<Entry>() == 32
+            && offset_of!(Entry, has_bold) == 4
+            && offset_of!(Entry, decoration) == 9
+            && offset_of!(Entry, text_align) == 14
+            && offset_of!(Entry, preserve_whitespace) == 22
+            && offset_of!(Entry, font_scale_rem) == 24
+            && offset_of!(Entry, font_scale) == 28
+            && size_of::<EntryKind>() == 12
+            && offset_of!(EntryKind, scale) == 8
+            && size_of::<Effective>() == 13
+            && offset_of!(Effective, text_align) == 8
+            && offset_of!(Effective, paragraph_rtl) == 12
+    );
+};
+
+/// css.h's `bb_css_entry_kind`.
+#[repr(C)]
+pub struct EntryKind {
+    kind: u8,
+    decoration: u8,
+    sized_ancestor: bool,
+    sets_paragraph: bool,
+    in_table: bool,
+    scale: f32,
+}
+
+/// # Safety
+/// `kind` and `css` are NULL or readable (`css` a `CssStyle`); `out` is NULL or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_css_make_inline_entry(
+    kind: *const EntryKind,
+    css: *const Style,
+    depth: i32,
+    out: *mut Entry,
+) -> bool {
+    // SAFETY: as documented.
+    let (Some(k), Some(css)) = (unsafe { kind.as_ref() }, unsafe { css.as_ref() }) else {
+        return false;
+    };
+    let kind = match k.kind {
+        0 => Kind::Block {
+            sized_ancestor: k.sized_ancestor,
+            scale: k.scale,
+        },
+        1 => Kind::Decoration(Decoration(k.decoration)),
+        2 => Kind::Link,
+        3 => Kind::Bold,
+        4 => Kind::Italic,
+        5 => Kind::Sup,
+        6 => Kind::Sub,
+        7 => Kind::Inline {
+            sets_paragraph: k.sets_paragraph,
+            in_table: k.in_table,
+            tag_scale: k.scale,
+        },
+        _ => return false,
+    };
+    match inline::entry(kind, css, depth) {
+        Some(entry) => {
+            // SAFETY: as documented.
+            unsafe { crate::set(out, entry) };
+            true
+        }
+        None => false,
+    }
+}
+
+/// # Safety
+/// `css` is NULL or a readable `CssStyle`; `stack` is NULL or holds `count` entries written by
+/// `bb_css_make_inline_entry`; `out` is NULL or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_css_fold_inline(
+    css: *const Style,
+    block_direction_defined: bool,
+    block_rtl: bool,
+    stack: *const Entry,
+    count: usize,
+    out: *mut Effective,
+) {
+    // SAFETY: as documented.
+    let Some(css) = (unsafe { css.as_ref() }) else {
+        return;
+    };
+    // SAFETY: as documented.
+    let stack = unsafe { crate::view(stack, count) };
+    // SAFETY: as documented.
+    unsafe {
+        crate::set(
+            out,
+            inline::fold(css, block_direction_defined, block_rtl, stack),
+        )
+    };
+}

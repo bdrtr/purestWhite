@@ -147,13 +147,6 @@ bool isTableStructuralTag(const char* name) {
   return strcmp(name, "table") == 0 || strcmp(name, "tr") == 0 || strcmp(name, "td") == 0 || strcmp(name, "th") == 0;
 }
 
-void ChapterHtmlSlimParser::applyDirectionToEntry(StyleStackEntry& entry, const CssStyle& css) {
-  if (css.hasDirection()) {
-    entry.hasDirection = true;
-    entry.direction = css.direction;
-  }
-}
-
 EpdFontFamily::Style ChapterHtmlSlimParser::fontStyleForTextDecoration(const CssTextDecoration decoration) {
   EpdFontFamily::Style style = EpdFontFamily::REGULAR;
   if ((decoration & CssTextDecoration::Underline) != CssTextDecoration::None) {
@@ -165,166 +158,63 @@ EpdFontFamily::Style ChapterHtmlSlimParser::fontStyleForTextDecoration(const Css
   return style;
 }
 
-void ChapterHtmlSlimParser::applyTextDecorationToEntry(StyleStackEntry& entry, const CssStyle& css) {
-  if (css.hasTextDecoration()) {
-    entry.hasTextDecoration = true;
-    entry.textDecoration = css.textDecoration;
-  }
+namespace {
+const bb_css_style* cssOf(const CssStyle& style) { return reinterpret_cast<const bb_css_style*>(&style); }
+}  // namespace
+
+bool ChapterHtmlSlimParser::makeInlineEntry(const bb_css_entry_kind& kind, const CssStyle& cssStyle,
+                                            StyleStackEntry& entry) const {
+  return bb_css_make_inline_entry(&kind, cssOf(cssStyle), depth, &entry);
 }
 
-void ChapterHtmlSlimParser::applyInlinePresentationToEntry(StyleStackEntry& entry, const CssStyle& css) {
-  if (css.hasFontSize()) {
-    entry.hasFontScale = true;
-    entry.fontScaleRem = css.fontSize.unit == CssUnit::Rem;
-    entry.fontScale = css.fontSize.value;
-  }
-  if (css.defined.whiteSpace) {
-    entry.hasWhiteSpace = true;
-    entry.preserveWhitespace = css.preserveWhitespace;
-  }
-  if (css.hasSmallCaps()) {
-    entry.hasSmallCaps = true;
-    entry.smallCaps = css.smallCaps;
-  }
-}
-
-void ChapterHtmlSlimParser::applyVerticalAlignToEntry(StyleStackEntry& entry, const CssStyle& css) {
-  if (!css.hasVerticalAlign()) return;
-  if (css.verticalAlign == CssVerticalAlign::Super) {
-    entry.hasSup = true;
-    entry.sup = true;
-  } else if (css.verticalAlign == CssVerticalAlign::Sub) {
-    entry.hasSub = true;
-    entry.sub = true;
-  }
+void ChapterHtmlSlimParser::pushInlineEntry(const StyleStackEntry& entry) {
+  inlineStyleStack.push_back(entry);
+  updateEffectiveInlineStyle();
 }
 
 void ChapterHtmlSlimParser::pushBlockTextStyleEntry(const CssStyle& cssStyle) {
-  const bool sized =
-      cssStyle.hasFontSize() || std::any_of(inlineStyleStack.begin(), inlineStyleStack.end(),
-                                            [](const StyleStackEntry& entry) { return entry.hasFontScale; });
-  if (!cssStyle.hasFontWeight() && !cssStyle.hasFontStyle() && !cssStyle.hasTextDecoration() &&
-      !cssStyle.hasSmallCaps() && !cssStyle.defined.whiteSpace && !cssStyle.hasDirection() &&
-      !cssStyle.hasTextAlign() && !sized) {
-    return;
-  }
-
+  bb_css_entry_kind kind{};
+  kind.kind = BB_CSS_ENTRY_BLOCK;
+  kind.sized_ancestor = std::any_of(inlineStyleStack.begin(), inlineStyleStack.end(),
+                                    [](const StyleStackEntry& entry) { return entry.has_font_scale; });
+  kind.scale = blockStyleStack.empty() ? 1.0f : blockStyleStack.back().fontScale;
   StyleStackEntry entry;
-  entry.depth = depth;
-  if (cssStyle.hasFontWeight()) {
-    entry.hasBold = true;
-    entry.bold = cssStyle.fontWeight == CssFontWeight::Bold;
-  }
-  if (cssStyle.hasFontStyle()) {
-    entry.hasItalic = true;
-    entry.italic = cssStyle.fontStyle == CssFontStyle::Italic;
-  }
-  applyTextDecorationToEntry(entry, cssStyle);
-  applyInlinePresentationToEntry(entry, cssStyle);
-  if (sized) {
-    // The block has already resolved its ancestors and its own declaration.
-    entry.hasFontScale = true;
-    entry.fontScaleRem = true;
-    entry.fontScale = blockStyleStack.back().fontScale;
-  }
-  applyDirectionToEntry(entry, cssStyle);
-  entry.setsParagraphDirection = true;
-  if (cssStyle.hasTextAlign()) {
-    entry.hasTextAlign = true;
-    entry.textAlign = cssStyle.textAlign;
-  }
-  inlineStyleStack.push_back(entry);
-  updateEffectiveInlineStyle();
+  if (makeInlineEntry(kind, cssStyle, entry)) pushInlineEntry(entry);
 }
 
 void ChapterHtmlSlimParser::pushDecorationStyleEntry(const CssTextDecoration defaultDecoration,
                                                      const CssStyle& cssStyle) {
+  bb_css_entry_kind kind{};
+  kind.kind = BB_CSS_ENTRY_DECORATION;
+  kind.decoration = static_cast<uint8_t>(defaultDecoration);
   StyleStackEntry entry;
-  entry.depth = depth;
-  entry.hasTextDecoration = true;
-  entry.textDecoration = cssStyle.hasTextDecoration() ? cssStyle.textDecoration : defaultDecoration;
-  if (cssStyle.hasFontWeight()) {
-    entry.hasBold = true;
-    entry.bold = cssStyle.fontWeight == CssFontWeight::Bold;
-  }
-  if (cssStyle.hasFontStyle()) {
-    entry.hasItalic = true;
-    entry.italic = cssStyle.fontStyle == CssFontStyle::Italic;
-  }
-  applyInlinePresentationToEntry(entry, cssStyle);
-  applyDirectionToEntry(entry, cssStyle);
-  inlineStyleStack.push_back(entry);
-  updateEffectiveInlineStyle();
+  if (makeInlineEntry(kind, cssStyle, entry)) pushInlineEntry(entry);
 }
 
 // Update effective bold/italic/decorations based on block style and inline style stack
 void ChapterHtmlSlimParser::updateEffectiveInlineStyle() {
-  // Start with block-level styles
-  effectiveBold = currentCssStyle.hasFontWeight() && currentCssStyle.fontWeight == CssFontWeight::Bold;
-  effectiveItalic = currentCssStyle.hasFontStyle() && currentCssStyle.fontStyle == CssFontStyle::Italic;
-  effectiveTextDecoration =
-      currentCssStyle.hasTextDecoration() ? currentCssStyle.textDecoration : CssTextDecoration::None;
-  effectiveSmallCaps = currentCssStyle.hasSmallCaps() && currentCssStyle.smallCaps;
-  effectivePreserveWhitespace = currentCssStyle.defined.whiteSpace && currentCssStyle.preserveWhitespace;
-  bool paragraphDirectionDefined = false;
-  bool paragraphIsRtl = false;
-  if (!blockStyleStack.empty()) {
-    const auto& blockStyle = blockStyleStack.back();
-    paragraphDirectionDefined = blockStyle.directionDefined;
-    paragraphIsRtl = blockStyle.isRtl;
-  }
-  effectiveDirectionDefined = paragraphDirectionDefined;
-  effectiveDirection = paragraphIsRtl ? CssTextDirection::Rtl : CssTextDirection::Ltr;
-  effectiveTextAlignDefined = currentCssStyle.hasTextAlign();
-  effectiveTextAlign = currentCssStyle.textAlign;
-  effectiveSup = false;
-  effectiveSub = false;
-
-  // Apply inline style stack in order
-  for (const auto& entry : inlineStyleStack) {
-    if (entry.hasBold) {
-      effectiveBold = entry.bold;
-    }
-    if (entry.hasItalic) {
-      effectiveItalic = entry.italic;
-    }
-    // CSS line decorations propagate through descendants; child entries add
-    // their own lines but cannot cancel an ancestor's already active line.
-    if (entry.hasTextDecoration) {
-      effectiveTextDecoration = effectiveTextDecoration | entry.textDecoration;
-    }
-    if (entry.hasWhiteSpace) effectivePreserveWhitespace = entry.preserveWhitespace;
-    if (entry.hasSmallCaps) {
-      effectiveSmallCaps = entry.smallCaps;
-    }
-    if (entry.hasDirection) {
-      effectiveDirectionDefined = true;
-      effectiveDirection = entry.direction;
-      if (entry.setsParagraphDirection) {
-        paragraphDirectionDefined = true;
-        paragraphIsRtl = entry.direction == CssTextDirection::Rtl;
-      }
-    }
-    if (entry.hasTextAlign) {
-      effectiveTextAlignDefined = true;
-      effectiveTextAlign = entry.textAlign;
-    }
-    if (entry.hasSup) {
-      effectiveSup = entry.sup;
-      if (entry.sup) effectiveSub = false;
-    }
-    if (entry.hasSub) {
-      effectiveSub = entry.sub;
-      if (entry.sub) effectiveSup = false;
-    }
-  }
+  const BlockStyle* blockStyle = blockStyleStack.empty() ? nullptr : &blockStyleStack.back();
+  bb_css_effective effective{};
+  bb_css_fold_inline(cssOf(currentCssStyle), blockStyle && blockStyle->directionDefined,
+                     blockStyle && blockStyle->isRtl, inlineStyleStack.data(), inlineStyleStack.size(), &effective);
+  effectiveBold = effective.bold;
+  effectiveItalic = effective.italic;
+  effectiveTextDecoration = static_cast<CssTextDecoration>(effective.decoration);
+  effectiveSmallCaps = effective.small_caps;
+  effectivePreserveWhitespace = effective.preserve_whitespace;
+  effectiveDirectionDefined = effective.direction_defined;
+  effectiveDirection = static_cast<CssTextDirection>(effective.direction);
+  effectiveTextAlignDefined = effective.text_align_defined;
+  effectiveTextAlign = static_cast<CssTextAlign>(effective.text_align);
+  effectiveSup = effective.sup;
+  effectiveSub = effective.sub;
 
   // Keep flow direction in the active empty text block. Inline direction remains
   // available for CSS inheritance without replacing the paragraph's base direction.
   if (currentTextBlock && currentTextBlock->isEmpty()) {
     auto& style = currentTextBlock->getBlockStyle();
-    style.directionDefined = paragraphDirectionDefined;
-    style.isRtl = paragraphIsRtl;
+    style.directionDefined = effective.paragraph_direction_defined;
+    style.isRtl = effective.paragraph_rtl;
   }
 }
 
@@ -677,9 +567,9 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
   // Inline font-size spans size their words apart from the block.
   float inlineScale = 0.0f;
   for (const auto& entry : inlineStyleStack) {
-    if (!entry.hasFontScale) continue;
+    if (!entry.has_font_scale) continue;
     const float base = inlineScale > 0.0f ? inlineScale : currentTextBlock->getBlockStyle().fontScale;
-    inlineScale = entry.fontScaleRem ? entry.fontScale : base * entry.fontScale;
+    inlineScale = entry.font_scale_rem ? entry.font_scale : base * entry.font_scale;
   }
   const uint8_t sizeSlot =
       inlineScale > 0.0f && (inlineSize.valid || inlineScale != currentTextBlock->getBlockStyle().fontScale)
@@ -1802,15 +1692,10 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
       self->currentFootnoteLinkTextLen = 0;
 
       // Apply underline style to visually indicate the link.
+      bb_css_entry_kind kind{};
+      kind.kind = BB_CSS_ENTRY_LINK;
       StyleStackEntry entry;
-      entry.depth = self->depth;
-      entry.hasTextDecoration = true;
-      entry.textDecoration = CssTextDecoration::Underline;
-      applyInlinePresentationToEntry(entry, cssStyle);
-      applyDirectionToEntry(entry, cssStyle);
-      applyVerticalAlignToEntry(entry, cssStyle);
-      self->inlineStyleStack.push_back(entry);
-      self->updateEffectiveInlineStyle();
+      if (self->makeInlineEntry(kind, cssStyle, entry)) self->pushInlineEntry(entry);
 
       // Skip CSS resolution — we already handled styling for this <a> tag
       self->depth += 1;
@@ -1943,19 +1828,10 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     }
     self->boldUntilDepth = std::min(self->boldUntilDepth, self->depth);
     // Push inline style entry for bold tag
+    bb_css_entry_kind kind{};
+    kind.kind = BB_CSS_ENTRY_BOLD;
     StyleStackEntry entry;
-    entry.depth = self->depth;  // Track depth for matching pop
-    entry.hasBold = true;
-    entry.bold = true;
-    if (cssStyle.hasFontStyle()) {
-      entry.hasItalic = true;
-      entry.italic = cssStyle.fontStyle == CssFontStyle::Italic;
-    }
-    applyTextDecorationToEntry(entry, cssStyle);
-    applyInlinePresentationToEntry(entry, cssStyle);
-    applyDirectionToEntry(entry, cssStyle);
-    self->inlineStyleStack.push_back(entry);
-    self->updateEffectiveInlineStyle();
+    if (self->makeInlineEntry(kind, cssStyle, entry)) self->pushInlineEntry(entry);
   } else if (matches(name, ITALIC_TAGS, std::size(ITALIC_TAGS))) {
     // Flush buffer before style change so preceding text gets current style
     if (self->partWordBufferIndex > 0) {
@@ -1964,36 +1840,19 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     }
     self->italicUntilDepth = std::min(self->italicUntilDepth, self->depth);
     // Push inline style entry for italic tag
+    bb_css_entry_kind kind{};
+    kind.kind = BB_CSS_ENTRY_ITALIC;
     StyleStackEntry entry;
-    entry.depth = self->depth;  // Track depth for matching pop
-    entry.hasItalic = true;
-    entry.italic = true;
-    if (cssStyle.hasFontWeight()) {
-      entry.hasBold = true;
-      entry.bold = cssStyle.fontWeight == CssFontWeight::Bold;
-    }
-    applyTextDecorationToEntry(entry, cssStyle);
-    applyInlinePresentationToEntry(entry, cssStyle);
-    applyDirectionToEntry(entry, cssStyle);
-    self->inlineStyleStack.push_back(entry);
-    self->updateEffectiveInlineStyle();
+    if (self->makeInlineEntry(kind, cssStyle, entry)) self->pushInlineEntry(entry);
   } else if (strcmp(name, "sup") == 0 || strcmp(name, "sub") == 0) {
     if (self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
       self->nextWordContinues = true;
     }
+    bb_css_entry_kind kind{};
+    kind.kind = strcmp(name, "sup") == 0 ? BB_CSS_ENTRY_SUP : BB_CSS_ENTRY_SUB;
     StyleStackEntry entry;
-    entry.depth = self->depth;
-    if (strcmp(name, "sup") == 0) {
-      entry.hasSup = true;
-      entry.sup = true;
-    } else {
-      entry.hasSub = true;
-      entry.sub = true;
-    }
-    applyInlinePresentationToEntry(entry, cssStyle);
-    self->inlineStyleStack.push_back(entry);
-    self->updateEffectiveInlineStyle();
+    if (self->makeInlineEntry(kind, cssStyle, entry)) self->pushInlineEntry(entry);
   } else if (strcmp(name, "span") == 0 || !isHeaderOrBlock(name)) {
     if (cssStyle.hasFontSize() && self->tableDepth == 0 && self->partWordBufferIndex == 0 && self->currentTextBlock &&
         self->currentTextBlock->isEmpty() && (!self->inlineSize.valid || self->inlineSize.open)) {
@@ -2019,44 +1878,20 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
       }
     }
     // Handle span and other inline elements for CSS styling.
-    const bool inheritedTableTextAlign = self->tableDepth >= 1 && cssStyle.hasTextAlign();
+    bb_css_entry_kind kind{};
+    kind.kind = BB_CSS_ENTRY_INLINE;
+    kind.sets_paragraph = strcmp(name, "html") == 0 || strcmp(name, "body") == 0;
+    kind.in_table = self->tableDepth >= 1;
     // <small>/<big> default to the browser's relative sizes.
-    const float tagScale = strcmp(name, "small") == 0 ? 0.83f : (strcmp(name, "big") == 0 ? 1.2f : 0.0f);
-    const bool sized = cssStyle.hasFontSize() || tagScale > 0.0f;
-    if (sized || cssStyle.hasFontWeight() || cssStyle.hasFontStyle() || cssStyle.hasTextDecoration() ||
-        cssStyle.hasSmallCaps() || cssStyle.defined.whiteSpace || cssStyle.hasDirection() ||
-        cssStyle.hasVerticalAlign() || inheritedTableTextAlign) {
+    kind.scale = strcmp(name, "small") == 0 ? 0.83f : (strcmp(name, "big") == 0 ? 1.2f : 0.0f);
+    StyleStackEntry entry;
+    if (self->makeInlineEntry(kind, cssStyle, entry)) {
       // Flush buffer before style change so preceding text gets current style
       if (self->partWordBufferIndex > 0) {
         self->flushPartWordBuffer();
         self->nextWordContinues = true;
       }
-      StyleStackEntry entry;
-      entry.depth = self->depth;  // Track depth for matching pop
-      if (cssStyle.hasFontWeight()) {
-        entry.hasBold = true;
-        entry.bold = cssStyle.fontWeight == CssFontWeight::Bold;
-      }
-      if (cssStyle.hasFontStyle()) {
-        entry.hasItalic = true;
-        entry.italic = cssStyle.fontStyle == CssFontStyle::Italic;
-      }
-      applyTextDecorationToEntry(entry, cssStyle);
-      applyInlinePresentationToEntry(entry, cssStyle);
-      applyDirectionToEntry(entry, cssStyle);
-      entry.setsParagraphDirection = strcmp(name, "html") == 0 || strcmp(name, "body") == 0;
-      if (inheritedTableTextAlign) {
-        entry.hasTextAlign = true;
-        entry.textAlign = cssStyle.textAlign;
-      }
-      applyVerticalAlignToEntry(entry, cssStyle);
-      if (sized) {
-        entry.hasFontScale = true;
-        entry.fontScaleRem = cssStyle.hasFontSize() && cssStyle.fontSize.unit == CssUnit::Rem;
-        entry.fontScale = cssStyle.hasFontSize() ? cssStyle.fontSize.value : tagScale;
-      }
-      self->inlineStyleStack.push_back(entry);
-      self->updateEffectiveInlineStyle();
+      self->pushInlineEntry(entry);
     }
   }
 
@@ -2595,7 +2430,7 @@ void ChapterHtmlSlimParser::applyBlockFontScale(BlockStyle& blockStyle, const Cs
                                                 const char* tagName) const {
   float parentScale = blockStyleStack.empty() ? 1.0f : blockStyleStack.back().fontScale;
   for (const auto& entry : inlineStyleStack) {
-    if (entry.hasFontScale) parentScale = entry.fontScaleRem ? entry.fontScale : parentScale * entry.fontScale;
+    if (entry.has_font_scale) parentScale = entry.font_scale_rem ? entry.font_scale : parentScale * entry.font_scale;
   }
   float scale = parentScale;
   if (cssStyle.hasFontSize()) {

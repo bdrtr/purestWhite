@@ -20,6 +20,7 @@ extern crate alloc;
 mod ascii;
 pub mod cache;
 mod declaration;
+pub mod inline;
 mod number;
 mod rules;
 mod selector;

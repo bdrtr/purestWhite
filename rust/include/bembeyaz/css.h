@@ -103,6 +103,93 @@ int bb_css_cache_load(bb_css_rules* rules, const bb_css_source* source);
 bool bb_css_cache_save(const bb_css_rules* rules, bool complete,
                        bool (*write)(void* context, const uint8_t* data, size_t len), void* context);
 
+// The chapter parser's inline style stack. One open element's inline style: each value applies only
+// with its has_ flag; enums are CssStyle.h's (decoration a set of CssTextDecoration bits).
+typedef struct {
+  int32_t depth;
+  bool has_bold;
+  bool bold;
+  bool has_italic;
+  bool italic;
+  bool has_decoration;
+  uint8_t decoration;
+  bool has_direction;
+  uint8_t direction;
+  // The direction is the paragraph's too (a block, or html and body).
+  bool sets_paragraph_direction;
+  bool has_text_align;
+  uint8_t text_align;
+  bool has_sup;
+  bool sup;
+  bool has_sub;
+  bool sub;
+  bool has_small_caps;
+  bool small_caps;
+  bool has_white_space;
+  bool preserve_whitespace;
+  // A size: a multiple of the parent's, or of the body's when font_scale_rem.
+  bool has_font_scale;
+  bool font_scale_rem;
+  float font_scale;
+} bb_css_inline_entry;
+
+// The element an entry is for.
+enum {
+  // A block: pushed only when it sets a text property; sized_ancestor: an open entry has a size,
+  // so the block's resolved scale is pushed too, as a rem size.
+  BB_CSS_ENTRY_BLOCK = 0,
+  // u, s and the like: their line (decoration) unless the style sets another.
+  BB_CSS_ENTRY_DECORATION = 1,
+  // A footnote link: underlined.
+  BB_CSS_ENTRY_LINK = 2,
+  BB_CSS_ENTRY_BOLD = 3,
+  BB_CSS_ENTRY_ITALIC = 4,
+  BB_CSS_ENTRY_SUP = 5,
+  BB_CSS_ENTRY_SUB = 6,
+  // A span or other inline element: pushed only when it sets a text property; sets_paragraph for
+  // html and body; in_table: its text-align counts; scale: the tag's own size (small, big), 0 for
+  // none.
+  BB_CSS_ENTRY_INLINE = 7,
+};
+
+// The element's kind and what its declarations alone do not say: decoration for DECORATION;
+// sized_ancestor and scale (the block's resolved scale) for BLOCK; sets_paragraph, in_table and
+// scale (the tag's own size) for INLINE.
+typedef struct {
+  uint8_t kind;
+  uint8_t decoration;
+  bool sized_ancestor;
+  bool sets_paragraph;
+  bool in_table;
+  float scale;
+} bb_css_entry_kind;
+
+// The entry an element at depth with style css pushes into out; false when it pushes none.
+bool bb_css_make_inline_entry(const bb_css_entry_kind* kind, const bb_css_style* css, int32_t depth,
+                              bb_css_inline_entry* out);
+
+// The style words are set in, and the paragraph's direction.
+typedef struct {
+  bool bold;
+  bool italic;
+  uint8_t decoration;
+  bool small_caps;
+  bool preserve_whitespace;
+  bool direction_defined;
+  uint8_t direction;
+  bool text_align_defined;
+  uint8_t text_align;
+  bool sup;
+  bool sub;
+  bool paragraph_direction_defined;
+  bool paragraph_rtl;
+} bb_css_effective;
+
+// Folds the count open entries, in order, over the block's style css and the paragraph direction
+// it starts from: a line decoration, once on, stays on; sup and sub replace each other.
+void bb_css_fold_inline(const bb_css_style* css, bool block_direction_defined, bool block_rtl,
+                        const bb_css_inline_entry* stack, size_t count, bb_css_effective* out);
+
 #ifdef __cplusplus
 }
 #endif

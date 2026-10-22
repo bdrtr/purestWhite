@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <XmlParser.h>
+#include <bembeyaz/css.h>
 #include <bembeyaz/html.h>
 #include <bembeyaz/table.h>
 
@@ -68,26 +69,12 @@ class ChapterHtmlSlimParser {
   std::string imageBasePath;
   int imageCounter = 0;
 
-  // Style tracking (replaces depth-based approach)
-  struct StyleStackEntry {
-    int depth = 0;
-    bool hasBold = false, bold = false;
-    bool hasItalic = false, italic = false;
-    bool hasTextDecoration = false;
-    CssTextDecoration textDecoration = CssTextDecoration::None;
-    bool hasDirection = false;
-    CssTextDirection direction = CssTextDirection::Ltr;
-    bool setsParagraphDirection = false;
-    bool hasTextAlign = false;
-    CssTextAlign textAlign = CssTextAlign::Left;
-    bool hasSup = false, sup = false;
-    bool hasSub = false, sub = false;
-    bool hasSmallCaps = false, smallCaps = false;
-    bool hasWhiteSpace = false, preserveWhitespace = false;
-    // Inline font size: a multiple of the parent size, or of the body size when rem.
-    bool hasFontScale = false, fontScaleRem = false;
-    float fontScale = 1.0f;
-  };
+  // One open element's inline style (bembeyaz-css's inline module builds and folds them).
+  using StyleStackEntry = bb_css_inline_entry;
+  static_assert(sizeof(bb_css_inline_entry) == 32 && offsetof(bb_css_inline_entry, font_scale) == 28 &&
+                    sizeof(bb_css_effective) == 13 && sizeof(bb_css_entry_kind) == 12 &&
+                    offsetof(bb_css_entry_kind, scale) == 8,
+                "css.h's inline style layouts, as bembeyaz-ffi asserts them");
   std::vector<StyleStackEntry> inlineStyleStack;
   std::vector<BlockStyle> blockStyleStack;  // accumulated block styles from open ancestor elements
   CssStyle currentCssStyle;
@@ -280,10 +267,8 @@ class ChapterHtmlSlimParser {
   int fontIdForScale(float scale) const;
   int prepareBlockFont(ParsedText& text, float scale);
   static EpdFontFamily::Style fontStyleForTextDecoration(CssTextDecoration decoration);
-  static void applyDirectionToEntry(StyleStackEntry& entry, const CssStyle& css);
-  static void applyTextDecorationToEntry(StyleStackEntry& entry, const CssStyle& css);
-  static void applyInlinePresentationToEntry(StyleStackEntry& entry, const CssStyle& css);
-  static void applyVerticalAlignToEntry(StyleStackEntry& entry, const CssStyle& css);
+  bool makeInlineEntry(const bb_css_entry_kind& kind, const CssStyle& cssStyle, StyleStackEntry& entry) const;
+  void pushInlineEntry(const StyleStackEntry& entry);
   void pushBlockTextStyleEntry(const CssStyle& cssStyle);
   void pushDecorationStyleEntry(CssTextDecoration defaultDecoration, const CssStyle& cssStyle);
   void emitHorizontalRule(const BlockStyle& blockStyle);
