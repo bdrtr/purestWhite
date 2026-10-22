@@ -4,7 +4,7 @@
 //! - the header, 44 bytes: the version (u8), the [`Spec`] it was built with, the page count (u16),
 //!   then where the page LUT, the anchor map, the paragraph LUT, the list-item LUT and the
 //!   visible-offset LUT start (u32 each);
-//! - the pages;
+//! - the pages ([`crate::page`]);
 //! - the page LUT: each page's position (u32);
 //! - the anchor map: a count (u16), then each anchor's name (u32 length, bytes) and page (u16);
 //! - the paragraph LUT: a count (u16), then each page's paragraph index (u16);
@@ -73,6 +73,9 @@ pub const PARTIAL_VERSION: u8 = 0xFE - (VERSION - 28);
 pub const INCOMPLETE_VERSION: u8 = 0;
 pub const HEADER_SIZE: u32 = 44;
 
+use crate::io::Out;
+use crate::{Sink, Source};
+
 const HEADER: usize = HEADER_SIZE as usize;
 const PAGE_COUNT_AT: u32 = 22;
 const LUT_AT: u32 = 24;
@@ -82,19 +85,6 @@ const LIST_ITEMS_AT: u32 = 36;
 const VISIBLE_AT: u32 = 40;
 // LUT entries read at a time.
 const BATCH: u32 = 32;
-
-/// The section file, read at any offset.
-pub trait Source {
-    fn size(&self) -> u32;
-    /// Fills `buf` from `offset`; false when it cannot fill all of it.
-    fn read_at(&mut self, offset: u32, buf: &mut [u8]) -> bool;
-}
-
-/// The section file being built, written at any offset.
-pub trait Sink {
-    /// Writes `bytes` at `offset`; false when it cannot write all of them.
-    fn write_at(&mut self, offset: u32, bytes: &[u8]) -> bool;
-}
 
 /// The layout settings a section was built with: any change rebuilds it. `bb_section_spec` in C.
 #[repr(C)]
@@ -586,53 +576,6 @@ pub enum CommitError {
     Write,
 }
 
-// Writes through a small buffer.
-struct Out<'a, S: Sink> {
-    sink: &'a mut S,
-    at: u32,
-    buf: [u8; 128],
-    len: usize,
-    ok: bool,
-}
-
-impl<S: Sink> Out<'_, S> {
-    fn position(&self) -> Option<u32> {
-        self.at.checked_add(u32::try_from(self.len).ok()?)
-    }
-
-    fn flush(&mut self) {
-        if self.len > 0 {
-            let written = self
-                .buf
-                .get(..self.len)
-                .is_some_and(|b| self.sink.write_at(self.at, b));
-            self.ok &= written;
-            self.at = self.position().unwrap_or(u32::MAX);
-            self.len = 0;
-        }
-    }
-
-    fn push(&mut self, bytes: &[u8]) {
-        if self.len + bytes.len() > self.buf.len() {
-            self.flush();
-        }
-        if let Some(slot) = self.buf.get_mut(self.len..self.len + bytes.len()) {
-            slot.copy_from_slice(bytes);
-            self.len += bytes.len();
-        } else {
-            // Longer than the buffer: straight through.
-            self.ok &= self.sink.write_at(self.at, bytes);
-            match u32::try_from(bytes.len())
-                .ok()
-                .and_then(|n| self.at.checked_add(n))
-            {
-                Some(at) => self.at = at,
-                None => self.ok = false,
-            }
-        }
-    }
-}
-
 /// Finishes a build's file: writes the tables from `at`, the end of its pages, with `entries`
 /// (one per built page) and the `anchor_count` anchors `anchor` gives (for a partial file, those
 /// on its pages only); then the header's page count and table offsets; and last the version,
@@ -654,13 +597,7 @@ pub fn commit<'a, S: Sink>(
     }
     let page_count = u16::try_from(entries.len()).unwrap_or(u16::MAX);
     let kept = |page: u16| watermark.is_none() || page < page_count;
-    let mut out = Out {
-        sink,
-        at,
-        buf: [0; 128],
-        len: 0,
-        ok: true,
-    };
+    let mut out = Out::new(sink, at);
     let lut = out.position();
     for e in entries {
         out.push(&e.position.to_le_bytes());
@@ -699,7 +636,7 @@ pub fn commit<'a, S: Sink>(
     }
     out.flush();
     let (Some(lut), Some(anchors), Some(paragraphs), Some(list_items), Some(visible), true) =
-        (lut, anchors, paragraphs, list_items, visible, out.ok)
+        (lut, anchors, paragraphs, list_items, visible, out.ok())
     else {
         return Err(CommitError::Write);
     };
@@ -731,42 +668,16 @@ mod tests {
     )]
 
     use super::{
-        CommitError, HEADER_SIZE, Loaded, LutEntry, OffsetScan, PARTIAL_VERSION, Refusal, Sink,
-        Source, Spec, VERSION, Watermark, anchors, check, commit, find_anchor, finished_page_count,
-        header, page, page_for_list_item, page_for_paragraph, page_for_visible_offset,
-        paragraph_for_page, visible_offset,
+        CommitError, HEADER_SIZE, Loaded, LutEntry, OffsetScan, PARTIAL_VERSION, Refusal, Spec,
+        VERSION, Watermark, anchors, check, commit, find_anchor, finished_page_count, header, page,
+        page_for_list_item, page_for_paragraph, page_for_visible_offset, paragraph_for_page,
+        visible_offset,
     };
+    use crate::Sink;
     use std::vec;
     use std::vec::Vec;
 
-    struct Bytes(Vec<u8>);
-
-    impl Source for Bytes {
-        fn size(&self) -> u32 {
-            self.0.len() as u32
-        }
-        fn read_at(&mut self, offset: u32, buf: &mut [u8]) -> bool {
-            let start = offset as usize;
-            match self.0.get(start..start + buf.len()) {
-                Some(src) => {
-                    buf.copy_from_slice(src);
-                    true
-                }
-                None => false,
-            }
-        }
-    }
-
-    impl Sink for Bytes {
-        fn write_at(&mut self, offset: u32, bytes: &[u8]) -> bool {
-            let start = offset as usize;
-            if self.0.len() < start + bytes.len() {
-                self.0.resize(start + bytes.len(), 0);
-            }
-            self.0[start..start + bytes.len()].copy_from_slice(bytes);
-            true
-        }
-    }
+    use crate::testing::Bytes;
 
     fn spec() -> Spec {
         Spec {
@@ -783,8 +694,8 @@ mod tests {
     // Three 10-byte pages after the header, and the anchors "a" (page 0), "bc" (page 2) and "d"
     // (page 3, still being laid out when a build is suspended).
     fn built(watermark: Option<Watermark>) -> Bytes {
-        let mut file = Bytes(header(&spec()).to_vec());
-        file.0.extend([0xEE; 30]);
+        let mut file = Bytes::new(header(&spec()).to_vec());
+        file.data.extend([0xEE; 30]);
         let entries: Vec<LutEntry> = (0..3)
             .map(|i| LutEntry {
                 position: HEADER_SIZE + 10 * i,
@@ -850,7 +761,7 @@ mod tests {
         let mut other = spec();
         other.viewport_height += 1;
         assert_eq!(check(&mut file, &other), Err(Refusal::Spec));
-        file.0[0] = 0;
+        file.data[0] = 0;
         assert_eq!(check(&mut file, &spec()), Err(Refusal::Version(0)));
     }
 
@@ -861,7 +772,7 @@ mod tests {
             total: 400,
         };
         let mut file = built(Some(watermark));
-        assert_eq!(file.0[0], PARTIAL_VERSION);
+        assert_eq!(file.data[0], PARTIAL_VERSION);
         assert_eq!(
             check(&mut file, &spec()),
             Ok(Loaded {
@@ -875,17 +786,17 @@ mod tests {
         assert_eq!(find_anchor(&mut file, b"d"), None);
         assert_eq!(page_for_visible_offset(&mut file, 40, false), Some(2));
         assert_eq!(page_for_visible_offset(&mut file, 41, false), None);
-        file.0.truncate(file.0.len() - 1);
+        file.data.truncate(file.data.len() - 1);
         assert_eq!(check(&mut file, &spec()), Err(Refusal::Partial));
     }
 
     #[test]
     fn short_fields_read_as_zero() {
         let mut file = built(None);
-        file.0.truncate(23);
+        file.data.truncate(23);
         assert_eq!(check(&mut file, &spec()).map(|l| l.page_count), Ok(0));
         // A spec field the file is too short for matches only a zero spec field.
-        file.0.truncate(13);
+        file.data.truncate(13);
         assert_eq!(check(&mut file, &spec()), Err(Refusal::Spec));
         let zero = Spec {
             font_id: 7,
@@ -893,7 +804,7 @@ mod tests {
             paragraph_indent_spaces: 2,
             ..Spec::default()
         };
-        file.0.truncate(12);
+        file.data.truncate(12);
         assert_eq!(check(&mut file, &zero).map(|l| l.page_count), Ok(0));
         assert_eq!(finished_page_count(&mut file), None);
     }
@@ -922,7 +833,7 @@ mod tests {
         }];
         let none = |_: usize| (&b""[..], 0);
         assert_eq!(
-            commit(&mut Bytes(Vec::new()), 44, &entries, 0, none, None),
+            commit(&mut Bytes::new(Vec::new()), 44, &entries, 0, none, None),
             Err(CommitError::MissingPage)
         );
         let entries = [LutEntry {
@@ -944,7 +855,7 @@ mod tests {
             seed ^= seed << 5;
             seed
         };
-        let good = built(None).0;
+        let good = built(None).data;
         for _ in 0..2000 {
             let mut bytes = good.clone();
             for _ in 0..=next() % 6 {
@@ -961,7 +872,7 @@ mod tests {
                     PARTIAL_VERSION
                 };
             }
-            let mut file = Bytes(bytes);
+            let mut file = Bytes::new(bytes);
             let _ = check(&mut file, &spec());
             let _ = finished_page_count(&mut file);
             let p = next() as u16;
@@ -975,7 +886,7 @@ mod tests {
             anchors(&mut file, &mut [0; 8], |_, _| {});
         }
         let names = vec![(vec![b'x'; 300], 1u16); 3];
-        let mut file = Bytes(header(&spec()).to_vec());
+        let mut file = Bytes::new(header(&spec()).to_vec());
         let entries = [LutEntry {
             position: 44,
             ..LutEntry::default()

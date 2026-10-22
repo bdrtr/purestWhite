@@ -3,8 +3,12 @@
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Memory.h>
-#include <Serialization.h>
 #include <Utf8.h>
+#include <bembeyaz/page.h>
+
+#include <cstddef>
+
+#include "SectionFileIo.h"
 
 namespace {
 
@@ -69,34 +73,6 @@ void PageLine::render(GfxRenderer& renderer, const int fontId, const int xOffset
   block->render(renderer, fontId, xPos + xOffset, yPos + yOffset);
 }
 
-bool PageLine::serialize(HalFile& file) {
-  serialization::writePod(file, xPos);
-  serialization::writePod(file, yPos);
-
-  // serialize TextBlock pointed to by PageLine
-  return block->serialize(file);
-}
-
-std::unique_ptr<PageLine> PageLine::deserialize(HalFile& file) {
-  int16_t xPos;
-  int16_t yPos;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
-
-  auto tb = TextBlock::deserialize(file);
-  if (!tb) {
-    LOG_ERR("PGE", "Deserialization failed: null TextBlock");
-    return nullptr;
-  }
-
-  auto line = makeUniqueNoThrow<PageLine>(std::move(tb), xPos, yPos);
-  if (!line) {
-    LOG_ERR("PGE", "Deserialization failed: could not allocate PageLine");
-    return nullptr;
-  }
-  return line;
-}
-
 void PageImage::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset) {
   // Images don't use fontId or text rendering
   imageBlock->render(renderer, xPos + xOffset, yPos + yOffset);
@@ -106,33 +82,6 @@ void PageImage::renderPlaceholder(GfxRenderer& renderer, const int xOffset, cons
   imageBlock->renderPlaceholder(renderer, xPos + xOffset, yPos + yOffset);
 }
 
-bool PageImage::serialize(HalFile& file) {
-  serialization::writePod(file, xPos);
-  serialization::writePod(file, yPos);
-
-  // serialize ImageBlock
-  return imageBlock->serialize(file);
-}
-
-std::unique_ptr<PageImage> PageImage::deserialize(HalFile& file) {
-  int16_t xPos;
-  int16_t yPos;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
-
-  auto ib = ImageBlock::deserialize(file);
-  if (!ib) {
-    LOG_ERR("PGE", "Deserialization failed: null ImageBlock");
-    return nullptr;
-  }
-  auto image = makeUniqueNoThrow<PageImage>(std::move(ib), xPos, yPos);
-  if (!image) {
-    LOG_ERR("PGE", "Deserialization failed: could not allocate PageImage");
-    return nullptr;
-  }
-  return image;
-}
-
 void PageHorizontalRule::render(GfxRenderer& renderer, const int fontId, const int xOffset, const int yOffset) {
   (void)fontId;
   if (width == 0 || thickness == 0) {
@@ -140,38 +89,6 @@ void PageHorizontalRule::render(GfxRenderer& renderer, const int fontId, const i
   }
 
   renderer.drawLine(xPos + xOffset, yPos + yOffset, xPos + xOffset + width - 1, yPos + yOffset, thickness, true);
-}
-
-bool PageHorizontalRule::serialize(HalFile& file) {
-  serialization::writePod(file, xPos);
-  serialization::writePod(file, yPos);
-  serialization::writePod(file, width);
-  serialization::writePod(file, thickness);
-  return true;
-}
-
-std::unique_ptr<PageHorizontalRule> PageHorizontalRule::deserialize(HalFile& file) {
-  int16_t xPos = 0;
-  int16_t yPos = 0;
-  uint16_t width = 0;
-  uint8_t thickness = 0;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
-  serialization::readPod(file, width);
-  serialization::readPod(file, thickness);
-
-  if (width == 0 || thickness == 0) {
-    LOG_ERR("PGE", "Deserialization failed: invalid horizontal rule metadata (width=%u thickness=%u)", width,
-            thickness);
-    return nullptr;
-  }
-
-  auto rule = makeUniqueNoThrow<PageHorizontalRule>(width, thickness, xPos, yPos);
-  if (!rule) {
-    LOG_ERR("PGE", "Deserialization failed: could not allocate PageHorizontalRule");
-    return nullptr;
-  }
-  return rule;
 }
 
 PageDropCap::PageDropCap(const int32_t fontId, const uint16_t scale256, const EpdFontFamily::Style style,
@@ -190,41 +107,6 @@ void PageDropCap::render(GfxRenderer& renderer, const int sectionFontId, const i
   }
 }
 
-bool PageDropCap::serialize(HalFile& file) {
-  serialization::writePod(file, xPos);
-  serialization::writePod(file, yPos);
-  serialization::writePod(file, fontId);
-  serialization::writePod(file, scale256);
-  serialization::writePod(file, static_cast<uint8_t>(style));
-  const auto length = static_cast<uint8_t>(strnlen(text, MAX_TEXT_BYTES));
-  serialization::writePod(file, length);
-  return file.write(text, length) == length;
-}
-
-std::unique_ptr<PageDropCap> PageDropCap::deserialize(HalFile& file) {
-  int16_t xPos = 0;
-  int16_t yPos = 0;
-  int32_t fontId = 0;
-  uint16_t scale256 = 0;
-  uint8_t style = 0;
-  uint8_t length = 0;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
-  serialization::readPod(file, fontId);
-  serialization::readPod(file, scale256);
-  serialization::readPod(file, style);
-  serialization::readPod(file, length);
-  char text[MAX_TEXT_BYTES + 1] = {};
-  if (length == 0 || length > MAX_TEXT_BYTES || scale256 == 0 || file.read(text, length) != length) {
-    LOG_ERR("PGE", "Deserialization failed: invalid drop cap");
-    return nullptr;
-  }
-  auto dropCap =
-      makeUniqueNoThrow<PageDropCap>(fontId, scale256, static_cast<EpdFontFamily::Style>(style), text, xPos, yPos);
-  if (!dropCap) LOG_ERR("PGE", "Deserialization failed: could not allocate PageDropCap");
-  return dropCap;
-}
-
 void PageBorderBox::renderBackground(GfxRenderer& renderer, const int xOffset, const int yOffset) const {
   if (shaded) renderer.fillRectDither(xPos + xOffset, yPos + yOffset, width, height, Color::LightGray);
 }
@@ -240,50 +122,6 @@ void PageBorderBox::render(GfxRenderer& renderer, const int, const int xOffset, 
   if (bottom.visible()) drawBorderEdge(renderer, x, y + height - bottom.width, width, bottom, true);
   if (left.visible()) drawBorderEdge(renderer, x, y, height, left, false);
   if (right.visible()) drawBorderEdge(renderer, x + width - right.width, y, height, right, false);
-}
-
-bool PageBorderBox::serialize(HalFile& file) {
-  serialization::writePod(file, xPos);
-  serialization::writePod(file, yPos);
-  serialization::writePod(file, width);
-  serialization::writePod(file, height);
-  for (const CssBorderSide& side : sides) {
-    serialization::writePod(file, side.width);
-    serialization::writePod(file, static_cast<uint8_t>(side.style));
-  }
-  serialization::writePod(file, shaded);
-  return true;
-}
-
-std::unique_ptr<PageBorderBox> PageBorderBox::deserialize(HalFile& file) {
-  int16_t xPos = 0;
-  int16_t yPos = 0;
-  uint16_t width = 0;
-  uint16_t height = 0;
-  CssBorderSide sides[4];
-  bool shaded = false;
-  serialization::readPod(file, xPos);
-  serialization::readPod(file, yPos);
-  serialization::readPod(file, width);
-  serialization::readPod(file, height);
-  for (CssBorderSide& side : sides) {
-    uint8_t style = 0;
-    serialization::readPod(file, side.width);
-    serialization::readPod(file, style);
-    if (style > static_cast<uint8_t>(CssBorderStyle::Dashed)) {
-      LOG_ERR("PGE", "Deserialization failed: invalid border style %u", style);
-      return nullptr;
-    }
-    side.style = static_cast<CssBorderStyle>(style);
-  }
-  serialization::readPod(file, shaded);
-  if (width == 0 || height == 0) {
-    LOG_ERR("PGE", "Deserialization failed: empty border box");
-    return nullptr;
-  }
-  auto box = makeUniqueNoThrow<PageBorderBox>(width, height, sides, shaded, xPos, yPos);
-  if (!box) LOG_ERR("PGE", "Deserialization failed: could not allocate PageBorderBox");
-  return box;
 }
 
 // Backgrounds precede every border, including borders inside shaded containers.
@@ -313,46 +151,167 @@ void Page::renderWithImagePlaceholders(GfxRenderer& renderer, const int fontId, 
   }
 }
 
+namespace {
+// Footnotes and links are read into, and written from, the page's own vectors.
+static_assert(sizeof(FootnoteEntry) == sizeof(bb_page_footnote) &&
+                  offsetof(FootnoteEntry, href) == offsetof(bb_page_footnote, href),
+              "FootnoteEntry is a bb_page_footnote");
+static_assert(sizeof(PageLink) == sizeof(bb_page_link) && offsetof(PageLink, x) == offsetof(bb_page_link, x) &&
+                  offsetof(PageLink, y) == offsetof(bb_page_link, y) &&
+                  offsetof(PageLink, width) == offsetof(bb_page_link, width) &&
+                  offsetof(PageLink, height) == offsetof(bb_page_link, height),
+              "PageLink is a bb_page_link");
+static_assert(Page::MAX_FOOTNOTES_PER_PAGE == BB_PAGE_MAX_FOOTNOTES && Page::MAX_LINKS_PER_PAGE == BB_PAGE_MAX_LINKS &&
+                  PageDropCap::MAX_TEXT_BYTES == BB_PAGE_MAX_DROP_CAP &&
+                  TextBlock::MAX_WORD_FONTS == BB_PAGE_WORD_FONTS,
+              "bb_page limits");
+
+// Makes a page's elements from bembeyaz-section's read.
+struct PageBuilder {
+  Page& page;
+  TextBlock::Decoder line;
+  int16_t lineX = 0;
+  int16_t lineY = 0;
+  std::string imagePath;
+  std::string imageSource;
+
+  template <typename Element, typename... Args>
+  bool add(Args&&... args) {
+    auto element = makeUniqueNoThrow<Element>(std::forward<Args>(args)...);
+    if (!element) {
+      LOG_ERR("PGE", "Deserialization failed: could not allocate an element");
+      return false;
+    }
+    page.elements.push_back(std::move(element));
+    return true;
+  }
+};
+
+PageBuilder& builderOf(void* context) { return *static_cast<PageBuilder*>(context); }
+
+bb_page_builder pageBuilder(PageBuilder& page) {
+  bb_page_builder b{};
+  b.context = &page;
+  b.begin = [](void* c, const uint16_t count) {
+    // One allocation for the element vector instead of a grow per doubling. The count comes off the
+    // SD card, so it is capped: a real page holds a few dozen elements, and a failed vector
+    // allocation would abort (the firmware builds without exceptions).
+    static constexpr uint16_t RESERVE_CAP = 256;
+    builderOf(c).page.elements.reserve(std::min(count, RESERVE_CAP));
+  };
+  b.line = [](void* c, const int16_t x, const int16_t y, const bb_page_text* text, const size_t size, uint8_t** arena) {
+    auto& p = builderOf(c);
+    p.lineX = x;
+    p.lineY = y;
+    return p.line.begin(*text, size, arena);
+  };
+  b.ruby = [](void* c, const uint16_t word, const size_t len) { return builderOf(c).line.ruby(word, len); };
+  b.word_fonts = [](void* c, const size_t size) { return builderOf(c).line.wordFonts(size); };
+  b.line_end = [](void* c, const bb_page_block_style* style) {
+    auto& p = builderOf(c);
+    auto block = p.line.finish(*style);
+    return block && p.add<PageLine>(std::move(block), p.lineX, p.lineY);
+  };
+  b.image_text = [](void* c, const bool source, const size_t len) {
+    auto& text = source ? builderOf(c).imageSource : builderOf(c).imagePath;
+    text.resize(len);
+    return text.data();
+  };
+  b.image = [](void* c, const int16_t x, const int16_t y, const int16_t width, const int16_t height) {
+    auto& p = builderOf(c);
+    auto block = makeUniqueNoThrow<ImageBlock>(std::move(p.imagePath), std::move(p.imageSource), width, height);
+    p.imagePath = {};
+    p.imageSource = {};
+    if (!block) {
+      LOG_ERR("PGE", "Deserialization failed: could not allocate ImageBlock");
+      return false;
+    }
+    return p.add<PageImage>(std::move(block), x, y);
+  };
+  b.rule = [](void* c, const int16_t x, const int16_t y, const uint16_t width, const uint8_t thickness) {
+    return builderOf(c).add<PageHorizontalRule>(width, thickness, x, y);
+  };
+  b.drop_cap = [](void* c, const int16_t x, const int16_t y, const int32_t fontId, const uint16_t scale256,
+                  const uint8_t style, const char* text, const size_t len) {
+    char terminated[PageDropCap::MAX_TEXT_BYTES + 1] = {};
+    memcpy(terminated, text, std::min(len, PageDropCap::MAX_TEXT_BYTES));
+    return builderOf(c).add<PageDropCap>(fontId, scale256, static_cast<EpdFontFamily::Style>(style), terminated, x, y);
+  };
+  b.border_box = [](void* c, const int16_t x, const int16_t y, const uint16_t width, const uint16_t height,
+                    const bb_page_side* stored, const bool shaded) {
+    CssBorderSide sides[4];
+    for (int i = 0; i < 4; ++i) sides[i] = {stored[i].width, static_cast<CssBorderStyle>(stored[i].style)};
+    return builderOf(c).add<PageBorderBox>(width, height, sides, shaded, x, y);
+  };
+  b.footnotes = [](void* c, const size_t count) {
+    auto& footnotes = builderOf(c).page.footnotes;
+    footnotes.resize(count);
+    return reinterpret_cast<bb_page_footnote*>(footnotes.data());
+  };
+  b.links = [](void* c, const size_t count) {
+    auto& links = builderOf(c).page.links;
+    links.resize(count);
+    return reinterpret_cast<bb_page_link*>(links.data());
+  };
+  return b;
+}
+}  // namespace
+
 bool Page::serialize(HalFile& file) const {
-  const uint16_t count = elements.size();
-  serialization::writePod(file, count);
-
-  for (const auto& el : elements) {
-    // Use getTag() method to determine type
-    serialization::writePod(file, static_cast<uint8_t>(el->getTag()));
-
-    if (!el->serialize(file)) {
-      return false;
+  const bb_section_sink sink = section_file_io::sinkOf(file);
+  auto at = static_cast<uint32_t>(file.position());
+  bool ok = bb_page_write_count(&sink, &at, static_cast<uint16_t>(elements.size()));
+  for (const auto& element : elements) {
+    if (!ok) break;
+    const int16_t x = element->xPos;
+    const int16_t y = element->yPos;
+    switch (element->getTag()) {
+      case TAG_PageLine: {
+        const TextBlock& block = *static_cast<const PageLine&>(*element).getBlock();
+        if (!block.valid()) {
+          LOG_ERR("PGE", "Serialization failed: invalid text block");
+          return false;
+        }
+        const bb_page_line line = block.encoderView();
+        ok = bb_page_write_line(&sink, &at, x, y, &line);
+        break;
+      }
+      case TAG_PageImage: {
+        const ImageBlock& image = static_cast<const PageImage&>(*element).getImageBlock();
+        ok = bb_page_write_image(&sink, &at, x, y, image.getImagePath().data(), image.getImagePath().size(),
+                                 image.getSrcPath().data(), image.getSrcPath().size(), image.getWidth(),
+                                 image.getHeight());
+        break;
+      }
+      case TAG_PageHorizontalRule: {
+        const auto& rule = static_cast<const PageHorizontalRule&>(*element);
+        ok = bb_page_write_rule(&sink, &at, x, y, rule.getWidth(), rule.getThickness());
+        break;
+      }
+      case TAG_PageDropCap: {
+        const auto& dropCap = static_cast<const PageDropCap&>(*element);
+        ok = bb_page_write_drop_cap(&sink, &at, x, y, dropCap.getFontId(), dropCap.getScale256(),
+                                    static_cast<uint8_t>(dropCap.getStyle()), dropCap.getText(),
+                                    strnlen(dropCap.getText(), PageDropCap::MAX_TEXT_BYTES));
+        break;
+      }
+      case TAG_PageBorderBox: {
+        const auto& box = static_cast<const PageBorderBox&>(*element);
+        bb_page_side sides[4];
+        for (int i = 0; i < 4; ++i) {
+          sides[i] = {box.getSides()[i].width, static_cast<uint8_t>(box.getSides()[i].style)};
+        }
+        ok = bb_page_write_border_box(&sink, &at, x, y, box.getWidth(), box.getHeight(), sides, box.isShaded());
+        break;
+      }
     }
   }
-
-  // Serialize footnotes (clamp to MAX_FOOTNOTES_PER_PAGE to match addFootnote/deserialize limits)
-  const uint16_t fnCount = std::min<uint16_t>(footnotes.size(), MAX_FOOTNOTES_PER_PAGE);
-  serialization::writePod(file, fnCount);
-  for (uint16_t i = 0; i < fnCount; i++) {
-    const auto& fn = footnotes[i];
-    if (file.write(fn.number, sizeof(fn.number)) != sizeof(fn.number) ||
-        file.write(fn.href, sizeof(fn.href)) != sizeof(fn.href)) {
-      LOG_ERR("PGE", "Failed to write footnote");
-      return false;
-    }
+  ok = ok && bb_page_write_notes(&sink, &at, reinterpret_cast<const bb_page_footnote*>(footnotes.data()),
+                                 footnotes.size(), reinterpret_cast<const bb_page_link*>(links.data()), links.size());
+  if (!ok) {
+    LOG_ERR("PGE", "Serialization failed: write");
   }
-
-  const uint16_t linkCount = std::min<uint16_t>(links.size(), MAX_LINKS_PER_PAGE);
-  serialization::writePod(file, linkCount);
-  for (uint16_t i = 0; i < linkCount; i++) {
-    const auto& link = links[i];
-    if (file.write(link.href, sizeof(link.href)) != sizeof(link.href)) {
-      LOG_ERR("PGE", "Failed to write link %u", i);
-      return false;
-    }
-    serialization::writePod(file, link.x);
-    serialization::writePod(file, link.y);
-    serialization::writePod(file, link.width);
-    serialization::writePod(file, link.height);
-  }
-
-  return true;
+  return ok;
 }
 
 std::unique_ptr<Page> Page::deserialize(HalFile& file) {
@@ -361,102 +320,16 @@ std::unique_ptr<Page> Page::deserialize(HalFile& file) {
     LOG_ERR("PGE", "Deserialization failed: could not allocate Page");
     return nullptr;
   }
-
-  uint16_t count;
-  serialization::readPod(file, count);
-
-  // Reserve up front so a page load costs one allocation for the element vector
-  // instead of a grow-copy-free cycle every doubling. `count` is untrusted (it
-  // comes straight off the SD cache), so clamp it: a real page holds a few dozen
-  // elements, while a corrupt header could ask for 65535 * sizeof(unique_ptr) and
-  // abort() on the failed allocation (vector's operator new is throwing, and this
-  // firmware builds with -fno-exceptions). Under-reserving is harmless -- the
-  // push_back path below still grows normally.
-  static constexpr uint16_t RESERVE_CAP = 256;
-  page->elements.reserve(std::min(count, RESERVE_CAP));
-
-  for (uint16_t i = 0; i < count; i++) {
-    uint8_t tag;
-    serialization::readPod(file, tag);
-
-    if (tag == TAG_PageLine) {
-      auto pl = PageLine::deserialize(file);
-      if (!pl) {
-        return nullptr;
-      }
-      page->elements.push_back(std::move(pl));
-    } else if (tag == TAG_PageImage) {
-      auto pi = PageImage::deserialize(file);
-      if (!pi) {
-        return nullptr;
-      }
-      page->elements.push_back(std::move(pi));
-    } else if (tag == TAG_PageHorizontalRule) {
-      auto rule = PageHorizontalRule::deserialize(file);
-      if (!rule) {
-        return nullptr;
-      }
-      page->elements.push_back(std::move(rule));
-    } else if (tag == TAG_PageDropCap) {
-      auto dropCap = PageDropCap::deserialize(file);
-      if (!dropCap) {
-        return nullptr;
-      }
-      page->elements.push_back(std::move(dropCap));
-    } else if (tag == TAG_PageBorderBox) {
-      auto box = PageBorderBox::deserialize(file);
-      if (!box) {
-        return nullptr;
-      }
-      page->elements.push_back(std::move(box));
-    } else {
-      LOG_ERR("PGE", "Deserialization failed: Unknown tag %u", tag);
-      return nullptr;
-    }
-  }
-
-  // Deserialize footnotes
-  uint16_t fnCount;
-  serialization::readPod(file, fnCount);
-  if (fnCount > MAX_FOOTNOTES_PER_PAGE) {
-    LOG_ERR("PGE", "Invalid footnote count %u", fnCount);
+  PageBuilder target{*page};
+  const bb_page_builder builder = pageBuilder(target);
+  const bb_section_file view = section_file_io::fileOf(file);
+  uint32_t end = 0;
+  const int result = bb_page_read(&view, static_cast<uint32_t>(file.position()), &builder, &end);
+  if (result != BB_PAGE_READ) {
+    LOG_ERR("PGE", "Deserialization failed: %s", bb_page_error(result));
     return nullptr;
   }
-  page->footnotes.resize(fnCount);
-  for (uint16_t i = 0; i < fnCount; i++) {
-    auto& entry = page->footnotes[i];
-    if (file.read(entry.number, sizeof(entry.number)) != sizeof(entry.number) ||
-        file.read(entry.href, sizeof(entry.href)) != sizeof(entry.href)) {
-      LOG_ERR("PGE", "Failed to read footnote %u", i);
-      return nullptr;
-    }
-    entry.number[sizeof(entry.number) - 1] = '\0';
-    entry.href[sizeof(entry.href) - 1] = '\0';
-  }
-
-  uint16_t linkCount;
-  serialization::readPod(file, linkCount);
-  if (linkCount > MAX_LINKS_PER_PAGE) {
-    LOG_ERR("PGE", "Invalid link count %u", linkCount);
-    return nullptr;
-  }
-  page->links.resize(linkCount);
-  for (uint16_t i = 0; i < linkCount; i++) {
-    auto& link = page->links[i];
-    if (file.read(link.href, sizeof(link.href)) != sizeof(link.href)) {
-      LOG_ERR("PGE", "Failed to read link %u", i);
-      return nullptr;
-    }
-    link.href[sizeof(link.href) - 1] = '\0';
-    serialization::readPod(file, link.x);
-    serialization::readPod(file, link.y);
-    serialization::readPod(file, link.width);
-    serialization::readPod(file, link.height);
-    if (link.href[0] == '\0' || link.width <= 0 || link.height <= 0) {
-      LOG_ERR("PGE", "Invalid link geometry %u", i);
-      return nullptr;
-    }
-  }
-
+  // The read reads ahead; the file is left just past the page.
+  file.seek(end);
   return page;
 }

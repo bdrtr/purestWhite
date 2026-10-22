@@ -1,17 +1,16 @@
 #pragma once
-#include <HalStorage.h>
-
-#include <memory>
+#include <cstdint>
 #include <string>
 
 #include "Block.h"
 
 class ImageBlock final : public Block {
  public:
-  ImageBlock(const std::string& imagePath, const std::string& srcPath, int16_t width, int16_t height);
+  ImageBlock(std::string imagePath, std::string srcPath, int16_t width, int16_t height);
   ~ImageBlock() override = default;
 
   const std::string& getImagePath() const { return imagePath; }
+  const std::string& getSrcPath() const { return srcPath; }
   int16_t getWidth() const { return width; }
   int16_t getHeight() const { return height; }
 
@@ -40,8 +39,6 @@ class ImageBlock final : public Block {
   bool isEmpty() override { return false; }
 
   void render(GfxRenderer& renderer, const int x, const int y);
-  bool serialize(HalFile& file);
-  static std::unique_ptr<ImageBlock> deserialize(HalFile& file);
 
  private:
   std::string imagePath;

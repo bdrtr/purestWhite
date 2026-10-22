@@ -1009,3 +1009,44 @@ alan sıfırla ilklenir. Sayfa biçimini bayt bayt ve her doğrulama dalını sa
 
 - [ ] İç bağlantıları (dipnot, içindekiler bağlantısı) olan bir bölümde bağlantılara dokunun
   (X4 Pro) ya da bağlantı seçimini kullanın: doğru yere gitmeli.
+
+## Bölüm sayfaları Rust'ta ("rust: our own section pages")
+
+Bölüm dosyasındaki her sayfanın gövdesini (satırlar ve sözcükleri, ruby, satır stili, sözcük
+başına yazı tipleri; resimler, yatay çizgiler, büyük ilk harfler, çerçeve kutuları; dipnotlar ve
+bağlantılar) okuyup doğrulayan ve yazan kod artık `bembeyaz-section`'ın `page` modülünde. Nesneleri
+C++ kurar; arena, ruby, sözcük yazı tipleri, resim yolları ve dipnot/bağlantı dizileri için belleği
+C++ ayırır; çizim C++'ta kaldı. Sayfa artık 256 baytlık bir tamponla okunuyor; eskiden her alan ayrı
+bir `HalFile::read` çağrısıydı (arena ve sözcük yazı tipi tablosu zaten tek okumaydı). Eski
+davranış korunuyor: dosyanın bittiği yerdeki bir alan sıfır olarak okunur. Bilinçli farklar:
+satır stilindeki ya da çerçeve kutusundaki bir açık/kapalı baytı 0 ya da 1 değilse artık açık
+sayılır (eski kod onu tanımsız davranışla bool olarak okuyordu); yazarken başarısız olan her yazma
+artık sayfayı başarısız sayar (eski kod çoğu yazmanın sonucuna bakmıyordu). `test/page_codec`'in
+b14b2167'deki 6 testine 5 yeni test (resim, kesik resim yolu, üç sözcük yazı tipi yuvası,
+açık/kapalı baytı, art arda okunan bloklar) eklendi; 979 host testi geçiyor. Geliştirme sırasında
+bir kerelik bir fark testi (ağaçta tutulmadı) 8.000 rastgele ve bozulmuş sayfada eski ve yeni kodun
+çözüp geri yazdığı baytları karşılaştırdı: 56 sayfa dışında aynıydı, o 56 sayfadaki tek fark
+açık/kapalı baytlarıydı. Emülatörde okuma, kitap açma, PNG ve JPEG resimli kitap ekranları
+değiştirilmemiş CrossPoint'le, okuma ekranları bir önceki sürümle aynıydı; sayfa çizme süresi
+(sayfanın SD karttan yüklenmesi hariç; yükleme ölçülmedi) değişmedi (1.260–1.261 ms yerine
+1.257–1.258 ms).
+
+- [ ] Bölüm biçimi değişmedi (sürüm 60): 089e7ae5 ya da sonrasıyla açılmış bir kitabı yeni sürümü
+  yükledikten sonra açın: sayfalar yeniden dizilmeden, eskisi gibi görünmeli; seri günlükte
+  `[SCT] Deserialization failed` ya da `Cache not found, building` olmamalı.
+- [ ] Aşağıdaki adımlarda yeni yazıcının da çalışması için kitabın önbelleğini silin (Kitap
+  Önbelleğini Sil) ya da hiç açılmamış bir kitapla başlayın; okuduktan sonra kitaptan çıkıp yeniden
+  açın.
+- [ ] Resimli bir kitapta resim içeren sayfalar ve yer tutucuları doğru yerde olmalı.
+- [ ] Ayarlar'da Gömülü Stil açıkken, CSS'li bir kitapta (kalın, italik, altı/üstü çizili, üst ve
+  alt simge, küçük büyük harf, farklı yazı boyutlu sözcükler; `::first-letter` ya da büyük ilk harf
+  ile başlayan paragraflar; kenarlıklı ya da açık arka planlı kutular) sayfalar yeniden açınca aynı
+  görünmeli. `<hr>` çizgileri Gömülü Stil kapalıyken de görünmeli.
+- [ ] Odaklanmış Okuma açıkken Latin harfli bir kitapta sözcük başları yeniden açınca da kalın
+  olmalı.
+- [ ] Okuma yazı tipi olarak CJK destekli bir SD fontu seçiliyken furiganalı Japonca bir kitapta
+  (ör. bir Aozora Bunko EPUB'u) ruby metinleri yeniden açınca yerinde olmalı.
+- [ ] Dipnot ve iç bağlantılı bir bölümde bağlantılar yeniden açınca da doğru yere gitmeli.
+- [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğünde `[PGE] Deserialization failed`,
+  `[PGE] Serialization failed`, `[TXB] OOM` ya da `[ERS] Failed to load page from SD` satırları
+  görünmemeli.

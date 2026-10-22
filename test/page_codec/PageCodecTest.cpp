@@ -161,8 +161,8 @@ Line sampleLine() {
   return line;
 }
 
-const CssBorderSide kSides[4] = {{2, CssBorderStyle::Solid}, {0, CssBorderStyle::None}, {3, CssBorderStyle::Dashed},
-                                 {1, CssBorderStyle::Dotted}};
+const CssBorderSide kSides[4] = {
+    {2, CssBorderStyle::Solid}, {0, CssBorderStyle::None}, {3, CssBorderStyle::Dashed}, {1, CssBorderStyle::Dotted}};
 
 // The page every round trip uses: a line, a rule, a drop cap, a border box, two footnotes and two links.
 Bytes samplePageBytes() {
@@ -172,7 +172,12 @@ Bytes samplePageBytes() {
   encodeLine(out, sampleLine());
   out.pod<uint8_t>(TAG_PageHorizontalRule).pod<int16_t>(-1).pod<int16_t>(90).pod<uint16_t>(100).pod<uint8_t>(2);
   out.pod<uint8_t>(TAG_PageDropCap).pod<int16_t>(3).pod<int16_t>(60).pod<int32_t>(9).pod<uint16_t>(512);
-  out.pod<uint8_t>(EpdFontFamily::BOLD).pod<uint8_t>(3).raw("\xC2\xAB" "A", 3);
+  out.pod<uint8_t>(EpdFontFamily::BOLD)
+      .pod<uint8_t>(3)
+      .raw(
+          "\xC2\xAB"
+          "A",
+          3);
   out.pod<uint8_t>(TAG_PageBorderBox).pod<int16_t>(0).pod<int16_t>(80).pod<uint16_t>(120).pod<uint16_t>(40);
   for (const auto& side : kSides) out.pod(side.width).pod(static_cast<uint8_t>(side.style));
   out.pod<uint8_t>(1);
@@ -187,7 +192,10 @@ std::unique_ptr<Page> samplePage() {
   auto page = std::make_unique<Page>();
   page->elements.push_back(std::make_unique<PageLine>(makeBlock(sampleLine()), 5, 7));
   page->elements.push_back(std::make_unique<PageHorizontalRule>(100, 2, -1, 90));
-  page->elements.push_back(std::make_unique<PageDropCap>(9, 512, EpdFontFamily::BOLD, "\xC2\xAB" "A", 3, 60));
+  page->elements.push_back(std::make_unique<PageDropCap>(9, 512, EpdFontFamily::BOLD,
+                                                         "\xC2\xAB"
+                                                         "A",
+                                                         3, 60));
   page->elements.push_back(std::make_unique<PageBorderBox>(120, 40, kSides, true, 0, 80));
   page->addFootnote("1", "notes.xhtml#n1");
   page->addFootnote("22", "notes.xhtml#n22");
@@ -279,7 +287,9 @@ TEST_F(PageCodecTest, APageReadsBackAsWritten) {
   EXPECT_EQ(page->elements[1]->getTag(), TAG_PageHorizontalRule);
   EXPECT_EQ(page->elements[1]->xPos, -1);
   ASSERT_EQ(page->elements[2]->getTag(), TAG_PageDropCap);
-  EXPECT_STREQ(static_cast<const PageDropCap&>(*page->elements[2]).getText(), "\xC2\xAB" "A");
+  EXPECT_STREQ(static_cast<const PageDropCap&>(*page->elements[2]).getText(),
+               "\xC2\xAB"
+               "A");
   EXPECT_EQ(page->elements[3]->getTag(), TAG_PageBorderBox);
   EXPECT_EQ(page->elements[3]->yPos, 80);
 
@@ -333,7 +343,12 @@ TEST_F(PageCodecTest, AnEmptyPageAndOddButValidFieldsReadBack) {
   line.style.alignment = static_cast<CssTextAlign>(9);
   encodeLine(odd, line);
   odd.pod<uint16_t>(1).fixed(std::string(40, 'n'), 32).fixed(std::string(300, 'h'), 256);
-  odd.pod<uint16_t>(1).fixed(std::string(300, 'l'), 256).pod<int16_t>(0).pod<int16_t>(0).pod<int16_t>(1).pod<int16_t>(1);
+  odd.pod<uint16_t>(1)
+      .fixed(std::string(300, 'l'), 256)
+      .pod<int16_t>(0)
+      .pod<int16_t>(0)
+      .pod<int16_t>(1)
+      .pod<int16_t>(1);
   const auto back = decode(odd.b);
   ASSERT_TRUE(back);
   EXPECT_EQ(std::string(back->footnotes[0].number), std::string(31, 'n'));
@@ -357,7 +372,7 @@ TEST_F(PageCodecTest, DamagedPagesAreRefused) {
   const size_t links = notes + 2 + 2 * 288;
   const size_t arena = line + 7;
   const size_t offsets = arena + 3 * 8;
-  const size_t text = offsets + 3 * 2 + 3 * 2 + 3 * 2 + 3 + 3;  // after offsets, x, suffix x, styles, boundaries
+  const size_t text = offsets + 3 * 2 + 3 * 2 + 3 * 2 + 3 + 3;         // after offsets, x, suffix x, styles, boundaries
   const size_t afterArena = text + 4 + 3 + 2;                          // "Ça", "va", "?" with NULs
   const size_t style = afterArena + 4 + (4 + 6) + 4;                   // the ruby strings
   const size_t fonts = style + 1 + 1 + 8 * 2 + 2 + 1 + 1 + 1 + 1 + 4;  // the block style
@@ -389,7 +404,8 @@ TEST_F(PageCodecTest, DamagedPagesAreRefused) {
       {"word font flag 2", [&](auto& b) { b[fonts] = 2; }},
       {"word font slot 4", [&](auto& b) { b[fonts + 1 + 12 + 1] = 4; }},
       {"word font slot naming font 0", [&](auto& b) { b[fonts + 1 + 12 + 2] = 3; }},
-      {"zero words with text", [&](auto& b) {
+      {"zero words with text",
+       [&](auto& b) {
          Bytes zero;
          zero.pod<uint16_t>(1).pod<uint8_t>(TAG_PageLine).pod<int32_t>(0);
          zero.pod<uint16_t>(0).pod<uint8_t>(0).pod<uint16_t>(1).pod<uint16_t>(UINT16_MAX);
@@ -409,6 +425,117 @@ TEST_F(PageCodecTest, DamagedPagesAreRefused) {
     const auto page = decode(std::vector<uint8_t>(good.begin(), good.begin() + cut), nullptr, false);
     EXPECT_EQ(page != nullptr, valid) << cut;
   }
+}
+
+TEST_F(PageCodecTest, AnImageRoundTripsWithItsPathAndSource) {
+  auto page = std::make_unique<Page>();
+  page->elements.push_back(std::make_unique<PageImage>(
+      std::make_unique<ImageBlock>("/cache/img_3_1.pxc", "OEBPS/images/a.png", 320, -2), 4, 6));
+  Bytes expected;
+  expected.pod<uint16_t>(1).pod<uint8_t>(TAG_PageImage).pod<int16_t>(4).pod<int16_t>(6);
+  expected.str("/cache/img_3_1.pxc").str("OEBPS/images/a.png").pod<int16_t>(320).pod<int16_t>(-2);
+  expected.pod<uint16_t>(0).pod<uint16_t>(0);
+  EXPECT_EQ(serialized(*page), expected.b);
+
+  const auto back = decode(expected.b);
+  ASSERT_TRUE(back);
+  ASSERT_EQ(back->elements[0]->getTag(), TAG_PageImage);
+  const ImageBlock& image = static_cast<const PageImage&>(*back->elements[0]).getImageBlock();
+  EXPECT_EQ(image.getImagePath(), "/cache/img_3_1.pxc");
+  EXPECT_EQ(image.getSrcPath(), "OEBPS/images/a.png");
+  EXPECT_EQ(image.getWidth(), 320);
+  EXPECT_EQ(image.getHeight(), -2);
+  EXPECT_EQ(serialized(*back), expected.b);
+}
+
+// An image's strings are not checked: one the file cannot hold reads as empty, and so does the rest.
+TEST_F(PageCodecTest, AnImageWithItsStringsCutReadsEmpty) {
+  Bytes bytes;
+  bytes.pod<uint16_t>(1).pod<uint8_t>(TAG_PageImage).pod<int16_t>(4).pod<int16_t>(6).pod<uint32_t>(1000);
+  const auto page = decode(bytes.b, nullptr, false);
+  ASSERT_TRUE(page);
+  const ImageBlock& image = static_cast<const PageImage&>(*page->elements[0]).getImageBlock();
+  EXPECT_EQ(image.getImagePath(), "");
+  EXPECT_EQ(image.getSrcPath(), "");
+  EXPECT_EQ(image.getWidth(), 0);
+}
+
+// Every word font slot names its font; slot 0 is the line's.
+TEST_F(PageCodecTest, AllThreeWordFontSlotsRead) {
+  Line line;
+  line.words = {{"a", 0, 0, 0, 1, 0, 0, "", 0},
+                {"b", 8, 0, 1, 2, 0, 0, "", 1},
+                {"c", 16, 0, 2, 3, 0, 0, "", 2},
+                {"d", 24, 0, 3, 4, 0, 0, "", 3}};
+  line.fonts = true;
+  line.fontTable[0] = 41;
+  line.fontTable[1] = 42;
+  line.fontTable[2] = 43;
+  Bytes bytes;
+  bytes.pod<uint16_t>(1).pod<uint8_t>(TAG_PageLine).pod<int16_t>(0).pod<int16_t>(0);
+  encodeLine(bytes, line);
+  bytes.pod<uint16_t>(0).pod<uint16_t>(0);
+  const auto page = decode(bytes.b);
+  ASSERT_TRUE(page);
+  const TextBlock& block = *static_cast<const PageLine&>(*page->elements[0]).getBlock();
+  EXPECT_EQ(block.wordFontId(0, 5), 5);
+  EXPECT_EQ(block.wordFontId(1, 5), 41);
+  EXPECT_EQ(block.wordFontId(2, 5), 42);
+  EXPECT_EQ(block.wordFontId(3, 5), 43);
+}
+
+// A stored flag byte other than 0 or 1 reads as set.
+TEST_F(PageCodecTest, AStyleFlagByteOtherThanZeroOrOneIsSet) {
+  Line line;
+  line.words = {{"x", 0, 0, 0, 1}};
+  Bytes bytes;
+  bytes.pod<uint16_t>(1).pod<uint8_t>(TAG_PageLine).pod<int16_t>(0).pod<int16_t>(0);
+  const size_t lineAt = bytes.b.size();
+  encodeLine(bytes, line);
+  bytes.pod<uint16_t>(0).pod<uint16_t>(0);
+  // The style after the counts (7), the arena (8 + 2 + 2 + 1 + 2) and one empty ruby (4).
+  const size_t style = lineAt + 7 + 15 + 4;
+  bytes.b[style + 1] = 2;   // text-align defined
+  bytes.b[style + 21] = 7;  // is RTL
+  const auto page = decode(bytes.b);
+  ASSERT_TRUE(page);
+  const BlockStyle& read = static_cast<const PageLine&>(*page->elements[0]).getBlock()->getBlockStyle();
+  EXPECT_TRUE(read.textAlignDefined);
+  EXPECT_TRUE(read.isRtl);
+  EXPECT_FALSE(read.directionDefined);
+}
+
+// Text blocks read alone, one after another, each leaving the file just past it.
+TEST_F(PageCodecTest, TextBlocksReadOneAfterAnother) {
+  Line first = sampleLine();
+  Line second;
+  second.words = {{"next", 3, 0, 0, 4}};
+  Bytes bytes;
+  encodeLine(bytes, first);
+  const size_t firstEnd = bytes.b.size();
+  encodeLine(bytes, second);
+  {
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    out.write(reinterpret_cast<const char*>(bytes.b.data()), static_cast<std::streamsize>(bytes.b.size()));
+  }
+  HalFile f;
+  ASSERT_TRUE(f.open(path.c_str(), "rb"));
+  const auto a = TextBlock::deserialize(f);
+  ASSERT_TRUE(a);
+  EXPECT_EQ(f.position(), firstEnd);
+  const auto b = TextBlock::deserialize(f);
+  ASSERT_TRUE(b);
+  EXPECT_STREQ(b->wordText(0), "next");
+  EXPECT_EQ(f.position(), bytes.b.size());
+  EXPECT_EQ(TextBlock::deserialize(f), nullptr);
+  f.close();
+
+  // And written alone, as the format has them.
+  ASSERT_TRUE(f.open(path.c_str(), "w+b"));
+  ASSERT_TRUE(makeBlock(first)->serialize(f));
+  ASSERT_TRUE(makeBlock(second)->serialize(f));
+  f.close();
+  EXPECT_EQ(readAll(), bytes.b);
 }
 
 TEST_F(PageCodecTest, AnyDamageNeverCrashes) {

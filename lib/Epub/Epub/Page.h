@@ -29,7 +29,6 @@ class PageElement {
   explicit PageElement(const int16_t xPos, const int16_t yPos) : xPos(xPos), yPos(yPos) {}
   virtual ~PageElement() = default;
   virtual void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) = 0;
-  virtual bool serialize(HalFile& file) = 0;
   virtual PageElementTag getTag() const = 0;  // Add type identification
 };
 
@@ -42,9 +41,7 @@ class PageLine final : public PageElement {
       : PageElement(xPos, yPos), block(std::move(block)) {}
   const TextBlock* getBlock() const { return block.get(); }
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) override;
-  bool serialize(HalFile& file) override;
   PageElementTag getTag() const override { return TAG_PageLine; }
-  static std::unique_ptr<PageLine> deserialize(HalFile& file);
 };
 
 // New PageImage class
@@ -56,9 +53,7 @@ class PageImage final : public PageElement {
       : PageElement(xPos, yPos), imageBlock(std::move(block)) {}
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) override;
   void renderPlaceholder(GfxRenderer& renderer, int xOffset, int yOffset) const;
-  bool serialize(HalFile& file) override;
   PageElementTag getTag() const override { return TAG_PageImage; }
-  static std::unique_ptr<PageImage> deserialize(HalFile& file);
   const ImageBlock& getImageBlock() const { return *imageBlock; }
 };
 
@@ -70,10 +65,10 @@ class PageHorizontalRule final : public PageElement {
   PageHorizontalRule(uint16_t width, uint8_t thickness, const int16_t xPos, const int16_t yPos)
       : PageElement(xPos, yPos), width(width), thickness(thickness) {}
 
+  uint16_t getWidth() const { return width; }
+  uint8_t getThickness() const { return thickness; }
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) override;
-  bool serialize(HalFile& file) override;
   PageElementTag getTag() const override { return TAG_PageHorizontalRule; }
-  static std::unique_ptr<PageHorizontalRule> deserialize(HalFile& file);
 };
 
 // An initial letter spanning several lines, drawn scaled up from a font's glyph.
@@ -92,10 +87,11 @@ class PageDropCap final : public PageElement {
   PageDropCap(int32_t fontId, uint16_t scale256, EpdFontFamily::Style style, const char* utf8, int16_t xPos,
               int16_t yPos);
   const char* getText() const { return text; }
+  int32_t getFontId() const { return fontId; }
+  uint16_t getScale256() const { return scale256; }
+  EpdFontFamily::Style getStyle() const { return style; }
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) override;
-  bool serialize(HalFile& file) override;
   PageElementTag getTag() const override { return TAG_PageDropCap; }
-  static std::unique_ptr<PageDropCap> deserialize(HalFile& file);
 };
 
 // A CSS border and/or background shade around a block element's slice on this page.
@@ -114,10 +110,12 @@ class PageBorderBox final : public PageElement {
         height(height),
         sides{sides[0], sides[1], sides[2], sides[3]},
         shaded(shaded) {}
+  uint16_t getWidth() const { return width; }
+  uint16_t getHeight() const { return height; }
+  const CssBorderSide (&getSides() const)[4] { return sides; }
+  bool isShaded() const { return shaded; }
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) override;
-  bool serialize(HalFile& file) override;
   PageElementTag getTag() const override { return TAG_PageBorderBox; }
-  static std::unique_ptr<PageBorderBox> deserialize(HalFile& file);
   void renderBackground(GfxRenderer& renderer, int xOffset, int yOffset) const;
 };
 

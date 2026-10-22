@@ -5,14 +5,16 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <MemoryManager.h>
-#include <Serialization.h>
 
 #include <cstring>
 
 #include "../../../../src/fontIds.h"
+#include "../SectionFileIo.h"
 
 size_t TextBlock::arenaSize(const uint16_t wordCount, const bool hasFocus, const uint16_t textBytes) {
-  // Layout documented in TextBlock.h: 16-bit arrays first, then 8-bit arrays, then text.
+  // Layout documented in TextBlock.h: 16-bit arrays first, then 8-bit arrays, then text. The page
+  // cache stores the arena as is: test/page_codec's byte-for-byte tests catch a size that
+  // disagrees with bb_page_arena_size.
   size_t size =
       static_cast<size_t>(wordCount) * (sizeof(SourceRange) + sizeof(uint16_t) + sizeof(int16_t) + sizeof(uint8_t));
   if (hasFocus) {
@@ -376,190 +378,168 @@ void TextBlock::render(const GfxRenderer& renderer, const int sectionFontId, con
   flushDecorations();
 }
 
+namespace {
+bb_page_block_style styleOf(const BlockStyle& s) {
+  return {static_cast<uint8_t>(s.alignment),
+          s.textAlignDefined,
+          s.marginTop,
+          s.marginBottom,
+          s.marginLeft,
+          s.marginRight,
+          s.paddingTop,
+          s.paddingBottom,
+          s.paddingLeft,
+          s.paddingRight,
+          s.textIndent,
+          s.textIndentDefined,
+          s.isRtl,
+          s.directionDefined,
+          s.characterSpacing,
+          s.fontId};
+}
+
+void applyStyle(BlockStyle& s, const bb_page_block_style& stored) {
+  s.alignment = static_cast<CssTextAlign>(stored.alignment);
+  s.textAlignDefined = stored.text_align_defined;
+  s.marginTop = stored.margin_top;
+  s.marginBottom = stored.margin_bottom;
+  s.marginLeft = stored.margin_left;
+  s.marginRight = stored.margin_right;
+  s.paddingTop = stored.padding_top;
+  s.paddingBottom = stored.padding_bottom;
+  s.paddingLeft = stored.padding_left;
+  s.paddingRight = stored.padding_right;
+  s.textIndent = stored.text_indent;
+  s.textIndentDefined = stored.text_indent_defined;
+  s.isRtl = stored.is_rtl;
+  s.directionDefined = stored.direction_defined;
+  s.characterSpacing = stored.character_spacing;
+  s.fontId = stored.font_id;
+}
+
+static_assert(sizeof(TextBlock::SourceRange) == 8 && sizeof(bb_page_text) == 8 && sizeof(bb_page_block_style) == 28,
+              "bb_page layout");
+}  // namespace
+
+const char* TextBlock::rubyOf(const void* context, const uint16_t word, size_t* len) {
+  const auto& block = *static_cast<const TextBlock*>(context);
+  if (word >= block.rubyTexts.size()) {
+    *len = 0;
+    return "";
+  }
+  *len = block.rubyTexts[word].size();
+  return block.rubyTexts[word].data();
+}
+
+bb_page_line TextBlock::encoderView() const {
+  return {{numWords, focusPresent, textBytes, paragraphStartWord},
+          arena.get(),
+          this,
+          rubyOf,
+          styleOf(blockStyle),
+          wordFontData.get()};
+}
+
+bool TextBlock::Decoder::begin(const bb_page_text& text, const size_t arenaSize, uint8_t** arena) {
+  block.reset(new (std::nothrow) TextBlock());
+  if (!block) {
+    LOG_ERR("TXB", "OOM: TextBlock");
+    return false;
+  }
+  block->numWords = text.word_count;
+  block->textBytes = text.text_bytes;
+  block->paragraphStartWord = text.paragraph_start;
+  block->focusPresent = text.focus;
+  *arena = nullptr;
+  if (arenaSize > 0) {
+    block->arena = makeUniqueNoThrow<uint8_t[]>(arenaSize);
+    if (!block->arena) {
+      LOG_ERR("TXB", "OOM: arena %u bytes", static_cast<uint32_t>(arenaSize));
+      return false;
+    }
+    *arena = block->arena.get();
+  }
+  return true;
+}
+
+// Ruby is a CJK feature, so for nearly every book every word has none. An empty rubyTexts is the
+// "no ruby" representation (hasRuby() is false and every reader checks the size), so it is only
+// sized once an annotation shows up: a full page of wordCount-long vectors would hold several KB.
+char* TextBlock::Decoder::ruby(const uint16_t word, const size_t len) {
+  if (block->rubyTexts.empty()) {
+    block->rubyTexts.resize(block->numWords);
+  }
+  block->rubyTexts[word].resize(len);
+  return block->rubyTexts[word].data();
+}
+
+uint8_t* TextBlock::Decoder::wordFonts(const size_t size) {
+  block->wordFontData = makeUniqueNoThrow<uint8_t[]>(size);
+  if (!block->wordFontData) {
+    LOG_ERR("TXB", "OOM: word fonts %u bytes", static_cast<uint32_t>(size));
+  }
+  return block->wordFontData.get();
+}
+
+std::unique_ptr<TextBlock> TextBlock::Decoder::finish(const bb_page_block_style& style) {
+  if (block) {
+    applyStyle(block->blockStyle, style);
+    if (block->numWords > 0) block->bindArenaPointers();
+  }
+  return std::move(block);
+}
+
+namespace {
+// The builder for a text block read alone.
+struct BlockReader {
+  TextBlock::Decoder decoder;
+  std::unique_ptr<TextBlock> block;
+};
+
+bb_page_builder blockBuilder(BlockReader& reader) {
+  bb_page_builder b{};
+  b.context = &reader;
+  b.line = [](void* c, int16_t, int16_t, const bb_page_text* text, const size_t size, uint8_t** arena) {
+    return static_cast<BlockReader*>(c)->decoder.begin(*text, size, arena);
+  };
+  b.ruby = [](void* c, const uint16_t word, const size_t len) {
+    return static_cast<BlockReader*>(c)->decoder.ruby(word, len);
+  };
+  b.word_fonts = [](void* c, const size_t size) { return static_cast<BlockReader*>(c)->decoder.wordFonts(size); };
+  b.line_end = [](void* c, const bb_page_block_style* style) {
+    auto& reader = *static_cast<BlockReader*>(c);
+    reader.block = reader.decoder.finish(*style);
+    return static_cast<bool>(reader.block);
+  };
+  return b;
+}
+}  // namespace
+
 bool TextBlock::serialize(HalFile& file) const {
   if (!isValid) {
     LOG_ERR("TXB", "Serialization failed: invalid block");
     return false;
   }
-
-  // Word data: scalars, then the arena verbatim -- its in-memory layout is
-  // exactly the on-disk layout (see TextBlock.h), so one write covers all
-  // per-word arrays and the text blob.
-  serialization::writePod(file, numWords);
-  serialization::writePod(file, static_cast<uint8_t>(focusPresent ? 1 : 0));
-  serialization::writePod(file, textBytes);
-  serialization::writePod(file, paragraphStartWord);
-  if (numWords > 0) {
-    const size_t size = arenaSize(numWords, focusPresent, textBytes);
-    if (file.write(arena.get(), size) != size) {
-      LOG_ERR("TXB", "Serialization failed: arena write (%u bytes)", static_cast<uint32_t>(size));
-      return false;
-    }
+  const bb_section_sink sink = section_file_io::sinkOf(file);
+  const bb_page_line view = encoderView();
+  auto at = static_cast<uint32_t>(file.position());
+  if (!bb_page_write_text_block(&sink, &at, &view)) {
+    LOG_ERR("TXB", "Serialization failed: write");
+    return false;
   }
-
-  // Ruby text data
-  for (size_t i = 0; i < numWords; i++) {
-    serialization::writeString(file, (i < rubyTexts.size()) ? rubyTexts[i] : std::string());
-  }
-
-  // Style (alignment + margins/padding/indent)
-  serialization::writePod(file, blockStyle.alignment);
-  serialization::writePod(file, blockStyle.textAlignDefined);
-  serialization::writePod(file, blockStyle.marginTop);
-  serialization::writePod(file, blockStyle.marginBottom);
-  serialization::writePod(file, blockStyle.marginLeft);
-  serialization::writePod(file, blockStyle.marginRight);
-  serialization::writePod(file, blockStyle.paddingTop);
-  serialization::writePod(file, blockStyle.paddingBottom);
-  serialization::writePod(file, blockStyle.paddingLeft);
-  serialization::writePod(file, blockStyle.paddingRight);
-  serialization::writePod(file, blockStyle.textIndent);
-  serialization::writePod(file, blockStyle.textIndentDefined);
-  serialization::writePod(file, blockStyle.isRtl);
-  serialization::writePod(file, blockStyle.directionDefined);
-  serialization::writePod(file, blockStyle.characterSpacing);
-  serialization::writePod(file, blockStyle.fontId);
-
-  // Per-word fonts: a flag, then the font table and one slot per word.
-  const uint8_t hasWordFonts = wordFontData ? 1 : 0;
-  serialization::writePod(file, hasWordFonts);
-  if (hasWordFonts) {
-    const size_t size = sizeof(int32_t) * MAX_WORD_FONTS + numWords;
-    if (file.write(wordFontData.get(), size) != size) {
-      LOG_ERR("TXB", "Serialization failed: word fonts");
-      return false;
-    }
-  }
-
   return true;
 }
 
 std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
-  uint16_t wc;
-  uint8_t hasFocus;
-  uint16_t textBytes;
-  uint16_t paragraphStartWord;
-  serialization::readPod(file, wc);
-  serialization::readPod(file, hasFocus);
-  serialization::readPod(file, textBytes);
-  serialization::readPod(file, paragraphStartWord);
-
-  // Sanity checks: cap the arena allocation and reject impossible geometry
-  // (every word carries at least its NUL terminator).
-  if (wc > 10000 || (paragraphStartWord != UINT16_MAX && paragraphStartWord >= wc)) {
-    LOG_ERR("TXB", "Deserialization failed: word count %u exceeds maximum", wc);
+  BlockReader reader;
+  const bb_page_builder builder = blockBuilder(reader);
+  const bb_section_file view = section_file_io::fileOf(file);
+  uint32_t end = 0;
+  const int result = bb_page_read_text_block(&view, static_cast<uint32_t>(file.position()), &builder, &end);
+  if (result != BB_PAGE_READ) {
+    LOG_ERR("TXB", "Deserialization failed: %s", bb_page_error(result));
     return nullptr;
   }
-  if ((wc == 0 && textBytes != 0) || (wc > 0 && textBytes < wc)) {
-    LOG_ERR("TXB", "Deserialization failed: bad text size %u for %u words", textBytes, wc);
-    return nullptr;
-  }
-
-  std::unique_ptr<TextBlock> block(new (std::nothrow) TextBlock());
-  if (!block) {
-    LOG_ERR("TXB", "OOM: TextBlock");
-    return nullptr;
-  }
-  block->numWords = wc;
-  block->textBytes = textBytes;
-  block->paragraphStartWord = paragraphStartWord;
-  block->focusPresent = hasFocus != 0;
-
-  if (wc > 0) {
-    const size_t size = arenaSize(wc, block->focusPresent, textBytes);
-    block->arena = makeUniqueNoThrow<uint8_t[]>(size);
-    if (!block->arena) {
-      LOG_ERR("TXB", "OOM: arena %u bytes", static_cast<uint32_t>(size));
-      return nullptr;
-    }
-    if (file.read(block->arena.get(), size) != size) {
-      LOG_ERR("TXB", "Deserialization failed: arena read (%u bytes)", static_cast<uint32_t>(size));
-      return nullptr;
-    }
-    block->bindArenaPointers();
-
-    // Validate offsets before anything dereferences wordText(): offset 0 first,
-    // strictly increasing, in bounds, and every word NUL-terminated (word i ends
-    // at the byte before offset i+1; the last word at the last text byte).
-    const uint16_t* textOff = block->textOffArr;
-    const char* text = block->textArr;
-    if (textOff[0] != 0 || text[textBytes - 1] != '\0') {
-      LOG_ERR("TXB", "Deserialization failed: corrupt text layout");
-      return nullptr;
-    }
-    for (uint16_t i = 1; i < wc; i++) {
-      if (textOff[i] <= textOff[i - 1] || textOff[i] >= textBytes || text[textOff[i] - 1] != '\0') {
-        LOG_ERR("TXB", "Deserialization failed: corrupt word offset %u", i);
-        return nullptr;
-      }
-    }
-  }
-
-  // Ruby text data. Ruby is a CJK feature, so for nearly every book every entry here
-  // is the empty string. Materializing the vector regardless costs wordCount * 24 bytes
-  // (sizeof(std::string)) plus a heap block per line, held for as long as the page is
-  // resident -- several KB of DRAM on a full page, none of it ever read. An empty
-  // rubyTexts is already the "no ruby" representation: hasRuby() reports false and every
-  // other reader is guarded by `i < rubyTexts.size()`, so allocate lazily and only once a
-  // non-empty annotation actually shows up.
-  //
-  // `scratch` is reused across words: readString() resizes it to the incoming length and
-  // overwrites every byte, so a moved-from value carries nothing into the next iteration.
-  std::string scratch;
-  for (uint16_t i = 0; i < wc; i++) {
-    serialization::readString(file, scratch);
-    if (scratch.empty()) continue;
-    if (block->rubyTexts.empty()) {
-      block->rubyTexts.resize(wc);
-    }
-    block->rubyTexts[i] = std::move(scratch);
-  }
-
-  // Style (alignment + margins/padding/indent)
-  BlockStyle& blockStyle = block->blockStyle;
-  serialization::readPod(file, blockStyle.alignment);
-  serialization::readPod(file, blockStyle.textAlignDefined);
-  serialization::readPod(file, blockStyle.marginTop);
-  serialization::readPod(file, blockStyle.marginBottom);
-  serialization::readPod(file, blockStyle.marginLeft);
-  serialization::readPod(file, blockStyle.marginRight);
-  serialization::readPod(file, blockStyle.paddingTop);
-  serialization::readPod(file, blockStyle.paddingBottom);
-  serialization::readPod(file, blockStyle.paddingLeft);
-  serialization::readPod(file, blockStyle.paddingRight);
-  serialization::readPod(file, blockStyle.textIndent);
-  serialization::readPod(file, blockStyle.textIndentDefined);
-  serialization::readPod(file, blockStyle.isRtl);
-  serialization::readPod(file, blockStyle.directionDefined);
-  serialization::readPod(file, blockStyle.characterSpacing);
-  serialization::readPod(file, blockStyle.fontId);
-
-  uint8_t hasWordFonts = 0;
-  serialization::readPod(file, hasWordFonts);
-  if (hasWordFonts > 1) {
-    LOG_ERR("TXB", "Deserialization failed: bad word font flag %u", hasWordFonts);
-    return nullptr;
-  }
-  if (hasWordFonts) {
-    const size_t size = sizeof(int32_t) * MAX_WORD_FONTS + wc;
-    block->wordFontData = makeUniqueNoThrow<uint8_t[]>(size);
-    if (!block->wordFontData || file.read(block->wordFontData.get(), size) != size) {
-      LOG_ERR("TXB", "Deserialization failed: word fonts");
-      return nullptr;
-    }
-    const uint8_t* slots = block->wordFontData.get() + sizeof(int32_t) * MAX_WORD_FONTS;
-    for (uint16_t i = 0; i < wc; ++i) {
-      const uint8_t slot = slots[i] & ~SMALL_CAPS_SLOT_FLAG;
-      int32_t font = 1;
-      if (slot > 0 && slot <= MAX_WORD_FONTS) {
-        memcpy(&font, block->wordFontData.get() + sizeof(int32_t) * (slot - 1), sizeof(font));
-      }
-      if (slot > MAX_WORD_FONTS || font == 0) {
-        LOG_ERR("TXB", "Deserialization failed: bad word font slot %u", slots[i]);
-        return nullptr;
-      }
-    }
-  }
-
-  return block;
+  file.seek(end);
+  return std::move(reader.block);
 }

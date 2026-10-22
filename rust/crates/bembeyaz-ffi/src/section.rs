@@ -1,10 +1,11 @@
 //! Exports for lib/Epub's `Section` (see `rust/include/bembeyaz/section.h`).
 
-use crate::{view, view_mut};
+use crate::{set, view, view_mut};
 use bembeyaz_section::file::{
-    self, CommitError, HEADER_SIZE, LutEntry, OffsetScan, PARTIAL_VERSION, Refusal, Sink, Source,
-    Spec, VERSION, Watermark,
+    self, CommitError, HEADER_SIZE, LutEntry, OffsetScan, PARTIAL_VERSION, Refusal, Spec, VERSION,
+    Watermark,
 };
+use bembeyaz_section::{Sink, Source};
 use core::ffi::{c_char, c_int, c_void};
 
 // section.h's structs.
@@ -58,13 +59,6 @@ impl Sink for &SinkView {
         self.write_at.is_some_and(|write| unsafe {
             write(self.context, offset, bytes.as_ptr(), bytes.len())
         })
-    }
-}
-
-// SAFETY: `ptr` is null or writable.
-unsafe fn set<T>(ptr: *mut T, value: T) {
-    if !ptr.is_null() {
-        unsafe { ptr.write(value) };
     }
 }
 

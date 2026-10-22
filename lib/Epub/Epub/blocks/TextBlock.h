@@ -1,6 +1,7 @@
 #pragma once
 #include <EpdFontFamily.h>
 #include <HalStorage.h>
+#include <bembeyaz/page.h>
 
 #include <memory>
 #include <string>
@@ -85,9 +86,10 @@ class TextBlock final : public Block {
   // immediately; cached TextBlocks therefore keep the same compact format.
   std::vector<LinkSpan> linkSpans;
 
-  TextBlock() = default;  // deserialize() fills the fields directly
+  TextBlock() = default;  // Decoder fills the fields directly
   static size_t arenaSize(uint16_t wordCount, bool hasFocus, uint16_t textBytes);
   void bindArenaPointers();
+  static const char* rubyOf(const void* context, uint16_t word, size_t* len);
 
  public:
   // Flatten-on-construct: copies the layout-time vectors into the arena; the
@@ -149,6 +151,25 @@ class TextBlock final : public Block {
 
   void render(const GfxRenderer& renderer, int fontId, int x, int y) const;
   BlockType getType() override { return TEXT_BLOCK; }
+  // A block alone, in the page format; a page itself goes through Page. Kept for the tests that
+  // round-trip a single block.
   bool serialize(HalFile& file) const;
   static std::unique_ptr<TextBlock> deserialize(HalFile& file);
+
+  // Builds a block from bembeyaz-section's page reads (Page::deserialize, deserialize()).
+  class Decoder {
+   public:
+    // Starts a block with these counts and sets *arena to its arenaSize bytes (null when 0); false
+    // when out of memory.
+    bool begin(const bb_page_text& text, size_t arenaSize, uint8_t** arena);
+    char* ruby(uint16_t word, size_t len);
+    uint8_t* wordFonts(size_t size);
+    // The block begun, with its style.
+    std::unique_ptr<TextBlock> finish(const bb_page_block_style& style);
+
+   private:
+    std::unique_ptr<TextBlock> block;
+  };
+  // The block as bembeyaz-section writes it; valid while the block lives.
+  bb_page_line encoderView() const;
 };

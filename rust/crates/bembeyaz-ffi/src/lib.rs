@@ -22,6 +22,7 @@ mod kosync;
 mod layout;
 mod library;
 mod opf;
+mod page;
 mod path;
 mod png;
 mod png_cover;
@@ -48,5 +49,12 @@ pub(crate) unsafe fn view_mut<'a, T>(data: *mut T, len: usize) -> &'a mut [T] {
         &mut []
     } else {
         unsafe { core::slice::from_raw_parts_mut(data, len) }
+    }
+}
+
+// SAFETY: `ptr` is null or writable.
+pub(crate) unsafe fn set<T>(ptr: *mut T, value: T) {
+    if !ptr.is_null() {
+        unsafe { ptr.write(value) };
     }
 }

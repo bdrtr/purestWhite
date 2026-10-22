@@ -15,25 +15,15 @@
 
 #include "Epub/css/CssParser.h"
 #include "Page.h"
+#include "SectionFileIo.h"
 #include "hyphenation/Hyphenator.h"
 #include "parsers/ChapterHtmlSlimParser.h"
 
 namespace {
-// The file's format, its version and its history live in rust/crates/bembeyaz-section (file.rs);
-// bump VERSION there for a layout change that invalidates cached pages.
+// The file's format, its version and its history live in rust/crates/bembeyaz-section (file.rs,
+// page.rs for a page's body); bump VERSION there for a layout change that invalidates cached pages.
 
-// bembeyaz-section reads and writes the file at any offset.
-bool readAt(void* context, const uint32_t offset, uint8_t* buf, const size_t len) {
-  auto& f = *static_cast<HalFile*>(context);
-  return len == 0 || (f.seek(offset) && static_cast<size_t>(f.read(buf, len)) == len);
-}
-
-bool writeAt(void* context, const uint32_t offset, const uint8_t* bytes, const size_t len) {
-  auto& f = *static_cast<HalFile*>(context);
-  return f.seek(offset) && f.write(bytes, len) == len;
-}
-
-bb_section_file viewOf(HalFile& f) { return {&f, static_cast<uint32_t>(f.size()), readAt}; }
+using section_file_io::fileOf;
 
 bb_section_spec specOf(const ReaderRenderSpec& spec) {
   return {.font_id = spec.fontId,
@@ -82,7 +72,7 @@ std::optional<T> lookUp(const std::string& path, Lookup&& lookup) {
   if (!Storage.openFileForRead("SCT", path, f)) {
     return std::nullopt;
   }
-  const bb_section_file view = viewOf(f);
+  const bb_section_file view = fileOf(f);
   T result{};
   if (!lookup(&view, &result)) {
     return std::nullopt;
@@ -143,7 +133,7 @@ bool Section::loadSectionFile(const ReaderRenderSpec& spec) {
     return false;
   }
 
-  const bb_section_file view = viewOf(file);
+  const bb_section_file view = fileOf(file);
   const bb_section_spec wanted = specOf(spec);
   bb_section_loaded loaded{};
   const int status = bb_section_check(&view, &wanted, &loaded);
@@ -487,7 +477,7 @@ int Section::getTocIndexForPage(const int page) const {
       }
     }
     if (haveAnchorMap) {
-      const bb_section_file view = viewOf(anchorFile);
+      const bb_section_file view = fileOf(anchorFile);
       nameBuffer.resize(longestTarget + 2);  // the name, then its page
       bb_section_anchors(
           &view, nameBuffer.data(), nameBuffer.size(), const_cast<void*>(static_cast<const void*>(&considerAnchor)),
@@ -574,7 +564,7 @@ bool Section::commitBuildFile(const bool asPartial, const uint32_t bytesConsumed
   };
 
   const Anchors& anchors = build_->parser->getAnchors();
-  const bb_section_sink sink{&file, writeAt};
+  const bb_section_sink sink = section_file_io::sinkOf(file);
   const bb_section_watermark watermark{bytesConsumed, totalBytes};
   const int result = bb_section_commit(
       &sink, static_cast<uint32_t>(file.position()), build_->lut.data(), build_->lut.size(), anchors.size(), anchorAt,
@@ -736,7 +726,7 @@ std::unique_ptr<Page> Section::loadPageAt(const int page) const {
   // The page's visible-codepoint start offset comes from the same open handle, so the reader can
   // persist progress without reopening the section file on every page turn (see
   // Page::visibleTextOffset). A malformed/old file leaves it at 0.
-  const bb_section_file view = viewOf(f);
+  const bb_section_file view = fileOf(f);
   uint32_t position = 0;
   uint32_t visibleTextOffset = 0;
   if (!bb_section_page(&view, static_cast<uint16_t>(page), &position, &visibleTextOffset)) {

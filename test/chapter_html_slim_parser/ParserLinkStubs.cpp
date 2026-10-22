@@ -7,8 +7,10 @@
 #include <Epub/hyphenation/Hyphenator.h>
 #include <GfxRenderer.h>
 
-ImageBlock::ImageBlock(const std::string& imagePath, const std::string& srcPath, int16_t width, int16_t height)
-    : imagePath(imagePath), srcPath(srcPath), width(width), height(height) {}
+#include <utility>
+
+ImageBlock::ImageBlock(std::string imagePath, std::string srcPath, int16_t width, int16_t height)
+    : imagePath(std::move(imagePath)), srcPath(std::move(srcPath)), width(width), height(height) {}
 
 bool ImageDecoderFactory::isFormatSupported(const std::string&) { return false; }
 ImageToFramebufferDecoder* ImageDecoderFactory::getDecoder(const std::string&) { return nullptr; }
@@ -19,5 +21,3 @@ bool ImageToFramebufferDecoder::validateAndStoreDimensions(int64_t, int64_t, Ima
 void ImageBlock::render(GfxRenderer&, int, int) {}
 void ImageBlock::renderPlaceholder(GfxRenderer&, int, int) const {}
 bool ImageBlock::needsDecode() const { return false; }
-bool ImageBlock::serialize(HalFile&) { return false; }
-std::unique_ptr<ImageBlock> ImageBlock::deserialize(HalFile&) { return nullptr; }
