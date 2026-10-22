@@ -4,9 +4,7 @@
 // layout check, the page, anchor, paragraph, list-item and visible-offset lookups, and the
 // commit that writes the tables. lib/Epub's Section keeps file handling and the build.
 
-#include <stdbool.h>
-#include <stddef.h>
-#include <stdint.h>
+#include <bembeyaz/io.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -17,18 +15,9 @@ extern "C" {
 #define BB_SECTION_VERSION 60
 #define BB_SECTION_PARTIAL_VERSION 0xDE
 
-// The section file: read_at fills len bytes from offset, false when it cannot fill them all.
-typedef struct {
-  void* context;
-  uint32_t size;
-  bool (*read_at)(void* context, uint32_t offset, uint8_t* buf, size_t len);
-} bb_section_file;
-
-// The file being built: write_at writes len bytes at offset, false when it cannot write them all.
-typedef struct {
-  void* context;
-  bool (*write_at)(void* context, uint32_t offset, const uint8_t* bytes, size_t len);
-} bb_section_sink;
+// The section file, and the file being built.
+typedef bb_io_file bb_section_file;
+typedef bb_io_sink bb_section_sink;
 
 // The layout settings a section is built with (ReaderRenderSpec's).
 typedef struct {

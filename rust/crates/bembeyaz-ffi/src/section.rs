@@ -1,11 +1,11 @@
 //! Exports for lib/Epub's `Section` (see `rust/include/bembeyaz/section.h`).
 
+use crate::io::{FileView, SinkView, answer};
 use crate::{set, view, view_mut};
 use bembeyaz_section::file::{
     self, CommitError, HEADER_SIZE, LutEntry, OffsetScan, PARTIAL_VERSION, Refusal, Spec, VERSION,
     Watermark,
 };
-use bembeyaz_section::{Sink, Source};
 use core::ffi::{c_char, c_int, c_void};
 
 // section.h's structs.
@@ -26,63 +26,6 @@ const _: () = {
             && PARTIAL_VERSION == 0xDE
     );
 };
-
-/// section.h's `bb_section_file`.
-#[repr(C)]
-pub struct FileView {
-    context: *mut c_void,
-    size: u32,
-    read_at: Option<unsafe extern "C" fn(*mut c_void, u32, *mut u8, usize) -> bool>,
-}
-
-impl Source for &FileView {
-    fn size(&self) -> u32 {
-        self.size
-    }
-    fn read_at(&mut self, offset: u32, buf: &mut [u8]) -> bool {
-        // SAFETY: the caller's callback fills `buf`, which holds `buf.len()` bytes.
-        self.read_at
-            .is_some_and(|read| unsafe { read(self.context, offset, buf.as_mut_ptr(), buf.len()) })
-    }
-}
-
-/// section.h's `bb_section_sink`.
-#[repr(C)]
-pub struct SinkView {
-    context: *mut c_void,
-    write_at: Option<unsafe extern "C" fn(*mut c_void, u32, *const u8, usize) -> bool>,
-}
-
-impl Sink for &SinkView {
-    fn write_at(&mut self, offset: u32, bytes: &[u8]) -> bool {
-        // SAFETY: the caller's callback reads `bytes`.
-        self.write_at.is_some_and(|write| unsafe {
-            write(self.context, offset, bytes.as_ptr(), bytes.len())
-        })
-    }
-}
-
-// Runs `lookup` on the caller's file and writes its answer.
-//
-// SAFETY: `file` is null or a `bb_section_file` as section.h describes; `out` is null or writable.
-unsafe fn answer<T>(
-    file: *const FileView,
-    out: *mut T,
-    lookup: impl FnOnce(&mut &FileView) -> Option<T>,
-) -> bool {
-    // SAFETY: as above.
-    let Some(mut f) = (unsafe { file.as_ref() }) else {
-        return false;
-    };
-    match lookup(&mut f) {
-        Some(value) => {
-            // SAFETY: as above.
-            unsafe { set(out, value) };
-            true
-        }
-        None => false,
-    }
-}
 
 /// # Safety
 ///

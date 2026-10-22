@@ -1,13 +1,15 @@
 #pragma once
 
-#include <BufferedFile.h>
 #include <HalStorage.h>
+#include <bembeyaz/book.h>
 
-#include <algorithm>
-#include <deque>
 #include <memory>
 #include <string>
 #include <vector>
+
+namespace serialization {
+class BufferedFileWriter;
+}
 
 class BookMetadataCache {
  public:
@@ -63,46 +65,28 @@ class BookMetadataCache {
   // wrapper serves whichever pass is active (spine, then toc).
   std::unique_ptr<serialization::BufferedFileWriter> passOut;
 
-  // Cumulative spine sizes stay in book.bin; RAM holds every SIZE_WINDOW-th one and one window.
-  static constexpr int SIZE_WINDOW = 32;
-  std::vector<uint32_t> windowStarts;  // total before item w * SIZE_WINDOW
+  // Cumulative spine sizes stay in book.bin; RAM holds every BB_BOOK_WINDOW-th one and one window.
+  std::vector<uint32_t> windowStarts;  // total before item w * BB_BOOK_WINDOW
   uint32_t bookSize = 0;
-  mutable int windowFirst = -1;
-  mutable uint32_t window[SIZE_WINDOW] = {};
-  bool fillWindow(int first) const;  // caller holds sizeWindowLock
+  mutable int32_t windowFirst = -1;
+  mutable uint32_t window[BB_BOOK_WINDOW] = {};
+  bool fillWindow(int32_t first, uint32_t* into) const;  // caller holds sizeWindowLock
+  bb_book_sizes sizesView() const;
 
-  // Index for fast href→spineIndex lookup (used only for large EPUBs)
-  struct SpineHrefIndexEntry {
-    uint64_t hrefHash;  // FNV-1a 64-bit hash
-    uint16_t hrefLen;   // length for collision reduction
-    int16_t spineIndex;
-  };
-  std::deque<SpineHrefIndexEntry> spineHrefIndex;
-  bool useSpineHrefIndex = false;
-
+  // From this many spine items, TOC hrefs are found through spineHrefIndex (sorted by hash and
+  // length) instead of by reading the spine file, and zip sizes are looked up in batches.
   static constexpr uint16_t LARGE_SPINE_THRESHOLD = 400;
+  std::unique_ptr<bb_book_index_entry[]> spineHrefIndex;
 
-  // FNV-1a 64-bit hash function
-  static uint64_t fnvHash64(const std::string& s) {
-    uint64_t hash = 14695981039346656037ull;
-    for (char c : s) {
-      hash ^= static_cast<uint8_t>(c);
-      hash *= 1099511628211ull;
-    }
-    return hash;
-  }
-
-  uint32_t writeSpineEntry(HalFile& file, const SpineEntry& entry) const;
-  uint32_t writeTocEntry(HalFile& file, const TocEntry& entry) const;
-  SpineEntry readSpineEntry(HalFile& file) const;
-  TocEntry readTocEntry(HalFile& file) const;
+  // Where the pass's next record goes: through passOut when it has one, else straight to file.
+  bb_io_sink passSink(HalFile& file, uint32_t& at);
 
  public:
   BookMetadata coreMetadata;
 
-  explicit BookMetadataCache(std::string cachePath)
-      : cachePath(std::move(cachePath)), lutOffset(0), spineCount(0), tocCount(0), loaded(false), buildMode(false) {}
-  ~BookMetadataCache() = default;
+  // Out of line, as passOut's type is complete only in the .cpp.
+  explicit BookMetadataCache(std::string cachePath);
+  ~BookMetadataCache();
 
   // Building phase (stream to disk immediately)
   bool beginWrite();

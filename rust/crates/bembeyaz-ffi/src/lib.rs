@@ -7,6 +7,7 @@ extern crate alloc;
 
 mod bidi;
 mod bmp;
+mod book;
 mod compressed;
 mod container;
 mod cpfont;
@@ -16,6 +17,7 @@ mod device;
 mod expat;
 mod html;
 mod hyphenation;
+mod io;
 mod jpeg;
 mod json;
 mod kosync;
@@ -57,4 +59,16 @@ pub(crate) unsafe fn set<T>(ptr: *mut T, value: T) {
     if !ptr.is_null() {
         unsafe { ptr.write(value) };
     }
+}
+
+// The caller's room for `len` values, as a slice that lives as long as its owner is borrowed;
+// empty for 0.
+//
+// SAFETY: `ptr` is null or holds `len` writable values until the next callback.
+pub(crate) unsafe fn room<'a, T>(ptr: *mut T, len: usize) -> Option<&'a mut [T]> {
+    if len == 0 {
+        return Some(&mut []);
+    }
+    // SAFETY: as above.
+    (!ptr.is_null()).then(|| unsafe { core::slice::from_raw_parts_mut(ptr, len) })
 }

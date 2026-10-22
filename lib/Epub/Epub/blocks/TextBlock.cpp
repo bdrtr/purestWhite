@@ -9,7 +9,7 @@
 #include <cstring>
 
 #include "../../../../src/fontIds.h"
-#include "../SectionFileIo.h"
+#include "../FileIo.h"
 
 size_t TextBlock::arenaSize(const uint16_t wordCount, const bool hasFocus, const uint16_t textBytes) {
   // Layout documented in TextBlock.h: 16-bit arrays first, then 8-bit arrays, then text. The page
@@ -520,7 +520,7 @@ bool TextBlock::serialize(HalFile& file) const {
     LOG_ERR("TXB", "Serialization failed: invalid block");
     return false;
   }
-  const bb_section_sink sink = section_file_io::sinkOf(file);
+  const bb_section_sink sink = file_io::sinkOf(file);
   const bb_page_line view = encoderView();
   auto at = static_cast<uint32_t>(file.position());
   if (!bb_page_write_text_block(&sink, &at, &view)) {
@@ -533,7 +533,7 @@ bool TextBlock::serialize(HalFile& file) const {
 std::unique_ptr<TextBlock> TextBlock::deserialize(HalFile& file) {
   BlockReader reader;
   const bb_page_builder builder = blockBuilder(reader);
-  const bb_section_file view = section_file_io::fileOf(file);
+  const bb_section_file view = file_io::fileOf(file);
   uint32_t end = 0;
   const int result = bb_page_read_text_block(&view, static_cast<uint32_t>(file.position()), &builder, &end);
   if (result != BB_PAGE_READ) {

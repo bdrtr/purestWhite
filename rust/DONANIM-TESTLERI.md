@@ -1050,3 +1050,43 @@ değiştirilmemiş CrossPoint'le, okuma ekranları bir önceki sürümle aynıyd
 - [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğünde `[PGE] Deserialization failed`,
   `[PGE] Serialization failed`, `[TXB] OOM` ya da `[ERS] Failed to load page from SD` satırları
   görünmemeli.
+
+## Kitap üst veri önbelleği Rust'ta ("rust: our own book metadata cache")
+
+Bir kitap ilk açıldığında önbelleğe bir `book.bin` yazılır: başlık, yazar, dil, kapak, spine
+öğeleri (bölüm dosyaları ve kümülatif boyutları) ve içindekiler. Bu dosyanın ve kurulduğu iki geçici
+dosyanın biçimini okuyan ve yazan kod, ilerleme yüzdesinin dayandığı kümülatif boyut aramaları ve
+içindekiler girdilerinin bölüm dosyalarına eşlenmesi artık `bembeyaz-book`'un `cache` modülünde.
+Dosyalar ve tamponları, ZIP'teki boyutların bulunması, 400 öğe eşiği, dizinin sıralanması, kilit
+ve NFC başlık birleştirme C++'ta kaldı. Okuma ve yazma, `bembeyaz-section` ile ortak yeni
+`bembeyaz-io` crate'inin tamponlu okuyucu ve yazıcısıyla yapılıyor; kurulum eskisi gibi 4 KB'lık
+tamponlarla, okumalar alan başına bir dosya okuması yerine küçük tamponlarla. 400 ya da daha çok
+spine öğeli kitapların dizini artık iç RAM yerine tek parça PSRAM'de. Bu değişiklik test eklemiyor;
+5618273f'nin 8 biçim testi dahil `test/book_metadata_cache`'in 13 testi geçiyor, toplam 987 host
+testi. Geliştirme sırasında bir kerelik bir fark testi (ağaçta tutulmadı) son kodla 400 rastgele
+kitabı (400 ya da daha çok spine öğesi olanlar, metin kitapları, NFD başlıklar dahil) eski ve yeni
+kodla kurdu: `book.bin`'ler bayt bayt aynıydı; bozulmuş kopyalarda 10.578 okumanın biri dışında hepsi
+aynıydı (ara sürümlerle 550 kitapta da öyle). O okumada bir boyut penceresinin son kaydı dosya
+sonunda kesikti: eski kod onu bilgisayarda okunmuş
+sayıyordu (dosya sonunu aşan bir konumlanmaya izin verildiği için); artık cihazdaki gibi okunmamış
+sayılıyor. Geçici dosyalardaki bozuk bir kayıt artık kurulumu başarısız kılıyor (`book.bin` silinir);
+eski kod kurulumda uzunluğu denetlemeden bellek ayırıyordu. Emülatörde okuma, kitap açma, PNG, JPEG
+ve XML senaryolarının beşi de hem değiştirilmemiş CrossPoint'le hem bir önceki sürümle aynıydı; boş
+bellek yaklaşık 600 bayt arttı.
+
+- [ ] 5f321ebd ya da sonrasıyla açılmış bir kitap yeni sürümde açılmalı (sürüm 11 değişmedi):
+  başlık, yazar ve kapak aynı görünmeli; seri günlükte `[BMC] Loaded cache data` görünmeli,
+  `[EBP] Cache not found, building` ya da `[BMC] Cache version mismatch` görünmemeli.
+- [ ] Bir kitabın önbelleğini silin (Kitap Önbelleğini Sil) ve açın: içindekiler ve bölüm adları
+  doğru olmalı; okuma menüsünde "%'ye git" ile %50'ye gidin: durum çubuğundaki yüzde yaklaşık %50
+  göstermeli, varılan bölüm İçindekiler'de kitabın ortası civarında olmalı.
+- [ ] 400 ya da daha çok bölüm dosyası olan bir kitabı (bilgisayarda
+  `unzip -p kitap.epub '*.opf' | grep -c '<itemref'` ile sayılır) ilk kez açın: günlükte
+  `[BMC] Using fast index` ve `Using batch size lookup` görünmeli, içindekiler bölümlere doğru
+  eşlenmeli; `[EBP] Total indexing completed in … ms` önceki firmware'dekinden belirgin uzun
+  olmamalı.
+- [ ] Bir TXT ve bir Markdown kitabını ilk kez açın, okudukça ilerleme yüzdesi artmalı; kapatıp
+  yeniden açınca günlükte `[EBP] TXT/MD cache invalid or outdated` görünmemeli.
+- [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğünde `[BMC] Cache file damaged`,
+  `[BMC] Failed building book.bin`, `[BMC] Could not index`, `[BMC] Could not read the spine` ya
+  da `[BMC] Failed writing` satırları görünmemeli.

@@ -1,12 +1,11 @@
 //! Exports for lib/Epub's `Page` and `TextBlock` (see `rust/include/bembeyaz/page.h`).
 
-use crate::section::{FileView, SinkView};
-use crate::{set, view};
+use crate::io::{FileView, SinkView, write_with};
+use crate::{room, set, view};
 use bembeyaz_section::page::{
     self, BlockStyle, Builder, Error, Footnote, HREF_LEN, Line, Link, NUMBER_LEN, Side, TextHeader,
 };
 use core::ffi::{c_char, c_int, c_void};
-use core::slice;
 
 // page.h's structs.
 const _: () = {
@@ -54,20 +53,6 @@ pub struct BuilderView {
         Option<unsafe extern "C" fn(*mut c_void, i16, i16, u16, u16, *const Side, bool) -> bool>,
     footnotes: Option<unsafe extern "C" fn(*mut c_void, usize) -> *mut Footnote>,
     links: Option<unsafe extern "C" fn(*mut c_void, usize) -> *mut Link>,
-}
-
-// The caller's room, as a slice that lives as long as the builder is borrowed.
-//
-// SAFETY: `ptr` is null or holds `len` writable bytes until the next callback.
-unsafe fn room<'a>(ptr: *mut u8, len: usize) -> Option<&'a mut [u8]> {
-    if len == 0 {
-        Some(&mut [])
-    } else if ptr.is_null() {
-        None
-    } else {
-        // SAFETY: as above.
-        Some(unsafe { slice::from_raw_parts_mut(ptr, len) })
-    }
 }
 
 impl Builder for &BuilderView {
@@ -147,19 +132,13 @@ impl Builder for &BuilderView {
     fn footnotes(&mut self, count: usize) -> Option<&mut [Footnote]> {
         let f = self.footnotes?;
         // SAFETY: the caller's callback gives room for `count` footnotes.
-        unsafe { records(f(self.context, count), count) }
+        unsafe { room(f(self.context, count), count) }
     }
     fn links(&mut self, count: usize) -> Option<&mut [Link]> {
         let f = self.links?;
         // SAFETY: as `footnotes`.
-        unsafe { records(f(self.context, count), count) }
+        unsafe { room(f(self.context, count), count) }
     }
-}
-
-// SAFETY: `ptr` is null or holds `count` writable records until the next callback.
-unsafe fn records<'a, T>(ptr: *mut T, count: usize) -> Option<&'a mut [T]> {
-    // SAFETY: as above.
-    (!ptr.is_null()).then(|| unsafe { slice::from_raw_parts_mut(ptr, count) })
 }
 
 fn code(error: Error) -> c_int {
@@ -241,28 +220,6 @@ pub struct LineView {
     ruby: Option<unsafe extern "C" fn(*const c_void, u16, *mut usize) -> *const c_char>,
     style: BlockStyle,
     word_fonts: *const u8,
-}
-
-// Writes with `write` at `*at`, moving it on.
-//
-// SAFETY: `sink` is null or a `bb_section_sink` as section.h describes; `at` is null or
-// readable and writable.
-unsafe fn write_with(
-    sink: *const SinkView,
-    at: *mut u32,
-    write: impl FnOnce(&mut &SinkView, u32) -> Option<u32>,
-) -> bool {
-    // SAFETY: as above.
-    let (Some(mut s), Some(at)) = (unsafe { sink.as_ref() }, unsafe { at.as_mut() }) else {
-        return false;
-    };
-    match write(&mut s, *at) {
-        Some(end) => {
-            *at = end;
-            true
-        }
-        None => false,
-    }
 }
 
 // SAFETY: `line` is null or a `bb_page_line` as page.h describes.

@@ -29,6 +29,13 @@ name = "bembeyaz-bmp"
 version = "0.1.0"
 
 [[package]]
+name = "bembeyaz-book"
+version = "0.1.0"
+dependencies = [
+ "bembeyaz-io",
+]
+
+[[package]]
 name = "bembeyaz-css"
 version = "0.1.0"
 
@@ -38,10 +45,12 @@ version = "0.1.0"
 dependencies = [
  "bembeyaz-bidi",
  "bembeyaz-bmp",
+ "bembeyaz-book",
  "bembeyaz-css",
  "bembeyaz-font",
  "bembeyaz-html",
  "bembeyaz-hyphenation",
+ "bembeyaz-io",
  "bembeyaz-jpeg",
  "bembeyaz-json",
  "bembeyaz-kosync",
@@ -82,6 +91,10 @@ version = "0.1.0"
 dependencies = [
  "miniz_oxide",
 ]
+
+[[package]]
+name = "bembeyaz-io"
+version = "0.1.0"
 
 [[package]]
 name = "bembeyaz-jpeg"
@@ -141,6 +154,9 @@ dependencies = [
 [[package]]
 name = "bembeyaz-section"
 version = "0.1.0"
+dependencies = [
+ "bembeyaz-io",
+]
 
 [[package]]
 name = "bembeyaz-toc"

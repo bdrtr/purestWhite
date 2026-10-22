@@ -14,8 +14,8 @@
 #include <utility>
 
 #include "Epub/css/CssParser.h"
+#include "FileIo.h"
 #include "Page.h"
-#include "SectionFileIo.h"
 #include "hyphenation/Hyphenator.h"
 #include "parsers/ChapterHtmlSlimParser.h"
 
@@ -23,7 +23,7 @@ namespace {
 // The file's format, its version and its history live in rust/crates/bembeyaz-section (file.rs,
 // page.rs for a page's body); bump VERSION there for a layout change that invalidates cached pages.
 
-using section_file_io::fileOf;
+using file_io::fileOf;
 
 bb_section_spec specOf(const ReaderRenderSpec& spec) {
   return {.font_id = spec.fontId,
@@ -564,7 +564,7 @@ bool Section::commitBuildFile(const bool asPartial, const uint32_t bytesConsumed
   };
 
   const Anchors& anchors = build_->parser->getAnchors();
-  const bb_section_sink sink = section_file_io::sinkOf(file);
+  const bb_section_sink sink = file_io::sinkOf(file);
   const bb_section_watermark watermark{bytesConsumed, totalBytes};
   const int result = bb_section_commit(
       &sink, static_cast<uint32_t>(file.position()), build_->lut.data(), build_->lut.size(), anchors.size(), anchorAt,

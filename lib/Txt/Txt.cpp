@@ -7,7 +7,6 @@
 #include <Logging.h>
 #include <Memory.h>
 #include <PngToBmpConverter.h>
-#include <Serialization.h>
 #include <Utf8.h>
 
 #include <cstring>

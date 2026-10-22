@@ -8,7 +8,7 @@
 
 #include <cstddef>
 
-#include "SectionFileIo.h"
+#include "FileIo.h"
 
 namespace {
 
@@ -258,7 +258,7 @@ bb_page_builder pageBuilder(PageBuilder& page) {
 }  // namespace
 
 bool Page::serialize(HalFile& file) const {
-  const bb_section_sink sink = section_file_io::sinkOf(file);
+  const bb_section_sink sink = file_io::sinkOf(file);
   auto at = static_cast<uint32_t>(file.position());
   bool ok = bb_page_write_count(&sink, &at, static_cast<uint16_t>(elements.size()));
   for (const auto& element : elements) {
@@ -322,7 +322,7 @@ std::unique_ptr<Page> Page::deserialize(HalFile& file) {
   }
   PageBuilder target{*page};
   const bb_page_builder builder = pageBuilder(target);
-  const bb_section_file view = section_file_io::fileOf(file);
+  const bb_section_file view = file_io::fileOf(file);
   uint32_t end = 0;
   const int result = bb_page_read(&view, static_cast<uint32_t>(file.position()), &builder, &end);
   if (result != BB_PAGE_READ) {

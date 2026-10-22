@@ -73,8 +73,8 @@ pub const PARTIAL_VERSION: u8 = 0xFE - (VERSION - 28);
 pub const INCOMPLETE_VERSION: u8 = 0;
 pub const HEADER_SIZE: u32 = 44;
 
-use crate::io::Out;
 use crate::{Sink, Source};
+use bembeyaz_io::Out;
 
 const HEADER: usize = HEADER_SIZE as usize;
 const PAGE_COUNT_AT: u32 = 22;
@@ -677,7 +677,7 @@ mod tests {
     use std::vec;
     use std::vec::Vec;
 
-    use crate::testing::Bytes;
+    use bembeyaz_io::testing::Bytes;
 
     fn spec() -> Spec {
         Spec {

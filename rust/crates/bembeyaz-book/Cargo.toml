@@ -1,0 +1,12 @@
+[package]
+name = "bembeyaz-book"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+bembeyaz-io = { path = "../bembeyaz-io" }
+
+[dev-dependencies]
+bembeyaz-io = { path = "../bembeyaz-io", features = ["testing"] }

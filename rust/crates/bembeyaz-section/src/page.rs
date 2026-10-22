@@ -20,8 +20,8 @@
 //! image string reads as empty. A cut arena, word-font table, drop cap, footnote or link makes the
 //! page unreadable.
 
-use crate::io::{Cursor, Out};
 use crate::{Sink, Source};
+use bembeyaz_io::{Cursor, Out};
 
 pub const LINE: u8 = 1;
 pub const IMAGE: u8 = 2;
@@ -424,7 +424,8 @@ fn read_element<S: Source>(cur: &mut Cursor<S>, builder: &mut impl Builder) -> R
 ///
 /// What makes the page unreadable; `builder` may have been given part of it.
 pub fn read(file: &mut impl Source, at: u32, builder: &mut impl Builder) -> Result<u32, Error> {
-    let mut cur = Cursor::new(file, at);
+    let mut buf = [0u8; 256];
+    let mut cur = Cursor::new(file, at, &mut buf);
     let count = cur.u16();
     builder.begin(count);
     for _ in 0..count {
@@ -474,7 +475,8 @@ pub fn read_text_block(
     at: u32,
     builder: &mut impl Builder,
 ) -> Result<u32, Error> {
-    let mut cur = Cursor::new(file, at);
+    let mut buf = [0u8; 256];
+    let mut cur = Cursor::new(file, at, &mut buf);
     read_text(&mut cur, builder, 0, 0)?;
     Ok(cur.position())
 }
@@ -567,11 +569,6 @@ pub fn write_text_block(sink: &mut impl Sink, at: u32, line: &Line) -> Option<u3
     write(sink, at, |out| put_text(out, line))
 }
 
-fn put_string<S: Sink>(out: &mut Out<S>, s: &[u8]) {
-    out.push(&u32::try_from(s.len()).unwrap_or(u32::MAX).to_le_bytes());
-    out.push(s);
-}
-
 /// Writes an image. As [`write_count`].
 #[allow(clippy::too_many_arguments)]
 pub fn write_image(
@@ -586,8 +583,8 @@ pub fn write_image(
 ) -> Option<u32> {
     write(sink, at, |out| {
         put_xy(out, IMAGE, x, y);
-        put_string(out, path);
-        put_string(out, source);
+        out.push_string(path);
+        out.push_string(source);
         out.push(&width.to_le_bytes());
         out.push(&height.to_le_bytes());
     })
@@ -697,7 +694,7 @@ mod tests {
     use std::vec;
     use std::vec::Vec;
 
-    use crate::testing::Bytes;
+    use bembeyaz_io::testing::Bytes;
 
     // Records what it is given, as text, and keeps the bytes it gave room for.
     #[derive(Default)]
