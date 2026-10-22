@@ -998,3 +998,14 @@ sürümle aynıydı; sayfa çizme süresi değişmedi (1.260–1.261 ms yerine 1
   `Failed to write the section tables` ya da `Failed to write LUT due to invalid page positions`
   satırları görünmemeli; uzun bölümden ilk kez çıkarken `Suspended build: … pages persisted`
   görünmeli.
+
+## Sayfa bağlantılarının boş baytları sıfırlanır ("fix: zero page link hrefs in the section cache")
+
+Bölüm dosyasındaki her sayfa, iç bağlantılarının hedefini 256 baytlık bir alanda saklar. Hedefin
+sonundaki NUL'dan sonraki baytlar ilklendirilmiyordu: dosyaya o an bellekte ne varsa (başka
+sözcüklerin metni, adresler) yazılıyordu; aynı kitap her dizilişte farklı bir dosya veriyordu. Artık
+alan sıfırla ilklenir. Sayfa biçimini bayt bayt ve her doğrulama dalını sabitleyen 6 yeni host testi
+(`test/page_codec`) dahil 975 host testi geçiyor; emülatörde okuma ekranları aynı.
+
+- [ ] İç bağlantıları (dipnot, içindekiler bağlantısı) olan bir bölümde bağlantılara dokunun
+  (X4 Pro) ya da bağlantı seçimini kullanın: doğru yere gitmeli.
