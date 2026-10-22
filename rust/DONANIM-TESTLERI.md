@@ -1090,3 +1090,37 @@ bellek yaklaşık 600 bayt arttı.
 - [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğünde `[BMC] Cache file damaged`,
   `[BMC] Failed building book.bin`, `[BMC] Could not index`, `[BMC] Could not read the spine` ya
   da `[BMC] Failed writing` satırları görünmemeli.
+
+## Alıntı deposu Rust'ta ("rust: our own clipping store")
+
+Okurken kaydedilen alıntılar her kitap için kartta bir dosyada tutulur
+(`/.crosspoint/clippings/epub_….bin`): kitabın başlığı ve yazarı, her alıntının yeri (bölüm, sayfa,
+sözcükler, kaynak konumu), eşitleme durumu ve metni. Bu dosyayı okuyan ve yazan kod ile silinen
+alıntıların eşitleme için bekleyen kimlik günlüğünü (`….bin.deleted`) tarayan kod artık
+`bembeyaz-clippings`'te. Dosyaların açılması, yedek ve geçici dosyayla güvenli değiştirme,
+bellekteki alıntılar, günlüğe yazma ve kimlik üretme C++'ta kaldı. Eski 1., 2. ve 3. sürüm dosyalar
+eskisi gibi okunur ve ilk yazmada 4. sürüme çevrilir. Yazma artık alan başına bir dosya yazması
+yerine 128 baytlık bir tamponla, okuma ise kayıt başına aşağı yukarı tek dosya okumasıyla yapılıyor.
+Artık kullanılmayan `Serialization.h` silindi. Bir önceki commit dosya biçimini 7 testle sabitledi
+(bağımsız bir çözücüyle 4. sürüm, elle kurulmuş 1., 2. ve 3. sürüm dosyalar, bozuk dosyalar, silme
+günlüğü); toplam 1001 host testi geçiyor. Geliştirme sırasında bir kerelik bir fark testi (ağaçta
+tutulmadı) eski ve yeni kodu 12.000 rastgele durumda (her birinde bir alıntı dosyası ve bir silme
+günlüğü) çalıştırdı (geçerli ve bozuk dosyalar, yükleme, eşitleme, silme, uzaktan gelen
+değişiklikler, yazma hataları; yaklaşık 30.000 işlem ve 33.000 günlük okuması): her çıktı ve her
+yazılan dosya bayt bayt aynıydı; koda bilerek konan bir hata ilk durumlarda yakalandı. Yeni
+`emu/clipping.txt` senaryosu bir sözcüğü alıntılıyor, kitabı yeniden açıyor (vurgu geri geliyor),
+alıntıyı uzun basarak kaldırıyor ve kitabı bir daha açıyor; bu ve okuma, kitap açma, PNG, JPEG ve
+XML senaryoları bir önceki sürümle aynı ekranları ve aynı boş belleği verdi. x4pro'da flash 372 bayt
+küçüldü, RAM değişmedi.
+
+- [ ] Önceki firmware'le kaydedilmiş alıntıları olan bir kitabı açın: vurgular aynı yerlerde
+  görünmeli; okuma menüsündeki "Alıntıları Görüntüle" listesinde her alıntının bölümü ve metin önizlemesi
+  doğru olmalı, birini açınca tam metni görünmeli.
+- [ ] Bir sözcüğe uzun basıp Clip ile yeni bir alıntı kaydedin, kitabı kapatıp yeniden açın: vurgu
+  kalmalı, listede görünmeli. Vurgunun üstüne uzun basıp kaldırın, yeniden açınca gitmiş olmalı;
+  diğer alıntıların metinleri bozulmamış olmalı.
+- [ ] Alıntı eşitlemesi kuruluysa: bir alıntı ekleyip eşitleyin, sonra eşitlenmiş bir alıntıyı
+  silip yeniden eşitleyin: silme sunucuya ulaşmalı ve sonraki eşitlemede alıntı geri gelmemeli.
+- [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğünde `[CLIP] Clipping file damaged
+  or cut`, `[CLIP] Failed to write clipping file` ya da `[CLIP] Invalid or unreadable clipping
+  deletion journal` satırları görünmemeli.

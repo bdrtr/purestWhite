@@ -1,0 +1,33 @@
+# Clip a word, reopen the book (the store is read back from the card), then remove the
+# clipping with a long press on it, and reopen the book once more.
+ready
+touch:240,348
+wait-screen
+touch:240,138
+wait-log:Page render
+shot:page1
+touch:240,300:1200
+wait-quiet:3
+shot:select
+touch:262,246
+wait-quiet:3
+shot:clipped
+heap:clipped
+press:home
+wait-quiet:3
+touch:240,138
+wait-log:Page render
+wait-quiet:3
+shot:reopened
+touch:160,312:1200
+wait-quiet:3
+shot:removed
+press:home
+wait-quiet:3
+touch:240,138
+wait-log:Page render
+wait-quiet:3
+shot:reopened-again
+press:home
+wait-quiet:3
+shot:home-again

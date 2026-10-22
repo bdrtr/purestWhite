@@ -21,6 +21,8 @@ inline constexpr uint16_t CLIPPING_MAX_PER_BOOK = 1024;
 inline constexpr uint16_t CLIPPING_MAX_PER_BOOK = 256;
 #endif
 
+// Copied to and from the store file's bb_clip_record by toRecord/fromRecord in ClippingStore.cpp;
+// fields older file versions lack get bembeyaz-clippings' Record::EMPTY, not these defaults.
 struct Clipping {
   uint16_t spineIndex = 0;
   uint16_t startPage = 0;

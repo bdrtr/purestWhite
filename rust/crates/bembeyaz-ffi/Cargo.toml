@@ -20,6 +20,7 @@ bembeyaz-css = { path = "../bembeyaz-css" }
 bembeyaz-font = { path = "../bembeyaz-font" }
 bembeyaz-html = { path = "../bembeyaz-html" }
 bembeyaz-book = { path = "../bembeyaz-book" }
+bembeyaz-clippings = { path = "../bembeyaz-clippings" }
 bembeyaz-hyphenation = { path = "../bembeyaz-hyphenation" }
 bembeyaz-io = { path = "../bembeyaz-io" }
 bembeyaz-jpeg = { path = "../bembeyaz-jpeg" }

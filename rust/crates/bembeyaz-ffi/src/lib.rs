@@ -8,6 +8,7 @@ extern crate alloc;
 mod bidi;
 mod bmp;
 mod book;
+mod clippings;
 mod compressed;
 mod container;
 mod cpfont;

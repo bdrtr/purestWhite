@@ -1,8 +1,9 @@
 # File Formats
 
 These formats describe the SD-card cache files under `/.crosspoint/epub_<hash>/`.
-All POD fields are written in the ESP32 little-endian representation used by
-`Serialization.h`; strings are length-prefixed UTF-8.
+All POD fields are little-endian, as the ESP32 stores them; strings are a uint32
+length, then that many UTF-8 bytes. The `bembeyaz-*` crates under `rust/crates`
+read and write these files.
 
 ## `book.bin`
 
@@ -666,7 +667,8 @@ Version 4 retains the version 3 header and page-local range fields. After each
 record's layout signature it stores `startOffset` and `endOffset` (uint32 chapter
 codepoint range, end exclusive; UINT32_MAX means unavailable), `syncRevision`
 (uint64), `pendingUpload` (one byte), and a 65-byte NUL-terminated sync ID. The
-chapter title, text length, and text follow. Versions 1–3 remain readable.
+chapter title, text length, and text follow. Versions 1–3 remain readable
+(`rust/crates/bembeyaz-clippings`).
 
 Stable IDs are saved before upload. A sibling `.deleted` file stores fixed
 65-byte IDs awaiting server acknowledgement. Deletions are queued before the
