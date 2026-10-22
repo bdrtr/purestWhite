@@ -281,3 +281,26 @@ TEST(ClippingStore, MoveRefusesExistingDestinationHistoryAndDeleteCleansSidecars
   EXPECT_FALSE(Storage.exists((path + ".bak").c_str()));
   EXPECT_FALSE(Storage.exists((path + ".tmp").c_str()));
 }
+
+TEST(ClippingStore, RewriteWithoutCopyBufferStillCopiesTexts) {
+  fake::reset();
+  ClippingStore store;
+  ASSERT_TRUE(store.loadForBook("/book.epub", "Book", "Author", "epub"));
+  const std::string long1(1000, 'a'), long2 = std::string(300, 'b') + "end";
+  ASSERT_EQ(add(store, long1), Result::Added);
+  ASSERT_EQ(add(store, long2), Result::Added);
+  // The offsets array is allocated; the copy buffer is not.
+  fake::failAlloc = 1;
+  ASSERT_EQ(add(store, "three"), Result::Added);
+  EXPECT_TRUE(fake::failureTriggered);
+  store.unload();
+  ASSERT_TRUE(store.loadForBook("/book.epub", "Book", "Author", "epub"));
+  ASSERT_EQ(store.clippingCount(), 3u);
+  std::string text;
+  ASSERT_TRUE(store.readClippingText(0, text));
+  EXPECT_EQ(text, long1);
+  ASSERT_TRUE(store.readClippingText(1, text));
+  EXPECT_EQ(text, long2);
+  ASSERT_TRUE(store.readClippingText(2, text));
+  EXPECT_EQ(text, "three");
+}

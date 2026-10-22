@@ -1,0 +1,29 @@
+# With the store from make_clipping_store.py (1000 clippings, about 4 MiB) on the card: clip a
+# word, which rewrites the store and copies every text, then remove the clipping, which does
+# it again. The marks time each rewrite.
+ready
+touch:240,348
+wait-screen
+touch:240,138
+wait-log:Page render
+wait-quiet:3
+timeout:600
+touch:240,300:1200
+wait-quiet:3
+shot:select
+mark:add
+touch:262,246
+wait-log:Page render
+mark:added
+wait-quiet:3
+shot:clipped
+mark:remove
+touch:160,312:1200
+wait-log:Page render
+mark:removed
+wait-quiet:3
+shot:removed
+heap:removed
+press:home
+wait-quiet:3
+shot:home-again

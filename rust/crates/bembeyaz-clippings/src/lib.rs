@@ -16,7 +16,6 @@ pub const ID_LEN: usize = 65;
 #[allow(clippy::cast_possible_truncation)]
 const ID_STEP: u32 = ID_LEN as u32;
 pub const CHAPTER_LEN: usize = 48;
-const COPY_CHUNK: u32 = 128;
 
 /// A clipping's record (`bb_clip_record` in clippings.h): where it is in the book, its sync
 /// state and where its text is in the store file.
@@ -237,12 +236,13 @@ pub struct Replacement<'a> {
 }
 
 /// Writes the store (version 4) from offset 0: the header strings, then `count` records with
-/// their texts, each from `replacement` or copied from `source`, the old file, at the record's
-/// text offset. `offsets` takes each text's offset in the new file. False when a header string is
+/// their texts, each from `replacement` or copied from `old` (the old file and a copy buffer) at
+/// the record's text offset; a text longer than the buffer takes several reads and writes.
+/// `offsets` takes each text's offset in the new file. False when a header string is
 /// over [`TEXT_MAX`], or a write, a copy or `offsets` fails.
 pub fn save(
     out: &mut impl Sink,
-    mut source: Option<&mut impl Source>,
+    mut old: Option<(&mut impl Source, &mut [u8])>,
     header: [&[u8]; 3],
     count: u16,
     records: &mut impl Save,
@@ -294,10 +294,10 @@ pub fn save(
         match new {
             Some(text) => w.push(text),
             None if len > 0 => {
-                let Some(src) = source.as_deref_mut() else {
+                let Some((src, buf)) = old.as_mut() else {
                     return false;
                 };
-                if !copy(src, r.text_offset, len, &mut w) {
+                if !copy(*src, r.text_offset, len, buf, &mut w) {
                     return false;
                 }
             }
@@ -310,16 +310,25 @@ pub fn save(
     w.finish().is_some()
 }
 
-// Copies `len` bytes from `at` in `src` to `w`.
-fn copy(src: &mut impl Source, at: u32, len: u16, w: &mut Out<'_, impl Sink>) -> bool {
-    let mut chunk = [0u8; COPY_CHUNK as usize];
+// Copies `len` bytes from `at` in `src` to `w` through `buf`.
+fn copy(
+    src: &mut impl Source,
+    at: u32,
+    len: u16,
+    buf: &mut [u8],
+    w: &mut Out<'_, impl Sink>,
+) -> bool {
+    let chunk = u32::try_from(buf.len()).unwrap_or(u32::MAX);
     let Some(end) = at.checked_add(u32::from(len)) else {
         return false;
     };
+    if chunk == 0 {
+        return false;
+    }
     let mut at = at;
     while at < end {
-        let n = (end - at).min(COPY_CHUNK);
-        let Some(part) = chunk.get_mut(..n as usize) else {
+        let n = (end - at).min(chunk);
+        let Some(part) = buf.get_mut(..n as usize) else {
             return false;
         };
         if !src.read_at(at, part) {
@@ -448,7 +457,7 @@ mod tests {
             let mut old = Bytes::new(file.data.clone());
             let ok = save(
                 &mut out,
-                Some(&mut old),
+                Some((&mut old, &mut [0u8; 7][..])),
                 [b"Title", b"Author", b"/book.epub"],
                 texts.len() as u16,
                 &mut List(records.clone()),
@@ -581,9 +590,10 @@ mod tests {
         let mut out = Bytes::new(Vec::new());
         let mut offsets = [0u32; 1];
         let mut records = records;
+        let mut buf = [0u8; 3];
         assert!(save(
             &mut out,
-            Some(&mut old),
+            Some((&mut old, &mut buf[..])),
             header,
             1,
             &mut records,
@@ -594,7 +604,7 @@ mod tests {
         let mut short = Bytes::new(b"..abc".to_vec());
         assert!(!save(
             &mut out,
-            Some(&mut short),
+            Some((&mut short, &mut buf[..])),
             header,
             1,
             &mut records,
@@ -603,7 +613,7 @@ mod tests {
         ));
         assert!(!save(
             &mut out,
-            None::<&mut Bytes>,
+            None::<(&mut Bytes, &mut [u8])>,
             header,
             1,
             &mut records,
@@ -612,18 +622,28 @@ mod tests {
         ));
         assert!(!save(
             &mut out,
-            Some(&mut old),
+            Some((&mut old, &mut buf[..])),
             header,
             1,
             &mut records,
             None,
             &mut []
         ));
+        // No room to copy through.
+        assert!(!save(
+            &mut out,
+            Some((&mut old, &mut [][..])),
+            header,
+            1,
+            &mut records,
+            None,
+            &mut offsets
+        ));
         // A header string it would not read back.
         let long = vec![b't'; usize::from(TEXT_MAX) + 1];
         assert!(!save(
             &mut out,
-            Some(&mut old),
+            Some((&mut old, &mut buf[..])),
             [b"", &long, b""],
             1,
             &mut records,
@@ -693,7 +713,7 @@ mod tests {
                 let mut old = Bytes::new(bytes.clone());
                 let _ = save(
                     &mut Bytes::new(Vec::new()),
-                    Some(&mut old),
+                    Some((&mut old, &mut buf[..size])),
                     [&found.title, &found.author, b""],
                     count,
                     &mut List(found.records),

@@ -96,13 +96,15 @@ impl Save for Records<'_> {
 
 /// # Safety
 ///
-/// `out`, `source` and `records` are null or as clippings.h describes; `header` and
-/// `header_len` are null or hold 3 strings and their lengths; `text` is null or holds
-/// `text_len` bytes; `offsets` holds `count` writable values.
+/// `out`, `source` and `records` are null or as clippings.h describes; `buf` is null or holds
+/// `buf_len` writable bytes; `header` and `header_len` are null or hold 3 strings and their
+/// lengths; `text` is null or holds `text_len` bytes; `offsets` holds `count` writable values.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bb_clip_save(
     out: *const SinkView,
     source: *const FileView,
+    buf: *mut u8,
+    buf_len: usize,
     header: *const [*const c_char; 3],
     header_len: *const [usize; 3],
     count: u16,
@@ -133,6 +135,8 @@ pub unsafe extern "C" fn bb_clip_save(
     }
     // SAFETY: as documented.
     let mut source = unsafe { source.as_ref() };
+    // SAFETY: the caller's buffer.
+    let buf = unsafe { view_mut(buf, buf_len) };
     let new = (!text.is_null()).then(|| Replacement {
         index: replacement,
         // SAFETY: the caller's text.
@@ -142,7 +146,7 @@ pub unsafe extern "C" fn bb_clip_save(
     let offsets = unsafe { view_mut(offsets, usize::from(count)) };
     clip::save(
         &mut out,
-        source.as_mut(),
+        source.as_mut().map(|s| (s, buf)),
         strings,
         count,
         &mut Records(records, record),

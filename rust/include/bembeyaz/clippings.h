@@ -78,11 +78,14 @@ typedef struct {
 // Writes the store file (version 4) to out from offset 0: the header strings, then count records
 // with their texts. Record replacement's text is text (text_len bytes, at most BB_CLIP_TEXT_MAX
 // kept) unless text is NULL; every other text is copied from source (the old store file, NULL for
-// none). offsets (count values) takes each text's offset in the new file. False when an argument
-// is NULL, a header string is over BB_CLIP_TEXT_MAX, or a write or a copy fails.
-bool bb_clip_save(const bb_io_sink* out, const bb_io_file* source, const char* const header[3],
-                  const size_t header_len[3], uint16_t count, const bb_clip_records* records, uint16_t replacement,
-                  const char* text, size_t text_len, uint32_t* offsets);
+// none) through buf (buf_len bytes; BB_CLIP_TEXT_MAX bytes copy any text in one read and one
+// write; a NULL or empty buf fails any copy). offsets (count values) takes each text's offset in
+// the new file. False when out, header, header_len or records is NULL, a header string is over
+// BB_CLIP_TEXT_MAX, or a write or a copy fails.
+bool bb_clip_save(const bb_io_sink* out, const bb_io_file* source, uint8_t* buf, size_t buf_len,
+                  const char* const header[3], const size_t header_len[3], uint16_t count,
+                  const bb_clip_records* records, uint16_t replacement, const char* text, size_t text_len,
+                  uint32_t* offsets);
 
 // The next id from *offset in the deletion journal that known (an id still in the store) does
 // not know, with *offset past it; an empty id at the journal's end. False when *offset is not a

@@ -1124,3 +1124,27 @@ küçüldü, RAM değişmedi.
 - [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğünde `[CLIP] Clipping file damaged
   or cut`, `[CLIP] Failed to write clipping file` ya da `[CLIP] Invalid or unreadable clipping
   deletion journal` satırları görünmemeli.
+
+## Alıntı metinleri tek seferde kopyalanır ("perf: copy clipping texts in one read and one write")
+
+Bir alıntı eklendiğinde ya da silindiğinde alıntı dosyası baştan yazılır ve eski metinler eski
+dosyadan kopyalanır. Kopyalama 128 baytlık parçalarla yapılıyordu: SdFat'ın tek sektör önbelleği her
+parçada iki dosya arasında gidip geldiği için büyük bir depo çok yavaştı. Artık her metin, dosya her
+yeniden yazıldığında PSRAM'den ayrılan 4 KB'lık bir tamponla (en uzun alıntı metni kadar) tek okuma
+ve tek yazmayla kopyalanıyor; tampon yalnızca yazma süresince ve yalnızca eski dosya varken
+ayrılıyor. SD sürücüsü kendi DMA tamponunu kullandığı için PSRAM sorun değil. PSRAM'de yer yoksa
+kopya eskisi gibi 128 baytlık parçalarla yapılır: daha yavaş, ama yazma başarısız olmaz (yeni bir
+host testi bunu sabitliyor; toplam 1003 test). Yeni `emu/make_clipping_store.py` 1000 adet 4 KB'lık
+alıntılı (yaklaşık 4 MB) bir depo kuruyor; `emu/clipping-large.txt` bu depoyla bir alıntı ekleyip
+siliyor. Emülatörde ekleme 90,4 s'den 11,1 s'ye, silme 90,9 s'den 11,3 s'ye indi (yaklaşık 8 kat);
+ekran görüntüleri ve boş bellek değişmedi, ekleyip silen çalıştırmada iki firmware'in kartta
+bıraktığı dosyalar bayt bayt aynıydı. Eski ve yeni kodun 12.000 durumluk fark testinde çıktılar yine
+bayt bayt aynıydı. Kalan 11 saniyenin çoğu, hizasız metinlerin sektör kenarlarındaki tek sektörlük
+SD komutları; daha fazlası için dosyanın değişmeyen kısımları sektör hizalı bloklarla kopyalanmalı
+(ayrı bir iş). x4pro'da flash 152 bayt büyüdü, RAM değişmedi.
+
+- [ ] Çok alıntılı bir kitapta (onlarca uzun alıntı) bir alıntı ekleyin ve silin; önceki firmware'le
+  ve bununla süreleri not edin (emülatörde 4 MB'lık depoda yaklaşık 8 kat hızlandı). Sonra kitabı
+  yeniden açın: "Alıntıları Görüntüle" listesindeki diğer alıntıların metinleri doğru olmalı.
+- [ ] Alıntı eşitlemesi kuruluysa alıntıları olan bir kitabı eşitleyin: alıntılar eskisi gibi
+  gidip gelmeli, seri günlükte `[CLIP] Failed to write clipping file` görünmemeli.

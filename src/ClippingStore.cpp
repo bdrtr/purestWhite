@@ -1,6 +1,7 @@
 #include "ClippingStore.h"
 
 #include <Epub/FileIo.h>
+#include <HalMemory.h>
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -544,6 +545,14 @@ bool ClippingStore::writeToFile(const std::string* replacementText, const size_t
     return false;
   }
 
+  // Each old text is copied in one read and one write: small chunks make SdFat's single sector
+  // cache swap between the two files on every chunk. PSRAM is fine, as the SD driver copies
+  // through its own DMA buffer; without it the copy is slower, not failed.
+  const auto copyBuffer = source ? HalMemory::allocatePsram(CLIPPING_TEXT_MAX) : nullptr;
+  uint8_t smallBuffer[128];
+  uint8_t* const copy = copyBuffer ? copyBuffer.get() : smallBuffer;
+  const size_t copyLen = copyBuffer ? CLIPPING_TEXT_MAX : sizeof(smallBuffer);
+
   HalFile f = Storage.open(tmpPath.c_str(), O_WRONLY | O_CREAT | O_TRUNC);
   if (!f) {
     if (source) source.close();
@@ -559,7 +568,7 @@ bool ClippingStore::writeToFile(const std::string* replacementText, const size_t
   const bb_io_sink sink = file_io::sinkOf(f);
   const bb_io_file sourceFile = source ? file_io::fileOf(source) : bb_io_file{};
   const std::string* replacement = replacementIndex < count ? replacementText : nullptr;
-  if (!bb_clip_save(&sink, source ? &sourceFile : nullptr, header, headerLen, count, &records,
+  if (!bb_clip_save(&sink, source ? &sourceFile : nullptr, copy, copyLen, header, headerLen, count, &records,
                     static_cast<uint16_t>(replacement ? replacementIndex : 0),
                     replacement ? replacement->data() : nullptr, replacement ? replacement->size() : 0,
                     newTextOffsets.get())) {
