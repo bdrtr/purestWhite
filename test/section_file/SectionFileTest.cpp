@@ -2,6 +2,7 @@
 #include <Epub/Page.h>
 #include <Epub/Section.h>
 #include <GfxRenderer.h>
+#include <bembeyaz/section.h>
 #include <gtest/gtest.h>
 #include <unistd.h>
 
@@ -22,8 +23,9 @@ namespace {
 // The section file as written today, decoded independently of Section: a packed 44-byte header, the pages,
 // then the page LUT, the anchor map, the paragraph LUT (count first), the list-item LUT, the visible-offset
 // LUT and, for a partial, the parse watermark.
-constexpr uint8_t VERSION = 60;
-constexpr uint8_t PARTIAL_VERSION = 0xFE - (VERSION - 28);
+constexpr uint8_t VERSION = BB_SECTION_VERSION;
+constexpr uint8_t PARTIAL_VERSION = BB_SECTION_PARTIAL_VERSION;
+static_assert(PARTIAL_VERSION == 0xFE - (VERSION - 28), "the partial version follows the version");
 constexpr size_t HEADER_SIZE = 44;
 constexpr size_t PAGE_COUNT_AT = 22;
 constexpr size_t LUT_AT = 24;
@@ -127,9 +129,8 @@ class SectionFileTest : public ::testing::Test {
   GfxRenderer renderer;
 
   void SetUp() override {
-    dir = fs::temp_directory_path() /
-          ("section_file_" + std::to_string(::getpid()) + "_" +
-           ::testing::UnitTest::GetInstance()->current_test_info()->name());
+    dir = fs::temp_directory_path() / ("section_file_" + std::to_string(::getpid()) + "_" +
+                                       ::testing::UnitTest::GetInstance()->current_test_info()->name());
     fs::remove_all(dir);
     fs::create_directories(dir);
     epub->cachePath = dir.string();
@@ -412,7 +413,7 @@ TEST_F(SectionFileTest, TocBoundariesFollowTheAnchors) {
   }
 }
 
-// Damaged tables: what each lookup gives today.
+// Damaged tables: what each lookup gives.
 TEST_F(SectionFileTest, TablesPastTheEndAreRefused) {
   build(paragraphs(12, 10));
   const auto good = readBin();
@@ -493,6 +494,88 @@ TEST_F(SectionFileTest, AnAnchorMapCutShortFindsNothingPastTheCut) {
   EXPECT_EQ(section->getPageForAnchor("missing"), std::nullopt);
 }
 
+// A TOC anchor of any length is found in the anchor map.
+TEST_F(SectionFileTest, ALongTocAnchorMarksItsPage) {
+  const std::string id(300, 'x');
+  std::string html = "<html><body>";
+  for (int n = 0; n < 12; ++n) {
+    html += n == 8 ? "<p id=\"" + id + "\">" : "<p>";
+    for (int w = 0; w < 10; ++w) html += (w ? " " : "") + std::to_string(n) + "." + std::to_string(w);
+    html += "</p>";
+  }
+  build(html + "</body></html>");
+  epub->toc = {{"", 0}, {id, 0}};
+  const auto section = loaded();
+  ASSERT_TRUE(section);
+  const auto page = section->getPageForAnchor(id);
+  ASSERT_TRUE(page);
+  ASSERT_GT(*page, 0);
+  EXPECT_EQ(section->getTocIndexForPage(*page - 1), 0);
+  EXPECT_EQ(section->getTocIndexForPage(*page), 1);
+}
+
+// A name length past the file's end ends the TOC walk there.
+TEST_F(SectionFileTest, ADamagedAnchorNameEndsTheTocLookupThere) {
+  build(paragraphs(12, 10));
+  auto bytes = readBin();
+  const auto anchors = get<uint32_t>(bytes, ANCHORS_AT);
+  put<uint32_t>(bytes, anchors + 2, 0x7FFFFFFF);
+  writeBin(bytes);
+  epub->toc = {{"", 0}, {"p3", 0}, {"p8", 0}};
+  const auto section = loaded();
+  ASSERT_TRUE(section);
+  for (int page = 0; page < 4; ++page) EXPECT_EQ(section->getTocIndexForPage(page), 0) << page;
+  EXPECT_EQ(section->getPageForAnchor("p3"), std::nullopt);
+}
+
+// A page LUT entry inside the header is no page.
+TEST_F(SectionFileTest, APagePositionInsideTheHeaderIsNotLoaded) {
+  build(paragraphs(12, 10));
+  auto bytes = readBin();
+  const auto lut = get<uint32_t>(bytes, LUT_AT);
+  put<uint32_t>(bytes, lut + 4, HEADER_SIZE - 1);
+  writeBin(bytes);
+  auto section = loaded();
+  ASSERT_TRUE(section);
+  EXPECT_TRUE(section->loadPage(0));
+  EXPECT_EQ(section->loadPage(1), nullptr);
+  EXPECT_TRUE(section->loadPage(2));
+
+  // A LUT past the end: no page can be found.
+  put<uint32_t>(bytes, LUT_AT, static_cast<uint32_t>(bytes.size()));
+  writeBin(bytes);
+  section = loaded();
+  ASSERT_TRUE(section);
+  EXPECT_EQ(section->loadPage(0), nullptr);
+}
+
+// Table offsets near 4 GB find nothing.
+TEST_F(SectionFileTest, TableOffsetsNearFourGigabytesFindNothing) {
+  build(paragraphs(12, 10));
+  auto bytes = readBin();
+  put<uint32_t>(bytes, VISIBLE_AT, 0xFFFFFFF0u);
+  writeBin(bytes);
+  const auto section = loaded();
+  ASSERT_TRUE(section);
+  EXPECT_EQ(section->getVisibleTextOffsetForPage(1), std::nullopt);
+  EXPECT_EQ(section->getPageForVisibleTextOffset(0), std::nullopt);
+  const auto page = section->loadPage(1);
+  ASSERT_TRUE(page);
+  EXPECT_EQ(page->visibleTextOffset, 0u);
+}
+
+// A flag byte other than 0 or 1 matches neither setting.
+TEST_F(SectionFileTest, AFlagByteOtherThanZeroOrOneIsAnotherSpec) {
+  build(paragraphs(4, 10));
+  const auto good = readBin();
+  for (const size_t at : {9u, 16u, 17u, 19u}) {
+    auto bytes = good;
+    bytes[at] = 2;
+    writeBin(bytes);
+    EXPECT_EQ(loaded(), nullptr) << at;
+  }
+}
+
 TEST_F(SectionFileTest, AMalformedPartialIsDropped) {
   epub->contents[epub->spine[0]] = paragraphs(24, 10);
   {
@@ -557,6 +640,7 @@ TEST_F(SectionFileTest, AShortFileReadsAsEmpty) {
 // Random damage anywhere in the file: no lookup may crash or hang.
 TEST_F(SectionFileTest, AnyDamageNeverCrashes) {
   build(paragraphs(12, 10));
+  epub->toc = {{"", 0}, {"p3", 0}, {"p8", 0}};
   const auto good = readBin();
   uint32_t seed = 0x5ec7105e;
   const auto next = [&seed]() {
@@ -587,6 +671,7 @@ TEST_F(SectionFileTest, AnyDamageNeverCrashes) {
     (void)section->getPageForParagraphIndex(next() % 20);
     (void)section->getPageForListItemIndex(next() % 20);
     (void)section->getPageForAnchor("p3");
+    (void)section->getTocIndexForPage(next() % 6);
     (void)section->estimatedTotalPages();
   }
 }

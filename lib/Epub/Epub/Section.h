@@ -1,8 +1,11 @@
 #pragma once
+#include <bembeyaz/section.h>
+
 #include <functional>
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "Epub.h"
@@ -23,20 +26,14 @@ class Section {
   void writeSectionFileHeader(const ReaderRenderSpec& spec);
   uint32_t onPageComplete(std::unique_ptr<Page> page);
 
-  // Page-offset table entry, kept in RAM while an incremental build is running so
-  // already-built pages can be located in the partially-written .bin.
-  struct PageLutEntry {
-    uint32_t fileOffset;
-    uint16_t paragraphIndex;
-    uint16_t listItemIndex;
-    uint32_t visibleTextOffset;
-  };
   // Held only while an incremental build is in progress (see startBuild). Carries the
   // live parser plus the strings it references (the parser stores them by reference)
   // and the in-RAM page-offset table.
   struct BuildContext {
     std::unique_ptr<ChapterHtmlSlimParser> parser;
-    std::vector<PageLutEntry> lut;
+    // Page-offset table, kept in RAM while an incremental build is running so
+    // already-built pages can be located in the partially-written .bin.
+    std::vector<bb_section_lut_entry> lut;
     std::string parsePath;
     std::string contentBase;
     std::string imageBasePath;
@@ -68,7 +65,7 @@ class Section {
   bool finalizeBuild();
   // Write the LUTs/anchor map (and, for a partial, the watermark trailer), patch the
   // header, stamp the version byte, and swap the tmp .bin over filePath.
-  bool commitBuildFile(uint8_t version, uint32_t bytesConsumed, uint32_t totalBytes);
+  bool commitBuildFile(bool asPartial, uint32_t bytesConsumed, uint32_t totalBytes);
   // Builds write here and are swapped over filePath only on commit, so a prior
   // partial/finalized file stays readable while a rebuild is in progress.
   std::string binTmpPath() const { return filePath + ".part"; }
@@ -76,7 +73,6 @@ class Section {
   // Read a page already laid out by the in-progress build (page < build LUT size), from
   // the partially-written tmp .bin without disturbing the build's write cursor.
   std::unique_ptr<Page> loadPageDuringBuild(int page);
-  bool openAnchorMap(HalFile& anchorFile, uint16_t& count) const;
 
  public:
   uint16_t pageCount = 0;
@@ -137,7 +133,7 @@ class Section {
   // Look up an anchor among the pages built so far by the in-progress build, so an anchor jump
   // (TOC / chapter select, usually the chapter top = page 0) can resolve without laying out the
   // whole chapter. Returns nullopt if the anchor hasn't been reached yet (build more) or no build.
-  std::optional<uint16_t> findAnchorDuringBuild(const std::string& anchor) const;
+  std::optional<uint16_t> findAnchorDuringBuild(std::string_view anchor) const;
 
   // Get the page count from the section cache file without fully loading it.
   std::optional<uint16_t> getCachedPageCount() const;
@@ -167,6 +163,6 @@ class Section {
   // False with no build running -- there is nothing left to wait for, so the on-disk
   // cache answers directly.
   bool buildReachedVisibleTextOffset(uint32_t offset) const {
-    return build_ && !build_->lut.empty() && offset <= build_->lut.back().visibleTextOffset;
+    return build_ && !build_->lut.empty() && offset <= build_->lut.back().visible;
   }
 };

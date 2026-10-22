@@ -28,6 +28,7 @@ bembeyaz-library = { path = "../bembeyaz-library" }
 bembeyaz-opf = { path = "../bembeyaz-opf" }
 bembeyaz-path = { path = "../bembeyaz-path" }
 bembeyaz-png = { path = "../bembeyaz-png" }
+bembeyaz-section = { path = "../bembeyaz-section" }
 bembeyaz-toc = { path = "../bembeyaz-toc" }
 bembeyaz-utf8 = { path = "../bembeyaz-utf8" }
 bembeyaz-xtc = { path = "../bembeyaz-xtc" }

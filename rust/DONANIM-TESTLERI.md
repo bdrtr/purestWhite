@@ -950,3 +950,51 @@ geçişlerinde).
 - [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğünde `[FDC] Decompression failed`,
   `[FDC] Glyph … not found in any group`, `[FDC] Failed to allocate`, `page buffer slots full` ya
   da `Inflate state OOM` satırları görünmemeli.
+
+## Bölüm dosyası tabloları Rust'ta ("rust: our own section file tables")
+
+Kitap okunurken her bölümün sayfaları SD karttaki önbellekte bir bölüm dosyasına yazılır
+(`sections/<n>.bin`). Bu dosyanın başlığını (yerleşim ayarlarının denetimi dahil), yarım kalmış bir
+derlemenin ilerleme bilgisini ve sayfa, çapa (dipnot ve içindekiler hedefleri), paragraf, liste
+öğesi ve görünür metin konumu tablolarını okuyan ve derleme sonunda yazan kod artık
+`bembeyaz-section`'ın `file` modülünde; biçimin sürümü (60) ve geçmişi de orada. Dosya açma,
+yeniden adlandırma, derlemenin yürütülmesi ve sayfa içerikleri C++'ta kaldı. 4eacfd40'a kadar
+Section için hiç test yoktu; o commit'in 14 testi ve bu sürümün 5 regresyon testi gerçek HTML
+ayrıştırıcısıyla bölüm kurup dosya biçimini ve her aramayı sabitliyor; toplam 969 host testi
+geçiyor. Bir fark testi eski C++ kodunu Rust koduyla rastgele bölümlerde ve bozulmuş dosyalarda
+karşılaştırdı: iki taraf bayt bayt aynı dosyayı yazdı. Okumadaki farkların hepsi bozuk dosyalardaki
+bilinçli düzeltmelerdi; eski davranış tanımsız, cihazla bilgisayarda farklı ya da bir kilitlenme
+olduğu için bu taşıma onları korumadı, ayrı ayrı regresyon testleriyle düzeltti:
+
+- açık/kapalı ayarlarından birinin baytı 0 ya da 1 değilse dosya başka ayarlarla dizilmiş sayılır
+  (eski kod bunu tanımsız davranışla bool olarak okuyordu);
+- 4 GB'a yakın tablo konumları taşıp dosyanın başını göstermez;
+- başlığın içini gösteren bir sayfa konumu sayfa diye okunmaz;
+- içindekiler araması bozuk bir çapa adı uzunluğu yüzünden gigabaytlarca bellek ayırıp okumaz,
+  orada durur (eski kod fark testinde dakikalarca takıldı).
+
+Emülatörde okuma ve kitap açma ekranları değiştirilmemiş CrossPoint'le, okuma ekranları bir önceki
+sürümle aynıydı; sayfa çizme süresi değişmedi (1.260–1.261 ms yerine 1.259–1.260 ms).
+
+- [ ] Önceki firmware'le açılmış bir kitabı (bir bölümü tam dizilmiş, uzun bir bölümü yarım
+  kalmış) yeni sürümü yükledikten sonra açın: yeniden dizilmeden hemen açılmalı, günlükte
+  `Unknown version` ya da `Parameters do not match` olmamalı.
+- [ ] Bir kitabı açıp birkaç sayfa okuyun, kitaptan çıkıp yeniden açın: aynı sayfada ve hemen
+  açılmalı (bölüm önbellekten okunur).
+- [ ] Okurken metin menüsünden yazı boyutunu değiştirin (Türkçe arayüzde bu satır şimdilik
+  "Arayüz Yazı Boyutu" diye görünüyor): bölüm yeniden dizilmeli, sayfalar yeni boyutta olmalı;
+  eski boyuta dönünce de doğru görünmeli.
+- [ ] Uzun bir bölümün dizilmesi sürerken kitaptan çıkıp yeniden açın: kaldığınız sayfa hemen
+  açılmalı; kayıtlı sayfaların sonuna yaklaşınca kalan sayfalar arkada dizilmeli ve bölümün sonuna
+  kadar okunabilmeli.
+- [ ] Aynı bölüm dosyasında birden çok içindekiler girdisi olan bir kitapta İçindekiler'den bir alt
+  başlığa atlayın ve metindeki bir dipnot bağlantısını izleyin: ikisi de doğru yere gitmeli. Birkaç
+  sayfa çevirip İçindekiler'i yeniden açın: imleç bulunduğunuz alt başlıkta olmalı.
+- [ ] KOReader eşitlemesi kullanılıyorsa konumu "Yerel ilerlemeyi yükle" ile gönderin, başka bir
+  bölüme geçin, eşitlemeyi yeniden açıp "Uzak ilerlemeyi uygula"yı seçin: gönderdiğiniz sayfaya
+  dönmeli.
+- [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğünde `[SCT] Deserialization failed`
+  (ayar değiştirdikten sonra her bölüm ilk açıldığında görülen `Parameters do not match` dışında),
+  `Failed to write the section tables` ya da `Failed to write LUT due to invalid page positions`
+  satırları görünmemeli; uzun bölümden ilk kez çıkarken `Suspended build: … pages persisted`
+  görünmeli.

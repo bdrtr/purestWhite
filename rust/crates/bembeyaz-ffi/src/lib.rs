@@ -25,6 +25,7 @@ mod opf;
 mod path;
 mod png;
 mod png_cover;
+mod section;
 mod table;
 mod toc;
 mod utf8;

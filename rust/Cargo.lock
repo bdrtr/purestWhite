@@ -50,6 +50,7 @@ dependencies = [
  "bembeyaz-opf",
  "bembeyaz-path",
  "bembeyaz-png",
+ "bembeyaz-section",
  "bembeyaz-toc",
  "bembeyaz-utf8",
  "bembeyaz-xml",
@@ -136,6 +137,10 @@ version = "0.1.0"
 dependencies = [
  "bembeyaz-inflate",
 ]
+
+[[package]]
+name = "bembeyaz-section"
+version = "0.1.0"
 
 [[package]]
 name = "bembeyaz-toc"
