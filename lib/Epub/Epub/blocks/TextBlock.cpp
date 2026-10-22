@@ -1,6 +1,7 @@
 #include "TextBlock.h"
 
 #include <BidiUtils.h>
+#include <FileIo.h>
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -9,7 +10,6 @@
 #include <cstring>
 
 #include "../../../../src/fontIds.h"
-#include "../FileIo.h"
 
 size_t TextBlock::arenaSize(const uint16_t wordCount, const bool hasFocus, const uint16_t textBytes) {
   // Layout documented in TextBlock.h: 16-bit arrays first, then 8-bit arrays, then text. The page

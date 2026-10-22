@@ -1,6 +1,7 @@
 #include "BookMetadataCache.h"
 
 #include <BufferedFile.h>
+#include <FileIo.h>
 #include <Logging.h>
 #include <Memory.h>
 #include <Utf8.h>
@@ -11,7 +12,6 @@
 #include <mutex>
 #include <optional>
 
-#include "FileIo.h"
 #include "FsHelpers.h"
 
 // book.bin's format and version live in rust/crates/bembeyaz-book (cache.rs).

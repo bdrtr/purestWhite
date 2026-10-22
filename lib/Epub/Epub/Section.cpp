@@ -1,5 +1,6 @@
 #include "Section.h"
 
+#include <FileIo.h>
 #include <FontCacheManager.h>
 #include <GfxRenderer.h>
 #include <HalStorage.h>
@@ -14,7 +15,6 @@
 #include <utility>
 
 #include "Epub/css/CssParser.h"
-#include "FileIo.h"
 #include "Page.h"
 #include "hyphenation/Hyphenator.h"
 #include "parsers/ChapterHtmlSlimParser.h"

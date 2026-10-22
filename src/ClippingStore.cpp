@@ -1,7 +1,7 @@
 #include "ClippingStore.h"
 
 #include <BufferedFile.h>
-#include <Epub/FileIo.h>
+#include <FileIo.h>
 #include <HalMemory.h>
 #include <HalStorage.h>
 #include <Logging.h>

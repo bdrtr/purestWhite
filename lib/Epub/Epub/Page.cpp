@@ -1,5 +1,6 @@
 #include "Page.h"
 
+#include <FileIo.h>
 #include <GfxRenderer.h>
 #include <Logging.h>
 #include <Memory.h>
@@ -7,8 +8,6 @@
 #include <bembeyaz/page.h>
 
 #include <cstddef>
-
-#include "FileIo.h"
 
 namespace {
 
