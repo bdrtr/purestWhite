@@ -1,6 +1,6 @@
 //! The chapter parser's inline style stack (lib/Epub's `ChapterHtmlSlimParser`): which of an
 //! element's declarations it pushes as an [`Entry`], and how the open entries fold, over the
-//! block's own style, into the style its words are set in.
+//! block's own style, into the style its words are set in; and the font sizes of blocks and words.
 
 use crate::{
     Decoration, Defined, Direction, FontStyle, FontWeight, LengthField, Style, TextAlign, Unit,
@@ -419,11 +419,59 @@ pub fn fold(
     out
 }
 
+/// The size a word is set in: each sized open entry multiplies the size so far (`block_scale`
+/// until that is positive) or, when rem, replaces it; 0 when no entry is sized.
+#[must_use]
+pub fn word_scale(stack: &[Entry], block_scale: f32) -> f32 {
+    let mut scale = 0.0;
+    for e in stack.iter().filter(|e| e.has_font_scale) {
+        let base = if scale > 0.0 { scale } else { block_scale };
+        scale = if e.font_scale_rem {
+            e.font_scale
+        } else {
+            base * e.font_scale
+        };
+    }
+    scale
+}
+
+/// Browser default sizes of headings `h1` to `h6`.
+const HEADING_SCALES: [f32; 6] = [2.0, 1.5, 1.17, 1.0, 0.83, 0.67];
+
+/// A block's size: the open entries over its `parent` block's size, then its own font size (a
+/// multiple of that, or rem), else a heading's default (`heading` 1 to 6, 0 for none); within 0.5
+/// to 3.
+#[must_use]
+pub fn block_scale(css: &Style, heading: u8, parent: f32, stack: &[Entry]) -> f32 {
+    let mut parent = parent;
+    for e in stack.iter().filter(|e| e.has_font_scale) {
+        parent = if e.font_scale_rem {
+            e.font_scale
+        } else {
+            parent * e.font_scale
+        };
+    }
+    let scale = if sized(css) {
+        let size = css.length(LengthField::FontSize);
+        if size.unit == Unit::Rem {
+            size.value
+        } else {
+            parent * size.value
+        }
+    } else {
+        match HEADING_SCALES.get(usize::from(heading).wrapping_sub(1)) {
+            Some(&h) => parent * h,
+            None => parent,
+        }
+    };
+    scale.clamp(0.5, 3.0)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::float_cmp)]
 
-    use super::{Effective, Entry, Kind, entry, fold};
+    use super::{Effective, Entry, Kind, block_scale, entry, fold, word_scale};
     use crate::{
         Decoration, Defined, Direction, FontWeight, Length, LengthField, Style, Unit, VerticalAlign,
     };
@@ -557,5 +605,48 @@ mod tests {
         assert!(!out.paragraph_direction_defined);
         let out = fold(&Style::DEFAULT, true, true, &stack[..1]);
         assert!(out.paragraph_rtl && out.direction == Direction::Rtl);
+    }
+
+    fn sized_entry(scale: f32, rem: bool) -> Entry {
+        Entry {
+            has_font_scale: true,
+            font_scale_rem: rem,
+            font_scale: scale,
+            ..Entry::EMPTY
+        }
+    }
+
+    #[test]
+    fn sizes_fold_over_the_paragraph_and_the_parent() {
+        let stack = [
+            sized_entry(1.5, false),
+            Entry::EMPTY,
+            sized_entry(0.5, false),
+        ];
+        assert_eq!(word_scale(&stack, 2.0), 1.5);
+        assert_eq!(word_scale(&[Entry::EMPTY], 2.0), 0.0);
+        // A zero size lets the next one start from the paragraph again.
+        assert_eq!(
+            word_scale(&[sized_entry(0.0, false), sized_entry(2.0, false)], 1.2),
+            2.4
+        );
+        let rem = [sized_entry(3.0, false), sized_entry(0.9, true)];
+        assert_eq!(word_scale(&rem, 1.0), 0.9);
+        let h3 = block_scale(&Style::DEFAULT, 3, 0.8, &[]);
+        assert!((h3 - 0.936).abs() < 1e-6);
+        assert_eq!(block_scale(&Style::DEFAULT, 0, 2.0, &stack), 1.5);
+        assert_eq!(block_scale(&Style::DEFAULT, 1, 2.0, &[]), 3.0);
+        assert_eq!(block_scale(&Style::DEFAULT, 7, 0.1, &[]), 0.5);
+        let rem_size = css(|s| {
+            s.set_length(
+                LengthField::FontSize,
+                Length {
+                    value: 1.1,
+                    unit: Unit::Rem,
+                },
+            );
+            s.defined.set(Defined::length(LengthField::FontSize));
+        });
+        assert_eq!(block_scale(&rem_size, 2, 0.8, &stack), 1.1);
     }
 }

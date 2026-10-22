@@ -1288,3 +1288,26 @@ flash 568 bayt büyüdü (C++ nesnesi 1073 bayt küçüldü), RAM değişmedi.
 - [ ] Kalın, italik, altı çizili ve üstü çizili metin, üst ve alt simgeler (dipnot numaraları), küçük
   büyük harf ve sağdan sola metin içeren kitapları açın (`python3 emu/make_css_epub.py <klasör>` bir
   kısmını üretir): bu stiller eskisi gibi görünmeli.
+
+## Satır içi yazı boyutu Rust'ta ("rust: our own inline font scale")
+
+Bir bölüm ayrıştırılırken her bloğun yazı boyutu şöyle bulunur: ebeveyn bloğun boyutu açık satır içi
+öğelerin boyutlarıyla çarpılır (rem olan bir öğe değeri baştan koyar), üstüne bloğun CSS `font-
+size`'ı (rem ise doğrudan, değilse ebeveyne göre) ya da başlıkların h1–h6 varsayılan oranları
+uygulanır; sonuç 0,5 ile 3 arasına sıkıştırılır. Satır içi `font-size` taşıyan span'lardaki
+sözcüklerin boyutu da yığındaki boyutların bloğun boyutuyla aynı biçimde çarpılmasıyla bulunur. Bu
+iki hesap artık `bembeyaz-css`'in `inline` modülünde; boyutlu yazı tipinin seçilmesi ve paragraftaki
+boyut yuvaları C++'ta kaldı. Bir önceki commit (a360179b) başlıkların ve satır içi boyutların tam
+değerlerini 3 testle sabitledi; toplam 1024 host testi geçiyor. Bölüm ayrıştırıcısının fark testi,
+rastgele bölümlerin dörtte üçüne yapay boyutlu yazı tipleri ekleyerek 4000 rastgele bölümde eski ve
+yeni sayfaları bayt bayt aynı buldu; başlık oranlarına bilerek konan bir hata yakalandı (sıfır
+boyutlu bir öğenin ardından gelenin yeniden paragrafın boyutundan başlamasını bozan ikinci bir hata
+fark testinde görünmedi, onu Rust birim testi yakalıyor). Emülatörde okuma ve kitap açma senaryoları
+CSS, iki yönlü, heceleme ve XML kitaplarında bir önceki sürümle aynı ekranları verdi. Bu iki
+fonksiyon `float`'ı FFI'dan değer olarak geçiren ilk fonksiyonlar; firmware'in dökümünde GCC'nin ve
+Rust'ın argümanı ve dönüşü aynı yazmaçlarda taşıdığı görüldü (yanlış olsaydı başlıkların ve boyutlu
+span'ların boyutu bozulurdu). x4pro'da flash 240 bayt büyüdü, RAM değişmedi.
+
+- [ ] Başlıkları (h1–h6), `font-size` verilmiş paragrafları ve yazı boyutu büyütülmüş ya da
+  küçültülmüş span'ları (`small`/`big` ya da `font-size` verilmiş) olan bir kitabı açın (`python3
+  emu/make_css_epub.py <klasör>` bir kısmını üretir): yazı boyutları eskisi gibi görünmeli.

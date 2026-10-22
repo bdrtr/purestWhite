@@ -190,6 +190,14 @@ typedef struct {
 void bb_css_fold_inline(const bb_css_style* css, bool block_direction_defined, bool block_rtl,
                         const bb_css_inline_entry* stack, size_t count, bb_css_effective* out);
 
+// The size a word is set in: each of the count sized open entries multiplies the size so far
+// (block_scale until that is positive) or, when rem, replaces it; 0 when no entry is sized.
+float bb_css_word_scale(const bb_css_inline_entry* stack, size_t count, float block_scale);
+// A block's size: the count open entries over its parent block's size, then css's font size (a
+// multiple of that, or rem), else a heading's default (heading 1 to 6, 0 for none); within 0.5 to 3.
+float bb_css_block_scale(const bb_css_style* css, uint8_t heading, float parent, const bb_css_inline_entry* stack,
+                         size_t count);
+
 #ifdef __cplusplus
 }
 #endif

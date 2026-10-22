@@ -565,12 +565,8 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
     linkId = currentFootnoteLinkId;
   }
   // Inline font-size spans size their words apart from the block.
-  float inlineScale = 0.0f;
-  for (const auto& entry : inlineStyleStack) {
-    if (!entry.has_font_scale) continue;
-    const float base = inlineScale > 0.0f ? inlineScale : currentTextBlock->getBlockStyle().fontScale;
-    inlineScale = entry.font_scale_rem ? entry.font_scale : base * entry.font_scale;
-  }
+  const float inlineScale =
+      bb_css_word_scale(inlineStyleStack.data(), inlineStyleStack.size(), currentTextBlock->getBlockStyle().fontScale);
   const uint8_t sizeSlot =
       inlineScale > 0.0f && (inlineSize.valid || inlineScale != currentTextBlock->getBlockStyle().fontScale)
           ? currentTextBlock->sizeSlotFor(std::clamp(inlineScale, 0.5f, 3.0f))
@@ -2428,19 +2424,10 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 
 void ChapterHtmlSlimParser::applyBlockFontScale(BlockStyle& blockStyle, const CssStyle& cssStyle,
                                                 const char* tagName) const {
-  float parentScale = blockStyleStack.empty() ? 1.0f : blockStyleStack.back().fontScale;
-  for (const auto& entry : inlineStyleStack) {
-    if (entry.has_font_scale) parentScale = entry.font_scale_rem ? entry.font_scale : parentScale * entry.font_scale;
-  }
-  float scale = parentScale;
-  if (cssStyle.hasFontSize()) {
-    scale = cssStyle.fontSize.unit == CssUnit::Rem ? cssStyle.fontSize.value : parentScale * cssStyle.fontSize.value;
-  } else if (tagName[0] == 'h' && tagName[1] >= '1' && tagName[1] <= '6' && tagName[2] == '\0') {
-    // Browser default heading sizes, h1..h6.
-    static constexpr float HEADING_SCALES[] = {2.0f, 1.5f, 1.17f, 1.0f, 0.83f, 0.67f};
-    scale = parentScale * HEADING_SCALES[tagName[1] - '1'];
-  }
-  blockStyle.fontScale = std::clamp(scale, 0.5f, 3.0f);
+  const bool heading = tagName[0] == 'h' && tagName[1] >= '1' && tagName[1] <= '6' && tagName[2] == '\0';
+  blockStyle.fontScale = bb_css_block_scale(cssOf(cssStyle), heading ? static_cast<uint8_t>(tagName[1] - '0') : 0,
+                                            blockStyleStack.empty() ? 1.0f : blockStyleStack.back().fontScale,
+                                            inlineStyleStack.data(), inlineStyleStack.size());
   blockStyle.fontScaleDefined = true;
 }
 

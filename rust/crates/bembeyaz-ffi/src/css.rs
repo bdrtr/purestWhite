@@ -379,3 +379,31 @@ pub unsafe extern "C" fn bb_css_fold_inline(
         )
     };
 }
+
+/// # Safety
+/// `stack` is NULL or holds `count` entries.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_css_word_scale(
+    stack: *const Entry,
+    count: usize,
+    block_scale: f32,
+) -> f32 {
+    // SAFETY: as documented.
+    inline::word_scale(unsafe { crate::view(stack, count) }, block_scale)
+}
+
+/// # Safety
+/// `css` is NULL or a readable `CssStyle`; `stack` is NULL or holds `count` entries.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_css_block_scale(
+    css: *const Style,
+    heading: u8,
+    parent: f32,
+    stack: *const Entry,
+    count: usize,
+) -> f32 {
+    // SAFETY: as documented.
+    let css = unsafe { css.as_ref() }.unwrap_or(&Style::DEFAULT);
+    // SAFETY: as documented.
+    inline::block_scale(css, heading, parent, unsafe { crate::view(stack, count) })
+}
