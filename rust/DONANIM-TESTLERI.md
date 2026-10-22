@@ -1171,6 +1171,43 @@ alıntı deposunun fark testinde çıktılar yine aynı. Toplam 1006 host testi 
   alıntıların metinleri doğru görünmeli.
 - [ ] Bir kitabı açıp okuma menüsünden Kitap Önbelleğini Sil'i seçin; ana ekrana dönünce kitabı
   yeniden açın: içindekiler ve bölümler doğru olmalı. Dosya Transferi (web) ile karta yeni bir kitap
-  yükleyip kütüphaneyi açın (ya da kütüphanede bir kitaba uzun basıp "Refresh library"yi seçin):
-  yeni kitap görünmeli. Seri günlükte `[BMC] Failed building book.bin`, `[BMC] Failed writing` ya
+  yükleyip kütüphaneyi açın (ya da kütüphanenin "Recent" sekmesinde bir kitaba uzun basıp "Refresh
+  library"yi seçin): yeni kitap görünmeli. Seri günlükte `[BMC] Failed building book.bin`, `[BMC] Failed writing` ya
   da `[ERR] [LIBIDX]` satırı görünmemeli.
+
+## Kütüphane dizini yazıcısı Rust'ta ("rust: our own library index writer")
+
+Kütüphane dizini (`/.crosspoint/library.idx`) kurulurken kayıtların, iki sıralama permütasyonunun
+(yazar ve geliş) ve ad bloblarının (yol özeti, dosya adı, gösterilen yazar, başlık, kaynak yazar)
+yazılması; başlık, yazar anahtarı ve gösterilen yazımın soyadı sıralama anahtarlarının aşama
+dosyasından okunması; aynı kişinin farklı yazımları arasından en çok kullanılanın seçilmesi
+(eşitlikte kısa olan, sonra alfabetik ilk) ve değişiklik zamanlarının okunması artık
+`bembeyaz-library`'nin `build` modülünde. Klasör gezintisi, kitapların üst verisini okumak, aşama
+dosyası, eski dizinle eşleştirme (yeniden adlandırılan kitapların geliş sırasını koruma), bellek
+ayırma ve bozulma kararları, sıralama (`std::sort`), başlık ve klasör bölümü ile dosyaların yerine
+konması C++'ta kaldı. Bir önceki commit (9421d9ca) dizini 3 testle sabitledi: dizinin her bölümünü
+bağımsız çözen bir denetleyici, üretilmiş kartlarda (ilk kurulum; silme, yeniden adlandırma, ekleme
+ve dokunmadan sonra; üst veri olmadan) ve her bellek ayırma hatası noktasında dizinin kaydedilmiş
+özetleri, elle denetlenen bir yazım oylaması; toplam 1009 host testi geçiyor. Geliştirme sırasında
+bir kerelik bir fark testi (ağaçta tutulmadı) eski ve yeni kodu 1200 rastgele kartta çalıştırdı
+(2957 kurulum; 688'inde bellek, okuma, yazma ya da yeniden adlandırma hatası enjekte edildi): her
+sonuç, istatistik ve dizin bayt bayt aynıydı; koda bilerek konan bir hata hemen yakalandı. Yeni
+`emu/library.txt` senaryosu kütüphaneyi açıp dizini kuruyor ve bir daha açıyor; `emu/books` kartında
+(15 kitap) ve 600 TXT dosyalı bir kartta bir önceki sürümle ekranlar aynı, dizinler değişiklik
+zamanları dışında bayt bayt aynıydı (kartlar farklı anlarda hazırlandığı için zamanlar 36–38
+saniyelik bir farkla kayıktı), kurulum süresi de neredeyse aynı kaldı (600 kitapta yazma aşaması
+eski 4738, yeni 4697 ms). x4pro'da flash 1232 bayt büyüdü (Rust kodu yerine geçtiği C++'tan biraz
+büyük), RAM değişmedi.
+
+- [ ] Önceki firmware'le kurulmuş bir kütüphaneyi açın: kitaplar, "Title", "Author" ve "Recent"
+  sekmelerindeki sıralar ve yazar adları eskisi gibi görünmeli. Sonra karta bir kitap ekleyin
+  (Dosya Transferi ile) ve kütüphaneyi açın: dizin yeni firmware'le yeniden kurulur, sıralar ve
+  yazar adları yine eskisi gibi olmalı, yeni kitap görünmeli.
+- [ ] Aynı yazarın adı üst verisinde farklı yazılmış birkaç EPUB'u (örneğin "Lu Xun" ve "Xun Lu") karta koyup
+  kütüphanenin "Recent" sekmesinde bir kitaba uzun basarak "Refresh library"yi seçin: hepsi aynı
+  yazarın altında, en çok kullanılan yazımla görünmeli; "Author" sekmesinde soyadına göre
+  dizilmeli; yazarı olmayan kitaplar sonda, "Unknown author" altında kalmalı.
+- [ ] Yüzlerce kitaplı bir kartta bir kitap ekleyin ya da silin, sonra kütüphaneyi yenileyin
+  ("Recent" sekmesinde uzun basıp "Refresh library"): süre önceki firmware'dekine yakın olmalı,
+  seri günlükte `[LIBIDX] built:` görünmeli; `[ERR] [LIBIDX]` satırı görünmemeli. (Kartta hiçbir
+  şey değişmediyse dizin yeniden yazılmaz ve günlükte `[LIBIDX] unchanged:` görünür.)

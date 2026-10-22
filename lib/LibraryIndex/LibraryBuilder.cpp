@@ -3,6 +3,7 @@
 #include <Arduino.h>
 #include <BufferedFile.h>
 #include <Epub.h>
+#include <FileIo.h>
 #include <FsHelpers.h>
 #include <HalStorage.h>
 #include <Logging.h>
@@ -57,24 +58,23 @@ struct StagedEntry {
   char title[STAGE_NAME_BYTES];
 };
 constexpr size_t STAGE_STRIDE = sizeof(StagedEntry);
+// bembeyaz-library's build module reads the stage with this layout.
+static_assert(STAGE_STRIDE == BB_LIBRARY_STAGE_STRIDE &&
+                  offsetof(StagedEntry, pathHash) == BB_LIBRARY_STAGE_PATH_HASH &&
+                  offsetof(StagedEntry, name) == BB_LIBRARY_STAGE_NAME &&
+                  offsetof(StagedEntry, authorLen) == BB_LIBRARY_STAGE_AUTHOR_LEN &&
+                  offsetof(StagedEntry, author) == BB_LIBRARY_STAGE_AUTHOR &&
+                  offsetof(StagedEntry, titleLen) == BB_LIBRARY_STAGE_TITLE_LEN &&
+                  offsetof(StagedEntry, title) == BB_LIBRARY_STAGE_TITLE,
+              "StagedEntry layout");
 
 // Sort array element. Holding a 12-byte key prefix rather than the whole fold
 // keeps this at 14 bytes per book; ties fall back to the ordinal, so the order
 // is total and a rebuild cannot shuffle equal-prefix books between runs.
-struct SortKey {
-  char key[12];
-  uint16_t ordinal;
-};
+using SortKey = bb_library_sort_key;
 static_assert(sizeof(SortKey) == 14, "SortKey must stay small: it is the only per-book resident cost");
 
 constexpr uint8_t MAX_AUTHOR_SPELLINGS = 16;
-struct SpellingSlot {
-  char text[STAGE_AUTHOR_BYTES];
-  uint16_t ordinal;
-  uint16_t count;
-  uint8_t len;
-};
-static_assert(sizeof(SpellingSlot) <= 136, "spelling vote scratch grew unexpectedly");
 
 bool sortKeyLess(const SortKey& a, const SortKey& b) {
   const int cmp = memcmp(a.key, b.key, sizeof(a.key));
@@ -88,6 +88,29 @@ bool sortKeyLess(const SortKey& a, const SortKey& b) {
 // work between yields.
 void serviceBuilder(uint32_t& workUnits) {
   if ((++workUnits & 0x1Fu) == 0) delay(1);
+}
+
+// The stage file as bembeyaz-library's build functions read it: a failed read is logged and
+// latched in `failed`, and every read after it fails. Each read is a unit of builder work.
+struct StageReader {
+  HalFile& file;
+  bool& failed;
+  uint32_t& serviceUnits;
+};
+
+bb_library_index_file stageSource(StageReader& reader) {
+  const auto readAt = [](void* context, const uint32_t offset, void* buf, const size_t len) {
+    auto& r = *static_cast<StageReader*>(context);
+    serviceBuilder(r.serviceUnits);
+    if (r.failed) return false;
+    if (!r.file.seekSet(offset) || r.file.read(static_cast<uint8_t*>(buf), len) != static_cast<int>(len)) {
+      LOG_ERR("LIBIDX", "record stage read failed at %u", static_cast<unsigned>(offset));
+      r.failed = true;
+      return false;
+    }
+    return true;
+  };
+  return {readAt, [](void* context) { static_cast<StageReader*>(context)->failed = true; }, &reader};
 }
 
 bool recoverInterruptedInstall() {
@@ -542,13 +565,6 @@ void walk(WalkState& st, const std::string& path, const int depth) {
   dir.close();
 }
 
-// Shared by the offset and write passes so the name-blob layout has one source of
-// truth.
-uint32_t blobBytesFor(const StagedEntry& entry, const StagedEntry& canonical) {
-  return sizeof(entry.pathHash) + entry.record.nameLen + 1u + canonical.authorLen + 1u + entry.titleLen + 1u +
-         entry.authorLen;
-}
-
 bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order, const uint16_t* resolvedFirstSeen,
                const bool coreSortsAvailable, BuildStats& stats) {
   const uint16_t n = st.books;
@@ -607,15 +623,8 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
       outBuffer.write(zeros, want);
     }
   };
-  const auto readStageAt = [&stage, &ioFailed](const uint64_t offset, void* data, const size_t len) {
-    if (ioFailed) return false;
-    if (!stage.seekSet(offset) || stage.read(reinterpret_cast<uint8_t*>(data), len) != static_cast<int>(len)) {
-      LOG_ERR("LIBIDX", "record stage read failed at %u", static_cast<unsigned>(offset));
-      ioFailed = true;
-      return false;
-    }
-    return true;
-  };
+  StageReader stageReader{stage, ioFailed, serviceUnits};
+  const bb_library_index_file stageFile = stageSource(stageReader);
 
   // Header placeholder; rewritten below once the sorts have run.
   put(&header, sizeof(header));
@@ -670,19 +679,8 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
   }
   auto authorSort = rankable && n > 1 ? makeUniqueNoThrow<SortKey[]>(n) : nullptr;
   if (authorSort) {
-    for (uint16_t i = 0; i < n; i++) {
-      serviceBuilder(serviceUnits);
-      ClixRecord r{};
-      if (!readStageAt(static_cast<uint64_t>(order[i]) * STAGE_STRIDE, &r, sizeof(r))) break;
-      if (r.authorKeyLen == 0) {
-        // 0xFF outranks every folded byte, so unknown authors land at the end.
-        memset(authorSort[i].key, 0xFF, sizeof(authorSort[i].key));
-      } else {
-        memset(authorSort[i].key, 0, sizeof(authorSort[i].key));
-        memcpy(authorSort[i].key, r.authorKey, std::min<size_t>(r.authorKeyLen, sizeof(authorSort[i].key)));
-      }
-      authorSort[i].ordinal = i;
-    }
+    // Unknown authors get 0xFF keys, which sort after every folded byte, so they land at the end.
+    if (!bb_library_stage_keys(&stageFile, BB_LIBRARY_KEY_AUTHOR, order, nullptr, authorSort.get(), n)) ioFailed = true;
     if (!ioFailed) {
       if (n > 1) {
         delay(1);
@@ -710,7 +708,7 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
   // authorSort is already grouped: books by one person are contiguous in it. So
   // this is one walk over the runs, holding only the current run's spellings.
   std::unique_ptr<uint16_t[]> canonicalFrom;
-  std::unique_ptr<SpellingSlot[]> spellingScratch;
+  std::unique_ptr<bb_library_spelling[]> spellingScratch;
   if (authorSort && n > 1) {
     canonicalFrom = makeUniqueNoThrow<uint16_t[]>(n);
   }
@@ -719,7 +717,7 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
       serviceBuilder(serviceUnits);
       canonicalFrom[i] = i;
     }
-    spellingScratch = makeUniqueNoThrow<SpellingSlot[]>(MAX_AUTHOR_SPELLINGS);
+    spellingScratch = makeUniqueNoThrow<bb_library_spelling[]>(MAX_AUTHOR_SPELLINGS);
   } else if (authorSort && n > 1) {
     LOG_ERR("LIBIDX", "canonical author array alloc failed; author order degraded");
     stats.ranksDegraded = true;
@@ -729,86 +727,11 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
     stats.ranksDegraded = true;
   }
   if (!ioFailed && canonicalFrom && spellingScratch && authorSort && n > 1) {
-    uint16_t runStart = 0;
-    while (runStart < n) {
-      serviceBuilder(serviceUnits);
-      uint16_t runEnd = runStart + 1;
-      while (runEnd < n &&
-             memcmp(authorSort[runEnd].key, authorSort[runStart].key, sizeof(authorSort[runStart].key)) == 0) {
-        serviceBuilder(serviceUnits);
-        runEnd++;
-      }
-      // A run of one has nothing to reconcile, and the unknown-author run (key
-      // all 0xFF) must not be collapsed onto one arbitrary empty string.
-      const bool unknownRun = static_cast<unsigned char>(authorSort[runStart].key[0]) == 0xFF;
-      if (!unknownRun && runEnd - runStart > 1) {
-        // Each author read ONCE, then counted in RAM. The first version re-read
-        // the whole run for every member of it — k² reads of 768 bytes for a
-        // number that k reads can produce — and an author with twenty books cost
-        // four hundred SD reads to decide one string.
-        //
-        // Bounded by DISTINCT spellings rather than by run length, which is the
-        // point: one person has two or three spellings on a real card, however
-        // many books they wrote, so this holds a handful of short strings instead
-        // of one per book.
-        uint8_t spellingCount = 0;
-
-        for (uint16_t a = runStart; a < runEnd; a++) {
-          serviceBuilder(serviceUnits);
-          const uint16_t ord = authorSort[a].ordinal;
-          uint8_t len = 0;
-          if (!readStageAt(static_cast<uint64_t>(order[ord]) * STAGE_STRIDE + offsetof(StagedEntry, authorLen), &len,
-                           sizeof(len)))
-            break;
-          if (len == 0) continue;
-
-          char buf[STAGE_AUTHOR_BYTES];
-          const size_t want = std::min<size_t>(len, sizeof(buf));
-          if (!readStageAt(static_cast<uint64_t>(order[ord]) * STAGE_STRIDE + offsetof(StagedEntry, author), buf, want))
-            break;
-          bool merged = false;
-          for (uint8_t i = 0; i < spellingCount; i++) {
-            SpellingSlot& sp = spellingScratch[i];
-            if (sp.len == want && memcmp(sp.text, buf, want) == 0) {
-              sp.count++;
-              merged = true;
-              break;
-            }
-          }
-          // A hard cap so a card full of near-identical spellings cannot grow this
-          // without bound. Sixteen is far past anything real; beyond it the vote
-          // simply decides among the first sixteen.
-          if (!merged && spellingCount < MAX_AUTHOR_SPELLINGS) {
-            SpellingSlot& sp = spellingScratch[spellingCount++];
-            memcpy(sp.text, buf, want);
-            sp.ordinal = ord;
-            sp.count = 1;
-            sp.len = static_cast<uint8_t>(want);
-          }
-        }
-
-        uint16_t bestOrdinal = authorSort[runStart].ordinal;
-        int bestScore = -1;
-        size_t bestLen = 0;
-        const char* bestText = nullptr;
-        for (uint8_t i = 0; i < spellingCount; i++) {
-          const SpellingSlot& sp = spellingScratch[i];
-          const bool better = sp.count > bestScore || (sp.count == bestScore && sp.len < bestLen) ||
-                              (sp.count == bestScore && sp.len == bestLen &&
-                               (bestText == nullptr || memcmp(sp.text, bestText, sp.len) < 0));
-          if (better) {
-            bestScore = sp.count;
-            bestLen = sp.len;
-            bestText = sp.text;
-            bestOrdinal = sp.ordinal;
-          }
-        }
-        for (uint16_t a = runStart; a < runEnd; a++) {
-          serviceBuilder(serviceUnits);
-          canonicalFrom[authorSort[a].ordinal] = bestOrdinal;
-        }
-      }
-      runStart = runEnd;
+    // Each author is read once and counted in RAM, bounded by distinct spellings (sixteen, far
+    // past anything real) rather than by run length.
+    if (!bb_library_vote_spellings(&stageFile, order, authorSort.get(), n, canonicalFrom.get(), spellingScratch.get(),
+                                   MAX_AUTHOR_SPELLINGS)) {
+      ioFailed = true;
     }
   }
 
@@ -824,33 +747,10 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
   // raw one is what keeps a group whole: all of a group's books resolve to the
   // same string, so they cannot split across two places.
   if (!ioFailed && authorSort && canonicalFrom && n > 1) {
-    for (uint16_t i = 0; i < n; i++) {
-      serviceBuilder(serviceUnits);
-      // canonicalFrom holds TITLE-order positions, and the staging file is keyed
-      // by walk order — order[] is the map between them. Reading staging with the
-      // title position directly fetches an unrelated book, which is what split
-      // John Scalzi into two groups and left the shelf in no order at all.
-      const uint16_t src = order[canonicalFrom[i]];
-      uint8_t authorLen = 0;
-      char author[STAGE_AUTHOR_BYTES] = {};
-      if (!readStageAt(static_cast<uint64_t>(src) * STAGE_STRIDE + offsetof(StagedEntry, authorLen), &authorLen,
-                       sizeof(authorLen)))
-        break;
-      if (authorLen > 0) {
-        if (!readStageAt(static_cast<uint64_t>(src) * STAGE_STRIDE + offsetof(StagedEntry, author), author,
-                         std::min<size_t>(authorLen, sizeof(author))))
-          break;
-      }
-
-      const std::string key = authorLen == 0 ? std::string() : surnameKey(std::string_view(author, authorLen));
-      if (key.empty()) {
-        // 0xFF outranks every folded byte, so unknown authors stay at the end.
-        memset(authorSort[i].key, 0xFF, sizeof(authorSort[i].key));
-      } else {
-        memset(authorSort[i].key, 0, sizeof(authorSort[i].key));
-        memcpy(authorSort[i].key, key.data(), std::min(key.size(), sizeof(authorSort[i].key)));
-      }
-      authorSort[i].ordinal = i;
+    // canonicalFrom holds TITLE-order positions, and the staging file is keyed by walk order:
+    // order[] maps between them, or the keys would come from unrelated books.
+    if (!bb_library_stage_keys(&stageFile, BB_LIBRARY_KEY_SURNAME, order, canonicalFrom.get(), authorSort.get(), n)) {
+      ioFailed = true;
     }
     if (!ioFailed) {
       delay(1);
@@ -877,14 +777,7 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
       // firstSeen alone, which is the pre-timestamp behaviour.
       auto mtimes = makeUniqueNoThrow<uint32_t[]>(n);
       if (mtimes) {
-        for (uint16_t i = 0; i < n; i++) {
-          serviceBuilder(serviceUnits);
-          if (!readStageAt(static_cast<uint64_t>(order[i]) * STAGE_STRIDE + offsetof(ClixRecord, modificationTime),
-                           &mtimes[i], sizeof(mtimes[i]))) {
-            mtimes.reset();
-            break;
-          }
-        }
+        if (!bb_library_stage_modification_times(&stageFile, order, mtimes.get(), n)) mtimes.reset();
       } else {
         LOG_ERR("LIBIDX", "OOM: %u-byte mtime array, arrival falls back to firstSeen",
                 static_cast<unsigned>(n * sizeof(uint32_t)));
@@ -927,7 +820,7 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
   //
   // Name offsets follow the title order used to emit the name blob below.
   // One pair of staging buffers on the heap, reused by both emit loops. As
-  // locals they were 768 bytes each, so 1.5 KB of stack inside a function running
+  // locals they were 776 bytes each, so 1.5 KB of stack inside a function running
   // on a 4 KB task — the kind of margin that survives a test library and fails on
   // someone else's. On the heap the allocation is checked; on the stack an
   // overflow is a silent corruption.
@@ -935,65 +828,20 @@ bool emitIndex(const char* folderStagePath, WalkState& st, const uint16_t* order
   if (!staged) {
     LOG_ERR("LIBIDX", "staging buffers alloc failed");
     outBuffer.flush();
+    stage.close();
     out.close();
     Storage.remove(NEW_PATH);
     return false;
   }
-  StagedEntry& entry = staged[0];
-  StagedEntry& canonical = staged[1];
-
-  // put()'s rule, applied to the reads. A short read leaves the previous book's
-  // bytes in the buffer, so the emit would write a duplicate row — and since the
-  // duplicate is internally consistent, written == selfSize still holds and the
-  // corrupt index would pass validation.
-  const auto fetch = [&readStageAt](const uint16_t stagingIndex, StagedEntry& dest) {
-    return readStageAt(static_cast<uint64_t>(stagingIndex) * STAGE_STRIDE, &dest, STAGE_STRIDE);
-  };
-
-  uint32_t nameCursor = 0;
-  for (uint16_t i = 0; i < n; i++) {
-    serviceBuilder(serviceUnits);
-    if (!fetch(order[i], entry)) break;
-    entry.record.nameOff = nameCursor;
-    // The blob holds the path hash, basename, chosen author spelling, title, and
-    // source author spelling used by later rebuilds.
-    // Keeping them adjacent means no second offset has to live in the record.
-    const uint16_t from = canonicalFrom ? canonicalFrom[i] : i;
-    if (!fetch(order[from], canonical)) break;
-    nameCursor += blobBytesFor(entry, canonical);
-    if (resolvedFirstSeen) entry.record.firstSeen = resolvedFirstSeen[order[i]];
-    put(&entry.record, sizeof(ClixRecord));
-  }
-  padTo(header.permStart);
-
-  for (uint16_t k = 0; k < n; k++) {
-    serviceBuilder(serviceUnits);
-    const uint16_t ordinal = authorSort ? authorSort[k].ordinal : k;
-    put(&ordinal, sizeof(ordinal));
-  }
-  for (uint16_t k = 0; k < n; k++) {
-    serviceBuilder(serviceUnits);
-    const uint16_t ordinal = arrivalOrder[k];
-    put(&ordinal, sizeof(ordinal));
-  }
-  padTo(header.nameStart);
-
+  // Records in title order with their name offsets and arrival numbers, both permutations, then
+  // the name blobs: path hash, basename, chosen author spelling, title, and the source spelling
+  // later rebuilds vote from.
+  const bb_library_body body{order, canonicalFrom.get(), resolvedFirstSeen, authorSort.get(), arrivalOrder.get()};
+  const bb_io_sink sink = file_io::sinkOf(outBuffer);
   uint32_t blobWritten = 0;
-  for (uint16_t i = 0; i < n; i++) {
-    serviceBuilder(serviceUnits);
-    if (!fetch(order[i], entry)) break;
-    put(&entry.pathHash, sizeof(entry.pathHash));
-    put(entry.name, entry.record.nameLen);
-
-    const uint16_t from = canonicalFrom ? canonicalFrom[i] : i;
-    if (!fetch(order[from], canonical)) break;
-    put(&canonical.authorLen, 1);
-    if (canonical.authorLen > 0) put(canonical.author, canonical.authorLen);
-    put(&entry.titleLen, 1);
-    if (entry.titleLen > 0) put(entry.title, entry.titleLen);
-    put(&entry.authorLen, 1);
-    if (entry.authorLen > 0) put(entry.author, entry.authorLen);
-    blobWritten += blobBytesFor(entry, canonical);
+  if (!bb_library_write_body(&stageFile, detail::rust(header), &body, reinterpret_cast<uint8_t*>(staged.get()),
+                             2 * sizeof(StagedEntry), &sink, &blobWritten)) {
+    ioFailed = true;
   }
   header.nameLen = blobWritten;
   header.selfSize = header.nameStart + blobWritten;
@@ -1331,21 +1179,15 @@ bool buildLibraryIndex(const char* rootPath, BuildStats& stats, const bool readM
         Storage.remove(folderStagePath.c_str());
         return false;
       }
-      for (uint16_t i = 0; i < st.books; i++) {
-        serviceBuilder(serviceUnits);
-        ClixRecord r{};
-        const uint64_t offset = static_cast<uint64_t>(i) * STAGE_STRIDE;
-        if (!stage.seekSet(offset) ||
-            stage.read(reinterpret_cast<uint8_t*>(&r), sizeof(r)) != static_cast<int>(sizeof(r))) {
-          LOG_ERR("LIBIDX", "title sort: record stage read failed at %u", static_cast<unsigned>(offset));
-          stage.close();
-          Storage.remove(STAGE_PATH);
-          Storage.remove(folderStagePath.c_str());
-          return false;
-        }
-        memset(keys[i].key, 0, sizeof(keys[i].key));
-        memcpy(keys[i].key, r.fold, std::min<size_t>(r.foldLen, sizeof(keys[i].key)));
-        keys[i].ordinal = i;
+      bool readFailed = false;
+      StageReader reader{stage, readFailed, serviceUnits};
+      const bb_library_index_file stageFile = stageSource(reader);
+      if (!bb_library_stage_keys(&stageFile, BB_LIBRARY_KEY_TITLE, nullptr, nullptr, keys.get(), st.books)) {
+        LOG_ERR("LIBIDX", "title sort: record stage unreadable");
+        stage.close();
+        Storage.remove(STAGE_PATH);
+        Storage.remove(folderStagePath.c_str());
+        return false;
       }
       if (!stage.close()) {
         LOG_ERR("LIBIDX", "title sort: stage close failed");

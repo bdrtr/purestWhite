@@ -132,6 +132,9 @@ const _: () = {
             && size_of::<Record>() == 128
             && offset_of!(Record, fold) == 16
             && offset_of!(Record, modification_time) == 124
+            && offset_of!(Record, first_seen) == 8
+            && offset_of!(Record, name_len) == 12
+            && offset_of!(Record, author_key) == 112
             && size_of::<Identity>() == 16
             && offset_of!(Identity, file_size) == 8
     );
@@ -341,5 +344,183 @@ pub unsafe extern "C" fn bb_library_recent_rows_for(
         Ok(true) => 1,
         Ok(false) => 0,
         Err(OutOfMemory) => -1,
+    }
+}
+
+use crate::io::SinkView;
+use crate::{set, view, view_mut};
+use bembeyaz_library::build::{self, Body, Key, SortKey, Spelling};
+
+// library.h's stage layout and its sort key and spelling, as LibraryBuilder.cpp's StagedEntry
+// and the structs it shares.
+const _: () = {
+    use core::mem::offset_of;
+    assert!(
+        size_of::<SortKey>() == 14
+            && offset_of!(SortKey, ordinal) == 12
+            && size_of::<Spelling>() == 134
+            && offset_of!(Spelling, ordinal) == 128
+            && offset_of!(Spelling, count) == 130
+            && offset_of!(Spelling, len) == 132
+            && build::STAGE_STRIDE == 776
+            && build::STAGE_PATH_HASH == 128
+            && build::STAGE_NAME == 136
+            && build::STAGE_AUTHOR_LEN == 391
+            && build::STAGE_AUTHOR == 392
+            && build::STAGE_TITLE_LEN == 520
+            && build::STAGE_TITLE == 521
+    );
+};
+
+// `data` as `count` values; None for NULL.
+//
+// SAFETY: `data` is NULL or holds `count` values.
+unsafe fn optional<'a, T>(data: *const T, count: u16) -> Option<&'a [T]> {
+    // SAFETY: as above.
+    (!data.is_null()).then(|| unsafe { view(data, usize::from(count)) })
+}
+
+/// # Safety
+/// `stage` is NULL or as library.h describes; `order` and `canonical` are NULL or hold `count`
+/// values; `keys` holds `count` writable keys.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_library_stage_keys(
+    stage: *const IndexFile,
+    which: u8,
+    order: *const u16,
+    canonical: *const u16,
+    keys: *mut SortKey,
+    count: u16,
+) -> bool {
+    let which = match which {
+        0 => Key::Title,
+        1 => Key::Author,
+        2 => Key::Surname,
+        _ => return false,
+    };
+    // SAFETY: as documented.
+    let Some(mut stage) = (unsafe { stage.as_ref() }) else {
+        return false;
+    };
+    // SAFETY: as documented.
+    let (order, canonical, keys) = unsafe {
+        (
+            view(order, usize::from(count)),
+            view(canonical, usize::from(count)),
+            view_mut(keys, usize::from(count)),
+        )
+    };
+    build::stage_keys(&mut stage, which, order, canonical, keys)
+}
+
+/// # Safety
+/// `stage` is NULL or as library.h describes; `order`, `keys` and `canonical` hold `count`
+/// values (`canonical` writable); `scratch` holds `scratch_count` writable spellings.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_library_vote_spellings(
+    stage: *const IndexFile,
+    order: *const u16,
+    keys: *const SortKey,
+    count: u16,
+    canonical: *mut u16,
+    scratch: *mut Spelling,
+    scratch_count: usize,
+) -> bool {
+    // SAFETY: as documented.
+    let Some(mut stage) = (unsafe { stage.as_ref() }) else {
+        return false;
+    };
+    let n = usize::from(count);
+    // SAFETY: as documented.
+    let (order, keys, canonical, scratch) = unsafe {
+        (
+            view(order, n),
+            view(keys, n),
+            view_mut(canonical, n),
+            view_mut(scratch, scratch_count),
+        )
+    };
+    build::vote_spellings(&mut stage, order, keys, canonical, scratch)
+}
+
+/// # Safety
+/// `stage` is NULL or as library.h describes; `order` holds `count` values and `out` `count`
+/// writable ones.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_library_stage_modification_times(
+    stage: *const IndexFile,
+    order: *const u16,
+    out: *mut u32,
+    count: u16,
+) -> bool {
+    // SAFETY: as documented.
+    let Some(mut stage) = (unsafe { stage.as_ref() }) else {
+        return false;
+    };
+    // SAFETY: as documented.
+    let (order, out) = unsafe {
+        (
+            view(order, usize::from(count)),
+            view_mut(out, usize::from(count)),
+        )
+    };
+    build::stage_modification_times(&mut stage, order, out)
+}
+
+/// library.h's `bb_library_body`.
+#[repr(C)]
+pub struct BodyView {
+    order: *const u16,
+    canonical: *const u16,
+    first_seen: *const u16,
+    author: *const SortKey,
+    arrival: *const u16,
+}
+
+/// # Safety
+/// `stage` and `sink` are NULL or as library.h and io.h describe; `header` is NULL or readable;
+/// `body` is NULL or holds pointers as library.h describes, for the header's book count;
+/// `entries` holds `entries_len` writable bytes; `name_bytes` is NULL or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_library_write_body(
+    stage: *const IndexFile,
+    header: *const Header,
+    body: *const BodyView,
+    entries: *mut u8,
+    entries_len: usize,
+    sink: *const SinkView,
+    name_bytes: *mut u32,
+) -> bool {
+    // SAFETY: as documented.
+    let (Some(mut stage), Some(header), Some(body), Some(mut sink)) = (unsafe {
+        (
+            stage.as_ref(),
+            header.as_ref(),
+            body.as_ref(),
+            sink.as_ref(),
+        )
+    }) else {
+        return false;
+    };
+    let n = header.book_count;
+    // SAFETY: as documented.
+    let body = unsafe {
+        Body {
+            order: view(body.order, usize::from(n)),
+            canonical: optional(body.canonical, n),
+            first_seen: optional(body.first_seen, n),
+            author: optional(body.author, n),
+            arrival: view(body.arrival, usize::from(n)),
+        }
+    };
+    // SAFETY: as documented.
+    let entries = unsafe { view_mut(entries, entries_len) };
+    match build::write_body(&mut stage, header, &body, entries, &mut sink) {
+        Some(written) => {
+            // SAFETY: as documented.
+            unsafe { set(name_bytes, written) };
+            true
+        }
+        None => false,
     }
 }

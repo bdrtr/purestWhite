@@ -18,6 +18,18 @@ pub const MAX_RECORDS: u16 = 4096;
 pub const FOLD_BYTES: usize = 96;
 pub const AUTHOR_KEY_BYTES: usize = 12;
 const RECORD_BYTES: u32 = 128;
+// `ClixRecord`'s fields, by offset (the reader and the build module's writer share them).
+pub(crate) const RECORD_NAME_OFF: usize = 0;
+pub(crate) const RECORD_FILE_SIZE: usize = 4;
+pub(crate) const RECORD_FIRST_SEEN: usize = 8;
+pub(crate) const RECORD_FOLDER_ID: usize = 10;
+pub(crate) const RECORD_NAME_LEN: usize = 12;
+pub(crate) const RECORD_FOLD_LEN: usize = 13;
+pub(crate) const RECORD_AUTHOR_KEY_LEN: usize = 14;
+pub(crate) const RECORD_METADATA_STATUS: usize = 15;
+pub(crate) const RECORD_FOLD: usize = 16;
+pub(crate) const RECORD_AUTHOR_KEY: usize = 112;
+pub(crate) const RECORD_MODIFICATION_TIME: usize = 124;
 const MAGIC: [u8; 4] = *b"CLX1";
 const NONE: u16 = 0xFFFF;
 const METADATA_FAILED: u8 = 2;
@@ -62,7 +74,23 @@ pub struct Record {
     pub modification_time: u32,
 }
 
-const _: () = assert!(size_of::<Header>() == 64 && size_of::<Record>() == 128);
+const _: () = {
+    use core::mem::offset_of;
+    assert!(size_of::<Header>() == 64 && size_of::<Record>() == 128);
+    assert!(
+        offset_of!(Record, name_off) == RECORD_NAME_OFF
+            && offset_of!(Record, file_size) == RECORD_FILE_SIZE
+            && offset_of!(Record, first_seen) == RECORD_FIRST_SEEN
+            && offset_of!(Record, folder_id) == RECORD_FOLDER_ID
+            && offset_of!(Record, name_len) == RECORD_NAME_LEN
+            && offset_of!(Record, fold_len) == RECORD_FOLD_LEN
+            && offset_of!(Record, author_key_len) == RECORD_AUTHOR_KEY_LEN
+            && offset_of!(Record, metadata_status) == RECORD_METADATA_STATUS
+            && offset_of!(Record, fold) == RECORD_FOLD
+            && offset_of!(Record, author_key) == RECORD_AUTHOR_KEY
+            && offset_of!(Record, modification_time) == RECORD_MODIFICATION_TIME
+    );
+};
 
 /// `ClixValidity`.
 #[repr(u8)]
@@ -230,7 +258,7 @@ pub fn ordinal_for_row(h: &Header, order: Order, row: u16, src: &mut impl Source
 }
 
 impl Record {
-    fn from_bytes(b: &[u8; 128]) -> Record {
+    pub(crate) fn from_bytes(b: &[u8; 128]) -> Record {
         let u32_at = |i: usize| {
             u32::from_le_bytes(core::array::from_fn(|k| b.get(i + k).copied().unwrap_or(0)))
         };
@@ -239,17 +267,17 @@ impl Record {
         };
         let byte = |i: usize| b.get(i).copied().unwrap_or(0);
         Record {
-            name_off: u32_at(0),
-            file_size: u32_at(4),
-            first_seen: u16_at(8),
-            folder_id: u16_at(10),
-            name_len: byte(12),
-            fold_len: byte(13),
-            author_key_len: byte(14),
-            metadata_status: byte(15),
-            fold: core::array::from_fn(|k| byte(16 + k)),
-            author_key: core::array::from_fn(|k| byte(112 + k)),
-            modification_time: u32_at(124),
+            name_off: u32_at(RECORD_NAME_OFF),
+            file_size: u32_at(RECORD_FILE_SIZE),
+            first_seen: u16_at(RECORD_FIRST_SEEN),
+            folder_id: u16_at(RECORD_FOLDER_ID),
+            name_len: byte(RECORD_NAME_LEN),
+            fold_len: byte(RECORD_FOLD_LEN),
+            author_key_len: byte(RECORD_AUTHOR_KEY_LEN),
+            metadata_status: byte(RECORD_METADATA_STATUS),
+            fold: core::array::from_fn(|k| byte(RECORD_FOLD + k)),
+            author_key: core::array::from_fn(|k| byte(RECORD_AUTHOR_KEY + k)),
+            modification_time: u32_at(RECORD_MODIFICATION_TIME),
         }
     }
 }

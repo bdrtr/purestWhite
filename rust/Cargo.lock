@@ -137,6 +137,7 @@ dependencies = [
 name = "bembeyaz-library"
 version = "0.1.0"
 dependencies = [
+ "bembeyaz-io",
  "bembeyaz-utf8",
 ]
 

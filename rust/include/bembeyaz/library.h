@@ -1,6 +1,7 @@
 // C ABI of rust/crates/bembeyaz-ffi/src/library.rs. Use lib/LibraryIndex/LibraryText.h instead.
 #pragma once
 
+#include <bembeyaz/io.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
@@ -86,6 +87,80 @@ bool bb_library_read_string(const bb_library_header* header, const bb_library_re
 // when read, 0 when the index cannot be read, -1 out of memory.
 int bb_library_recent_rows_for(const bb_library_header* header, const bb_library_identity* books, uint16_t* rows,
                                size_t count, const bb_library_index_file* file);
+
+// Building the index (bembeyaz-library's build module) from lib/LibraryIndex's stage file: one
+// StagedEntry per book in walk order, read through a bb_library_index_file. Its layout:
+#define BB_LIBRARY_STAGE_STRIDE 776
+#define BB_LIBRARY_STAGE_PATH_HASH 128
+#define BB_LIBRARY_STAGE_NAME 136
+#define BB_LIBRARY_STAGE_AUTHOR_LEN 391
+#define BB_LIBRARY_STAGE_AUTHOR 392
+#define BB_LIBRARY_STAGE_TITLE_LEN 520
+#define BB_LIBRARY_STAGE_TITLE 521
+
+// A sort key's first bytes and the position it belongs to; ties go to the ordinal.
+typedef struct {
+  char key[12];
+  uint16_t ordinal;
+} bb_library_sort_key;
+
+// One author spelling counted in a vote.
+typedef struct {
+  char text[128];
+  uint16_t ordinal;
+  uint16_t count;
+  uint8_t len;
+} bb_library_spelling;
+
+// Which keys bb_library_stage_keys fills.
+enum {
+  // Each book's fold, in walk order (order unused).
+  BB_LIBRARY_KEY_TITLE = 0,
+  // The author key of the book at each title position (order maps them to stage entries); 0xFF
+  // bytes without one.
+  BB_LIBRARY_KEY_AUTHOR = 1,
+  // The surname of the chosen spelling of the book at title position i (the source spelling of
+  // the book at canonical[i]); 0xFF bytes without one.
+  BB_LIBRARY_KEY_SURNAME = 2,
+};
+
+// Fills count keys, each with its position as ordinal; order and canonical may be NULL where the
+// key does not use them. False when an entry cannot be read.
+bool bb_library_stage_keys(const bb_library_index_file* stage, uint8_t which, const uint16_t* order,
+                           const uint16_t* canonical, bb_library_sort_key* keys, uint16_t count);
+// One spelling per person: within each run of equal author keys in keys (sorted by author key),
+// canonical[ordinal] becomes the title position of the spelling most of the run carries, ties going
+// to the shorter, then the first in byte order. Runs without a key, and runs of one, keep their
+// canonical values; scratch (scratch_count spellings) bounds the spellings counted per run. False
+// when an entry cannot be read.
+bool bb_library_vote_spellings(const bb_library_index_file* stage, const uint16_t* order,
+                               const bb_library_sort_key* keys, uint16_t count, uint16_t* canonical,
+                               bb_library_spelling* scratch, size_t scratch_count);
+// The modification time of the book at each title position into out; false when an entry cannot
+// be read.
+bool bb_library_stage_modification_times(const bb_library_index_file* stage, const uint16_t* order, uint32_t* out,
+                                         uint16_t count);
+
+// What bb_library_write_body writes, each array one per book (the header's book count): order maps
+// title positions to stage entries; canonical (NULL: each its own) is the title position whose
+// spelling each book shows; first_seen (NULL: the staged values) each stage entry's arrival number;
+// author (NULL: title order) the records by author, as their ordinals; arrival the records by
+// arrival.
+typedef struct {
+  const uint16_t* order;
+  const uint16_t* canonical;
+  const uint16_t* first_seen;
+  const bb_library_sort_key* author;
+  const uint16_t* arrival;
+} bb_library_body;
+
+// Writes the records (title order, with their name offsets and arrival numbers), both
+// permutations and the name blobs to sink from the header's record start; the header and folders
+// before it are the caller's. entries is room for two stage entries. *name_bytes is the name
+// blobs' length. False when an entry cannot be read, entries is too small or a write fails.
+bool bb_library_write_body(const bb_library_index_file* stage, const bb_library_header* header,
+                           const bb_library_body* body, uint8_t* entries, size_t entries_len, const bb_io_sink* sink,
+                           uint32_t* name_bytes);
 
 #ifdef __cplusplus
 }

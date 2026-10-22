@@ -1,0 +1,17 @@
+# Open the Library, which builds the library index from every book on the card, then go home and
+# open it again (the index is read back, not rebuilt).
+ready
+timeout:300
+touch:240,418
+wait-log:LIBIDX.*(built|FAILED|unchanged)
+wait-quiet:3
+shot:library
+heap:library
+press:home
+wait-quiet:3
+touch:240,418
+wait-quiet:3
+shot:library-again
+press:home
+wait-quiet:3
+shot:home-again
