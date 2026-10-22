@@ -25,14 +25,6 @@ constexpr size_t BUILD_IO_BUFFER_SIZE = 4096;
 // The render task and the main loop both ask for sizes.
 std::mutex sizeWindowLock;
 
-// A bb_io_sink over a BufferedFileWriter: only its next offset is accepted.
-bool writeBuffered(void* context, const uint32_t offset, const uint8_t* bytes, const size_t len) {
-  auto& out = *static_cast<serialization::BufferedFileWriter*>(context);
-  if (offset != out.position()) return false;
-  out.write(bytes, len);
-  return true;
-}
-
 // The strings (by BB_BOOK_ field) a bembeyaz-book read fills; an unset slot takes nothing.
 struct Texts {
   std::string* fields[BB_BOOK_FIELD_COUNT] = {};
@@ -304,7 +296,7 @@ bool BookMetadataCache::buildBookBin(const std::string& epubPath, const BookMeta
     LOG_ERR("BMC", "OOM: TOC map, %u B", static_cast<uint32_t>(spineCount * sizeof(int16_t)));
   } else {
     serialization::BufferedFileWriter bookOut(bookFile, BUILD_IO_BUFFER_SIZE);
-    const bb_io_sink out{&bookOut, writeBuffered};
+    const bb_io_sink out = file_io::sinkOf(bookOut);
     const char* texts[5] = {metadata.title.c_str(), metadata.author.c_str(), metadata.language.c_str(),
                             metadata.coverItemHref.c_str(), metadata.textReferenceHref.c_str()};
     const size_t lens[5] = {metadata.title.size(), metadata.author.size(), metadata.language.size(),
@@ -345,7 +337,7 @@ bool BookMetadataCache::cleanupTmpFiles() const {
 bb_io_sink BookMetadataCache::passSink(HalFile& file, uint32_t& at) {
   if (passOut) {
     at = static_cast<uint32_t>(passOut->position());
-    return {passOut.get(), writeBuffered};
+    return file_io::sinkOf(*passOut);
   }
   at = static_cast<uint32_t>(file.position());
   return file_io::sinkOf(file);

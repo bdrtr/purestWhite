@@ -1148,3 +1148,29 @@ SD komutları; daha fazlası için dosyanın değişmeyen kısımları sektör h
   yeniden açın: "Alıntıları Görüntüle" listesindeki diğer alıntıların metinleri doğru olmalı.
 - [ ] Alıntı eşitlemesi kuruluysa alıntıları olan bir kitabı eşitleyin: alıntılar eskisi gibi
   gidip gelmeli, seri günlükte `[CLIP] Failed to write clipping file` görünmemeli.
+
+## Alıntı dosyası tam bloklarla yazılır ("perf: write the clipping store in whole buffers")
+
+Alıntı dosyası yeniden yazılırken geçici dosyaya giden yazmalar artık 8 KB'lık bir
+`BufferedFileWriter` tamponundan geçiyor (framework'ün 4 KB'lık iç RAM sınırının üstünde olduğu için
+malloc önce PSRAM'i dener; tampon hiç ayrılamazsa eskisi gibi doğrudan yazılır, yeni bir host testi
+bunu da sınıyor). `BufferedFileWriter` artık tamponu yalnızca dolunca boşaltıyor: son yazma dışında
+her yazma tam 8 KB ve sektör hizalı, SdFat bunları sektör önbelleğini kullanmadan doğrudan karta
+yazıyor; önbellek eski dosyadan okumaya kalıyor. Dosyaya yazılan baytlar aynı; aynı sınıfı kullanan
+kitap önbelleği (`book.bin` kurulumu) ve kütüphane dizini de yazmalarını artık tam tampon boyunda
+yapıyor. Emülatörde 4 MB'lık depoda ekleme 11,0 s'den 7,7 s'ye, silme 11,3 s'den 8,0 s'ye indi;
+bunun ~2 s'si dokunma ve sayfa çizimi, kalan ~6 s aşağı yukarı 4 MB okuyup 4 MB yazmanın süresi.
+Aynı 8 KB'lık tampon eski boşaltma kuralıyla neredeyse hiç kazandırmadı (10,8 s ve 11,1 s): kazancı
+hizalı yazma getiriyor. Eski dosyayı da hizalı okumak ~0,5 s daha kazandırırdı; eklenmedi. İki
+firmware'in kartta bıraktığı alıntı dosyası ve `book.bin` bayt bayt aynıydı; ekran görüntüleri aynı;
+alıntı deposunun fark testinde çıktılar yine aynı. Toplam 1006 host testi geçiyor. x4pro'da flash
+100 bayt büyüdü, RAM değişmedi.
+
+- [ ] Çok alıntılı bir kitapta bir alıntı ekleyip silin; önceki firmware'le ve bununla süreleri not
+  edin (emülatörde 4 MB'lık depoda ekleme ve silme ~%30 kısaldı). Kitabı yeniden açınca diğer
+  alıntıların metinleri doğru görünmeli.
+- [ ] Bir kitabı açıp okuma menüsünden Kitap Önbelleğini Sil'i seçin; ana ekrana dönünce kitabı
+  yeniden açın: içindekiler ve bölümler doğru olmalı. Dosya Transferi (web) ile karta yeni bir kitap
+  yükleyip kütüphaneyi açın (ya da kütüphanede bir kitaba uzun basıp "Refresh library"yi seçin):
+  yeni kitap görünmeli. Seri günlükte `[BMC] Failed building book.bin`, `[BMC] Failed writing` ya
+  da `[ERR] [LIBIDX]` satırı görünmemeli.

@@ -14,6 +14,13 @@ namespace serialization {
 // stream ~200KB through BookMetadataCache::buildBookBin on a 1,732-spine EPUB).
 // Batching into chunk-sized transfers keeps each file at sequential SD speed.
 //
+// When buffered, the buffer is written only when full, so every write but the
+// last is capacity bytes long. With a capacity that is a multiple of 512 and a
+// file that starts at offset 0, the writes stay sector-aligned (until an explicit
+// flush()), and SdFat writes them straight to the card, bypassing its sector
+// cache. Measured on a 4 MiB clipping store rewrite in the emulator: flushing
+// whenever a write did not fit gained almost nothing; whole buffers cut ~30%.
+//
 // Heap: one fixed buffer per wrapper, allocated once at construction and freed at
 // scope exit. If the allocation fails the wrapper degrades to unbuffered
 // passthrough -- correct, just slow -- so callers never need an OOM path.
@@ -32,17 +39,21 @@ class BufferedFileWriter {
   void write(const void* src, const size_t len) {
     pos += len;
     const auto* p = static_cast<const uint8_t*>(src);
-    if (fill + len > cap) {
-      flushBuffer();
-    }
-    if (len >= cap) {  // also the cap == 0 passthrough
+    if (cap == 0) {
       okFlag &= file.write(p, len) == len;
       return;
     }
     // Typed local: cppcheck misreads unique_ptr<uint8_t[]>::get() arithmetic as void*.
     uint8_t* const data = buf.get();
-    memcpy(data + fill, p, len);
-    fill += len;
+    size_t left = len;
+    while (left > 0) {
+      const size_t n = left < cap - fill ? left : cap - fill;
+      memcpy(data + fill, p, n);
+      fill += n;
+      p += n;
+      left -= n;
+      if (fill == cap) flushBuffer();
+    }
   }
 
   // Logical write position (bytes written since the file was opened).

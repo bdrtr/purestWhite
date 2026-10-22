@@ -1,3 +1,4 @@
+#include <BufferedFile.h>
 #include <gtest/gtest.h>
 
 #include <algorithm>
@@ -420,4 +421,35 @@ TEST_F(LibraryBuilderTest, SortAllocationFailureProducesValidDegradedIndex) {
   LibraryIndexFile index;
   ASSERT_TRUE(index.open(INDEX));
   EXPECT_EQ(index.bookCount(), 513);
+}
+
+TEST(BufferedFileWriter, WritesOnlyWholeBuffersUntilTheLastFlush) {
+  fake::reset();
+  fake::add("/out.bin", "");
+  HalFile file = Storage.open("/out.bin", O_WRONLY | O_TRUNC);
+  const auto& bytes = fake::files.at("/out.bin")->bytes;
+  std::string expected;
+  {
+    serialization::BufferedFileWriter out(file, 8);
+    const auto write = [&](const std::string& s) {
+      out.write(s.data(), s.size());
+      expected += s;
+    };
+    write("abc");
+    EXPECT_TRUE(bytes.empty());
+    write("defghij");  // fills the buffer: 8 bytes written, 2 kept
+    EXPECT_EQ(bytes.size(), 8u);
+    write(std::string(20, 'x'));  // 16 more in two whole buffers, 6 kept
+    EXPECT_EQ(bytes.size(), 24u);
+    EXPECT_EQ(out.position(), 30u);
+    EXPECT_EQ(fake::writesByPath["/out.bin"], 3u);
+    EXPECT_TRUE(out.flush());
+  }
+  EXPECT_EQ(std::string(bytes.begin(), bytes.end()), expected);
+  EXPECT_EQ(fake::writesByPath["/out.bin"], 4u);
+  // If the buffer allocation fails, every write goes straight through.
+  fake::failAlloc = 0;
+  serialization::BufferedFileWriter direct(file, 8);
+  direct.write("12", 2);
+  EXPECT_EQ(bytes.size(), 32u);
 }

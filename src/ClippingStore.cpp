@@ -1,5 +1,6 @@
 #include "ClippingStore.h"
 
+#include <BufferedFile.h>
 #include <Epub/FileIo.h>
 #include <HalMemory.h>
 #include <HalStorage.h>
@@ -23,6 +24,10 @@ constexpr char CLIPPINGS_DIR[] = "/.crosspoint/clippings";
 constexpr size_t HEADER_STRING_MAX = CLIPPING_TEXT_MAX;
 // Read buffer for loading the store; larger than one version 4 record (156 bytes).
 constexpr size_t LOAD_BUFFER_SIZE = 256;
+// Writes to the temporary file in whole, sector-aligned 8 KiB blocks, so reads from the old file
+// keep SdFat's single sector cache. Above the framework's 4 KiB always-internal limit, malloc tries
+// PSRAM first.
+constexpr size_t WRITE_BUFFER_SIZE = 8192;
 
 static_assert(BB_CLIP_TEXT_MAX == CLIPPING_TEXT_MAX && BB_CLIP_ID_LEN == sizeof(Clipping::id) &&
               BB_CLIP_CHAPTER_LEN == sizeof(Clipping::chapterTitle));
@@ -565,13 +570,19 @@ bool ClippingStore::writeToFile(const std::string* replacementText, const size_t
                                 }};
   const char* const header[3] = {bookTitle.data(), bookAuthor.data(), bookFilePath.data()};
   const size_t headerLen[3] = {bookTitle.size(), bookAuthor.size(), bookFilePath.size()};
-  const bb_io_sink sink = file_io::sinkOf(f);
   const bb_io_file sourceFile = source ? file_io::fileOf(source) : bb_io_file{};
   const std::string* replacement = replacementIndex < count ? replacementText : nullptr;
-  if (!bb_clip_save(&sink, source ? &sourceFile : nullptr, copy, copyLen, header, headerLen, count, &records,
-                    static_cast<uint16_t>(replacement ? replacementIndex : 0),
-                    replacement ? replacement->data() : nullptr, replacement ? replacement->size() : 0,
-                    newTextOffsets.get())) {
+  bool written = false;
+  {
+    serialization::BufferedFileWriter buffered(f, WRITE_BUFFER_SIZE);
+    const bb_io_sink sink = file_io::sinkOf(buffered);
+    written = bb_clip_save(&sink, source ? &sourceFile : nullptr, copy, copyLen, header, headerLen, count, &records,
+                           static_cast<uint16_t>(replacement ? replacementIndex : 0),
+                           replacement ? replacement->data() : nullptr, replacement ? replacement->size() : 0,
+                           newTextOffsets.get()) &&
+              buffered.flush();
+  }
+  if (!written) {
     LOG_ERR("CLIP", "Failed to write clipping file: %s", tmpPath.c_str());
     f.close();
     if (source) source.close();

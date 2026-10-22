@@ -304,3 +304,26 @@ TEST(ClippingStore, RewriteWithoutCopyBufferStillCopiesTexts) {
   ASSERT_TRUE(store.readClippingText(2, text));
   EXPECT_EQ(text, "three");
 }
+
+TEST(ClippingStore, RewriteWithoutWriteBufferStillWritesTheStore) {
+  fake::reset();
+  ClippingStore store;
+  ASSERT_TRUE(store.loadForBook("/book.epub", "Book", "Author", "epub"));
+  const std::string long1(1500, 'a');
+  ASSERT_EQ(add(store, long1), Result::Added);
+  const auto before = fake::writesByPath[storePath() + ".tmp"];
+  // The offsets array and the copy buffer are allocated; the temporary file's buffer is not.
+  fake::failAlloc = 2;
+  ASSERT_EQ(add(store, "two"), Result::Added);
+  EXPECT_TRUE(fake::failureTriggered);
+  // Unbuffered: one write per piece instead of one at the end.
+  EXPECT_GT(fake::writesByPath[storePath() + ".tmp"] - before, 2u);
+  store.unload();
+  ASSERT_TRUE(store.loadForBook("/book.epub", "Book", "Author", "epub"));
+  ASSERT_EQ(store.clippingCount(), 2u);
+  std::string text;
+  ASSERT_TRUE(store.readClippingText(0, text));
+  EXPECT_EQ(text, long1);
+  ASSERT_TRUE(store.readClippingText(1, text));
+  EXPECT_EQ(text, "two");
+}
