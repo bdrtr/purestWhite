@@ -478,61 +478,11 @@ void ChapterHtmlSlimParser::armFirstLetterDropCap(const char* tagName, const std
   dropCap.bold = firstLetter.hasFontWeight() && firstLetter.fontWeight == CssFontWeight::Bold;
 }
 
-namespace {
-// Opening quotes and other punctuation that lead into a drop cap letter.
-bool isDropCapPunctuation(const uint32_t cp) {
-  if (cp < 0x80) return std::ispunct(static_cast<int>(cp)) != 0;
-  return cp == 0xA1 || cp == 0xAB || cp == 0xBB || cp == 0xBF || (cp >= 0x2010 && cp <= 0x205E) ||
-         (cp >= 0x3008 && cp <= 0x3011);
-}
-}  // namespace
-
-// Returns false (and restores the captured text to the word buffer) once the
-// capture is too long to be an initial letter.
-bool ChapterHtmlSlimParser::captureDropCapCodepoint(const char* bytes, const int length) {
-  constexpr uint8_t MAX_DROP_CAP_CODEPOINTS = 3;
-  if (dropCap.length + length > static_cast<int>(MAX_DROP_CAP_BYTES) || dropCap.codepoints >= MAX_DROP_CAP_CODEPOINTS) {
-    cancelDropCapToWord();
-    return false;
-  }
-  memcpy(dropCap.text + dropCap.length, bytes, static_cast<size_t>(length));
-  dropCap.length = static_cast<uint8_t>(dropCap.length + length);
-  dropCap.text[dropCap.length] = '\0';
-  dropCap.codepoints++;
-  if (dropCap.spanDepth < 0) {
-    // ::first-letter takes leading punctuation plus the first letter.
-    const auto* cursor = reinterpret_cast<const unsigned char*>(bytes);
-    if (!isDropCapPunctuation(utf8NextCodepoint(&cursor))) dropCap.firstLetterPending = false;
-  }
-  return true;
-}
-
 void ChapterHtmlSlimParser::cancelDropCapToWord() {
-  memcpy(partWordBuffer + partWordBufferIndex, dropCap.text, dropCap.length);
-  partWordBufferIndex += dropCap.length;
+  const int length = std::min<int>(dropCap.length, MAX_WORD_SIZE - partWordBufferIndex);
+  memcpy(partWordBuffer + partWordBufferIndex, dropCap.text, length);
+  partWordBufferIndex += length;
   dropCap = DropCapState{};
-}
-
-// Initial-letter capture: a drop-cap span takes all of its text; ::first-letter takes leading
-// punctuation plus the block's first letter. The bytes taken from rest, 0 for none, -1 when no
-// capture is pending.
-int ChapterHtmlSlimParser::takeInitialLetter(const char* rest, const size_t available) {
-  const bool capturingSpan = dropCap.spanDepth >= 0;
-  if (!capturingSpan && !dropCap.firstLetterPending) return -1;
-  const bool whitespace = isWhitespace(rest[0]);
-  if (!capturingSpan &&
-      (whitespace || partWordBufferIndex != 0 || insideFootnoteLink || !currentTextBlock->isEmpty())) {
-    return 0;
-  }
-  if (whitespace) {
-    // Several words: not an initial letter after all.
-    if (dropCap.length > 0) cancelDropCapToWord();
-    return 0;
-  }
-  const auto lead = static_cast<uint8_t>(rest[0]);
-  const int codepointLength =
-      std::min(static_cast<int>(available), lead < 0x80 ? 1 : (lead < 0xE0 ? 2 : (lead < 0xF0 ? 3 : 4)));
-  return captureDropCapCodepoint(rest, codepointLength) ? codepointLength : 0;
 }
 
 void ChapterHtmlSlimParser::layoutCurrentBlock(const bool includeLastLine) {
@@ -2202,29 +2152,27 @@ void ChapterHtmlSlimParser::characterData(void* userData, const char* s, const i
     self->inlineSize.valid = false;
   }
 
-  const bb_html_words words{self->partWordBuffer,
-                            &self->partWordBufferIndex,
-                            &self->partWordVisibleOffset,
-                            &self->nextWordContinues,
-                            self,
-                            [](void* context) { static_cast<ChapterHtmlSlimParser*>(context)->flushPartWordBuffer(); },
-                            [](void* context) {
-                              auto& block = static_cast<ChapterHtmlSlimParser*>(context)->currentTextBlock;
-                              if (block) block->suppressFirstLineIndent();
-                            },
-                            [](void* context) {
-                              auto& parser = *static_cast<ChapterHtmlSlimParser*>(context);
-                              const BlockStyle style =
-                                  parser.currentTextBlock->getBlockStyle().withoutTop().withoutBottom();
-                              parser.breakTextLine(style);
-                              return parser.currentTextBlock != nullptr;
-                            },
-                            [](void* context, const char* rest, const size_t available) {
-                              return static_cast<ChapterHtmlSlimParser*>(context)->takeInitialLetter(rest, available);
-                            }};
+  const bb_html_words words{
+      self->partWordBuffer,
+      &self->partWordBufferIndex,
+      &self->partWordVisibleOffset,
+      &self->nextWordContinues,
+      self,
+      [](void* context) { static_cast<ChapterHtmlSlimParser*>(context)->flushPartWordBuffer(); },
+      [](void* context) {
+        auto& block = static_cast<ChapterHtmlSlimParser*>(context)->currentTextBlock;
+        if (block) block->suppressFirstLineIndent();
+      },
+      [](void* context) {
+        auto& parser = *static_cast<ChapterHtmlSlimParser*>(context);
+        const BlockStyle style = parser.currentTextBlock->getBlockStyle().withoutTop().withoutBottom();
+        parser.breakTextLine(style);
+        return parser.currentTextBlock != nullptr;
+      },
+      self->initialLetter(),
+      [](void* context) { return static_cast<ChapterHtmlSlimParser*>(context)->currentTextBlock->isEmpty(); }};
   if (bb_html_scan_words(s, static_cast<size_t>(std::max(len, 0)), countVisibleOffsets, callbackVisibleOffset,
-                         self->effectivePreserveWhitespace,
-                         self->dropCap.spanDepth >= 0 || self->dropCap.firstLetterPending,
+                         self->effectivePreserveWhitespace, self->insideFootnoteLink,
                          &words) == BB_HTML_WORDS_STOPPED) {
     return;
   }

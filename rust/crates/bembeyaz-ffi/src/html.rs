@@ -63,7 +63,7 @@ pub unsafe extern "C" fn bb_text_html_feed(
     });
 }
 
-use bembeyaz_html::words::{self, MAX_WORD, Piece, Scan, Words};
+use bembeyaz_html::words::{self, InitialLetter, MAX_WORD, Piece, Scan, Words};
 use core::ffi::c_int;
 
 /// html.h's `bb_html_words`.
@@ -77,11 +77,21 @@ pub struct WordsView {
     flush: Option<unsafe extern "C" fn(*mut c_void)>,
     suppress_indent: Option<unsafe extern "C" fn(*mut c_void)>,
     line_break: Option<unsafe extern "C" fn(*mut c_void) -> bool>,
-    initial: Option<unsafe extern "C" fn(*mut c_void, *const c_char, usize) -> c_int>,
+    initial: *mut InitialLetter,
+    block_empty: Option<unsafe extern "C" fn(*mut c_void) -> bool>,
 }
 
-// html.h's BB_HTML_MAX_WORD.
-const _: () = assert!(MAX_WORD == 200);
+// html.h's BB_HTML_MAX_WORD and bb_html_initial_letter.
+const _: () = {
+    use core::mem::offset_of;
+    assert!(
+        MAX_WORD == 200
+            && size_of::<InitialLetter>() == 24
+            && offset_of!(InitialLetter, len) == 13
+            && offset_of!(InitialLetter, pending) == 17
+            && offset_of!(InitialLetter, span_depth) == 20
+    );
+};
 
 // The buffer is read and written through its pointers only between callbacks, which may change it
 // too; no reference to it outlives a call.
@@ -147,11 +157,17 @@ impl Words for &WordsView {
         // SAFETY: the caller's callback.
         self.line_break.is_some_and(|f| unsafe { f(self.context) })
     }
-    fn initial(&mut self, rest: &[u8]) -> Option<usize> {
-        let f = self.initial?;
-        // SAFETY: the caller's callback reads `rest`.
-        let taken = unsafe { f(self.context, rest.as_ptr().cast(), rest.len()) };
-        usize::try_from(taken).ok().map(|n| n.min(rest.len()))
+    fn initial(&mut self) -> InitialLetter {
+        // SAFETY: as above; the letter is checked non-null before the scan.
+        unsafe { self.initial.read() }
+    }
+    fn set_initial(&mut self, letter: &InitialLetter) {
+        // SAFETY: as above.
+        unsafe { self.initial.write(*letter) };
+    }
+    fn block_empty(&mut self) -> bool {
+        // SAFETY: the caller's callback.
+        self.block_empty.is_some_and(|f| unsafe { f(self.context) })
     }
 }
 
@@ -164,14 +180,18 @@ pub unsafe extern "C" fn bb_html_scan_words(
     counted: bool,
     start: u32,
     preserve: bool,
-    initial: bool,
+    footnote_link: bool,
     words: *const WordsView,
 ) -> c_int {
     // SAFETY: as documented.
     let Some(mut view) = (unsafe { words.as_ref() }) else {
         return 0;
     };
-    if view.buf.is_null() || view.len.is_null() || view.offset.is_null() || view.continues.is_null()
+    if view.buf.is_null()
+        || view.len.is_null()
+        || view.offset.is_null()
+        || view.continues.is_null()
+        || view.initial.is_null()
     {
         return 0;
     }
@@ -185,7 +205,7 @@ pub unsafe extern "C" fn bb_html_scan_words(
         counted,
         start,
         preserve,
-        initial,
+        footnote_link,
     };
     match words::scan(text, piece, &mut view) {
         Scan::Done => 0,

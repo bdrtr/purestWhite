@@ -1243,3 +1243,27 @@ değişmedi.
   boşluklar, sekmeler ve satırlar korunmalı.
 - [ ] CSS'inde `::first-letter` ya da `initial-letter` olan (ya da büyük ilk harf span'ı kullanan) bir
   kitap açın: büyük ilk harf eskisi gibi görünmeli.
+
+## Büyük ilk harfin yakalanması Rust'ta ("rust: our own initial letter capture")
+
+Büyük ilk harfin (drop cap) metninin yakalanması da artık `bembeyaz-html`'in `words` modülünde:
+büyük harf span'ı kendi metnini (en çok üç kod noktası ve 12 bayt) alır; `::first-letter` kuralı
+paragrafın baştaki boşluklarını atlar, baştaki noktalamayı ve ilk harfi alır; daha uzun olan ya da
+(span'da) boşlukla karşılaşan yakalama bırakılır ve metni sözcüğe geri döner. Yakalama durumu
+C++'taki `DropCapState` ile aynı yerleşimdeki `bb_html_initial_letter`'da tutuluyor; büyük harfin
+yerleşimi ve çizimi C++'ta kaldı. Bir önceki commit (df2b06b4) yakalamayı 4 testle sabitledi; toplam
+1017 host testi geçiyor. Bölüm ayrıştırıcısının fark testi 3000 rastgele bölümde, metin XML
+ayrıştırıcısının yaptığı gibi tam karakterlerle bölündüğünde, eski ve yeni sayfaları bayt bayt aynı
+buldu; koda bilerek konan bir hata yakalandı. Metin yapay olarak UTF-8 dizilerinin ortasından
+bölündüğünde 3000 durumun 10'unda fark çıktı: eski kod yakalanan karakterin noktalama olup
+olmadığına karar verirken parçanın sonundan ötesini okuyordu, yeni kod okumuyor; eski kod yalnızca
+parça içinden okuyacak şekilde değiştirilince bu farkların hepsi kayboldu. XML ayrıştırıcısı metni
+hiçbir zaman karakter ortasından bölmediği için bu fark kitaplarda ortaya çıkmaz. Emülatörde okuma
+senaryosu ve büyük ilk harfli CSS kitabı ile iki yönlü ve heceleme kitaplarının açılışı aynı
+ekranları verdi, CSS kitabının bölüm önbelleği bayt bayt aynıydı. x4pro'da flash 208 bayt
+büyüdü, RAM değişmedi.
+
+- [ ] CSS'inde `::first-letter` ya da `initial-letter` olan (ya da büyük ilk harf span'ı kullanan) bir
+  kitap açın: büyük ilk harf ve önündeki tırnak ya da noktalama eskisi gibi görünmeli; paragrafın
+  geri kalanı harfin yanında akmalı. (Böyle bir kitap `python3 emu/make_css_epub.py <klasör>` ile
+  üretilebilir: `p.drop::first-letter` kuralı içerir.)

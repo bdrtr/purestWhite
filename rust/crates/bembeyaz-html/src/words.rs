@@ -3,7 +3,9 @@
 //! space (U+00A0, U+202F) becomes a space word attached to both neighbours, a BOM is dropped, a
 //! word that fills the buffer is cut on a codepoint boundary and goes on attached, and preserved
 //! whitespace (`white-space: pre`) keeps each space as a word, a tab as four, and a newline as a
-//! line break. Each word starts at the visible offset of its first byte.
+//! line break. Each word starts at the visible offset of its first byte. An initial letter (drop
+//! cap) takes its text first: a drop-cap span takes all of it (up to three codepoints in twelve
+//! bytes), a `::first-letter` rule the block's leading punctuation and first letter.
 //!
 //! The buffer and what a word becomes are the parser's ([`Words`]); this module only decides where
 //! words end.
@@ -12,6 +14,40 @@ use bembeyaz_utf8 as utf8;
 
 /// Bytes the word buffer holds before a word is cut.
 pub const MAX_WORD: usize = 200;
+/// Bytes an initial letter holds.
+pub const MAX_INITIAL_BYTES: usize = 12;
+/// Codepoints an initial letter holds.
+const MAX_INITIAL_CODEPOINTS: u8 = 3;
+
+/// The initial letter being captured (`bb_html_initial_letter`). `lines` and `bold` are the
+/// parser's, kept as they are until a capture is given up.
+#[repr(C)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct InitialLetter {
+    /// The captured text, ending in a zero.
+    pub text: [u8; MAX_INITIAL_BYTES + 1],
+    pub len: u8,
+    pub codepoints: u8,
+    pub lines: u8,
+    pub bold: bool,
+    /// A `::first-letter` rule waits for the block's first letter.
+    pub pending: bool,
+    /// The depth of the drop-cap span whose text is taken, -1 for none.
+    pub span_depth: i32,
+}
+
+impl InitialLetter {
+    /// None being captured.
+    pub const NONE: Self = Self {
+        text: [0; MAX_INITIAL_BYTES + 1],
+        len: 0,
+        codepoints: 0,
+        lines: 0,
+        bold: false,
+        pending: false,
+        span_depth: -1,
+    };
+}
 
 /// The parser's word buffer and what it does with words. A callback may change the buffer, so
 /// every read after one sees its effect.
@@ -34,12 +70,15 @@ pub trait Words {
     fn suppress_indent(&mut self);
     /// A preserved newline; false when there is no paragraph left to go on with.
     fn line_break(&mut self) -> bool;
-    /// An initial letter's capture at `rest` (the text from here on): the bytes it took, 0 for
-    /// none; `None` when no initial letter is pending any more.
-    fn initial(&mut self, rest: &[u8]) -> Option<usize>;
+    /// The initial letter being captured.
+    fn initial(&mut self) -> InitialLetter;
+    fn set_initial(&mut self, letter: &InitialLetter);
+    /// Whether the paragraph has no word yet.
+    fn block_empty(&mut self) -> bool;
 }
 
 /// How [`scan`] reads a piece of text.
+#[allow(clippy::struct_excessive_bools, reason = "the C ABI's flags")]
 #[derive(Clone, Copy, Default)]
 pub struct Piece {
     /// The text is visible: its codepoints count as offsets from `start`.
@@ -47,8 +86,8 @@ pub struct Piece {
     pub start: u32,
     /// `white-space: pre`.
     pub preserve: bool,
-    /// An initial letter may be pending (false spares a [`Words::initial`] call per byte).
-    pub initial: bool,
+    /// The text is inside a footnote link, which never starts an initial letter.
+    pub footnote_link: bool,
 }
 
 /// Whether [`scan`] read all of the text.
@@ -61,6 +100,80 @@ pub enum Scan {
 
 fn is_space(b: u8) -> bool {
     matches!(b, b' ' | b'\r' | b'\n' | b'\t')
+}
+
+// Opening quotes and other punctuation that lead into a drop cap letter.
+fn is_initial_punctuation(cp: u32) -> bool {
+    match u8::try_from(cp) {
+        Ok(ascii) if ascii < 0x80 => ascii.is_ascii_punctuation(),
+        _ => {
+            matches!(cp, 0xA1 | 0xAB | 0xBB | 0xBF)
+                || (0x2010..=0x205E).contains(&cp)
+                || (0x3008..=0x3011).contains(&cp)
+        }
+    }
+}
+
+// Not an initial letter after all: its text goes back into the word.
+#[cold]
+fn give_up_initial(words: &mut impl Words, letter: &InitialLetter) {
+    for &b in letter.text.get(..usize::from(letter.len)).unwrap_or(&[]) {
+        words.push(b);
+    }
+    words.set_initial(&InitialLetter::NONE);
+}
+
+// The initial letter's capture at the byte `rest` starts with: the bytes it took, 0 for none,
+// None when no initial letter is pending any more. Apart: it runs only at a paragraph's start.
+#[inline(never)]
+fn take_initial(words: &mut impl Words, rest: &[u8], footnote_link: bool) -> Option<usize> {
+    let mut letter = words.initial();
+    let capturing_span = letter.span_depth >= 0;
+    if !capturing_span && !letter.pending {
+        return None;
+    }
+    let lead = rest.first().copied().unwrap_or(0);
+    let space = is_space(lead);
+    if !capturing_span && (space || words.buffered() != 0 || footnote_link || !words.block_empty())
+    {
+        return Some(0);
+    }
+    if space {
+        // Several words: not an initial letter after all.
+        if letter.len > 0 {
+            give_up_initial(words, &letter);
+        }
+        return Some(0);
+    }
+    let len = rest.len().min(match lead {
+        0..0x80 => 1,
+        0x80..0xE0 => 2,
+        0xE0..0xF0 => 3,
+        _ => 4,
+    });
+    let at = usize::from(letter.len);
+    if at + len > MAX_INITIAL_BYTES || letter.codepoints >= MAX_INITIAL_CODEPOINTS {
+        give_up_initial(words, &letter);
+        return Some(0);
+    }
+    if let (Some(dst), Some(src)) = (letter.text.get_mut(at..at + len), rest.get(..len)) {
+        dst.copy_from_slice(src);
+    }
+    // at + len is at most MAX_INITIAL_BYTES.
+    letter.len = u8::try_from(at + len).unwrap_or(0);
+    if let Some(end) = letter.text.get_mut(at + len) {
+        *end = 0;
+    }
+    letter.codepoints += 1;
+    if !capturing_span {
+        // ::first-letter takes leading punctuation plus the first letter.
+        let head = rest.get(..rest.len().min(4)).unwrap_or(&[]);
+        if !is_initial_punctuation(utf8::decode(head).0) {
+            letter.pending = false;
+        }
+    }
+    words.set_initial(&letter);
+    Some(len)
 }
 
 // One attached space word for a no-break space at `offset`.
@@ -109,7 +222,9 @@ fn cut_full_word(words: &mut impl Words) {
 /// Cuts `text` into words through `words`, from where its buffer left off.
 pub fn scan(text: &[u8], piece: Piece, words: &mut impl Words) -> Scan {
     let mut next_offset = piece.start;
-    let mut initial = piece.initial;
+    // No pending letter spares reading it for every byte; none can start during the scan.
+    let letter = words.initial();
+    let mut initial = letter.span_depth >= 0 || letter.pending;
     let mut i = 0;
     while let Some(&b) = text.get(i) {
         let offset = next_offset;
@@ -119,7 +234,7 @@ pub fn scan(text: &[u8], piece: Piece, words: &mut impl Words) -> Scan {
         let rest = text.get(i..).unwrap_or(&[]);
 
         if initial {
-            match words.initial(rest) {
+            match take_initial(words, rest, piece.footnote_link) {
                 Some(0) => {}
                 Some(taken) => {
                     i += taken;
@@ -200,7 +315,7 @@ mod tests {
 
     extern crate std;
 
-    use super::{MAX_WORD, Piece, Scan, Words, scan};
+    use super::{InitialLetter, MAX_WORD, Piece, Scan, Words, scan};
     use std::string::String;
     use std::vec::Vec;
 
@@ -211,8 +326,7 @@ mod tests {
         continues: bool,
         out: Vec<(String, u32, bool)>,
         breaks: usize,
-        /// Initial-letter bytes still to take (each call takes one codepoint).
-        initial: Option<usize>,
+        letter: Option<InitialLetter>,
         stop_at_break: bool,
     }
 
@@ -255,14 +369,14 @@ mod tests {
             self.breaks += 1;
             !self.stop_at_break
         }
-        fn initial(&mut self, rest: &[u8]) -> Option<usize> {
-            match self.initial {
-                Some(0) | None => None,
-                Some(n) => {
-                    self.initial = Some(n - 1);
-                    Some(1.min(rest.len()))
-                }
-            }
+        fn initial(&mut self) -> InitialLetter {
+            self.letter.unwrap_or(InitialLetter::NONE)
+        }
+        fn set_initial(&mut self, letter: &InitialLetter) {
+            self.letter = Some(*letter);
+        }
+        fn block_empty(&mut self) -> bool {
+            self.out.is_empty()
         }
     }
 
@@ -277,8 +391,23 @@ mod tests {
         counted: true,
         start: 0,
         preserve: false,
-        initial: false,
+        footnote_link: false,
     };
+
+    fn first_letter() -> InitialLetter {
+        InitialLetter {
+            pending: true,
+            lines: 3,
+            ..InitialLetter::NONE
+        }
+    }
+
+    fn span() -> InitialLetter {
+        InitialLetter {
+            span_depth: 4,
+            ..InitialLetter::NONE
+        }
+    }
 
     #[test]
     fn spaces_end_words_and_no_break_spaces_attach() {
@@ -325,26 +454,51 @@ mod tests {
         assert_eq!(scan(b"x\ny", piece, &mut p), Scan::Stopped);
     }
 
-    #[test]
-    fn an_initial_letter_takes_bytes_until_it_is_done() {
+    // The captured text and the words, after scanning `text` with `letter` armed.
+    fn initial(text: &str, letter: InitialLetter) -> (String, Vec<String>) {
         let mut p = Paragraph {
-            initial: Some(2),
+            letter: Some(letter),
             ..Paragraph::default()
         };
-        assert_eq!(
-            scan(
-                b"Once",
-                Piece {
-                    initial: true,
-                    ..COUNTED
-                },
-                &mut p
-            ),
-            Scan::Done
-        );
+        let piece = COUNTED;
+        assert_eq!(scan(text.as_bytes(), piece, &mut p), Scan::Done);
         p.flush();
-        assert_eq!(p.out[0].0, "ce");
-        assert_eq!(p.out[0].1, 2);
+        let l = p.letter.unwrap();
+        (
+            String::from_utf8_lossy(&l.text[..usize::from(l.len)]).into_owned(),
+            p.out.into_iter().map(|w| w.0).collect(),
+        )
+    }
+
+    #[test]
+    fn a_first_letter_takes_leading_punctuation_and_one_letter() {
+        let (cap, words) = initial(" \u{a1}Hola mundo", first_letter());
+        assert_eq!(cap, "\u{a1}H");
+        assert_eq!(words, ["ola", "mundo"]);
+        // Three dots fill it: the letter gives up and its text goes back into the word.
+        let (cap, words) = initial("...Hola", first_letter());
+        assert_eq!((cap.as_str(), words[0].as_str()), ("", "...Hola"));
+    }
+
+    #[test]
+    fn a_span_takes_up_to_three_codepoints_in_twelve_bytes() {
+        assert_eq!(initial("ABC", span()).0, "ABC");
+        let (cap, words) = initial("ABCD", span());
+        assert_eq!((cap.as_str(), words[0].as_str()), ("", "ABCD"));
+        assert_eq!(initial("\u{1f600}\u{1f601}\u{1f602}", span()).0.len(), 12);
+        let (cap, words) = initial("A B", span());
+        assert_eq!((cap.as_str(), words.join("|").as_str()), ("", "A|B"));
+        // A footnote link never starts a ::first-letter letter.
+        let mut p = Paragraph {
+            letter: Some(first_letter()),
+            ..Paragraph::default()
+        };
+        let piece = Piece {
+            footnote_link: true,
+            ..COUNTED
+        };
+        assert_eq!(scan(b"12", piece, &mut p), Scan::Done);
+        assert_eq!(p.letter.unwrap().len, 0);
     }
 
     #[test]
@@ -377,7 +531,7 @@ mod tests {
                 }
             }
             let mut p = Paragraph {
-                initial: Some((next() % 3) as usize),
+                letter: [None, Some(first_letter()), Some(span())][(next() % 3) as usize],
                 stop_at_break: next() % 2 == 0,
                 ..Paragraph::default()
             };
@@ -385,7 +539,7 @@ mod tests {
                 counted: next() % 2 == 0,
                 start: next(),
                 preserve: next() % 2 == 0,
-                initial: next() % 2 == 0,
+                footnote_link: next() % 4 == 0,
             };
             let _ = scan(&text, piece, &mut p);
             assert!(p.buf.len() <= MAX_WORD + 1);

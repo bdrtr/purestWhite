@@ -7,6 +7,7 @@
 
 #include <array>
 #include <climits>
+#include <cstddef>
 #include <functional>
 #include <memory>
 #include <string>
@@ -109,7 +110,7 @@ class ChapterHtmlSlimParser {
 
   // Initial letter captured from a ::first-letter block or a leading float/initial-letter span,
   // drawn as a PageDropCap when its block is laid out.
-  static constexpr size_t MAX_DROP_CAP_BYTES = 12;
+  static constexpr size_t MAX_DROP_CAP_BYTES = BB_HTML_MAX_INITIAL_BYTES;
   struct DropCapState {
     char text[MAX_DROP_CAP_BYTES + 1] = {};
     uint8_t length = 0;
@@ -117,8 +118,18 @@ class ChapterHtmlSlimParser {
     uint8_t lines = 0;  // text lines the letter spans
     bool bold = false;
     bool firstLetterPending = false;  // capture the current block's first letter
-    int spanDepth = -1;               // capturing the text of the span at this depth
+    int32_t spanDepth = -1;           // capturing the text of the span at this depth
   } dropCap;
+  // bembeyaz-html's words module captures the letter through this layout.
+  static_assert(sizeof(DropCapState) == sizeof(bb_html_initial_letter) &&
+                    offsetof(DropCapState, length) == offsetof(bb_html_initial_letter, len) &&
+                    offsetof(DropCapState, codepoints) == offsetof(bb_html_initial_letter, codepoints) &&
+                    offsetof(DropCapState, lines) == offsetof(bb_html_initial_letter, lines) &&
+                    offsetof(DropCapState, bold) == offsetof(bb_html_initial_letter, bold) &&
+                    offsetof(DropCapState, firstLetterPending) == offsetof(bb_html_initial_letter, pending) &&
+                    offsetof(DropCapState, spanDepth) == offsetof(bb_html_initial_letter, span_depth),
+                "DropCapState layout");
+  bb_html_initial_letter* initialLetter() { return reinterpret_cast<bb_html_initial_letter*>(&dropCap); }
 
   // Open elements with a CSS border or background shade. Each emits a PageBorderBox around
   // its content on every page it spans.
@@ -247,9 +258,7 @@ class ChapterHtmlSlimParser {
   void closeBoxScope();
   void emitBoxSegment(const BoxScope& box, bool closing);
   void armFirstLetterDropCap(const char* tagName, const std::string& classAttr, const char* idAttr);
-  bool captureDropCapCodepoint(const char* bytes, int length);
   void cancelDropCapToWord();
-  int takeInitialLetter(const char* rest, size_t available);
   void layoutCurrentBlock(bool includeLastLine);
   void layoutDropCapLines(int layoutFontId, uint16_t effectiveWidth,
                           const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& emitLine,

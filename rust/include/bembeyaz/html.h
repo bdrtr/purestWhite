@@ -32,14 +32,30 @@ void bb_text_html_feed(bb_text_html* state, const uint8_t* text, size_t len,
 // Bytes a chapter parser's word buffer holds before a word is cut (buf has room for one more, the
 // NUL).
 #define BB_HTML_MAX_WORD 200
+// Bytes an initial letter holds (text has room for one more, the NUL); at most three codepoints.
+#define BB_HTML_MAX_INITIAL_BYTES 12
+
+// The initial letter (drop cap) being captured. A drop-cap span (span_depth >= 0) takes all of its
+// text, a ::first-letter rule (pending) the block's leading punctuation and first letter; a letter
+// that grows too long, or a span's letter that meets whitespace, goes back into the word and the
+// whole state is reset (span_depth -1). lines and bold are the parser's.
+typedef struct {
+  char text[BB_HTML_MAX_INITIAL_BYTES + 1];
+  uint8_t len;
+  uint8_t codepoints;
+  uint8_t lines;
+  bool bold;
+  bool pending;
+  int32_t span_depth;
+} bb_html_initial_letter;
 
 // The chapter parser's word buffer and what it does with words. bb_html_scan_words reads and
 // writes buf, *len, *offset and *continues between callbacks, which may change them too:
 // flush hands the buffered word (from *offset, attached when *continues) to the paragraph, empties
 // the buffer and clears *continues; suppress_indent drops the paragraph's first-line indent;
-// line_break ends a preserved line, false when no paragraph is left; initial offers rest (len
-// bytes, the text from the current byte) to a pending initial letter: the bytes it took, 0 for
-// none, -1 when none is pending any more.
+// line_break ends a preserved line, false when no paragraph is left; initial is the initial letter
+// being captured, which bb_html_scan_words reads and writes too; block_empty tells whether the
+// paragraph has no word yet.
 typedef struct {
   char* buf;
   int* len;
@@ -49,7 +65,8 @@ typedef struct {
   void (*flush)(void* context);
   void (*suppress_indent)(void* context);
   bool (*line_break)(void* context);
-  int (*initial)(void* context, const char* rest, size_t len);
+  bb_html_initial_letter* initial;
+  bool (*block_empty)(void* context);
 } bb_html_words;
 
 enum {
@@ -62,9 +79,10 @@ enum {
 // U+202F) is a space word attached to both neighbours; a BOM is dropped; a full buffer is cut on a
 // codepoint boundary and the rest attaches. preserve (white-space: pre) keeps each space as a word,
 // a tab as four and a newline as a line break. counted: the text is visible, its codepoints
-// numbered from start. initial: an initial letter may be pending (false spares the per-byte initial
-// call). Returns a BB_HTML_WORDS_ code.
-int bb_html_scan_words(const char* text, size_t len, bool counted, uint32_t start, bool preserve, bool initial,
+// numbered from start. A pending initial letter (words->initial) takes its text before the words
+// do. footnote_link: the text is a footnote link's, which never starts a ::first-letter letter.
+// Returns a BB_HTML_WORDS_ code.
+int bb_html_scan_words(const char* text, size_t len, bool counted, uint32_t start, bool preserve, bool footnote_link,
                        const bb_html_words* words);
 
 #ifdef __cplusplus
