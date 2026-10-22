@@ -1896,3 +1896,78 @@ TEST_F(ChapterTextTokenTest, PreservedWhitespaceKeepsSpacesAndExpandsTabs) {
   EXPECT_EQ(tokens(), (std::vector<std::string>{"a@0-1", " @1-2", " @1-2", " @1-2", " @1-2", "b@2-3", " @3-4", " @4-5",
                                                 "c@5-6"}));
 }
+
+// What an initial letter (drop cap) captures: at most three codepoints in twelve bytes, a
+// ::first-letter rule's leading punctuation plus the letter; anything longer stays text.
+class ChapterInitialLetterTest : public ChapterBlockDecorationTest {
+ protected:
+  void firstLetterRule() {
+    const auto cssPath = std::filesystem::temp_directory_path() / "crosspoint-initial-letter.css";
+    {
+      HalFile output;
+      ASSERT_TRUE(output.open(cssPath.c_str(), "wb"));
+      const std::string css = "p.opening::first-letter { initial-letter: 2; }";
+      output.write(css.data(), css.size());
+    }
+    HalFile input;
+    ASSERT_TRUE(input.open(cssPath.c_str(), "rb"));
+    ASSERT_EQ(cssParser.loadFromStream(input), CssParser::ParseResult::Complete);
+    std::filesystem::remove(cssPath);
+  }
+  void opening() {
+    const char* attributes[] = {"class", "opening", nullptr};
+    ChapterHtmlSlimParser::startElement(&parser, "p", attributes);
+  }
+  // The drop cap's text ("" for none) and the first word of the first line.
+  std::pair<std::string, std::string> result() {
+    const auto caps = elementsWithTag(TAG_PageDropCap);
+    const auto lines = elementsWithTag(TAG_PageLine);
+    return {caps.empty() ? "" : static_cast<const PageDropCap*>(caps[0])->getText(),
+            lines.empty() ? "" : static_cast<const PageLine*>(lines[0])->getBlock()->wordText(0)};
+  }
+};
+
+TEST_F(ChapterInitialLetterTest, ASpanTakesUpToThreeCodepoints) {
+  open("p", nullptr);
+  open("span", "float: left; font-size: 3em");
+  text("ABC");
+  close("span");
+  text("def " + words(40));
+  close("p");
+  EXPECT_EQ(result(), (std::pair<std::string, std::string>{"ABC", "def"}));
+}
+
+TEST_F(ChapterInitialLetterTest, AFourCodepointSpanStaysText) {
+  open("p", nullptr);
+  open("span", "float: left; font-size: 3em");
+  text("ABCD");
+  close("span");
+  text("ef " + words(40));
+  close("p");
+  EXPECT_EQ(result(), (std::pair<std::string, std::string>{"", "ABCD"}));
+}
+
+TEST_F(ChapterInitialLetterTest, ASpanTakesTwelveBytesAtMost) {
+  open("p", nullptr);
+  open("span", "float: left; font-size: 3em");
+  text("\xF0\x9F\x98\x80\xF0\x9F\x98\x81\xF0\x9F\x98\x82");
+  close("span");
+  text("x " + words(40));
+  close("p");
+  EXPECT_EQ(result(), (std::pair<std::string, std::string>{"\xF0\x9F\x98\x80\xF0\x9F\x98\x81\xF0\x9F\x98\x82", "x"}));
+}
+
+TEST_F(ChapterInitialLetterTest, FirstLetterTakesLeadingPunctuationAndSkipsLeadingSpace) {
+  firstLetterRule();
+  opening();
+  text(" \xC2\xA1Hola " + words(40));
+  close("p");
+  const auto opened = result();
+  pages.clear();
+  opening();
+  text("...Hola " + words(40));
+  close("p");
+  EXPECT_EQ(opened, (std::pair<std::string, std::string>{"\xC2\xA1H", "ola"}));
+  // Three dots fill the three codepoints before the letter: not an initial letter.
+  EXPECT_EQ(result(), (std::pair<std::string, std::string>{"", "...Hola"}));
+}
