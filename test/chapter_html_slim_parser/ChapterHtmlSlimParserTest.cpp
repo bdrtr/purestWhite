@@ -2141,3 +2141,177 @@ TEST_F(ChapterFontScaleTest, ASpanHoldingTheWholeBlockSizesItLikeABlock) {
   EXPECT_EQ(scales(), (std::vector<std::string>{"Chapter:240", "One:240", "Chapter:300", "One:300", "Chapter:50",
                                                 "One:50", "Chapter:90", "One:90", "Chapter:90", "One:90"}));
 }
+
+// How a block's CSS resolves to pixels and how nested blocks combine.
+TEST(BlockStyleTest, FromCssResolvesUnitsAndCapsHorizontalInsets) {
+  CssStyle css;
+  css.marginTop = CssLength{1.5f, CssUnit::Em};
+  css.marginBottom = CssLength{12.0f, CssUnit::Points};
+  css.marginLeft = CssLength{5.0f, CssUnit::Percent};
+  css.marginRight = CssLength{0.5f, CssUnit::Rem};
+  css.paddingTop = CssLength{-2.7f, CssUnit::Pixels};
+  css.paddingBottom = CssLength{3.0f, CssUnit::Pixels};
+  css.paddingLeft = CssLength{3.0f, CssUnit::Em};
+  css.paddingRight = CssLength{50.0f, CssUnit::Percent};
+  const BlockStyle style = BlockStyle::fromCssStyle(css, 17.5f, CssTextAlign::None, 400);
+  EXPECT_EQ(style.marginTop, 26);     // 26.25
+  EXPECT_EQ(style.marginBottom, 15);  // 15.96
+  EXPECT_EQ(style.marginLeft, 20);
+  EXPECT_EQ(style.marginRight, 8);  // 8.75
+  EXPECT_EQ(style.paddingTop, -2);  // toward zero
+  EXPECT_EQ(style.paddingBottom, 3);
+  EXPECT_EQ(style.paddingLeft, 35);   // capped at 2em
+  EXPECT_EQ(style.paddingRight, 35);  // 200, capped
+  EXPECT_FALSE(style.textIndentDefined);
+  EXPECT_FALSE(style.textAlignDefined);
+  EXPECT_EQ(style.alignment, CssTextAlign::Justify);
+  EXPECT_FALSE(style.pageBreakBefore);
+  EXPECT_FALSE(style.directionDefined);
+  // Without a viewport a percentage is 0.
+  EXPECT_EQ(BlockStyle::fromCssStyle(css, 17.5f, CssTextAlign::None).marginLeft, 0);
+}
+
+TEST(BlockStyleTest, FromCssTakesIndentAlignmentBreaksAndDirection) {
+  CssStyle css;
+  css.textIndent = CssLength{5.0f, CssUnit::Percent};
+  css.defined.textIndent = 1;
+  css.textAlign = CssTextAlign::Center;
+  css.defined.textAlign = 1;
+  css.pageBreakBefore = true;
+  css.defined.pageBreakBefore = 1;
+  css.pageBreakAfter = false;
+  css.defined.pageBreakAfter = 1;
+  css.direction = CssTextDirection::Rtl;
+  css.defined.direction = 1;
+  BlockStyle style = BlockStyle::fromCssStyle(css, 20.0f, CssTextAlign::None, 300);
+  EXPECT_TRUE(style.textIndentDefined);
+  EXPECT_EQ(style.textIndent, 15);
+  EXPECT_TRUE(style.textAlignDefined);
+  EXPECT_EQ(style.alignment, CssTextAlign::Center);
+  EXPECT_TRUE(style.pageBreakBefore);
+  EXPECT_FALSE(style.pageBreakAfter);
+  EXPECT_TRUE(style.isRtl);
+  EXPECT_TRUE(style.directionDefined);
+  // An unresolvable percentage leaves the indent to the paragraph's default.
+  style = BlockStyle::fromCssStyle(css, 20.0f, CssTextAlign::None);
+  EXPECT_FALSE(style.textIndentDefined);
+  EXPECT_EQ(style.textIndent, 0);
+  // The reader's alignment setting wins over the book's.
+  style = BlockStyle::fromCssStyle(css, 20.0f, CssTextAlign::Left, 300);
+  EXPECT_EQ(style.alignment, CssTextAlign::Left);
+  EXPECT_TRUE(style.textAlignDefined);
+  css.textIndent = CssLength{-1.25f, CssUnit::Em};
+  css.direction = CssTextDirection::Ltr;
+  style = BlockStyle::fromCssStyle(css, 20.0f, CssTextAlign::Right, 300);
+  EXPECT_EQ(style.textIndent, -25);
+  EXPECT_FALSE(style.isRtl);
+  EXPECT_TRUE(style.directionDefined);
+}
+
+TEST(BlockStyleTest, CombiningAddsInsetsAndInheritsWhatTheChildLeavesOpen) {
+  BlockStyle parent;
+  parent.marginLeft = 10;
+  parent.marginRight = 4;
+  parent.paddingLeft = 2;
+  parent.paddingRight = 1;
+  parent.marginTop = 12;
+  parent.marginBottom = 3;
+  parent.paddingTop = 5;
+  parent.paddingBottom = 6;
+  parent.textIndent = 30;
+  parent.textIndentDefined = true;
+  parent.alignment = CssTextAlign::Center;
+  parent.textAlignDefined = true;
+  parent.isRtl = true;
+  parent.directionDefined = true;
+  parent.fontScale = 1.5f;
+  parent.fontScaleDefined = true;
+  parent.pageBreakBefore = true;
+  parent.pageBreakAfter = true;
+  parent.keepWithNext = true;
+  parent.fontId = 7;
+  parent.characterSpacing = 2;
+
+  BlockStyle child;
+  child.marginLeft = 1;
+  child.marginRight = 2;
+  child.paddingLeft = 3;
+  child.paddingRight = 4;
+  child.marginTop = 8;
+  child.marginBottom = 9;
+  child.paddingTop = 1;
+  child.paddingBottom = 1;
+
+  const BlockStyle across = parent.getCombinedBlockStyle(child, BlockStyle::CombineAxis::Horizontal);
+  EXPECT_EQ(across.marginLeft, 11);
+  EXPECT_EQ(across.marginRight, 6);
+  EXPECT_EQ(across.paddingLeft, 5);
+  EXPECT_EQ(across.paddingRight, 5);
+  EXPECT_EQ(across.marginTop, 8);  // the child's
+  EXPECT_EQ(across.paddingBottom, 1);
+  EXPECT_EQ(across.textIndent, 30);
+  EXPECT_EQ(across.alignment, CssTextAlign::Center);
+  EXPECT_TRUE(across.isRtl);
+  EXPECT_FLOAT_EQ(across.fontScale, 1.5f);
+  EXPECT_FALSE(across.pageBreakBefore);
+  EXPECT_FALSE(across.pageBreakAfter);
+  EXPECT_FALSE(across.keepWithNext);
+  EXPECT_EQ(across.fontId, 0);
+  EXPECT_EQ(across.characterSpacing, 0);
+
+  const BlockStyle down = parent.getCombinedBlockStyle(child, BlockStyle::CombineAxis::Vertical);
+  EXPECT_EQ(down.marginLeft, 1);  // the child's
+  EXPECT_EQ(down.marginTop, 12);  // the larger
+  EXPECT_EQ(down.marginBottom, 9);
+  EXPECT_EQ(down.paddingTop, 6);  // summed
+  EXPECT_EQ(down.paddingBottom, 7);
+  EXPECT_FALSE(down.textIndentDefined);
+  EXPECT_FALSE(down.textAlignDefined);
+  EXPECT_EQ(down.alignment, CssTextAlign::Justify);
+  EXPECT_TRUE(down.pageBreakBefore);
+  EXPECT_FALSE(down.pageBreakAfter);
+  EXPECT_TRUE(down.isRtl);
+  EXPECT_FLOAT_EQ(down.fontScale, 1.5f);
+
+  // What the child defines itself stays.
+  child.textIndent = -5;
+  child.textIndentDefined = true;
+  child.alignment = CssTextAlign::Right;
+  child.textAlignDefined = true;
+  child.directionDefined = true;
+  child.fontScale = 0.8f;
+  child.fontScaleDefined = true;
+  const BlockStyle own = parent.getCombinedBlockStyle(child, BlockStyle::CombineAxis::Horizontal);
+  EXPECT_EQ(own.textIndent, -5);
+  EXPECT_EQ(own.alignment, CssTextAlign::Right);
+  EXPECT_FALSE(own.isRtl);
+  EXPECT_FLOAT_EQ(own.fontScale, 0.8f);
+
+  // Sums wrap at 16 bits, as the stored fields do.
+  parent.marginLeft = 32000;
+  child.marginLeft = 1000;
+  EXPECT_EQ(parent.getCombinedBlockStyle(child, BlockStyle::CombineAxis::Horizontal).marginLeft, -32536);
+}
+
+TEST(BlockStyleTest, BottomAndTopEdits) {
+  BlockStyle style;
+  style.marginTop = 4;
+  style.paddingTop = 2;
+  style.marginBottom = 6;
+  style.paddingBottom = 3;
+  BlockStyle source;
+  source.marginBottom = 10;
+  source.paddingBottom = 5;
+  const BlockStyle added = style.addBottom(source);
+  EXPECT_EQ(added.marginBottom, 10);
+  EXPECT_EQ(added.paddingBottom, 8);
+  EXPECT_EQ(added.marginTop, 4);
+  EXPECT_EQ(style.withoutBottom().marginBottom, 0);
+  EXPECT_EQ(style.withoutBottom().paddingBottom, 0);
+  EXPECT_EQ(style.withoutBottom().marginTop, 4);
+  EXPECT_EQ(style.withoutTop().marginTop, 0);
+  EXPECT_EQ(style.withoutTop().paddingTop, 0);
+  EXPECT_EQ(style.withoutTop().paddingBottom, 3);
+  EXPECT_EQ(style.topInset(), 6);
+  EXPECT_EQ(style.bottomInset(), 9);
+}
