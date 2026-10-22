@@ -1971,3 +1971,86 @@ TEST_F(ChapterInitialLetterTest, FirstLetterTakesLeadingPunctuationAndSkipsLeadi
   // Three dots fill the three codepoints before the letter: not an initial letter.
   EXPECT_EQ(result(), (std::pair<std::string, std::string>{"", "...Hola"}));
 }
+
+// How the inline style stack folds into each word's font style.
+class ChapterInlineStyleTest : public ChapterTextTokenTest {
+ protected:
+  // Each word with its style bits.
+  std::vector<std::string> styled() {
+    close("p");
+    std::vector<std::string> out;
+    for (const PageElement* element : elementsWithTag(TAG_PageLine)) {
+      const auto& block = *static_cast<const PageLine*>(element)->getBlock();
+      for (uint16_t i = 0; i < block.wordCount(); ++i) {
+        out.push_back(std::string(block.wordText(i)) + ":" + std::to_string(static_cast<int>(block.wordStyle(i))));
+      }
+    }
+    return out;
+  }
+};
+
+TEST_F(ChapterInlineStyleTest, DecorationsAddUpAndAChildCannotRemoveOne) {
+  open("p", nullptr);
+  open("u", nullptr);
+  text("a ");
+  open("s", nullptr);
+  text("b ");
+  open("span", "text-decoration: none");
+  text("c ");
+  close("span");
+  close("s");
+  close("u");
+  text("d");
+  // Underline 4, line-through 8.
+  EXPECT_EQ(styled(), (std::vector<std::string>{"a:4", "b:12", "c:12", "d:0"}));
+}
+
+TEST_F(ChapterInlineStyleTest, SupAndSubReplaceEachOther) {
+  open("p", nullptr);
+  open("sup", nullptr);
+  text("a ");
+  open("sub", nullptr);
+  text("b ");
+  close("sub");
+  text("c ");
+  open("span", "vertical-align: sub");
+  text("d");
+  close("span");
+  close("sup");
+  // Sup 16, sub 32.
+  EXPECT_EQ(styled(), (std::vector<std::string>{"a:16", "b:32", "c:16", "d:32"}));
+}
+
+TEST_F(ChapterInlineStyleTest, WeightAndStyleAreInheritedAndOverridden) {
+  open("p", "font-weight: bold");
+  open("i", nullptr);
+  text("a ");
+  close("i");
+  open("span", "font-weight: normal");
+  text("b ");
+  close("span");
+  open("b", "font-style: italic");
+  text("c ");
+  close("b");
+  open("em", "font-weight: normal; font-variant: small-caps");
+  text("d");
+  close("em");
+  // Bold 1, italic 2, small caps 128.
+  EXPECT_EQ(styled(), (std::vector<std::string>{"a:3", "b:0", "c:3", "d:130"}));
+}
+
+TEST_F(ChapterInlineStyleTest, LinksAndSizedTagsKeepTheirOwnStyles) {
+  open("p", nullptr);
+  const char* link[] = {"href", "#note", "style", "vertical-align: super", nullptr};
+  ChapterHtmlSlimParser::startElement(&parser, "a", link);
+  text("1 ");
+  close("a");
+  open("small", "font-style: italic");
+  text("s ");
+  close("small");
+  open("strong", "text-decoration: line-through");
+  text("t");
+  close("strong");
+  // A link is underlined (4) and may be raised (16).
+  EXPECT_EQ(styled(), (std::vector<std::string>{"1:20", "s:2", "t:9"}));
+}
