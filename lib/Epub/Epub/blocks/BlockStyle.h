@@ -1,6 +1,5 @@
 #pragma once
 
-#include <algorithm>
 #include <cstdint>
 
 #include "Epub/css/CssStyle.h"
@@ -9,12 +8,6 @@
  * BlockStyle - Block-level styling properties
  */
 struct BlockStyle {
-  // Upper bound (in em) for any single side's horizontal margin or padding.
-  // Some EPUBs apply huge em-based insets to chapter-opener classes; without a
-  // cap, effectiveWidth collapses to 1-2 words per line and justification dumps
-  // the remaining space into a single gap.
-  static constexpr float MAX_HORIZONTAL_INSET_EM = 2.0f;
-
   CssTextAlign alignment = CssTextAlign::Justify;
 
   // Extra pixels between glyphs during layout and drawing.
@@ -39,7 +32,8 @@ struct BlockStyle {
   bool fontScaleDefined = false;
   // Renderer font for this block's lines; 0 means the section's reader font.
   int32_t fontId = 0;
-  // Forced page breaks from CSS. Layout-time only; never inherited by children.
+  // Forced page breaks from CSS. Layout-time only; not inherited, but a container's break-before
+  // passes to its first child when they share the empty block.
   bool pageBreakBefore = false;
   bool pageBreakAfter = false;
   // Headings: keep the block's last lines on the page with whatever follows. Layout-time only.
@@ -68,15 +62,10 @@ struct BlockStyle {
     return result;
   }
 
-  // Return a copy with bottom margins/padding collapsed (max) with the source's.
-  // Uses CSS margin collapsing: adjacent parent-child margins resolve to the larger value.
-  [[nodiscard]] BlockStyle addBottom(const BlockStyle& source) const {
-    BlockStyle result = *this;
-    result.marginBottom = std::max(marginBottom, source.marginBottom);
-    result.paddingBottom = static_cast<int16_t>(paddingBottom + source.paddingBottom);
-    return result;
-  }
+  // Return a copy with the source's bottom collapsed into it: the larger margin, the padding added.
+  [[nodiscard]] BlockStyle addBottom(const BlockStyle& source) const;
 
+  // Matches BB_CSS_HORIZONTAL and BB_CSS_VERTICAL in bembeyaz/css.h.
   enum class CombineAxis : uint8_t {
     Horizontal = 1,  // margins left/right, padding left/right, text-align, text-indent
     Vertical = 2,    // margins top/bottom, padding top/bottom
@@ -84,83 +73,11 @@ struct BlockStyle {
 
   // Combine this style's properties with a child style along the specified axis.
   // Properties on the other axis are kept from the child unchanged.
-  [[nodiscard]] BlockStyle getCombinedBlockStyle(const BlockStyle& child, CombineAxis axis) const {
-    BlockStyle result = child;
-
-    if (axis == CombineAxis::Horizontal) {
-      result.marginLeft = static_cast<int16_t>(child.marginLeft + marginLeft);
-      result.marginRight = static_cast<int16_t>(child.marginRight + marginRight);
-      result.paddingLeft = static_cast<int16_t>(child.paddingLeft + paddingLeft);
-      result.paddingRight = static_cast<int16_t>(child.paddingRight + paddingRight);
-      if (!child.textIndentDefined && textIndentDefined) {
-        result.textIndent = textIndent;
-        result.textIndentDefined = true;
-      }
-      if (!child.textAlignDefined && textAlignDefined) {
-        result.alignment = alignment;
-        result.textAlignDefined = true;
-      }
-    } else {
-      result.marginTop = std::max(child.marginTop, marginTop);
-      result.marginBottom = std::max(child.marginBottom, marginBottom);
-      result.paddingTop = static_cast<int16_t>(child.paddingTop + paddingTop);
-      result.paddingBottom = static_cast<int16_t>(child.paddingBottom + paddingBottom);
-      // A container's break lands on its first child when they share the empty block.
-      result.pageBreakBefore = child.pageBreakBefore || pageBreakBefore;
-    }
-
-    // Direction is not axis-specific. Inherit from parent when child doesn't define it.
-    if (!child.directionDefined && directionDefined) {
-      result.isRtl = isRtl;
-      result.directionDefined = true;
-    }
-    if (!child.fontScaleDefined && fontScaleDefined) {
-      result.fontScale = fontScale;
-      result.fontScaleDefined = true;
-    }
-
-    return result;
-  }
+  [[nodiscard]] BlockStyle getCombinedBlockStyle(const BlockStyle& child, CombineAxis axis) const;
 
   // Create a BlockStyle from CSS style properties, resolving CssLength values to pixels
   // emSize is the current font line height, used for em/rem unit conversion
   // paragraphAlignment is the user's paragraphAlignment setting preference
-  static BlockStyle fromCssStyle(const CssStyle& cssStyle, const float emSize, const CssTextAlign paragraphAlignment,
-                                 const uint16_t viewportWidth = 0) {
-    BlockStyle blockStyle;
-    const float vw = viewportWidth;
-    const auto maxHorizontalInsetPx = static_cast<int16_t>(emSize * MAX_HORIZONTAL_INSET_EM);
-    // Resolve all CssLength values to pixels using the current font's em size and viewport width
-    blockStyle.marginTop = cssStyle.marginTop.toPixelsInt16(emSize, vw);
-    blockStyle.marginBottom = cssStyle.marginBottom.toPixelsInt16(emSize, vw);
-    blockStyle.marginLeft = std::min(cssStyle.marginLeft.toPixelsInt16(emSize, vw), maxHorizontalInsetPx);
-    blockStyle.marginRight = std::min(cssStyle.marginRight.toPixelsInt16(emSize, vw), maxHorizontalInsetPx);
-
-    blockStyle.paddingTop = cssStyle.paddingTop.toPixelsInt16(emSize, vw);
-    blockStyle.paddingBottom = cssStyle.paddingBottom.toPixelsInt16(emSize, vw);
-    blockStyle.paddingLeft = std::min(cssStyle.paddingLeft.toPixelsInt16(emSize, vw), maxHorizontalInsetPx);
-    blockStyle.paddingRight = std::min(cssStyle.paddingRight.toPixelsInt16(emSize, vw), maxHorizontalInsetPx);
-
-    // For textIndent: if it's a percentage we can't resolve (no viewport width),
-    // leave textIndentDefined=false so the space-width fallback in resolveFirstLineIndent() is used
-    if (cssStyle.hasTextIndent() && cssStyle.textIndent.isResolvable(vw)) {
-      blockStyle.textIndent = cssStyle.textIndent.toPixelsInt16(emSize, vw);
-      blockStyle.textIndentDefined = true;
-    }
-    blockStyle.textAlignDefined = cssStyle.hasTextAlign();
-    // User setting overrides CSS, unless "Book's Style" alignment setting is selected
-    if (paragraphAlignment == CssTextAlign::None) {
-      blockStyle.alignment = blockStyle.textAlignDefined ? cssStyle.textAlign : CssTextAlign::Justify;
-    } else {
-      blockStyle.alignment = paragraphAlignment;
-    }
-    blockStyle.pageBreakBefore = cssStyle.hasPageBreakBefore() && cssStyle.pageBreakBefore;
-    blockStyle.pageBreakAfter = cssStyle.hasPageBreakAfter() && cssStyle.pageBreakAfter;
-    // RTL direction from CSS/HTML
-    if (cssStyle.hasDirection()) {
-      blockStyle.isRtl = (cssStyle.direction == CssTextDirection::Rtl);
-      blockStyle.directionDefined = true;
-    }
-    return blockStyle;
-  }
+  static BlockStyle fromCssStyle(const CssStyle& cssStyle, float emSize, CssTextAlign paragraphAlignment,
+                                 uint16_t viewportWidth = 0);
 };

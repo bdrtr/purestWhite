@@ -424,3 +424,70 @@ pub unsafe extern "C" fn bb_css_tag_scale(name: *const c_char, len: usize) -> f3
     // SAFETY: as documented.
     inline::tag_scale(unsafe { bytes(name, len) }).unwrap_or(0.0)
 }
+
+use bembeyaz_css::block::{self, Axis, Block};
+
+// css.h's bb_css_block: lib/Epub's BlockStyle, which checks the same offsets.
+const _: () = {
+    use core::mem::offset_of;
+    assert!(
+        size_of::<Block>() == 40
+            && align_of::<Block>() == 4
+            && offset_of!(Block, margin_top) == 2
+            && offset_of!(Block, text_indent) == 18
+            && offset_of!(Block, text_indent_defined) == 20
+            && offset_of!(Block, direction_defined) == 23
+            && offset_of!(Block, font_scale) == 24
+            && offset_of!(Block, font_scale_defined) == 28
+            && offset_of!(Block, font_id) == 32
+            && offset_of!(Block, keep_with_next) == 38
+    );
+};
+
+/// # Safety
+/// `css` is NULL or a readable `CssStyle`; `out` is NULL or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_css_block_from_style(
+    css: *const Style,
+    em: f32,
+    paragraph_alignment: u8,
+    viewport: u16,
+    out: *mut Block,
+) {
+    // SAFETY: as documented.
+    let css = unsafe { css.as_ref() }.unwrap_or(&Style::DEFAULT);
+    // SAFETY: as documented.
+    unsafe { crate::set(out, block::from_css(css, em, paragraph_alignment, viewport)) };
+}
+
+/// css.h's BB_CSS_HORIZONTAL, BlockStyle's `CombineAxis::Horizontal`; anything else is vertical.
+const BB_CSS_HORIZONTAL: u8 = 1;
+
+/// # Safety
+/// `parent` is NULL or a readable `BlockStyle`; `child` is NULL or a writable one, not `parent`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_css_block_combine(parent: *const Block, child: *mut Block, axis: u8) {
+    // SAFETY: as documented.
+    let (Some(parent), Some(child)) = (unsafe { parent.as_ref() }, unsafe { child.as_mut() })
+    else {
+        return;
+    };
+    let axis = if axis == BB_CSS_HORIZONTAL {
+        Axis::Horizontal
+    } else {
+        Axis::Vertical
+    };
+    block::combine(parent, child, axis);
+}
+
+/// # Safety
+/// `block` is NULL or a writable `BlockStyle`; `source` is NULL or a readable one, not `block`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_css_block_add_bottom(block: *mut Block, source: *const Block) {
+    // SAFETY: as documented.
+    let (Some(block), Some(source)) = (unsafe { block.as_mut() }, unsafe { source.as_ref() })
+    else {
+        return;
+    };
+    block::add_bottom(block, source);
+}

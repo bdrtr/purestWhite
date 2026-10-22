@@ -2315,3 +2315,29 @@ TEST(BlockStyleTest, BottomAndTopEdits) {
   EXPECT_EQ(style.topInset(), 6);
   EXPECT_EQ(style.bottomInset(), 9);
 }
+
+TEST(BlockStyleTest, AnEmptyStyleGivesTheDefaultBlock) {
+  const BlockStyle resolved = BlockStyle::fromCssStyle(CssStyle{}, 20.0f, CssTextAlign::None, 300);
+  const BlockStyle defaults;
+  EXPECT_EQ(resolved.alignment, defaults.alignment);
+  EXPECT_EQ(resolved.characterSpacing, defaults.characterSpacing);
+  EXPECT_EQ(resolved.marginTop, defaults.marginTop);
+  EXPECT_EQ(resolved.marginBottom, defaults.marginBottom);
+  EXPECT_EQ(resolved.marginLeft, defaults.marginLeft);
+  EXPECT_EQ(resolved.marginRight, defaults.marginRight);
+  EXPECT_EQ(resolved.paddingTop, defaults.paddingTop);
+  EXPECT_EQ(resolved.paddingBottom, defaults.paddingBottom);
+  EXPECT_EQ(resolved.paddingLeft, defaults.paddingLeft);
+  EXPECT_EQ(resolved.paddingRight, defaults.paddingRight);
+  EXPECT_EQ(resolved.textIndent, defaults.textIndent);
+  EXPECT_EQ(resolved.textIndentDefined, defaults.textIndentDefined);
+  EXPECT_EQ(resolved.textAlignDefined, defaults.textAlignDefined);
+  EXPECT_EQ(resolved.isRtl, defaults.isRtl);
+  EXPECT_EQ(resolved.directionDefined, defaults.directionDefined);
+  EXPECT_EQ(resolved.fontScale, defaults.fontScale);
+  EXPECT_EQ(resolved.fontScaleDefined, defaults.fontScaleDefined);
+  EXPECT_EQ(resolved.fontId, defaults.fontId);
+  EXPECT_EQ(resolved.pageBreakBefore, defaults.pageBreakBefore);
+  EXPECT_EQ(resolved.pageBreakAfter, defaults.pageBreakAfter);
+  EXPECT_EQ(resolved.keepWithNext, defaults.keepWithNext);
+}

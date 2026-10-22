@@ -1,4 +1,5 @@
-// C ABI of rust/crates/bembeyaz-ffi/src/css.rs. Use lib/Epub/Epub/css/CssParser.h instead.
+// C ABI of rust/crates/bembeyaz-ffi/src/css.rs. Use lib/Epub/Epub/css/CssParser.h and
+// lib/Epub/Epub/blocks/BlockStyle.h instead.
 #pragma once
 
 #include <stdbool.h>
@@ -203,6 +204,27 @@ float bb_css_span_scale(const bb_css_style* css, float base);
 // The browser's default size of the len-byte inline element name (small, big) as a multiple of
 // its parent's; 0 for other names.
 float bb_css_tag_scale(const char* name, size_t len);
+
+// A block's layout style: lib/Epub's BlockStyle, which checks that its layout matches Rust's.
+typedef struct bb_css_block bb_css_block;
+
+enum {
+  BB_CSS_HORIZONTAL = 1,  // side insets add up; indent and alignment are inherited
+  BB_CSS_VERTICAL = 2,    // top and bottom margins collapse, padding adds up, a page break carries
+};
+
+// Writes css (NULL: the default style) as a block into out: its lengths in pixels over em (the
+// font's line height) and viewport (0 when unknown, so percentages are 0 and a percentage indent
+// is left to the paragraph), side insets capped at 2em, and paragraph_alignment (a CssTextAlign;
+// None keeps the book's).
+void bb_css_block_from_style(const bb_css_style* css, float em, uint8_t paragraph_alignment, uint16_t viewport,
+                             bb_css_block* out);
+// Puts child inside parent (not the same block) along axis; child's fields on the other axis
+// stay, and direction and font size it leaves open come from the parent.
+void bb_css_block_combine(const bb_css_block* parent, bb_css_block* child, uint8_t axis);
+// Collapses source's bottom into block's (not the same block): the larger margin, the padding
+// added.
+void bb_css_block_add_bottom(bb_css_block* block, const bb_css_block* source);
 
 #ifdef __cplusplus
 }

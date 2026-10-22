@@ -1330,3 +1330,29 @@ doğrulandı. x4pro'da flash 160 bayt büyüdü, RAM değişmedi.
 - [ ] Bölüm başlığı bir paragrafın içinde büyük yazılı bir span olan (ör. `<p><span
   style="font-size: 2em">Birinci Bölüm</span></p>`) ve `small`/`big` kullanan bir kitabı açın:
   başlık ve bu metinler eskisi gibi boyutlanmalı.
+
+## Blok stili Rust'ta ("rust: our own block style")
+
+Her blok öğesinin (paragraf, başlık, `div`, alıntı, liste öğesi…) yerleşim stili CSS'inden kurulur:
+üst, alt ve yan kenar boşlukları, iç boşluklar ve ilk satır girintisi em, rem, punto, yüzde ya da
+pikselden sıfıra doğru yuvarlanarak tam piksele çevrilir, her yan boşluk 2em ile sınırlanır, okurun
+hizalama ayarı ("Kitabın Stili" seçili değilse) kitabınkinin önüne geçer, sayfa sonları ve yön
+alınır; iç içe bloklarda yan boşluklar toplanır, üst ve alt kenar boşlukları büyük olana çöker, üst
+ve alt iç boşluklar toplanır, ebeveynin önündeki sayfa sonu çocuğa geçer, girinti, hizalama, yön ve
+yazı boyutu tanımlamayan çocuğa ebeveynden geçer. Bu hesaplar artık `bembeyaz-css`'in `block`
+modülünde; `BlockStyle` yapısı C++'ta kaldı, Rust onu yerleşimi iki tarafta denetlenen
+`bb_css_block` olarak okuyup yazıyor; Rust'a giden üç gövde başlıktan yeni `BlockStyle.cpp`'ye
+taşındı. Bir önceki commit (fbbd39e4) davranışı 4 testle sabitledi, bu commit boş bir stilin
+varsayılan bloğu verdiğini denetleyen bir test ekledi; toplam 1030 host testi geçiyor. Bölüm
+ayrıştırıcısının fark testi, rastgele stillere büyük yan boşluklar, punto ve yüzde değerleri,
+negatif girinti ve sayfa sonu eklenerek 5000 rastgele bölümde eski ve yeni sayfaları bayt bayt aynı
+buldu; koda bilerek konan sekiz hatanın (yan boşluk sınırı, punto ve yüzde çevirisi, girinti,
+girintinin ve sayfa sonunun ebeveynden geçmesi, üst kenar boşluğunun çökmesi, bloktan sonraki sayfa
+sonu) hepsi yakalandı; yan boşluk sınırındaki hata ancak bu stiller eklenince görüldü. Emülatörde
+okuma ve kitap açma senaryoları CSS, iki yönlü, heceleme ve XML kitaplarında bir önceki sürümle aynı
+ekranları verdi. x4pro'da flash 544 bayt büyüdü (C++ ayrıştırıcısı 585 bayt küçüldü), RAM değişmedi.
+
+- [ ] Kenar boşlukları, girintileri, ortalanmış ya da sağa yaslı paragrafları, alıntıları, iç içe
+  listeleri ve sayfa sonları olan bir kitabı açın (`python3 emu/make_css_epub.py <klasör>` bir kısmını
+  üretir); **Paragraf hizalaması** ayarını "Kitabın Stili" ile başka bir değer arasında değiştirip
+  deneyin: boşluklar, girintiler ve hizalama eskisi gibi görünmeli.

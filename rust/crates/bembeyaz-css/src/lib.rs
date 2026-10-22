@@ -18,6 +18,7 @@
 extern crate alloc;
 
 mod ascii;
+pub mod block;
 pub mod cache;
 mod declaration;
 pub mod inline;

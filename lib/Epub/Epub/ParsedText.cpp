@@ -5,6 +5,7 @@
 #include <Memory.h>
 #include <MemoryManager.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 

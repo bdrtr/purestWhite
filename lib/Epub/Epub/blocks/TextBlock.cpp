@@ -7,6 +7,7 @@
 #include <Memory.h>
 #include <MemoryManager.h>
 
+#include <algorithm>
 #include <cstring>
 
 #include "../../../../src/fontIds.h"
