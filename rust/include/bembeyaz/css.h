@@ -197,6 +197,12 @@ float bb_css_word_scale(const bb_css_inline_entry* stack, size_t count, float bl
 // multiple of that, or rem), else a heading's default (heading 1 to 6, 0 for none); within 0.5 to 3.
 float bb_css_block_scale(const bb_css_style* css, uint8_t heading, float parent, const bb_css_inline_entry* stack,
                          size_t count);
+// The size of a span that holds a whole block: css's font size over base (the block's, or the
+// enclosing such spans'), a multiple of it or rem, base when it sets none; within 0.5 to 3.
+float bb_css_span_scale(const bb_css_style* css, float base);
+// The browser's default size of the len-byte inline element name (small, big) as a multiple of
+// its parent's; 0 for other names.
+float bb_css_tag_scale(const char* name, size_t len);
 
 #ifdef __cplusplus
 }

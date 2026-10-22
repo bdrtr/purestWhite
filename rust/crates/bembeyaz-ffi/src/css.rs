@@ -407,3 +407,20 @@ pub unsafe extern "C" fn bb_css_block_scale(
     // SAFETY: as documented.
     inline::block_scale(css, heading, parent, unsafe { crate::view(stack, count) })
 }
+
+/// # Safety
+/// `css` is NULL or a readable `CssStyle`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_css_span_scale(css: *const Style, base: f32) -> f32 {
+    // SAFETY: as documented.
+    let css = unsafe { css.as_ref() }.unwrap_or(&Style::DEFAULT);
+    inline::span_scale(css, base)
+}
+
+/// # Safety
+/// `name` is NULL or holds `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_css_tag_scale(name: *const c_char, len: usize) -> f32 {
+    // SAFETY: as documented.
+    inline::tag_scale(unsafe { bytes(name, len) }).unwrap_or(0.0)
+}

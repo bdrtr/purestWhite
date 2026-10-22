@@ -419,6 +419,15 @@ pub fn fold(
     out
 }
 
+/// Font sizes stay within these multiples of the body's.
+const MIN_SCALE: f32 = 0.5;
+const MAX_SCALE: f32 = 3.0;
+
+/// `value` over `base`: a multiple of it, or `value` itself when `rem`.
+fn over(base: f32, value: f32, rem: bool) -> f32 {
+    if rem { value } else { base * value }
+}
+
 /// The size a word is set in: each sized open entry multiplies the size so far (`block_scale`
 /// until that is positive) or, when rem, replaces it; 0 when no entry is sized.
 #[must_use]
@@ -426,17 +435,39 @@ pub fn word_scale(stack: &[Entry], block_scale: f32) -> f32 {
     let mut scale = 0.0;
     for e in stack.iter().filter(|e| e.has_font_scale) {
         let base = if scale > 0.0 { scale } else { block_scale };
-        scale = if e.font_scale_rem {
-            e.font_scale
-        } else {
-            base * e.font_scale
-        };
+        scale = over(base, e.font_scale, e.font_scale_rem);
     }
     scale
 }
 
 /// Browser default sizes of headings `h1` to `h6`.
 const HEADING_SCALES: [f32; 6] = [2.0, 1.5, 1.17, 1.0, 0.83, 0.67];
+
+/// The browser's default size of an inline element named `name`, a multiple of its parent's.
+#[must_use]
+pub fn tag_scale(name: &[u8]) -> Option<f32> {
+    match name {
+        b"small" => Some(0.83),
+        b"big" => Some(1.2),
+        _ => None,
+    }
+}
+
+/// The size `css`'s font size sets over `base`; `base` when it sets none.
+fn own_scale(css: &Style, base: f32) -> f32 {
+    if !sized(css) {
+        return base;
+    }
+    let size = css.length(LengthField::FontSize);
+    over(base, size.value, size.unit == Unit::Rem)
+}
+
+/// The size of a span that holds a whole block: its font size over `base` (the block's, or the
+/// enclosing such spans'), `base` when it sets none; within 0.5 to 3.
+#[must_use]
+pub fn span_scale(css: &Style, base: f32) -> f32 {
+    own_scale(css, base).clamp(MIN_SCALE, MAX_SCALE)
+}
 
 /// A block's size: the open entries over its `parent` block's size, then its own font size (a
 /// multiple of that, or rem), else a heading's default (`heading` 1 to 6, 0 for none); within 0.5
@@ -445,33 +476,26 @@ const HEADING_SCALES: [f32; 6] = [2.0, 1.5, 1.17, 1.0, 0.83, 0.67];
 pub fn block_scale(css: &Style, heading: u8, parent: f32, stack: &[Entry]) -> f32 {
     let mut parent = parent;
     for e in stack.iter().filter(|e| e.has_font_scale) {
-        parent = if e.font_scale_rem {
-            e.font_scale
-        } else {
-            parent * e.font_scale
-        };
+        parent = over(parent, e.font_scale, e.font_scale_rem);
     }
     let scale = if sized(css) {
-        let size = css.length(LengthField::FontSize);
-        if size.unit == Unit::Rem {
-            size.value
-        } else {
-            parent * size.value
-        }
+        own_scale(css, parent)
     } else {
         match HEADING_SCALES.get(usize::from(heading).wrapping_sub(1)) {
             Some(&h) => parent * h,
             None => parent,
         }
     };
-    scale.clamp(0.5, 3.0)
+    scale.clamp(MIN_SCALE, MAX_SCALE)
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::float_cmp)]
 
-    use super::{Effective, Entry, Kind, block_scale, entry, fold, word_scale};
+    use super::{
+        Effective, Entry, Kind, block_scale, entry, fold, span_scale, tag_scale, word_scale,
+    };
     use crate::{
         Decoration, Defined, Direction, FontWeight, Length, LengthField, Style, Unit, VerticalAlign,
     };
@@ -648,5 +672,26 @@ mod tests {
             s.defined.set(Defined::length(LengthField::FontSize));
         });
         assert_eq!(block_scale(&rem_size, 2, 0.8, &stack), 1.1);
+        assert_eq!(span_scale(&rem_size, 2.5), 1.1);
+        let em_size = |value| {
+            css(|s| {
+                s.set_length(
+                    LengthField::FontSize,
+                    Length {
+                        value,
+                        unit: Unit::Em,
+                    },
+                );
+                s.defined.set(Defined::length(LengthField::FontSize));
+            })
+        };
+        assert_eq!(span_scale(&em_size(2.0), 1.2), 2.4);
+        assert_eq!(span_scale(&em_size(5.0), 1.0), 3.0);
+        assert_eq!(span_scale(&em_size(0.1), 1.0), 0.5);
+        assert_eq!(span_scale(&Style::DEFAULT, 1.5), 1.5);
+        assert_eq!(tag_scale(b"small"), Some(0.83));
+        assert_eq!(tag_scale(b"big"), Some(1.2));
+        assert_eq!(tag_scale(b"span"), None);
+        assert_eq!(tag_scale(b"smal"), None);
     }
 }

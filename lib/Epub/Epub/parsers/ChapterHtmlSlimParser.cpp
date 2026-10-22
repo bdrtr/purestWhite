@@ -1854,9 +1854,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
         self->currentTextBlock->isEmpty() && (!self->inlineSize.valid || self->inlineSize.open)) {
       const float base =
           self->inlineSize.valid ? self->inlineSize.scale : self->currentTextBlock->getBlockStyle().fontScale;
-      self->inlineSize.scale =
-          std::clamp(cssStyle.fontSize.unit == CssUnit::Rem ? cssStyle.fontSize.value : base * cssStyle.fontSize.value,
-                     0.5f, 3.0f);
+      self->inlineSize.scale = bb_css_span_scale(cssOf(cssStyle), base);
       if (!self->inlineSize.valid) self->inlineSize.depth = self->depth;
       self->inlineSize.valid = true;
       self->inlineSize.open = true;
@@ -1878,8 +1876,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     kind.kind = BB_CSS_ENTRY_INLINE;
     kind.sets_paragraph = strcmp(name, "html") == 0 || strcmp(name, "body") == 0;
     kind.in_table = self->tableDepth >= 1;
-    // <small>/<big> default to the browser's relative sizes.
-    kind.scale = strcmp(name, "small") == 0 ? 0.83f : (strcmp(name, "big") == 0 ? 1.2f : 0.0f);
+    kind.scale = bb_css_tag_scale(name, strlen(name));
     StyleStackEntry entry;
     if (self->makeInlineEntry(kind, cssStyle, entry)) {
       // Flush buffer before style change so preceding text gets current style

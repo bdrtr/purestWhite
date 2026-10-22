@@ -1292,8 +1292,8 @@ flash 568 bayt büyüdü (C++ nesnesi 1073 bayt küçüldü), RAM değişmedi.
 ## Satır içi yazı boyutu Rust'ta ("rust: our own inline font scale")
 
 Bir bölüm ayrıştırılırken her bloğun yazı boyutu şöyle bulunur: ebeveyn bloğun boyutu açık satır içi
-öğelerin boyutlarıyla çarpılır (rem olan bir öğe değeri baştan koyar), üstüne bloğun CSS `font-
-size`'ı (rem ise doğrudan, değilse ebeveyne göre) ya da başlıkların h1–h6 varsayılan oranları
+öğelerin boyutlarıyla çarpılır (rem olan bir öğe değeri baştan koyar), üstüne bloğun CSS
+`font-size`'ı (rem ise doğrudan, değilse ebeveyne göre) ya da başlıkların h1–h6 varsayılan oranları
 uygulanır; sonuç 0,5 ile 3 arasına sıkıştırılır. Satır içi `font-size` taşıyan span'lardaki
 sözcüklerin boyutu da yığındaki boyutların bloğun boyutuyla aynı biçimde çarpılmasıyla bulunur. Bu
 iki hesap artık `bembeyaz-css`'in `inline` modülünde; boyutlu yazı tipinin seçilmesi ve paragraftaki
@@ -1311,3 +1311,22 @@ span'ların boyutu bozulurdu). x4pro'da flash 240 bayt büyüdü, RAM değişmed
 - [ ] Başlıkları (h1–h6), `font-size` verilmiş paragrafları ve yazı boyutu büyütülmüş ya da
   küçültülmüş span'ları (`small`/`big` ya da `font-size` verilmiş) olan bir kitabı açın (`python3
   emu/make_css_epub.py <klasör>` bir kısmını üretir): yazı boyutları eskisi gibi görünmeli.
+
+## Bloğu tutan span'ın boyutu Rust'ta ("rust: our own block span font scale")
+
+Bir paragrafı açıp tüm metnini tutan `font-size`'lı span (ör. `<p><span style="font-size:
+2em">Birinci Bölüm</span></p>`) bloğun tamamını boyutlandırır: span'ın boyutu paragrafın ya da onu
+saran böyle span'ların boyutunun katı (rem ise doğrudan) olarak bulunup 0,5 ile 3 arasına
+sıkıştırılır. Bu hesap ve `small` (0,83) ile `big`'in (1,2) varsayılan oranları artık
+`bembeyaz-css`'in `inline` modülünde, başlıkların oranlarının yanında; span'ın bloğu tutup
+tutmadığının izlenmesi C++'ta kaldı. Bir önceki commit (aeab5b62) span'ın boyutunu 1 testle
+sabitledi; toplam 1025 host testi geçiyor. Bölüm ayrıştırıcısının fark testi 5000 rastgele bölümde
+eski ve yeni sayfaları bayt bayt aynı buldu; koda bilerek konan üç hata (üst sınırın 2,9'a inmesi,
+`small`'ın 0,84 olması, rem boyutun da çarpılması) yakalandı. Emülatörde okuma ve kitap açma
+senaryoları CSS, iki yönlü, heceleme ve XML kitaplarında bir önceki sürümle aynı ekranları verdi.
+`bb_css_span_scale`'ın argüman ve dönüş değerindeki `float` geçişi firmware'in dökümünde yine
+doğrulandı. x4pro'da flash 160 bayt büyüdü, RAM değişmedi.
+
+- [ ] Bölüm başlığı bir paragrafın içinde büyük yazılı bir span olan (ör. `<p><span
+  style="font-size: 2em">Birinci Bölüm</span></p>`) ve `small`/`big` kullanan bir kitabı açın:
+  başlık ve bu metinler eskisi gibi boyutlanmalı.
