@@ -1836,3 +1836,63 @@ TEST(TextDecorationPosition, UnderlineStaysBelowBaseline) {
     EXPECT_EQ(renderer.lastLineY, 34);
   });
 }
+
+// How characterData cuts text into words: each word with its visible source range.
+class ChapterTextTokenTest : public ChapterBlockDecorationTest {
+ protected:
+  void SetUp() override {
+    ChapterBlockDecorationTest::SetUp();
+    // Wide enough that no word is broken across lines.
+    parser.viewportWidth = 60000;
+    open("body", nullptr);
+  }
+  std::vector<std::string> tokens() {
+    close("p");
+    std::vector<std::string> out;
+    for (const PageElement* element : elementsWithTag(TAG_PageLine)) {
+      const auto& block = *static_cast<const PageLine*>(element)->getBlock();
+      for (uint16_t i = 0; i < block.wordCount(); ++i) {
+        const auto range = block.wordSourceRange(i);
+        out.push_back(std::string(block.wordText(i)) + "@" + std::to_string(range.start) + "-" +
+                      std::to_string(range.end));
+      }
+    }
+    return out;
+  }
+};
+
+TEST_F(ChapterTextTokenTest, NoBreakSpacesBecomeAttachedSpaceWordsAndBomIsDropped) {
+  open("p", nullptr);
+  text(
+      "200\xC2\xA0km a\xE2\x80\xAF"
+      "b \xEF\xBB\xBFzz");
+  // The space word attaches to both neighbours; the BOM counts as a visible offset only.
+  EXPECT_EQ(tokens(), (std::vector<std::string>{"200@0-3", " @3-4", "km@4-6", "a@7-8", " @8-9", "b@9-10", "zz@12-14"}));
+}
+
+TEST_F(ChapterTextTokenTest, ANoBreakSpaceSplitAcrossCallbacksStaysInsideTheWord) {
+  open("p", nullptr);
+  text("x\xC2");
+  text("\xA0y z");
+  EXPECT_EQ(tokens(), (std::vector<std::string>{"x\xC2\xA0y@0-3", "z@4-5"}));
+}
+
+TEST_F(ChapterTextTokenTest, LongWordsSplitAtTheBufferOnCodepointBoundaries) {
+  open("p", nullptr);
+  std::string euros;
+  for (int i = 0; i < 70; ++i) euros += "\xE2\x82\xAC";
+  text(std::string(250, 'a') + " " + euros);
+  const auto words = tokens();
+  std::vector<std::string> shapes;
+  for (const auto& w : words) shapes.push_back(std::to_string(w.find('@')) + w.substr(w.find('@')));
+  // 250 bytes: 200, then 50; 70 three-byte characters: 198 bytes (66), then 12 (4).
+  EXPECT_EQ(shapes, (std::vector<std::string>{"200@0-200", "50@200-250", "198@251-317", "12@317-321"}));
+}
+
+TEST_F(ChapterTextTokenTest, PreservedWhitespaceKeepsSpacesAndExpandsTabs) {
+  open("p", "white-space: pre");
+  text("a\tb  c");
+  // A tab is four space words, all at the tab's offset.
+  EXPECT_EQ(tokens(), (std::vector<std::string>{"a@0-1", " @1-2", " @1-2", " @1-2", " @1-2", "b@2-3", " @3-4", " @4-5",
+                                                "c@5-6"}));
+}
