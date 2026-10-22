@@ -8,6 +8,7 @@
 #include <MemoryManager.h>
 #include <Utf8.h>
 #include <XmlParserUtils.h>
+#include <bembeyaz/html.h>
 
 #include <algorithm>
 #include <array>
@@ -510,6 +511,28 @@ void ChapterHtmlSlimParser::cancelDropCapToWord() {
   memcpy(partWordBuffer + partWordBufferIndex, dropCap.text, dropCap.length);
   partWordBufferIndex += dropCap.length;
   dropCap = DropCapState{};
+}
+
+// Initial-letter capture: a drop-cap span takes all of its text; ::first-letter takes leading
+// punctuation plus the block's first letter. The bytes taken from rest, 0 for none, -1 when no
+// capture is pending.
+int ChapterHtmlSlimParser::takeInitialLetter(const char* rest, const size_t available) {
+  const bool capturingSpan = dropCap.spanDepth >= 0;
+  if (!capturingSpan && !dropCap.firstLetterPending) return -1;
+  const bool whitespace = isWhitespace(rest[0]);
+  if (!capturingSpan &&
+      (whitespace || partWordBufferIndex != 0 || insideFootnoteLink || !currentTextBlock->isEmpty())) {
+    return 0;
+  }
+  if (whitespace) {
+    // Several words: not an initial letter after all.
+    if (dropCap.length > 0) cancelDropCapToWord();
+    return 0;
+  }
+  const auto lead = static_cast<uint8_t>(rest[0]);
+  const int codepointLength =
+      std::min(static_cast<int>(available), lead < 0x80 ? 1 : (lead < 0xE0 ? 2 : (lead < 0xF0 ? 3 : 4)));
+  return captureDropCapCodepoint(rest, codepointLength) ? codepointLength : 0;
 }
 
 void ChapterHtmlSlimParser::layoutCurrentBlock(const bool includeLastLine) {
@@ -2179,172 +2202,31 @@ void ChapterHtmlSlimParser::characterData(void* userData, const char* s, const i
     self->inlineSize.valid = false;
   }
 
-  uint32_t nextCodepointOffset = callbackVisibleOffset;
-  for (int i = 0; i < len; i++) {
-    const uint32_t codepointOffset = nextCodepointOffset;
-    if (countVisibleOffsets && (static_cast<uint8_t>(s[i]) & 0xC0) != 0x80) {
-      nextCodepointOffset++;
-    }
-
-    // Initial-letter capture: a drop-cap span takes all of its text; ::first-letter takes
-    // leading punctuation plus the block's first letter.
-    const bool capturingSpan = self->dropCap.spanDepth >= 0;
-    if (capturingSpan || (self->dropCap.firstLetterPending && !isWhitespace(s[i]) && self->partWordBufferIndex == 0 &&
-                          !self->insideFootnoteLink && self->currentTextBlock->isEmpty())) {
-      if (isWhitespace(s[i])) {
-        // Several words: not an initial letter after all.
-        if (self->dropCap.length > 0) self->cancelDropCapToWord();
-      } else {
-        const auto lead = static_cast<uint8_t>(s[i]);
-        const int codepointLength = std::min(len - i, lead < 0x80 ? 1 : (lead < 0xE0 ? 2 : (lead < 0xF0 ? 3 : 4)));
-        if (self->captureDropCapCodepoint(s + i, codepointLength)) {
-          i += codepointLength - 1;
-          continue;
-        }
-      }
-    }
-
-    if (self->effectivePreserveWhitespace && isWhitespace(s[i])) {
-      self->flushPartWordBuffer();
-      self->currentTextBlock->suppressFirstLineIndent();
-      if (s[i] == '\n') {
-        const BlockStyle style = self->currentTextBlock->getBlockStyle().withoutTop().withoutBottom();
-        self->breakTextLine(style);
-        if (!self->currentTextBlock) return;
-      } else if (s[i] != '\r') {
-        // XML normalizes line endings; tabs use a bounded four-space expansion.
-        const int count = s[i] == '\t' ? 4 : 1;
-        for (int space = 0; space < count; ++space) {
-          self->partWordBuffer[0] = ' ';
-          self->partWordBufferIndex = 1;
-          self->partWordVisibleOffset = codepointOffset;
-          self->flushPartWordBuffer();
-        }
-      }
-      continue;
-    }
-
-    if (isWhitespace(s[i])) {
-      // Currently looking at whitespace, if there's anything in the partWordBuffer, flush it
-      if (self->partWordBufferIndex > 0) {
-        self->flushPartWordBuffer();
-      }
-      // Whitespace is a real word boundary — reset continuation state
-      self->nextWordContinues = false;
-      // Skip the whitespace char
-      continue;
-    }
-
-    // Detect U+00A0 (non-breaking space, UTF-8: 0xC2 0xA0) or
-    //        U+202F (narrow no-break space, UTF-8: 0xE2 0x80 0xAF).
-    //
-    // Both are rendered as a visible space but must never allow a line break around them.
-    // We split the no-break space into its own word token and link the surrounding words
-    // with continuation flags so the layout engine treats them as an indivisible group.
-    //
-    // Example: "200&#xA0;Quadratkilometer" or "200&#x202F;Quadratkilometer"
-    //   Input bytes:  "200\xC2\xA0Quadratkilometer"  (or 0xE2 0x80 0xAF for U+202F)
-    //   Tokens produced:
-    //     [0] "200"               continues=false
-    //     [1] " "                 continues=true   (attaches to "200", no gap)
-    //     [2] "Quadratkilometer"  continues=true   (attaches to " ", no gap)
-    //
-    //   The continuation flags prevent the line-breaker from inserting a line break
-    //   between "200" and "Quadratkilometer". However, "Quadratkilometer" is now a
-    //   standalone word for hyphenation purposes, so Liang patterns can produce
-    //   "200 Quadrat-" / "kilometer" instead of the unusable "200" / "Quadratkilometer".
-    if (static_cast<uint8_t>(s[i]) == 0xC2 && i + 1 < len && static_cast<uint8_t>(s[i + 1]) == 0xA0) {
-      if (self->partWordBufferIndex > 0) {
-        self->flushPartWordBuffer();
-      }
-
-      self->partWordBuffer[0] = ' ';
-      self->partWordBuffer[1] = '\0';
-      self->partWordBufferIndex = 1;
-      self->partWordVisibleOffset = codepointOffset;
-      self->nextWordContinues = true;  // Attach space to previous word (no break).
-      self->flushPartWordBuffer();
-
-      self->nextWordContinues = true;  // Next real word attaches to this space (no break).
-
-      i++;  // Skip the second byte (0xA0)
-      continue;
-    }
-
-    // U+202F (narrow no-break space) — identical logic to U+00A0 above.
-    if (static_cast<uint8_t>(s[i]) == 0xE2 && i + 2 < len && static_cast<uint8_t>(s[i + 1]) == 0x80 &&
-        static_cast<uint8_t>(s[i + 2]) == 0xAF) {
-      if (self->partWordBufferIndex > 0) {
-        self->flushPartWordBuffer();
-      }
-
-      self->partWordBuffer[0] = ' ';
-      self->partWordBuffer[1] = '\0';
-      self->partWordBufferIndex = 1;
-      self->partWordVisibleOffset = codepointOffset;
-      self->nextWordContinues = true;
-      self->flushPartWordBuffer();
-
-      self->nextWordContinues = true;
-
-      i += 2;  // Skip the remaining two bytes (0x80 0xAF)
-      continue;
-    }
-
-    // Skip Zero Width No-Break Space / BOM (U+FEFF) = 0xEF 0xBB 0xBF
-    const char FEFF_BYTE_1 = static_cast<char>(0xEF);
-    const char FEFF_BYTE_2 = static_cast<char>(0xBB);
-    const char FEFF_BYTE_3 = static_cast<char>(0xBF);
-
-    if (s[i] == FEFF_BYTE_1) {
-      // Check if the next two bytes complete the 3-byte sequence
-      if ((i + 2 < len) && (s[i + 1] == FEFF_BYTE_2) && (s[i + 2] == FEFF_BYTE_3)) {
-        // Sequence 0xEF 0xBB 0xBF found!
-        i += 2;    // Skip the next two bytes
-        continue;  // Move to the next iteration
-      }
-    }
-
-    // If we're about to run out of space, then cut the word off and start a new one.
-    // For CJK text (no spaces), this is the primary word-breaking mechanism.
-    // We must avoid splitting multi-byte UTF-8 sequences across word boundaries,
-    // otherwise the trailing bytes become orphaned continuation bytes that the
-    // decoder can't interpret.
-    if (self->partWordBufferIndex >= MAX_WORD_SIZE) {
-      int safeLen = utf8SafeTruncateBuffer(self->partWordBuffer, self->partWordBufferIndex);
-
-      if (safeLen < self->partWordBufferIndex && safeLen > 0) {
-        // Incomplete UTF-8 sequence at the end — save it before flushing
-        int overflow = self->partWordBufferIndex - safeLen;
-        uint32_t overflowVisibleOffset = self->partWordVisibleOffset;
-        const unsigned char* offsetPtr = reinterpret_cast<const unsigned char*>(self->partWordBuffer);
-        const unsigned char* const safeEnd = offsetPtr + safeLen;
-        while (offsetPtr < safeEnd) {
-          utf8NextCodepoint(&offsetPtr);
-          overflowVisibleOffset++;
-        }
-        char saved[4];
-        for (int j = 0; j < overflow; j++) {
-          saved[j] = self->partWordBuffer[safeLen + j];
-        }
-        self->partWordBufferIndex = safeLen;
-        self->flushPartWordBuffer();
-        self->nextWordContinues = true;
-        for (int j = 0; j < overflow; j++) {
-          self->partWordBuffer[j] = saved[j];
-        }
-        self->partWordBufferIndex = overflow;
-        self->partWordVisibleOffset = overflowVisibleOffset;
-      } else {
-        self->flushPartWordBuffer();
-        self->nextWordContinues = true;
-      }
-    }
-
-    if (self->partWordBufferIndex == 0) {
-      self->partWordVisibleOffset = codepointOffset;
-    }
-    self->partWordBuffer[self->partWordBufferIndex++] = s[i];
+  const bb_html_words words{self->partWordBuffer,
+                            &self->partWordBufferIndex,
+                            &self->partWordVisibleOffset,
+                            &self->nextWordContinues,
+                            self,
+                            [](void* context) { static_cast<ChapterHtmlSlimParser*>(context)->flushPartWordBuffer(); },
+                            [](void* context) {
+                              auto& block = static_cast<ChapterHtmlSlimParser*>(context)->currentTextBlock;
+                              if (block) block->suppressFirstLineIndent();
+                            },
+                            [](void* context) {
+                              auto& parser = *static_cast<ChapterHtmlSlimParser*>(context);
+                              const BlockStyle style =
+                                  parser.currentTextBlock->getBlockStyle().withoutTop().withoutBottom();
+                              parser.breakTextLine(style);
+                              return parser.currentTextBlock != nullptr;
+                            },
+                            [](void* context, const char* rest, const size_t available) {
+                              return static_cast<ChapterHtmlSlimParser*>(context)->takeInitialLetter(rest, available);
+                            }};
+  if (bb_html_scan_words(s, static_cast<size_t>(std::max(len, 0)), countVisibleOffsets, callbackVisibleOffset,
+                         self->effectivePreserveWhitespace,
+                         self->dropCap.spanDepth >= 0 || self->dropCap.firstLetterPending,
+                         &words) == BB_HTML_WORDS_STOPPED) {
+    return;
   }
 
   // Block creation failed (OOM): nothing to soft-flush.

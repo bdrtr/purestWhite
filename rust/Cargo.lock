@@ -85,6 +85,9 @@ dependencies = [
 [[package]]
 name = "bembeyaz-html"
 version = "0.1.0"
+dependencies = [
+ "bembeyaz-utf8",
+]
 
 [[package]]
 name = "bembeyaz-hyphenation"

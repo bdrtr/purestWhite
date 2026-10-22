@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <XmlParser.h>
+#include <bembeyaz/html.h>
 #include <bembeyaz/table.h>
 
 #include <array>
@@ -22,7 +23,7 @@ class Page;
 class GfxRenderer;
 class Epub;
 
-#define MAX_WORD_SIZE 200
+#define MAX_WORD_SIZE BB_HTML_MAX_WORD
 
 class ChapterHtmlSlimParser {
   std::shared_ptr<Epub> epub;
@@ -248,6 +249,7 @@ class ChapterHtmlSlimParser {
   void armFirstLetterDropCap(const char* tagName, const std::string& classAttr, const char* idAttr);
   bool captureDropCapCodepoint(const char* bytes, int length);
   void cancelDropCapToWord();
+  int takeInitialLetter(const char* rest, size_t available);
   void layoutCurrentBlock(bool includeLastLine);
   void layoutDropCapLines(int layoutFontId, uint16_t effectiveWidth,
                           const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& emitLine,

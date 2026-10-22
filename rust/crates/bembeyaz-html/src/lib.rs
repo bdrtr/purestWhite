@@ -7,12 +7,13 @@
 //! bytes with no pointers, and every value is followed by a NUL for the C++ API that returns it as
 //! a C string.
 //!
-//! [`text`] turns a plain text book into an XHTML body.
+//! [`text`] turns a plain text book into an XHTML body; [`words`] cuts a chapter's text into words.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 pub mod text;
+pub mod words;
 
 /// An entity's value.
 #[derive(Clone, Copy)]

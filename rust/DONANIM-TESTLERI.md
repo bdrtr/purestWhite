@@ -1211,3 +1211,35 @@ büyük), RAM değişmedi.
   ("Recent" sekmesinde uzun basıp "Refresh library"): süre önceki firmware'dekine yakın olmalı,
   seri günlükte `[LIBIDX] built:` görünmeli; `[ERR] [LIBIDX]` satırı görünmemeli. (Kartta hiçbir
   şey değişmediyse dizin yeniden yazılmaz ve günlükte `[LIBIDX] unchanged:` görünür.)
+
+## Bölüm metni Rust'ta sözcüklere bölünür ("rust: our own chapter word cutting")
+
+Bir bölüm açılırken metin sözcüklere bölünür. Bu işi yapan bayt döngüsü (ChapterHtmlSlimParser'ın
+`characterData`'sı) artık `bembeyaz-html`'in `words` modülünde: boşluk sözcüğü bitirir; kırılmaz
+boşluk (U+00A0, U+202F) iki yanındaki sözcüğe bitişik bir boşluk sözcüğü olur; BOM atılır; 200
+baytlık tamponu dolduran sözcük kod noktası sınırında kesilir ve devamı bitişik gelir; `white-space:
+pre` her boşluğu sözcük olarak tutar, sekmeyi dört boşluğa, satır sonunu satır kırmaya çevirir; her
+sözcük ilk baytının görünür konumuyla eklenir. Sözcük tamponu, sözcüğün paragrafa eklenmesi, satır
+kırma ve büyük ilk harf yakalama C++'ta kaldı; Rust bunlara geri çağrıyla ulaşır. Bir önceki commit
+(f559aecd) bölmeyi 4 testle sabitledi; toplam 1013 host testi geçiyor. Geliştirme sırasında bir
+kerelik bir fark testi (ağaçta tutulmadı) eski ve yeni ayrıştırıcıyı 3000 rastgele bölümde
+çalıştırdı (rastgele etiketler, satır içi stiller, büyük ilk harf kuralları, tablolar, metnin
+rastgele baytlarda, UTF-8 dizilerinin ortasında bölünmesi): ortaya çıkan her sayfa, bölüm
+önbelleğinde saklandığı biçimiyle, bayt bayt aynıydı; önce eski koddaki sekiz dala (sekme, iki
+kırılmaz boşluk, BOM, UTF-8 kesmesi, büyük ilk harf iptali, dipnot bağlantısı, `pre` satırı) bilerek
+konan hataların hepsini yakaladığı, sonra yeni koda konan bir hatayı da yakaladığı doğrulandı.
+Emülatörde okuma, alıntı, XML ve PNG senaryoları ile iki yönlü, CSS, heceleme ve XML kitaplarının
+açılışı bir önceki sürümle aynı ekranları verdi; dört kitabın kartta oluşan bölüm önbelleği bayt
+bayt aynıydı, bölüm kurma süreleri de aynı kaldı (±1 ms). x4pro'da flash 616 bayt büyüdü, RAM
+değişmedi.
+
+- [ ] Birkaç kitabın önbelleğini silip açın (okuma menüsünden Kitap Önbelleğini Sil): metin, satır
+  kırılmaları ve sayfalar önceki firmware'deki gibi olmalı.
+- [ ] Kırılmaz boşluk içeren bir kitap açın (Fransızca kitaplar genelde « » ile ; : ! ? işaretlerinden
+  önce kullanır): kırılmaz boşluğun iki yanı aynı satırda kalmalı.
+- [ ] Boşluksuz uzun metin içeren bir bölüm açın (örneğin Çince ya da Japonca): metin eksiksiz
+  görünmeli, karakterler bozulmamalı.
+- [ ] `<pre>` kod bloğu ya da `white-space: pre` kullanan bir bölüm açın (sekmeli olursa daha iyi):
+  boşluklar, sekmeler ve satırlar korunmalı.
+- [ ] CSS'inde `::first-letter` ya da `initial-letter` olan (ya da büyük ilk harf span'ı kullanan) bir
+  kitap açın: büyük ilk harf eskisi gibi görünmeli.

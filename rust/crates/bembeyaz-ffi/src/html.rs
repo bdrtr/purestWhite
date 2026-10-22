@@ -62,3 +62,133 @@ pub unsafe extern "C" fn bb_text_html_feed(
         out(context, piece.as_ptr(), piece.len())
     });
 }
+
+use bembeyaz_html::words::{self, MAX_WORD, Piece, Scan, Words};
+use core::ffi::c_int;
+
+/// html.h's `bb_html_words`.
+#[repr(C)]
+pub struct WordsView {
+    buf: *mut u8,
+    len: *mut c_int,
+    offset: *mut u32,
+    continues: *mut bool,
+    context: *mut c_void,
+    flush: Option<unsafe extern "C" fn(*mut c_void)>,
+    suppress_indent: Option<unsafe extern "C" fn(*mut c_void)>,
+    line_break: Option<unsafe extern "C" fn(*mut c_void) -> bool>,
+    initial: Option<unsafe extern "C" fn(*mut c_void, *const c_char, usize) -> c_int>,
+}
+
+// html.h's BB_HTML_MAX_WORD.
+const _: () = assert!(MAX_WORD == 200);
+
+// The buffer is read and written through its pointers only between callbacks, which may change it
+// too; no reference to it outlives a call.
+//
+// SAFETY (every method): the view is as html.h describes; `buf` has room for MAX_WORD + 1 bytes.
+impl Words for &WordsView {
+    fn buffered(&mut self) -> usize {
+        // SAFETY: as above.
+        usize::try_from(unsafe { *self.len })
+            .unwrap_or(0)
+            .min(MAX_WORD + 1)
+    }
+    fn read(&mut self, out: &mut [u8; MAX_WORD]) -> usize {
+        let n = self.buffered().min(MAX_WORD);
+        // SAFETY: as above; `n` bytes are in the buffer and fit `out`.
+        unsafe { ptr::copy_nonoverlapping(self.buf, out.as_mut_ptr(), n) };
+        n
+    }
+    fn set(&mut self, bytes: &[u8]) {
+        let n = bytes.len().min(MAX_WORD);
+        // SAFETY: as above; `n` bytes fit the buffer.
+        unsafe {
+            ptr::copy_nonoverlapping(bytes.as_ptr(), self.buf, n);
+            *self.len = c_int::try_from(n).unwrap_or(0);
+        }
+    }
+    fn push(&mut self, byte: u8) {
+        let n = self.buffered();
+        // The parser ends the word with a NUL at its length: at most MAX_WORD.
+        if n < MAX_WORD {
+            // SAFETY: as above; index n is inside the buffer.
+            unsafe {
+                *self.buf.add(n) = byte;
+                *self.len = c_int::try_from(n + 1).unwrap_or(0);
+            }
+        }
+    }
+    fn offset(&mut self) -> u32 {
+        // SAFETY: as above.
+        unsafe { *self.offset }
+    }
+    fn set_offset(&mut self, offset: u32) {
+        // SAFETY: as above.
+        unsafe { *self.offset = offset };
+    }
+    fn set_continues(&mut self, continues: bool) {
+        // SAFETY: as above.
+        unsafe { *self.continues = continues };
+    }
+    fn flush(&mut self) {
+        if let Some(f) = self.flush {
+            // SAFETY: the caller's callback.
+            unsafe { f(self.context) };
+        }
+    }
+    fn suppress_indent(&mut self) {
+        if let Some(f) = self.suppress_indent {
+            // SAFETY: the caller's callback.
+            unsafe { f(self.context) };
+        }
+    }
+    fn line_break(&mut self) -> bool {
+        // SAFETY: the caller's callback.
+        self.line_break.is_some_and(|f| unsafe { f(self.context) })
+    }
+    fn initial(&mut self, rest: &[u8]) -> Option<usize> {
+        let f = self.initial?;
+        // SAFETY: the caller's callback reads `rest`.
+        let taken = unsafe { f(self.context, rest.as_ptr().cast(), rest.len()) };
+        usize::try_from(taken).ok().map(|n| n.min(rest.len()))
+    }
+}
+
+/// # Safety
+/// `text` is NULL or holds `len` bytes; `words` is NULL or as html.h describes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_html_scan_words(
+    text: *const c_char,
+    len: usize,
+    counted: bool,
+    start: u32,
+    preserve: bool,
+    initial: bool,
+    words: *const WordsView,
+) -> c_int {
+    // SAFETY: as documented.
+    let Some(mut view) = (unsafe { words.as_ref() }) else {
+        return 0;
+    };
+    if view.buf.is_null() || view.len.is_null() || view.offset.is_null() || view.continues.is_null()
+    {
+        return 0;
+    }
+    let text = if text.is_null() || len == 0 {
+        &[]
+    } else {
+        // SAFETY: as documented.
+        unsafe { slice::from_raw_parts(text.cast::<u8>(), len) }
+    };
+    let piece = Piece {
+        counted,
+        start,
+        preserve,
+        initial,
+    };
+    match words::scan(text, piece, &mut view) {
+        Scan::Done => 0,
+        Scan::Stopped => 1,
+    }
+}
