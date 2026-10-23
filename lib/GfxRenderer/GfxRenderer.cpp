@@ -1024,246 +1024,98 @@ void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, co
 }
 
 void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int size) const {
-  // Plot the icon pixel-by-pixel through drawPixel (which applies the orientation
-  // transform) instead of the byte-aligned framebuffer blit. The blit snaps the
-  // icon's position to 8px (one byte) along the rotated axis, which prevents it
-  // from aligning with adjacent text; per-pixel plotting is pixel-precise.
-  // Icons are square and 1bpp (MSB-first, bit==0 = ink). The (size-1-row, col)
-  // mapping reproduces the Portrait orientation the blit produced; drawIcon is
-  // only called by the UI themes, which all render in forced Portrait.
-  const int rowBytes = (size + 7) / 8;
-  for (int row = 0; row < size; row++) {
-    for (int col = 0; col < size; col++) {
-      const uint8_t byte = bitmap[row * rowBytes + (col >> 3)];
-      const bool ink = ((byte >> (7 - (col & 7))) & 1) == 0;
-      if (ink) {
-        drawPixel(x + (size - 1 - row), y + col, true);
-      }
-    }
+  // Pixel by pixel in Rust rather than a byte-aligned blit, which would snap the icon to 8 px along
+  // the rotated axis. The themes that call this all draw in Portrait.
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
+  if (size <= 0) return;
+  const auto c = canvasOf(*this);
+  const size_t bytes = static_cast<size_t>(size) * static_cast<size_t>((size + 7) / 8);
+  logOffPanel(bb_gfx_icon(&c, bitmap, bytes, x, y, size));
+}
+
+static_assert(sizeof(bb_gfx_picture) == 40 && offsetof(bb_gfx_picture, crop_x) == 24 &&
+                  offsetof(bb_gfx_picture, plane) == 36 && sizeof(bb_gfx_drawn) == 24,
+              "bb_gfx_picture layout");
+static_assert(GfxRenderer::BW == BB_GFX_PLANE_BW && GfxRenderer::GRAYSCALE_LSB == BB_GFX_PLANE_GRAY_LSB &&
+                  GfxRenderer::GRAYSCALE_MSB == BB_GFX_PLANE_GRAY_MSB,
+              "bb_gfx_picture planes");
+
+namespace {
+// Feeds Rust a Bitmap's rows.
+struct BitmapRows {
+  const Bitmap& bitmap;
+  uint8_t* fileRow;
+};
+
+bool readBitmapRow(void* ctx, uint8_t* row) {
+  auto* rows = static_cast<BitmapRows*>(ctx);
+  return rows->bitmap.readNextRow(row, rows->fileRow) == BmpReaderError::Ok;
+}
+}  // namespace
+
+bool GfxRenderer::drawPicture(const Bitmap& bitmap, const int x, const int y, const int maxWidth, const int maxHeight,
+                              const float cropX, const float cropY, const bool whiteAsTransparent,
+                              const bool oneBit) const {
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) return false;
+  // One packed output row (2 bits per pixel; int, as wide images overflow a byte) and one file row.
+  const int outputRowSize = (bitmap.getWidth() + 3) / 4;
+  const auto rowBytesSize = static_cast<size_t>(bitmap.getRowBytes());
+  auto rowScratch = makeUniqueNoThrow<uint8_t[]>(static_cast<size_t>(outputRowSize) + rowBytesSize);
+  if (!rowScratch) {
+    LOG_ERR("GFX", oneBit ? "!! Failed to allocate 1-bit BMP row buffers" : "!! Failed to allocate BMP row buffers");
+    return false;
   }
+
+  bb_gfx_picture picture{};
+  picture.width = bitmap.getWidth();
+  picture.height = bitmap.getHeight();
+  picture.x = x;
+  picture.y = y;
+  picture.max_width = maxWidth;
+  picture.max_height = maxHeight;
+  picture.crop_x = cropX;
+  picture.crop_y = cropY;
+  picture.top_down = bitmap.isTopDown();
+  picture.one_bit = oneBit;
+  picture.white_transparent = whiteAsTransparent;
+  picture.absolute_gray = absoluteGrayPlanes;
+  picture.plane = static_cast<uint8_t>(renderMode);
+  BitmapRows rows{bitmap, rowScratch.get() + outputRowSize};
+  bb_gfx_drawn drawn{};
+  const auto c = canvasOf(*this);
+  if (!bb_gfx_draw_picture(&c, &picture, rowScratch.get(), static_cast<size_t>(outputRowSize), readBitmapRow, &rows,
+                           &drawn)) {
+    if (oneBit) {
+      LOG_ERR("GFX", "Failed to read row %d from 1-bit bitmap", drawn.failed_row);
+    } else {
+      LOG_ERR("GFX", "Failed to read row %d from bitmap", drawn.failed_row);
+    }
+    return false;
+  }
+  if (!oneBit) {
+    LOG_DBG("GFX", "Cropped %dx%d by %dx%d pix, is %s, scaled by %f", bitmap.getWidth(), bitmap.getHeight(),
+            drawn.crop_x, drawn.crop_y, bitmap.isTopDown() ? "top-down" : "bottom-up", drawn.scale);
+  }
+  preserveImagePolarity(x, y, drawn.width, drawn.height);
+  return true;
 }
 
 bool GfxRenderer::drawBitmap(const Bitmap& bitmap, const int x, const int y, const int maxWidth, const int maxHeight,
                              const float cropX, const float cropY, const bool whiteAsTransparent) const {
-  if (fontCacheManager_ && fontCacheManager_->isScanning()) return false;
-  // For 1-bit bitmaps, use optimized 1-bit rendering path (no crop support for 1-bit)
-  if (bitmap.is1Bit() && cropX == 0.0f && cropY == 0.0f) {
-    return drawBitmap1Bit(bitmap, x, y, maxWidth, maxHeight);
-  }
-
-  float scale = 1.0f;
-  bool isScaled = false;
-  int cropPixX = std::floor(bitmap.getWidth() * cropX / 2.0f);
-  int cropPixY = std::floor(bitmap.getHeight() * cropY / 2.0f);
-  LOG_DBG("GFX", "Cropping %dx%d by %dx%d pix, is %s", bitmap.getWidth(), bitmap.getHeight(), cropPixX, cropPixY,
-          bitmap.isTopDown() ? "top-down" : "bottom-up");
-
-  const float croppedWidth = (1.0f - cropX) * static_cast<float>(bitmap.getWidth());
-  const float croppedHeight = (1.0f - cropY) * static_cast<float>(bitmap.getHeight());
-  bool hasTargetBounds = false;
-  float fitScale = 1.0f;
-
-  if (maxWidth > 0 && croppedWidth > 0.0f) {
-    fitScale = static_cast<float>(maxWidth) / croppedWidth;
-    hasTargetBounds = true;
-  }
-
-  if (maxHeight > 0 && croppedHeight > 0.0f) {
-    const float heightScale = static_cast<float>(maxHeight) / croppedHeight;
-    fitScale = hasTargetBounds ? std::min(fitScale, heightScale) : heightScale;
-    hasTargetBounds = true;
-  }
-
-  if (hasTargetBounds && fitScale < 1.0f) {
-    scale = fitScale;
-    isScaled = true;
-  }
-  LOG_DBG("GFX", "Scaling by %f - %s", scale, isScaled ? "scaled" : "not scaled");
-
-  // Calculate output row size (2 bits per pixel, packed into bytes)
-  // IMPORTANT: Use int, not uint8_t, to avoid overflow for images > 1020 pixels wide
-  const int outputRowSize = (bitmap.getWidth() + 3) / 4;
-  const auto rowBytesSize = static_cast<size_t>(bitmap.getRowBytes());
-  auto rowScratch = makeUniqueNoThrow<uint8_t[]>(static_cast<size_t>(outputRowSize) + rowBytesSize);
-  if (!rowScratch) {
-    LOG_ERR("GFX", "!! Failed to allocate BMP row buffers");
-
-    return false;
-  }
-
-  auto* outputRow = rowScratch.get();
-  auto* rowBytes = rowScratch.get() + outputRowSize;
-
-  for (int bmpY = 0; bmpY < (bitmap.getHeight() - cropPixY); bmpY++) {
-    // The BMP's (0, 0) is the bottom-left corner (if the height is positive, top-left if negative).
-    // Screen's (0, 0) is the top-left corner.
-    int screenY = -cropPixY + (bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY);
-    if (isScaled) {
-      screenY = std::floor(screenY * scale);
-    }
-    screenY += y;  // the offset should not be scaled
-    if (screenY >= getScreenHeight()) {
-      break;
-    }
-
-    if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
-      LOG_ERR("GFX", "Failed to read row %d from bitmap", bmpY);
-
-      return false;
-    }
-
-    if (screenY < 0) {
-      continue;
-    }
-
-    if (bmpY < cropPixY) {
-      // Skip the row if it's outside the crop area
-      continue;
-    }
-
-    for (int bmpX = cropPixX; bmpX < bitmap.getWidth() - cropPixX; bmpX++) {
-      int screenX = bmpX - cropPixX;
-      if (isScaled) {
-        screenX = std::floor(screenX * scale);
-      }
-      screenX += x;  // the offset should not be scaled
-      if (screenX >= getScreenWidth()) {
-        break;
-      }
-      if (screenX < 0) {
-        continue;
-      }
-
-      const uint8_t val = outputRow[bmpX / 4] >> (6 - ((bmpX * 2) % 8)) & 0x3;
-      if (whiteAsTransparent && val == 3) continue;
-
-      if (renderMode == BW && val < 3) {
-        drawPixel(screenX, screenY);
-      } else if (renderMode == GRAYSCALE_LSB || renderMode == GRAYSCALE_MSB) {
-        const auto pixel = grayPlanePixel(val, renderMode == GRAYSCALE_MSB, absoluteGrayPlanes);
-        if (pixel.write) drawPixel(screenX, screenY, pixel.black);
-      }
-    }
-  }
-
-  const int sourceWidth = bitmap.getWidth() - cropPixX * 2;
-  const int sourceHeight = bitmap.getHeight() - cropPixY * 2;
-  const int renderedWidth = isScaled ? static_cast<int>(std::floor((sourceWidth - 1) * scale)) + 1 : sourceWidth;
-  const int renderedHeight = isScaled ? static_cast<int>(std::floor((sourceHeight - 1) * scale)) + 1 : sourceHeight;
-  preserveImagePolarity(x, y, renderedWidth, renderedHeight);
-  return true;
+  // 1-bit bitmaps take the 1-bit path, which has no crop.
+  const bool oneBit = bitmap.is1Bit() && cropX == 0.0f && cropY == 0.0f;
+  return drawPicture(bitmap, x, y, maxWidth, maxHeight, cropX, cropY, whiteAsTransparent, oneBit);
 }
 
 bool GfxRenderer::drawBitmap1Bit(const Bitmap& bitmap, const int x, const int y, const int maxWidth,
                                  const int maxHeight) const {
-  float scale = 1.0f;
-  bool isScaled = false;
-  if (maxWidth > 0 && bitmap.getWidth() > maxWidth) {
-    scale = static_cast<float>(maxWidth) / static_cast<float>(bitmap.getWidth());
-    isScaled = true;
-  }
-  if (maxHeight > 0 && bitmap.getHeight() > maxHeight) {
-    scale = std::min(scale, static_cast<float>(maxHeight) / static_cast<float>(bitmap.getHeight()));
-    isScaled = true;
-  }
-
-  // For 1-bit BMP, output is still 2-bit packed (for consistency with readNextRow)
-  const int outputRowSize = (bitmap.getWidth() + 3) / 4;
-  const auto rowBytesSize = static_cast<size_t>(bitmap.getRowBytes());
-  auto rowScratch = makeUniqueNoThrow<uint8_t[]>(static_cast<size_t>(outputRowSize) + rowBytesSize);
-  if (!rowScratch) {
-    LOG_ERR("GFX", "!! Failed to allocate 1-bit BMP row buffers");
-
-    return false;
-  }
-
-  auto* outputRow = rowScratch.get();
-  auto* rowBytes = rowScratch.get() + outputRowSize;
-
-  for (int bmpY = 0; bmpY < bitmap.getHeight(); bmpY++) {
-    // Read rows sequentially using readNextRow
-    if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
-      LOG_ERR("GFX", "Failed to read row %d from 1-bit bitmap", bmpY);
-
-      return false;
-    }
-
-    // Calculate screen Y based on whether BMP is top-down or bottom-up
-    const int bmpYOffset = bitmap.isTopDown() ? bmpY : bitmap.getHeight() - 1 - bmpY;
-    int screenY = y + (isScaled ? static_cast<int>(std::floor(bmpYOffset * scale)) : bmpYOffset);
-    if (screenY >= getScreenHeight()) {
-      continue;  // Continue reading to keep row counter in sync
-    }
-    if (screenY < 0) {
-      continue;
-    }
-
-    for (int bmpX = 0; bmpX < bitmap.getWidth(); bmpX++) {
-      int screenX = x + (isScaled ? static_cast<int>(std::floor(bmpX * scale)) : bmpX);
-      if (screenX >= getScreenWidth()) {
-        break;
-      }
-      if (screenX < 0) {
-        continue;
-      }
-
-      // Get 2-bit value (result of readNextRow quantization)
-      const uint8_t val = outputRow[bmpX / 4] >> (6 - ((bmpX * 2) % 8)) & 0x3;
-
-      // For 1-bit source: 0 or 1 -> map to black (0,1,2) or white (3)
-      // val < 3 means black pixel (draw it)
-      if (val < 3) {
-        drawPixel(screenX, screenY, true);
-      }
-      // White pixels (val == 3) are not drawn (leave background)
-    }
-  }
-
-  const int renderedWidth =
-      isScaled ? static_cast<int>(std::floor((bitmap.getWidth() - 1) * scale)) + 1 : bitmap.getWidth();
-  const int renderedHeight =
-      isScaled ? static_cast<int>(std::floor((bitmap.getHeight() - 1) * scale)) + 1 : bitmap.getHeight();
-  preserveImagePolarity(x, y, renderedWidth, renderedHeight);
-  return true;
+  return drawPicture(bitmap, x, y, maxWidth, maxHeight, 0.0f, 0.0f, false, true);
 }
 
 void GfxRenderer::preserveImagePolarity(const int x, const int y, const int width, const int height) const {
-  if (renderMode != BW || !display.isInverted() || _stripActive || !frameBuffer || width <= 0 || height <= 0) {
-    return;
-  }
-
-  const int lx0 = std::max(x, clipLeft_);
-  const int ly0 = std::max(y, clipTop_);
-  const int lx1 = std::min(x + width, clipRight_);
-  const int ly1 = std::min(y + height, clipBottom_);
-  if (lx0 >= lx1 || ly0 >= ly1) return;
-
-  int ax, ay, bx, by;
-  rotateCoordinates(orientation, lx0, ly0, &ax, &ay, panelWidth, panelHeight);
-  rotateCoordinates(orientation, lx1 - 1, ly1 - 1, &bx, &by, panelWidth, panelHeight);
-
-  int left = std::max(0, std::min(ax, bx));
-  int right = std::min(static_cast<int>(panelWidth) - 1, std::max(ax, bx));
-  int top = std::max(0, std::min(ay, by));
-  int bottom = std::min(static_cast<int>(panelHeight) - 1, std::max(ay, by));
-  if (left > right || top > bottom) return;
-
-  for (int row = top; row <= bottom; row++) {
-    uint8_t* rowData = frameBuffer + static_cast<uint32_t>(row) * panelWidthBytes;
-    int col = left;
-    while (col <= right && (col & 7) != 0) {
-      rowData[col >> 3] ^= static_cast<uint8_t>(0x80U >> (col & 7));
-      col++;
-    }
-    while (col + 7 <= right) {
-      rowData[col >> 3] ^= 0xFF;
-      col += 8;
-    }
-    while (col <= right) {
-      rowData[col >> 3] ^= static_cast<uint8_t>(0x80U >> (col & 7));
-      col++;
-    }
-  }
+  if (renderMode != BW || !display.isInverted() || _stripActive || !frameBuffer) return;
+  const auto c = canvasOf(*this);
+  bb_gfx_invert_rect(&c, x, y, width, height);
 }
 
 void GfxRenderer::fillPolygon(const int* xPoints, const int* yPoints, int numPoints, bool state) const {

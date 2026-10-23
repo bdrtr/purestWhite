@@ -319,8 +319,10 @@ impl Canvas<'_> {
     }
 }
 
+mod image;
 mod polygon;
 mod round;
+pub use image::{Drawn, Picture, Placement, Plane};
 pub use round::Corners;
 
 #[cfg(test)]

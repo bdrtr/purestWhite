@@ -1545,3 +1545,43 @@ Flash x4pro'da 64, x4c'de 240 bayt küçüldü, RAM değişmedi.
 - [ ] Kütüphane'yi açın: etkin sekmedeki üçgen sıralama oku eskisi gibi görünmeli. Sekmeler
   seçiliyken Onay'a uzun basın (dokunmatik ekranda etkin sekmeye dokunun): sıralama yönü ve ok
   dönmeli.
+
+## Resimler Rust'ta ("rust: our own picture drawing")
+
+GfxRenderer'ın `drawBitmap` ve `drawBitmap1Bit`'i (ana ekranlardaki kapak küçük resimleri, uyku
+ekranının kapak ya da özel resmi ve kaplaması, resim görüntüleyici), `drawIcon` (kapaksız kitapların
+simgeleri, Lyra'nın ana menü simgeleri, Cover Grid'in sekme ve boş ana ekran simgeleri) ve gece
+modunda resimlerin kendi renklerini koruyan `preserveImagePolarity` (bu resimler ve okuyucudaki
+kitap resimleri) artık `bembeyaz-gfx`'in `image` modülünde: kırpma, kutuya sığacak kadar küçültme,
+üstten ya da alttan başlayan satırlar, siyah-beyaz ve iki gri düzlem (fark ya da mutlak seviyeler),
+beyazın saydam sayılması ve 1 bitlik dosyaların ayrı kuralları. Dosyadan satır okuyan `Bitmap` ve
+satır tamponu C++'ta; Rust her satırı geri çağrıyla istiyor ve tampon bir satırdan kısaysa hiç
+çizmiyor. Eski iki ayrı yol tek döngüde birleşti; farkları (1 bitlik yolun kırpmaması, her düzlemde
+siyah çizmesi, ekranın altındaki satırları okuyup geçmesi) bir bayrakla korunuyor. Eski kodun bir
+tuhaflığı bilerek korundu: alttan başlayan bir resmin ilk satırı ekranın altına düşüyorsa resim hiç
+çizilmiyor. `drawIcon` ve `drawBitmap1Bit` artık diğer çizimler gibi yazı tipi önbelleği taraması
+sırasında hiçbir şey çizmiyor. `test/gfx_primitives`'in eski kod kopyasına eski resim kodu
+(bellekteki sahte bir `Bitmap` ile) eklendi; 6000 rastgele resim, simge ve ters çevirmede iki yol
+bayt bayt aynı, okunamayan satır da aynı. Koda bilerek konan hatalardan eşdeğer olmayanların hepsi
+yakalandı. Crate'in 11 birim testi var. Emülatörde resim görüntüleyicide yedi BMP (1, 2, 4, 8, 24,
+32 bit ve kesik dosya), uyku ekranı, JPEG ve PNG resimli kitaplar, gece modu açıkken kapaklı Lyra ve
+RoundedRaff ana ekranları ile kitap açma, Lyra Genişletilmiş ve RoundedRaff ana ekranları, kütüphane
+ve okuma senaryoları bir önceki sürümle piksel piksel aynı çıktı; resim görüntüleyicide resim başına
+çizim aynı ya da 30–70 ms kısa (24 ve 32 bitlik BMP'ler). Flash x4pro'da 688, x4c'de 936 bayt büyüdü
+(piksel yazımı artık satır içinde; eski kod her piksel için `drawPixel` çağırıyordu), RAM değişmedi.
+
+- [ ] Gece modu kapalı ve açıkken kapaklı (JPEG ve PNG) kitaplarla Klasik, Lyra, Lyra Genişletilmiş,
+  RoundedRaff ve Cover Grid ana ekranlarını açın (Cover Grid yalnızca PSRAM'li cihazda): kapak küçük
+  resimleri eskisi gibi, gece modunda da kendi renkleriyle görünmeli; kapaksız kitapta kitap simgesi,
+  Lyra'da ana menü simgeleri, Cover Grid'de sekme simgeleri eskisi gibi olmalı.
+- [ ] Gece modu kapalı ve açıkken JPEG ve PNG resimli bir kitabı açın, bir resmin olduğu sayfaya
+  gidip geri dönün (ilk açılış ve önbellekten açılış): resimler kendi renkleriyle görünmeli.
+- [ ] Uyku Ekranı'nı Özel yapıp kartın köküne `/sleep.bmp` (ya da `/.sleep` klasörüne BMP'ler) koyun;
+  Uyku Ekranı Kapak Modu'nu Sığdır ve Kırp, Uyku Ekranı Kapak Filtresi'ni Yok ve Negatif ile deneyin:
+  resmin kırpılması, ölçeği ve gri tonları eskisi gibi olmalı. 1 bitlik bir resmi Kırp ile de deneyin.
+  Ayrıca Uyku Ekranı'nı Kapak yapıp bir kitaptan uykuya geçin.
+- [ ] Uyku Ekranı'nı Transparent yapıp kartın köküne saydamlık kanalı olmayan (24 bit)
+  `/sleep-overlay.bmp` koyun ve okurken uykuya geçin: resim sayfanın üstünde, beyazları saydam olarak
+  görünmeli.
+- [ ] Dosyalara Göz At'tan 1, 2, 4, 8, 24 ve 32 bitlik BMP'leri resim görüntüleyicide, gece modu
+  kapalı ve açıkken açın: eskisi gibi görünmeli.

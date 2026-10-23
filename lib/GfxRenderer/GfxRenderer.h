@@ -130,6 +130,9 @@ class GfxRenderer {
   // Byte-aligned rectangle fill in bembeyaz-gfx: no per-pixel rotation or read-modify-write.
   template <Color color>
   void fillRectImpl(int x, int y, int width, int height) const;
+  // drawBitmap and drawBitmap1Bit: oneBit takes the 1-bit path (black where not white, no crop).
+  bool drawPicture(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight, float cropX, float cropY,
+                   bool whiteAsTransparent, bool oneBit) const;
 
  public:
   explicit GfxRenderer(HalDisplay& halDisplay)

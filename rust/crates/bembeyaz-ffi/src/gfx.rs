@@ -1,6 +1,6 @@
 //! Exports for lib/GfxRenderer (see `rust/include/bembeyaz/gfx.h`).
 
-use bembeyaz_gfx::{Canvas, Clip, Corners, Fill, Orientation};
+use bembeyaz_gfx::{Canvas, Clip, Corners, Fill, Orientation, Picture, Placement, Plane};
 
 /// gfx.h's `bb_gfx_canvas`.
 #[repr(C)]
@@ -227,5 +227,171 @@ pub unsafe extern "C" fn bb_gfx_fill_polygon(
     // SAFETY: as documented.
     if let Some(mut c) = unsafe { self::canvas(canvas) } {
         c.fill_polygon(xs, ys, fill);
+    }
+}
+
+/// gfx.h's `bb_gfx_picture`.
+#[repr(C)]
+pub struct CPicture {
+    width: i32,
+    height: i32,
+    x: i32,
+    y: i32,
+    max_width: i32,
+    max_height: i32,
+    crop_x: f32,
+    crop_y: f32,
+    top_down: bool,
+    one_bit: bool,
+    white_transparent: bool,
+    absolute_gray: bool,
+    plane: u8,
+}
+
+/// gfx.h's `bb_gfx_drawn`.
+#[repr(C)]
+pub struct CDrawn {
+    crop_x: i32,
+    crop_y: i32,
+    scale: f32,
+    width: i32,
+    height: i32,
+    failed_row: i32,
+}
+
+// gfx.h's layouts; GfxRenderer.cpp checks the same.
+const _: () = assert!(
+    size_of::<CPicture>() == 40
+        && core::mem::offset_of!(CPicture, crop_x) == 24
+        && core::mem::offset_of!(CPicture, plane) == 36
+        && size_of::<CDrawn>() == 24
+);
+
+/// gfx.h's BB_GFX_PLANE_*, which GfxRenderer.cpp checks against its `RenderMode`.
+const PLANE_GRAY_LSB: u8 = 1;
+const PLANE_GRAY_MSB: u8 = 2;
+
+/// Reads the next picture row into its argument; false when it cannot.
+pub type ReadRow = unsafe extern "C" fn(ctx: *mut core::ffi::c_void, row: *mut u8) -> bool;
+
+/// # Safety
+/// `canvas` is NULL or as gfx.h describes; `picture` and `drawn` are NULL or valid; `row` is NULL
+/// or holds `row_len` writable bytes; `read` may be called with `ctx` and `row`, writes at most
+/// `(width + 3) / 4` bytes there and does not draw.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_gfx_draw_picture(
+    canvas: *const CCanvas,
+    picture: *const CPicture,
+    row: *mut u8,
+    row_len: usize,
+    read: Option<ReadRow>,
+    ctx: *mut core::ffi::c_void,
+    drawn: *mut CDrawn,
+) -> bool {
+    // SAFETY: as documented.
+    let (Some(p), Some(read)) = (unsafe { picture.as_ref() }, read) else {
+        return false;
+    };
+    // SAFETY: as documented.
+    let Some(mut c) = (unsafe { self::canvas(canvas) }) else {
+        return false;
+    };
+    // read() fills a whole packed row: refuse a buffer it would overrun.
+    let needed = usize::try_from(p.width.max(0)).unwrap_or(0).div_ceil(4);
+    if needed > 0 && (row.is_null() || row_len < needed) {
+        let failed = CDrawn {
+            crop_x: 0,
+            crop_y: 0,
+            scale: 1.0,
+            width: 0,
+            height: 0,
+            failed_row: 0,
+        };
+        // SAFETY: as documented.
+        unsafe { crate::set(drawn, failed) };
+        return false;
+    }
+    // SAFETY: as documented; the row is only written through `read`, between Rust's reads.
+    let row = unsafe { crate::view_mut(row, row_len) };
+    let plane = match p.plane {
+        PLANE_GRAY_LSB => Plane::GrayLsb,
+        PLANE_GRAY_MSB => Plane::GrayMsb,
+        _ => Plane::Bw,
+    };
+    let picture = Picture {
+        width: p.width,
+        height: p.height,
+        top_down: p.top_down,
+        one_bit: p.one_bit,
+    };
+    let place = Placement {
+        x: p.x,
+        y: p.y,
+        max_width: p.max_width,
+        max_height: p.max_height,
+        crop_x: p.crop_x,
+        crop_y: p.crop_y,
+        white_transparent: p.white_transparent,
+        plane,
+        absolute_gray: p.absolute_gray,
+    };
+    // SAFETY: as documented.
+    let result = c.picture(&picture, &place, row, |row| unsafe {
+        read(ctx, row.as_mut_ptr())
+    });
+    let out = match result {
+        Ok(d) => CDrawn {
+            crop_x: d.crop.0,
+            crop_y: d.crop.1,
+            scale: d.scale,
+            width: d.width,
+            height: d.height,
+            failed_row: -1,
+        },
+        Err(failed_row) => CDrawn {
+            crop_x: 0,
+            crop_y: 0,
+            scale: 1.0,
+            width: 0,
+            height: 0,
+            failed_row,
+        },
+    };
+    let ok = out.failed_row < 0;
+    // SAFETY: as documented.
+    unsafe { crate::set(drawn, out) };
+    ok
+}
+
+/// # Safety
+/// `canvas` is NULL or as gfx.h describes; `bits` is NULL or holds `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_gfx_icon(
+    canvas: *const CCanvas,
+    bits: *const u8,
+    len: usize,
+    x: i32,
+    y: i32,
+    size: i32,
+) -> u32 {
+    // SAFETY: as documented.
+    let bits = unsafe { crate::view(bits, len) };
+    // SAFETY: as documented.
+    unsafe { self::canvas(canvas) }.map_or(0, |mut c| c.icon(bits, x, y, size))
+}
+
+/// # Safety
+/// `canvas` is NULL or as gfx.h describes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_gfx_invert_rect(
+    canvas: *const CCanvas,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+) {
+    // SAFETY: as documented.
+    if let Some(mut c) = unsafe { self::canvas(canvas) } {
+        c.invert_rect(x, y, w, h);
     }
 }

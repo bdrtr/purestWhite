@@ -8,7 +8,7 @@
 
 extern crate std;
 
-use super::{Canvas, Clip, Corners, Fill, Orientation};
+use super::{Canvas, Clip, Corners, Fill, Orientation, Picture, Placement, Plane};
 use std::vec;
 use std::vec::Vec;
 
@@ -246,6 +246,163 @@ fn polygons() {
     );
 }
 
+/// A 4x2 picture: black, dark, light, white in each row; bottom-up unless `top_down`.
+fn four_levels(top_down: bool) -> (Picture, [[u8; 1]; 2]) {
+    let pic = Picture {
+        width: 4,
+        height: 2,
+        top_down,
+        one_bit: false,
+    };
+    (pic, [[0b0001_1011]; 2])
+}
+
+fn place(x: i32, y: i32, plane: Plane) -> Placement {
+    Placement {
+        x,
+        y,
+        max_width: 0,
+        max_height: 0,
+        crop_x: 0.0,
+        crop_y: 0.0,
+        white_transparent: false,
+        plane,
+        absolute_gray: false,
+    }
+}
+
+#[test]
+fn pictures() {
+    let mut buf = panel();
+    let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    let (pic, rows) = four_levels(true);
+    let mut next = rows.iter();
+    let mut row = [0u8; 1];
+    let drawn = c.picture(&pic, &place(1, 1, Plane::Bw), &mut row, |r| {
+        next.next().is_some_and(|src| {
+            r.copy_from_slice(src);
+            true
+        })
+    });
+    assert_eq!(drawn.map(|d| (d.width, d.height)), Ok((4, 2)));
+    // Shrunk to half, off the right edge; the third row fails to read.
+    let (pic, _) = four_levels(false);
+    let rows = [[0u8; 1]; 2];
+    let mut next = rows.iter();
+    let mut fit = place(14, 4, Plane::Bw);
+    fit.max_width = 2;
+    let drawn = c.picture(&pic, &fit, &mut row, |r| {
+        next.next().is_some_and(|src| {
+            r.copy_from_slice(src);
+            true
+        })
+    });
+    assert_eq!(drawn.map(|d| (d.scale, d.width, d.height)), Ok((0.5, 2, 1)));
+    // A bottom-up picture whose first row is below the screen draws nothing, reading nothing
+    // (as the old renderer did).
+    let mut reads = 0;
+    let none = c.picture(&pic, &place(0, 7, Plane::Bw), &mut row, |_| {
+        reads += 1;
+        true
+    });
+    assert_eq!((none.map(|d| d.height), reads), (Ok(2), 0));
+    let tall = Picture {
+        height: 3,
+        top_down: true,
+        ..pic
+    };
+    let mut next = rows.iter();
+    let failed = c.picture(&tall, &place(0, 5, Plane::Bw), &mut row, |r| {
+        next.next().is_some_and(|src| {
+            r.copy_from_slice(src);
+            true
+        })
+    });
+    assert_eq!(failed, Err(2));
+    assert_eq!(
+        picture(&buf),
+        [
+            "................",
+            ".###............",
+            ".###............",
+            "................",
+            "..............##",
+            "####............",
+            "####............",
+            "................",
+        ]
+    );
+}
+
+#[test]
+fn gray_planes() {
+    // Each level's ink in the LSB and MSB planes, as differences and as absolute levels.
+    for (plane, absolute, expected) in [
+        (Plane::GrayLsb, false, ".#.."),
+        (Plane::GrayMsb, false, ".##."),
+        (Plane::GrayLsb, true, "#.#."),
+        (Plane::GrayMsb, true, "##.."),
+    ] {
+        let mut buf = vec![0xFFu8; 2 * 8];
+        // Ink that writes white shows on black.
+        if !absolute {
+            buf.fill(0);
+        }
+        let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+        let (pic, rows) = four_levels(true);
+        let mut next = rows.iter();
+        let mut row = [0u8; 1];
+        let mut at = place(0, 0, plane);
+        at.absolute_gray = absolute;
+        assert!(
+            c.picture(&pic, &at, &mut row, |r| {
+                next.next().is_some_and(|src| {
+                    r.copy_from_slice(src);
+                    true
+                })
+            })
+            .is_ok()
+        );
+        let first = picture(&buf).swap_remove(0);
+        let shown: std::string::String = if absolute {
+            first.chars().take(4).collect()
+        } else {
+            // Written pixels turned white.
+            first
+                .chars()
+                .take(4)
+                .map(|p| if p == '.' { '#' } else { '.' })
+                .collect()
+        };
+        assert_eq!(shown, expected, "{plane:?} {absolute}");
+    }
+}
+
+#[test]
+fn icons_and_inversion() {
+    let mut buf = panel();
+    let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    // A 3x3 icon with ink on its first row and its diagonal: rows run right to left.
+    let bits = [0b0001_1111, 0b1011_1111, 0b1101_1111];
+    assert_eq!(c.icon(&bits, 0, 0, 3), 0);
+    assert_eq!(c.icon(&bits, 14, 0, 3), 3);
+    c.invert_rect(4, 4, 10, 2);
+    c.invert_rect(6, 5, 2, 1);
+    assert_eq!(
+        picture(&buf),
+        [
+            "..#.............",
+            ".##............#",
+            "#.#...........#.",
+            "................",
+            "....##########..",
+            "....##..######..",
+            "................",
+            "................",
+        ]
+    );
+}
+
 /// Random canvases, strips, clips and shapes, including extreme fill rectangles: nothing panics.
 #[test]
 fn mini_fuzz() {
@@ -287,7 +444,7 @@ fn mini_fuzz() {
         };
         for _ in 0..8 {
             let v = |next: &mut dyn FnMut(u32) -> u32| pick(140, next) - 50;
-            match next(10) {
+            match next(11) {
                 0 => {
                     c.pixel(v(&mut next), v(&mut next), next(2) == 0);
                 }
@@ -333,6 +490,33 @@ fn mini_fuzz() {
                     let corners = Corners(next(16) as u8);
                     c.fill_rounded_rect(x, y, w, h, r, corners, Fill::DarkGray);
                     c.mask_corners(x, y, w, h, r, Fill::White);
+                }
+                10 => {
+                    let pic = Picture {
+                        width: pick(30, &mut next),
+                        height: pick(30, &mut next),
+                        top_down: next(2) == 0,
+                        one_bit: next(3) == 0,
+                    };
+                    #[allow(clippy::cast_precision_loss)]
+                    let at = Placement {
+                        max_width: pick(40, &mut next) - 5,
+                        max_height: pick(40, &mut next) - 5,
+                        crop_x: pick(140, &mut next) as f32 / 100.0 - 0.2,
+                        crop_y: pick(140, &mut next) as f32 / 100.0 - 0.2,
+                        white_transparent: next(2) == 0,
+                        absolute_gray: next(2) == 0,
+                        ..place(v(&mut next), v(&mut next), Plane::GrayMsb)
+                    };
+                    let mut row = vec![0x5Au8; pick(10, &mut next) as usize];
+                    let mut left = pick(40, &mut next);
+                    let _ = c.picture(&pic, &at, &mut row, |_| {
+                        left -= 1;
+                        left >= 0
+                    });
+                    let bits = [0x3Cu8; 9];
+                    c.icon(&bits, v(&mut next), v(&mut next), pick(30, &mut next) - 3);
+                    c.invert_rect(v(&mut next), v(&mut next), v(&mut next), v(&mut next));
                 }
                 8 => {
                     // Extreme positions; the work grows with the radius, so that stays small.
