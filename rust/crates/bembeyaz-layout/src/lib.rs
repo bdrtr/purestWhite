@@ -9,13 +9,15 @@
 //! Nothing here panics, and every allocation is fallible: a token or line that cannot be stored is
 //! dropped and [`Paragraph::dropped_words`] reports it, as the C++ did for its word arena.
 //!
-//! [`table`] plans the column widths of the chapter parser's grid tables.
+//! [`table`] plans the column widths of the chapter parser's grid tables; [`carry`] picks the lines
+//! its page breaks move.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 extern crate alloc;
 
+pub mod carry;
 mod layout;
 mod offsets;
 mod store;

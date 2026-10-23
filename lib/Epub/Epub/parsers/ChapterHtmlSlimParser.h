@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <XmlParser.h>
+#include <bembeyaz/carry.h>
 #include <bembeyaz/css.h>
 #include <bembeyaz/html.h>
 #include <bembeyaz/table.h>
@@ -136,7 +137,7 @@ class ChapterHtmlSlimParser {
 
   // Page-break carry-over: a paragraph's orphan/widow lines and a heading kept with what
   // follows move to the next page instead of being left behind.
-  static constexpr size_t MAX_CARRIED_LINES = 6;
+  static constexpr size_t MAX_CARRIED_LINES = BB_CARRY_MAX_LINES;
   const ParsedText* layoutParagraph = nullptr;
   bool layoutParagraphHasDropCap = false;
   uint8_t paragraphLinesOnPage = 0;
@@ -145,6 +146,7 @@ class ChapterHtmlSlimParser {
   uint8_t recentLineCount = 0;
   size_t linesToCarry(size_t& paragraphLines) const;
   size_t keepWithNextCarry() const;
+  uint8_t carryLimit() const;
   bool canCarry(size_t carry) const;
   void breakPageCarryingLines(size_t carry, size_t paragraphLines, uint32_t visibleOffset);
   std::vector<BoxScope> boxScopes;

@@ -1383,3 +1383,24 @@ büyüdü, RAM değişmedi.
   dahil), ruby (furigana) metni, dipnotlar ve dış bağlantılar içeren bir kitabı açın: hepsi eskisi
   gibi görünmeli; ruby'nin ayraçları (`rp`) görünmemeli, dipnot bağlantıları açılmalı, dış
   bağlantılar kitabın içinde bir yere gitmemeli.
+
+## Sayfa sonunda taşınan satırlar Rust'ta ("rust: our own page break carry")
+
+Bölüm ayrıştırıcısı bir sayfayı kırarken son satırlarından bazılarını sonraki sayfaya taşır: bir
+paragrafın sayfa altında yalnız kalacak ilk satırı, sonraki sayfayı tek başına açacak son satırı
+yanındaki bir satırla (paragrafın sayfadaki iki satırıysa ikisi birden) ve paragrafın başı
+taşınıyorsa hemen üstündeki başlığın satırları; taşınan satırlar sayfanın sonundaki, ayrıştırıcının
+hatırladığı en çok altı metin satırından olabilir ve sayfa hiçbir zaman büsbütün boşalmaz. Bir resim
+ya da büyük ilk harfli (drop cap) bir paragraf da, sığmadığında, üstündeki başlığı yanına alabilir;
+büyük ilk harfli paragrafın kendi satırları taşınmaz. Bu kararlar artık `bembeyaz-layout`'un `carry`
+modülünde (ABI'si yeni `carry.h`); sayfanın son öğelerinden kaçının taşınabileceğini bulmak,
+satırları ve bağlantılarını taşımak ve son satırların konumlarını tutmak C++'ta kaldı. Bir önceki
+commit (9cd2d95b) kararları 2 testle sabitledi; toplam 1036 host testi geçiyor. Bölüm
+ayrıştırıcısının fark testi 5000 rastgele bölümde eski ve yeni sayfaları bayt bayt aynı buldu; koda
+bilerek konan beş hatanın hepsi yakalandı. Emülatörde okuma ve kitap açma senaryoları CSS, iki
+yönlü, heceleme ve XML kitaplarında, JPEG senaryosu da resimli kitapta bir önceki sürümle aynı
+ekranları verdi. x4pro'da flash 216 bayt büyüdü, RAM değişmedi.
+
+- [ ] Başlıkları ve uzun paragrafları olan bir kitapta birkaç sayfa ilerleyin: paragrafların sayfa
+  altında ya da başında yalnız kalan tek satırları ve sayfa altındaki başlıklar eskisi gibi sonraki
+  sayfaya taşınmalı.

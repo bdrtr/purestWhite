@@ -2406,41 +2406,53 @@ int ChapterHtmlSlimParser::prepareBlockFont(ParsedText& text, const float scale)
   return layoutFontId;
 }
 
+// The layout bembeyaz-ffi checks too.
+static_assert(sizeof(bb_carry_break) == 6 && offsetof(bb_carry_break, paragraph) == 1 &&
+              offsetof(bb_carry_break, drop_cap) == 2 && offsetof(bb_carry_break, paragraph_lines) == 3 &&
+              offsetof(bb_carry_break, last_line) == 4 && offsetof(bb_carry_break, keep_with_next) == 5 &&
+              sizeof(bb_carry) == 2 && offsetof(bb_carry, paragraph_lines) == 1 && BB_CARRY_MAX_LINES == 6);
+
 size_t ChapterHtmlSlimParser::linesToCarry(size_t& paragraphLines) const {
-  paragraphLines = 0;
-  if (layoutParagraph && !layoutParagraphHasDropCap) {
-    if (paragraphLinesOnPage == 1) {
-      paragraphLines = 1;  // the paragraph's first line would sit alone at the page bottom
-    } else if (paragraphLinesOnPage >= 2 && layoutParagraph->linesAfterCurrentLine() == 0) {
-      // The last line would open the next page alone; taking one line along must not
-      // leave an orphan behind.
-      paragraphLines = paragraphLinesOnPage >= 3 ? 1 : 2;
-    }
-  }
-  // A heading moves too when none of what follows it would stay on this page.
-  size_t carry = paragraphLines;
-  if (keepWithNextLines > 0 && paragraphLines == paragraphLinesOnPage) carry += keepWithNextLines;
-  if (canCarry(carry)) return carry;
-  if (canCarry(paragraphLines)) return paragraphLines;
-  paragraphLines = 0;
-  return 0;
+  bb_carry_break end{};
+  end.movable = carryLimit();
+  end.paragraph = layoutParagraph != nullptr;
+  end.drop_cap = layoutParagraphHasDropCap;
+  end.paragraph_lines = paragraphLinesOnPage;
+  end.last_line = layoutParagraph && layoutParagraph->linesAfterCurrentLine() == 0;
+  end.keep_with_next = keepWithNextLines;
+  bb_carry carry{};
+  bb_carry_lines(&end, &carry);
+  paragraphLines = carry.paragraph_lines;
+  return carry.lines;
 }
 
-size_t ChapterHtmlSlimParser::keepWithNextCarry() const { return canCarry(keepWithNextLines) ? keepWithNextLines : 0; }
+size_t ChapterHtmlSlimParser::keepWithNextCarry() const {
+  bb_carry_break end{};
+  end.movable = carryLimit();
+  end.keep_with_next = keepWithNextLines;
+  bb_carry carry{};
+  bb_carry_lines(&end, &carry);
+  return carry.lines;
+}
 
 // Only the page's trailing text lines move, and never everything on the page.
-bool ChapterHtmlSlimParser::canCarry(const size_t carry) const {
-  if (carry == 0) return true;
-  if (!currentPage || carry > recentLineCount || carry > MAX_CARRIED_LINES) return false;
+uint8_t ChapterHtmlSlimParser::carryLimit() const {
+  if (!currentPage) return 0;
   const auto& elements = currentPage->elements;
-  if (elements.size() <= carry) return false;
-  for (size_t i = 0; i < carry; ++i) {
-    if (elements[elements.size() - 1 - i]->getTag() != TAG_PageLine) return false;
+  size_t limit = std::min<size_t>({recentLineCount, MAX_CARRIED_LINES, elements.empty() ? 0 : elements.size() - 1});
+  for (size_t i = 0; i < limit; ++i) {
+    if (elements[elements.size() - 1 - i]->getTag() != TAG_PageLine) {
+      limit = i;
+      break;
+    }
   }
-  return true;
+  return static_cast<uint8_t>(limit);
 }
 
-// Completes the page, moving its last `carry` lines (validated by canCarry) and their
+// The host tests check carryLimit through this.
+bool ChapterHtmlSlimParser::canCarry(const size_t carry) const { return carry <= carryLimit(); }
+
+// Completes the page, moving its last `carry` lines (within carryLimit) and their
 // link areas to the top of the next page with their spacing intact.
 void ChapterHtmlSlimParser::breakPageCarryingLines(const size_t carry, const size_t paragraphLines,
                                                    const uint32_t visibleOffset) {
@@ -2591,10 +2603,7 @@ void ChapterHtmlSlimParser::makePages(const bool includeLastLine, const bool par
   layoutCurrentBlock(includeLastLine);
   if (includeLastLine) {
     // A heading's lines on this page wait to move with what follows it.
-    keepWithNextLines =
-        blockStyle.keepWithNext
-            ? static_cast<uint8_t>(std::min<size_t>(MAX_CARRIED_LINES, keepWithNextLines + paragraphLinesOnPage))
-            : 0;
+    keepWithNextLines = bb_carry_keep_after_block(keepWithNextLines, paragraphLinesOnPage, blockStyle.keepWithNext);
     paragraphLinesOnPage = 0;
     layoutParagraphHasDropCap = false;
   }
