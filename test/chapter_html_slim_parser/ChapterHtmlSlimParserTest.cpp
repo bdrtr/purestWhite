@@ -2404,3 +2404,63 @@ TEST_F(ChapterInlineStyleTest, StyleTagNamesMatchExactly) {
             (std::vector<std::string>{"b:1", "strong:1", "i:2", "em:2", "u:4", "ins:4", "del:8", "s:8", "strike:8",
                                       "B:0", "Strong:0", "EM:0", "U:0", "DEL:0", "bold:0", "italic:0"}));
 }
+
+TEST_F(ChapterWidowOrphanTest, OnlyTrailingTextLinesCanMoveAndNeverAWholePage) {
+  parser.viewportHeight = 10 * 16;
+  for (int i = 0; i < 3; ++i) paragraph(1);
+  ASSERT_EQ(parser.recentLineCount, 3u);
+  EXPECT_TRUE(parser.canCarry(0));
+  EXPECT_TRUE(parser.canCarry(2));
+  EXPECT_FALSE(parser.canCarry(3));
+  EXPECT_FALSE(parser.canCarry(4));
+  parser.recentLineCount = 1;
+  EXPECT_TRUE(parser.canCarry(1));
+  EXPECT_FALSE(parser.canCarry(2));
+  parser.recentLineCount = 3;
+  parser.keepWithNextLines = 2;
+  EXPECT_EQ(parser.keepWithNextCarry(), 2u);
+  parser.keepWithNextLines = 3;
+  EXPECT_EQ(parser.keepWithNextCarry(), 0u);
+  for (int i = 0; i < 5; ++i) paragraph(1);
+  ASSERT_EQ(parser.recentLineCount, 6u);  // the most it remembers
+  EXPECT_TRUE(parser.canCarry(6));
+  EXPECT_FALSE(parser.canCarry(7));
+  open("hr", nullptr);
+  close("hr");
+  EXPECT_FALSE(parser.canCarry(1));
+  parser.currentPage.reset();
+  EXPECT_FALSE(parser.canCarry(1));
+  EXPECT_TRUE(parser.canCarry(0));
+}
+
+TEST_F(ChapterWidowOrphanTest, CarryKeepsParagraphEndsAndHeadingsTogether) {
+  parser.viewportHeight = 10 * 16;
+  for (int i = 0; i < 4; ++i) paragraph(1);
+  ASSERT_EQ(parser.recentLineCount, 4u);
+  auto text = std::make_unique<ParsedText>(false, false, BlockStyle(), 0);
+  ASSERT_NE(text, nullptr);
+  const auto carry = [&](ParsedText* paragraph, const bool dropCap, const uint8_t lines, const int after,
+                         const uint8_t keep) {
+    if (paragraph) paragraph->linesAfterCurrent = after;
+    parser.layoutParagraph = paragraph;
+    parser.layoutParagraphHasDropCap = dropCap;
+    parser.paragraphLinesOnPage = lines;
+    parser.keepWithNextLines = keep;
+    size_t paragraphLines = 99;
+    const size_t moved = parser.linesToCarry(paragraphLines);
+    return std::to_string(moved) + "/" + std::to_string(paragraphLines);
+  };
+  EXPECT_EQ(carry(text.get(), false, 1, 5, 0), "1/1");  // a lone first line
+  EXPECT_EQ(carry(text.get(), false, 2, 0, 0), "2/2");  // the last line takes the other along
+  EXPECT_EQ(carry(text.get(), false, 3, 0, 0), "1/1");
+  EXPECT_EQ(carry(text.get(), false, 3, 1, 0), "0/0");
+  EXPECT_EQ(carry(text.get(), false, 0, 0, 0), "0/0");
+  EXPECT_EQ(carry(text.get(), true, 1, 0, 0), "0/0");   // a drop cap's lines stay
+  EXPECT_EQ(carry(text.get(), false, 1, 5, 2), "3/1");  // the heading above comes along
+  EXPECT_EQ(carry(text.get(), false, 2, 0, 2), "2/2");  // not the whole page: the heading stays
+  EXPECT_EQ(carry(text.get(), false, 3, 0, 2), "1/1");  // only a paragraph's start brings its heading
+  EXPECT_EQ(carry(nullptr, false, 0, 0, 2), "2/0");
+  EXPECT_EQ(carry(nullptr, false, 0, 0, 4), "0/0");
+  EXPECT_EQ(carry(nullptr, false, 3, 0, 1), "0/0");
+  parser.layoutParagraph = nullptr;
+}
