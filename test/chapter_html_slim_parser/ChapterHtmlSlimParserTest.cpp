@@ -2341,3 +2341,66 @@ TEST(BlockStyleTest, AnEmptyStyleGivesTheDefaultBlock) {
   EXPECT_EQ(resolved.pageBreakAfter, defaults.pageBreakAfter);
   EXPECT_EQ(resolved.keepWithNext, defaults.keepWithNext);
 }
+
+// The parser's element helpers (ChapterHtmlSlimParser.cpp).
+uint16_t parseTableSpan(const char* value);
+bool isInternalEpubLink(const char* href);
+bool isHeaderOrBlock(const char* name);
+bool isTableStructuralTag(const char* name);
+
+TEST(ChapterElementTest, TableSpansAreDigitsOnly) {
+  EXPECT_EQ(parseTableSpan(nullptr), 1);
+  EXPECT_EQ(parseTableSpan(""), 1);
+  EXPECT_EQ(parseTableSpan("1"), 1);
+  EXPECT_EQ(parseTableSpan("007"), 7);
+  EXPECT_EQ(parseTableSpan("65535"), 65535);
+  // Zero and overflow mean "the rest".
+  EXPECT_EQ(parseTableSpan("0"), UINT16_MAX);
+  EXPECT_EQ(parseTableSpan("65536"), UINT16_MAX);
+  EXPECT_EQ(parseTableSpan("99999999999"), UINT16_MAX);
+  EXPECT_EQ(parseTableSpan("1a"), 1);
+  EXPECT_EQ(parseTableSpan("-1"), 1);
+  EXPECT_EQ(parseTableSpan(" 2"), 1);
+  EXPECT_EQ(parseTableSpan("2 "), 1);
+}
+
+TEST(ChapterElementTest, InternalLinksAreTheOnesWithoutAnExternalScheme) {
+  EXPECT_FALSE(isInternalEpubLink(nullptr));
+  EXPECT_FALSE(isInternalEpubLink(""));
+  EXPECT_TRUE(isInternalEpubLink("#note"));
+  EXPECT_TRUE(isInternalEpubLink("ch2.xhtml#a"));
+  for (const char* external : {"http://x", "https://x", "mailto:x", "ftp://x", "tel:1", "javascript:void(0)"}) {
+    EXPECT_FALSE(isInternalEpubLink(external)) << external;
+  }
+  // Schemes match exactly.
+  EXPECT_TRUE(isInternalEpubLink("HTTP://x"));
+  EXPECT_TRUE(isInternalEpubLink("http:/x"));
+  EXPECT_TRUE(isInternalEpubLink("ftp:x"));
+  EXPECT_TRUE(isInternalEpubLink("data:x"));
+}
+
+TEST(ChapterElementTest, BlockAndTableTagsMatchExactly) {
+  for (const char* tag :
+       {"h1", "h2", "h3", "h4", "h5", "h6", "p", "li", "div", "br", "blockquote", "ul", "ol", "pre", "figure"}) {
+    EXPECT_TRUE(isHeaderOrBlock(tag)) << tag;
+  }
+  for (const char* tag : {"h7", "h", "h10", "P", "Div", "section", "article", "span", "table", "hr", "img", "", "pp"}) {
+    EXPECT_FALSE(isHeaderOrBlock(tag)) << tag;
+  }
+  for (const char* tag : {"table", "tr", "td", "th"}) EXPECT_TRUE(isTableStructuralTag(tag)) << tag;
+  for (const char* tag : {"thead", "tbody", "TD", "caption", "t"}) EXPECT_FALSE(isTableStructuralTag(tag)) << tag;
+}
+
+TEST_F(ChapterInlineStyleTest, StyleTagNamesMatchExactly) {
+  open("p", nullptr);
+  for (const char* tag : {"b", "strong", "i", "em", "u", "ins", "del", "s", "strike", "B", "Strong", "EM", "U", "DEL",
+                          "bold", "italic"}) {
+    open(tag, nullptr);
+    text(std::string(tag) + " ");
+    close(tag);
+  }
+  // Bold 1, italic 2, underline 4, line-through 8; names are case-sensitive.
+  EXPECT_EQ(styled(),
+            (std::vector<std::string>{"b:1", "strong:1", "i:2", "em:2", "u:4", "ins:4", "del:8", "s:8", "strike:8",
+                                      "B:0", "Strong:0", "EM:0", "U:0", "DEL:0", "bold:0", "italic:0"}));
+}
