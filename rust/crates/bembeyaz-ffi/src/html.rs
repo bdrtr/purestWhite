@@ -283,3 +283,30 @@ pub unsafe extern "C" fn bb_html_internal_link(href: *const c_char, len: usize) 
     // SAFETY: as documented.
     element::is_internal_link(unsafe { bytes(href, len) })
 }
+
+use bembeyaz_html::list::{self, List, MAX_MARKER};
+
+// html.h's BB_HTML_MAX_MARKER and bb_html_list.
+const _: () = assert!(
+    MAX_MARKER == 12 && size_of::<List>() == 8 && core::mem::offset_of!(List, counter) == 4
+);
+
+/// # Safety
+/// `list` is NULL or writable; `out` is NULL or has room for [`MAX_MARKER`] bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_html_list_marker(list: *mut List, out: *mut c_char) -> usize {
+    // SAFETY: as documented.
+    let Some(out) = (unsafe { out.cast::<[u8; MAX_MARKER]>().as_mut() }) else {
+        return 0;
+    };
+    // SAFETY: as documented.
+    list::marker(unsafe { list.as_mut() }, out)
+}
+
+/// # Safety
+/// `text` is NULL or holds `len` writable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_html_collapse_space(text: *mut c_char, len: usize) -> usize {
+    // SAFETY: as documented.
+    words::collapse_space(unsafe { crate::view_mut(text.cast::<u8>(), len) })
+}

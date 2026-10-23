@@ -134,6 +134,24 @@ uint16_t bb_html_table_span(const char* value, size_t len);
 // https://, mailto:, ftp://, tel: or javascript: (case-sensitive).
 bool bb_html_internal_link(const char* href, size_t len);
 
+// The most bytes a list marker takes: a sign, ten digits and a dot.
+#define BB_HTML_MAX_MARKER 12
+
+// An open list.
+typedef struct {
+  bool ordered;
+  bool unmarked;    // list-style-type: none
+  int32_t counter;  // the number of the last item, when ordered
+} bb_html_list;
+
+// Writes the marker of an item of list (NULL outside any list) to out (room for
+// BB_HTML_MAX_MARKER bytes; no NUL) and returns its length: nothing when unmarked, a bullet
+// (U+2022) when unordered, else the list's next number and a dot.
+size_t bb_html_list_marker(bb_html_list* list, char* out);
+// Trims the len bytes of text of ASCII whitespace and collapses each run inside it to one space,
+// in place; returns the new length.
+size_t bb_html_collapse_space(char* text, size_t len);
+
 #ifdef __cplusplus
 }
 #endif

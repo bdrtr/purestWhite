@@ -102,6 +102,32 @@ fn is_space(b: u8) -> bool {
     matches!(b, b' ' | b'\r' | b'\n' | b'\t')
 }
 
+/// Trims `text` of ASCII whitespace and collapses each run inside it to one space, in place (the
+/// chapter parser's ruby text); returns the new length.
+pub fn collapse_space(text: &mut [u8]) -> usize {
+    let mut len = 0;
+    let mut pending = false;
+    for i in 0..text.len() {
+        let Some(&byte) = text.get(i) else { break };
+        if is_space(byte) {
+            pending = len > 0;
+            continue;
+        }
+        if pending {
+            if let Some(slot) = text.get_mut(len) {
+                *slot = b' ';
+            }
+            len += 1;
+            pending = false;
+        }
+        if let Some(slot) = text.get_mut(len) {
+            *slot = byte;
+        }
+        len += 1;
+    }
+    len
+}
+
 // Opening quotes and other punctuation that lead into a drop cap letter.
 fn is_initial_punctuation(cp: u32) -> bool {
     match u8::try_from(cp) {
@@ -544,5 +570,22 @@ mod tests {
             let _ = scan(&text, piece, &mut p);
             assert!(p.buf.len() <= MAX_WORD + 1);
         }
+    }
+
+    fn collapsed(text: &[u8]) -> std::vec::Vec<u8> {
+        let mut buf = text.to_vec();
+        let n = super::collapse_space(&mut buf);
+        buf.truncate(n);
+        buf
+    }
+
+    #[test]
+    fn ruby_text_is_trimmed_and_collapsed() {
+        assert_eq!(collapsed(b""), b"");
+        assert_eq!(collapsed(b" \t\r\n "), b"");
+        assert_eq!(collapsed(b"  a \t\n b\r\nc  "), b"a b c");
+        assert_eq!(collapsed(b"a\xC2\xA0 b"), b"a\xC2\xA0 b");
+        assert_eq!(collapsed(b"\x0ba\x0c"), b"\x0ba\x0c");
+        assert_eq!(collapsed(b" x"), b"x");
     }
 }

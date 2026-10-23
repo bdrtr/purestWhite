@@ -1445,3 +1445,23 @@ küçüldü, RAM değişmedi.
   (`pre`) metin, üst ve alt simgeler, ruby metni, tablolar ve içindekilerden ya da dipnotlardan
   bağlantı verilen başlıklar içeren bir kitabı açın: hepsi eskisi gibi görünmeli, bağlantılar doğru
   yere gitmeli; KOReader eşitlemesinden sonra aynı paragrafa dönülmeli.
+
+## Liste işaretleri ve ruby metni Rust'ta ("rust: our own list markers and ruby text cleanup")
+
+Bölüm ayrıştırıcısı her liste öğesinin başına bir işaret koyar (`list-style-type: none` olan
+listelerde koymaz): sırasız listelerde ve bir listenin dışındaki öğelerde madde işareti (•), sıralı
+listelerde de listenin kendi sayacının sonraki değeri ve bir nokta (iç içe listeler kendi
+sayaçlarını tutar). Ruby (furigana) metni de baştaki ve sondaki boşluk, sekme ve satır sonlarından
+arındırılıp içindeki bu tür dizilerin her biri tek bir boşluğa indirilir. Bunlar artık
+`bembeyaz-html`'de: işaret `list`, ruby metni `words` modülünde; açık listelerin yığını C++'ta
+kaldı, her liste Rust'la ortak `bb_html_list` yapısında tutuluyor. Ruby metni artık yeni bir dizgeye
+kopyalanmadan yerinde temizleniyor. Taşırken 10000 ve üstündeki numaralarda işaretin sonunu bozacak
+bir hata yapıldı ve Rust birim testiyle yakalandı; işaretin sonuna NUL'u artık yalnızca C++ koyuyor.
+Bir önceki commit (765dba1e) davranışı 2 testle sabitledi; toplam 1046 host testi geçiyor. Bölüm
+ayrıştırıcısının fark testi 5000 rastgele bölümde eski ve yeni sayfaları bayt bayt aynı buldu; koda
+bilerek konan beş hatadan dördü yakalandı, rastgele stillerde bulunmayan `list-style-type: none`'a
+konanı sabitleme testi yakalıyor. Emülatörde okuma ve kitap açma senaryoları CSS, iki yönlü ve XML
+kitaplarında bir önceki sürümle aynı ekranları verdi. x4pro'da flash 20 bayt büyüdü, RAM değişmedi.
+
+- [ ] Numaralı (iç içe olanlar dahil), madde işaretli ve işaretsiz listeler ile ruby (furigana) metni
+  içeren bir kitabı açın: numaralar, madde işaretleri ve ruby metni eskisi gibi görünmeli.

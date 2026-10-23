@@ -52,32 +52,11 @@ constexpr uint8_t TABLE_ROW_SEPARATOR_THICKNESS = 1;
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
 
+// The host tests check the ruby text cleanup through this.
 std::string trimAndNormalize(const std::string& str) {
-  if (str.empty()) return "";
-  size_t start = 0;
-  while (start < str.size() && isWhitespace(str[start])) {
-    start++;
-  }
-  if (start == str.size()) return "";
-  size_t end = str.size() - 1;
-  while (end > start && isWhitespace(str[end])) {
-    end--;
-  }
-  std::string result;
-  result.reserve(end - start + 1);
-  bool inSpace = false;
-  for (size_t i = start; i <= end; i++) {
-    if (isWhitespace(str[i])) {
-      if (!inSpace) {
-        result.push_back(' ');
-        inSpace = true;
-      }
-    } else {
-      result.push_back(str[i]);
-      inSpace = false;
-    }
-  }
-  return result;
+  std::string out = str;
+  out.resize(bb_html_collapse_space(out.data(), out.size()));
+  return out;
 }
 
 uint16_t elementKind(const char* name) { return bb_html_element(name, strlen(name)); }
@@ -970,6 +949,9 @@ void ChapterHtmlSlimParser::finishTableRow() {
   clearLayoutLines();
 }
 
+// The layout bembeyaz-ffi checks too.
+static_assert(sizeof(bb_html_list) == 8 && offsetof(bb_html_list, counter) == 4, "bb_html_list layout");
+
 void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const char** atts) {
   auto* self = static_cast<ChapterHtmlSlimParser*>(userData);
   const uint16_t element = elementKind(name);
@@ -1734,18 +1716,14 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
       if (named == BB_HTML_TAG_LI) {
         // Innermost open <ul>/<ol> (if any) decides whether this item gets a bullet,
         // a number, or no marker at all (list-style-type: none). A malformed <li>
-        // with no enclosing list falls back to the plain bullet.
-        if (!self->listStack.empty() && self->listStack.back().styleNone) {
-          // No marker: leave the block empty so it behaves like a normal paragraph.
-        } else if (!self->listStack.empty() && self->listStack.back().ordered) {
-          self->listStack.back().counter += 1;
-          char marker[16];
-          snprintf(marker, sizeof(marker), "%d.", self->listStack.back().counter);
+        // with no enclosing list falls back to the plain bullet. No marker leaves the block
+        // empty, so it behaves like a normal paragraph.
+        char marker[BB_HTML_MAX_MARKER + 1];
+        const size_t markerLength =
+            bb_html_list_marker(self->listStack.empty() ? nullptr : &self->listStack.back().list, marker);
+        marker[markerLength] = '\0';
+        if (markerLength > 0) {
           self->currentTextBlock->addWord(marker, EpdFontFamily::REGULAR, false, false, self->visibleTextOffset);
-          self->listItemBulletOnly = true;
-        } else {
-          self->currentTextBlock->addWord("\xe2\x80\xa2", EpdFontFamily::REGULAR, false, false,
-                                          self->visibleTextOffset);
           self->listItemBulletOnly = true;
         }
       } else if (named == BB_HTML_TAG_UL || named == BB_HTML_TAG_OL) {
@@ -1753,8 +1731,8 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
         // the container's own margin/padding in the inset children combine with, so a
         // hanging text-indent on <li><p> children keeps the first line on the page.
         ChapterHtmlSlimParser::ListContext ctx;
-        ctx.ordered = named == BB_HTML_TAG_OL;
-        ctx.styleNone = cssStyle.hasListStyleType() && cssStyle.listStyleType == CssListStyleType::None;
+        ctx.list.ordered = named == BB_HTML_TAG_OL;
+        ctx.list.unmarked = cssStyle.hasListStyleType() && cssStyle.listStyleType == CssListStyleType::None;
         ctx.depth = self->depth;
         self->listStack.push_back(ctx);
       }
@@ -1999,7 +1977,8 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
     if (self->inRuby && self->currentTextBlock) {
       const int currentWordCount = static_cast<int>(self->currentTextBlock->size());
       const int baseWordCount = currentWordCount - self->rubyStartWordIndex;
-      std::string cleanRuby = trimAndNormalize(self->rubyTextBuffer);
+      self->rubyTextBuffer.resize(bb_html_collapse_space(self->rubyTextBuffer.data(), self->rubyTextBuffer.size()));
+      const std::string& cleanRuby = self->rubyTextBuffer;
       if (!cleanRuby.empty()) {
         if (baseWordCount > 0) {
           self->currentTextBlock->setRubyGroupAt(self->rubyStartWordIndex, baseWordCount, cleanRuby);
