@@ -56,6 +56,7 @@ dependencies = [
  "bembeyaz-clippings",
  "bembeyaz-css",
  "bembeyaz-font",
+ "bembeyaz-gfx",
  "bembeyaz-html",
  "bembeyaz-hyphenation",
  "bembeyaz-io",
@@ -81,6 +82,10 @@ version = "0.1.0"
 dependencies = [
  "bembeyaz-utf8",
 ]
+
+[[package]]
+name = "bembeyaz-gfx"
+version = "0.1.0"
 
 [[package]]
 name = "bembeyaz-html"

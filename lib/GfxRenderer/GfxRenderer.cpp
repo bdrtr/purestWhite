@@ -10,6 +10,7 @@
 #include <SdCardFont.h>
 #include <TtfEpdFont.h>
 #include <Utf8.h>
+#include <bembeyaz/gfx.h>
 
 #include <algorithm>
 
@@ -836,73 +837,74 @@ const char* resolveVisualText(const char* text, std::string& visualBuffer, const
 }
 }  // namespace
 
-void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const bool state) const {
-  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
-  if (x1 == x2) {
-    if (y2 < y1) {
-      std::swap(y1, y2);
-    }
-    for (int y = y1; y <= y2; y++) {
-      drawPixel(x1, y, state);
-    }
-  } else if (y1 == y2) {
-    if (x2 < x1) {
-      std::swap(x1, x2);
-    }
-    for (int x = x1; x <= x2; x++) {
-      drawPixel(x, y1, state);
-    }
-  } else {
-    // Bresenham's line algorithm — integer arithmetic only
-    int dx = x2 - x1;
-    int dy = y2 - y1;
-    int sx = (dx > 0) ? 1 : -1;
-    int sy = (dy > 0) ? 1 : -1;
-    dx = sx * dx;  // abs
-    dy = sy * dy;  // abs
+// The layout bembeyaz-ffi checks too.
+static_assert(sizeof(bb_gfx_canvas) == 4 * sizeof(size_t) + 32 &&
+                  offsetof(bb_gfx_canvas, origin_y) == 3 * sizeof(size_t) &&
+                  offsetof(bb_gfx_canvas, orientation) == 3 * sizeof(size_t) + 32,
+              "bb_gfx_canvas layout");
+static_assert(GfxRenderer::Portrait == BB_GFX_PORTRAIT &&
+                  GfxRenderer::LandscapeClockwise == BB_GFX_LANDSCAPE_CLOCKWISE &&
+                  GfxRenderer::PortraitInverted == BB_GFX_PORTRAIT_INVERTED &&
+                  GfxRenderer::LandscapeCounterClockwise == BB_GFX_LANDSCAPE_COUNTER_CLOCKWISE,
+              "bb_gfx_canvas orientations");
+static_assert(Color::White == BB_GFX_WHITE && Color::LightGray == BB_GFX_LIGHT_GRAY &&
+                  Color::DarkGray == BB_GFX_DARK_GRAY && Color::Black == BB_GFX_BLACK,
+              "bb_gfx_fill_rect colors");
 
-    int err = dx - dy;
-    while (true) {
-      drawPixel(x1, y1, state);
-      if (x1 == x2 && y1 == y2) break;
-      int e2 = 2 * err;
-      if (e2 > -dy) {
-        err -= dy;
-        x1 += sx;
-      }
-      if (e2 < dx) {
-        err += dx;
-        y1 += sy;
-      }
-    }
+namespace {
+// The rows being drawn into (the framebuffer, or the active strip) and the clip, for Rust.
+bb_gfx_canvas canvasOf(const GfxRenderer& renderer) {
+  bb_gfx_canvas c{};
+  c.buf = renderer.getWriteTarget();
+  c.stride = renderer.getDisplayWidthBytes();
+  c.origin_y = renderer.getWriteOriginY();
+  c.rows = renderer.getWriteRows();
+  c.len = static_cast<size_t>(c.rows) * c.stride;
+  c.panel_width = renderer.getDisplayWidth();
+  c.panel_height = renderer.getDisplayHeight();
+  const auto [clipX, clipY, clipW, clipH] = renderer.getClipRect();
+  c.clip_left = clipX;
+  c.clip_top = clipY;
+  c.clip_right = clipX + clipW;
+  c.clip_bottom = clipY + clipH;
+  c.orientation = static_cast<uint8_t>(renderer.getOrientation());
+  // Rust draws nothing into a missing buffer (lent out for a build, or before begin()); say so once.
+  static bool reported = false;
+  if (!c.buf && !reported) {
+    reported = true;
+    LOG_ERR("GFX", "!! drawing without a framebuffer");
   }
+  return c;
+}
+}  // namespace
+
+namespace {
+void logOffPanel(const uint32_t pixels) {
+  if (pixels > 0) LOG_ERR("GFX", "!! %u pixels outside the panel", static_cast<unsigned>(pixels));
+}
+}  // namespace
+
+void GfxRenderer::drawLine(const int x1, const int y1, const int x2, const int y2, const bool state) const {
+  drawLine(x1, y1, x2, y2, 1, state);
 }
 
-void GfxRenderer::drawLine(int x1, int y1, int x2, int y2, const int lineWidth, const bool state) const {
-  for (int i = 0; i < lineWidth; i++) {
-    drawLine(x1, y1 + i, x2, y2 + i, state);
-  }
+void GfxRenderer::drawLine(const int x1, const int y1, const int x2, const int y2, const int lineWidth,
+                           const bool state) const {
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
+  const auto c = canvasOf(*this);
+  logOffPanel(bb_gfx_line(&c, x1, y1, x2, y2, lineWidth, state));
 }
 
 void GfxRenderer::drawRect(const int x, const int y, const int width, const int height, const bool state) const {
-  drawLine(x, y, x + width - 1, y, state);
-  drawLine(x + width - 1, y, x + width - 1, y + height - 1, state);
-  drawLine(x + width - 1, y + height - 1, x, y + height - 1, state);
-  drawLine(x, y, x, y + height - 1, state);
+  drawRect(x, y, width, height, 1, state);
 }
 
 // Border is inside the rectangle
 void GfxRenderer::drawRect(const int x, const int y, const int width, const int height, const int lineWidth,
                            const bool state) const {
-  // Keep the border inside [x, x+width) like the thin overload: the previous
-  // right/bottom edges at x+width / y+height sat one pixel outside the rect,
-  // so stroked boxes looked shifted against fills computed from the rect.
-  for (int i = 0; i < lineWidth; i++) {
-    drawLine(x + i, y + i, x + width - 1 - i, y + i, state);
-    drawLine(x + width - 1 - i, y + i, x + width - 1 - i, y + height - 1 - i, state);
-    drawLine(x + width - 1 - i, y + height - 1 - i, x + i, y + height - 1 - i, state);
-    drawLine(x + i, y + height - 1 - i, x + i, y + i, state);
-  }
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
+  const auto c = canvasOf(*this);
+  logOffPanel(bb_gfx_rect(&c, x, y, width, height, lineWidth, state));
 }
 
 void GfxRenderer::drawArc(const int maxRadius, const int cx, const int cy, const int xDir, const int yDir,
@@ -1062,164 +1064,8 @@ void GfxRenderer::fillRectImpl(const int x, const int y, const int width, const 
   if constexpr (C == Color::Clear) return;
   if (width <= 0 || height <= 0) return;
   if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
-
-  // Clip in logical space.
-  const int screenW = getScreenWidth();
-  const int screenH = getScreenHeight();
-  const int lx0 = std::max({0, x, clipLeft_});
-  const int ly0 = std::max({0, y, clipTop_});
-  const int lx1 = std::min({screenW, x + width, clipRight_});
-  const int ly1 = std::min({screenH, y + height, clipBottom_});
-  if (lx0 >= lx1 || ly0 >= ly1) return;
-
-  // Rotate the two opposing logical corners into physical-framebuffer space.
-  // The bounding rect in physical space is the rect we need to fill — rotation
-  // is rigid (no shear/stretch) so the bbox of the two corners IS the rect.
-  int paX, paY, pbX, pbY;
-  rotateCoordinates(orientation, lx0, ly0, &paX, &paY, panelWidth, panelHeight);
-  rotateCoordinates(orientation, lx1 - 1, ly1 - 1, &pbX, &pbY, panelWidth, panelHeight);
-
-  const int phyX0 = std::min(paX, pbX);
-  const int phyX1 = std::max(paX, pbX);  // inclusive
-  int phyY0 = std::min(paY, pbY);
-  int phyY1 = std::max(paY, pbY);
-
-  // Strip mode: clip Y range to the active band and redirect writes.
-  uint8_t* target = getWriteTarget();
-  const int originY = getWriteOriginY();
-  const int writeRows = getWriteRows();
-  phyY0 = std::max(phyY0, originY);
-  phyY1 = std::min(phyY1, originY + writeRows - 1);
-  if (phyY0 > phyY1) return;
-
-  // Bit/byte layout: MSB-first within a byte, so phyX → bit (7 - (phyX & 7)).
-  // Head and tail masks cover only the in-rect bits of the first/last byte.
-  const int byteStart = phyX0 >> 3;
-  const int byteEnd = phyX1 >> 3;  // inclusive
-  const uint8_t headMask = static_cast<uint8_t>(0xFFu >> (phyX0 & 7));
-  const uint8_t tailMask = static_cast<uint8_t>(0xFFu << (7 - (phyX1 & 7)));
-  const int32_t panelStride = static_cast<int32_t>(panelWidthBytes);
-
-  if constexpr (C == Color::Black || C == Color::White) {
-    // Solid fill. Framebuffer: 0 = black, 1 = white.
-    const uint8_t fillByte = (C == Color::Black) ? 0x00u : 0xFFu;
-    for (int py = phyY0; py <= phyY1; ++py) {
-      uint8_t* row = target + static_cast<int32_t>(py - originY) * panelStride;
-      if (byteStart == byteEnd) {
-        const uint8_t mask = headMask & tailMask;
-        if constexpr (C == Color::Black) {
-          row[byteStart] &= static_cast<uint8_t>(~mask);
-        } else {
-          row[byteStart] |= mask;
-        }
-      } else {
-        if constexpr (C == Color::Black) {
-          row[byteStart] &= static_cast<uint8_t>(~headMask);
-          if (byteEnd > byteStart + 1) {
-            memset(row + byteStart + 1, fillByte, byteEnd - byteStart - 1);
-          }
-          row[byteEnd] &= static_cast<uint8_t>(~tailMask);
-        } else {
-          row[byteStart] |= headMask;
-          if (byteEnd > byteStart + 1) {
-            memset(row + byteStart + 1, fillByte, byteEnd - byteStart - 1);
-          }
-          row[byteEnd] |= tailMask;
-        }
-      }
-    }
-  } else {
-    // Dither (LightGray / DarkGray). Both patterns have period 2 in logical
-    // (x, y), so per physical row we precompute one byte that represents the
-    // pattern across an 8-pixel stretch — every full byte in the row uses
-    // that same value.
-    //
-    // dlxPerPhyX / dlyPerPhyX: how logical (x, y) change as phyX increments
-    // along a physical row. Derived from inverting rotateCoordinates.
-    int dlxPerPhyX = 0, dlyPerPhyX = 0;
-    switch (orientation) {
-      case Portrait:
-        dlxPerPhyX = 0;
-        dlyPerPhyX = 1;
-        break;
-      case PortraitInverted:
-        dlxPerPhyX = 0;
-        dlyPerPhyX = -1;
-        break;
-      case LandscapeClockwise:
-        dlxPerPhyX = -1;
-        dlyPerPhyX = 0;
-        break;
-      case LandscapeCounterClockwise:
-        dlxPerPhyX = 1;
-        dlyPerPhyX = 0;
-        break;
-    }
-
-    // The dither pattern has period 2 in logical space, and each orientation
-    // maps py to logical coords with a fixed parity relationship. The
-    // blackMask byte therefore repeats with period 2 in py. Precompute both
-    // variants outside the row loop to eliminate the per-row switch + 8-bit
-    // construction loop.
-    uint8_t blackMasks[2];
-    for (int parityIdx = 0; parityIdx < 2; ++parityIdx) {
-      const int samplePy = phyY0 + parityIdx;
-      int lxBase = 0, lyBase = 0;
-      switch (orientation) {
-        case Portrait:
-          lxBase = panelHeight - 1 - samplePy;
-          lyBase = byteStart * 8;
-          break;
-        case PortraitInverted:
-          lxBase = samplePy;
-          lyBase = panelWidth - 1 - byteStart * 8;
-          break;
-        case LandscapeClockwise:
-          lxBase = panelWidth - 1 - byteStart * 8;
-          lyBase = panelHeight - 1 - samplePy;
-          break;
-        case LandscapeCounterClockwise:
-          lxBase = byteStart * 8;
-          lyBase = samplePy;
-          break;
-      }
-      uint8_t mask = 0;
-      for (int b = 0; b < 8; ++b) {
-        const int lx = lxBase + b * dlxPerPhyX;
-        const int ly = lyBase + b * dlyPerPhyX;
-        bool isBlack;
-        if constexpr (C == Color::LightGray) {
-          isBlack = ((lx & 1) == 0) && ((ly & 1) == 0);
-        } else {  // DarkGray
-          isBlack = (((lx + ly) & 1) == 0);
-        }
-        if (isBlack) mask |= static_cast<uint8_t>(1u << (7 - b));
-      }
-      blackMasks[samplePy & 1] = mask;
-    }
-
-    for (int py = phyY0; py <= phyY1; ++py) {
-      const uint8_t blackMask = blackMasks[py & 1];
-      const uint8_t whiteMask = static_cast<uint8_t>(~blackMask);
-
-      // Dither writes BOTH inks (the slow path called drawPixel for every
-      // pixel — setting or clearing — so we must do the same). Inside the
-      // rect mask: write whiteMask (1s where white, 0s where black). Outside
-      // the rect mask: leave the framebuffer untouched.
-      uint8_t* row = target + static_cast<int32_t>(py - originY) * panelStride;
-      if (byteStart == byteEnd) {
-        const uint8_t rectMask = headMask & tailMask;
-        row[byteStart] = static_cast<uint8_t>((row[byteStart] & ~rectMask) | (rectMask & whiteMask));
-      } else {
-        row[byteStart] = static_cast<uint8_t>((row[byteStart] & ~headMask) | (headMask & whiteMask));
-        if (byteEnd > byteStart + 1) {
-          // Period 2, so every full byte in this row is exactly whiteMask.
-          memset(row + byteStart + 1, whiteMask, byteEnd - byteStart - 1);
-        }
-        row[byteEnd] = static_cast<uint8_t>((row[byteEnd] & ~tailMask) | (tailMask & whiteMask));
-      }
-    }
-  }
+  const auto c = canvasOf(*this);
+  bb_gfx_fill_rect(&c, x, y, width, height, static_cast<uint8_t>(C));
 }
 
 template void GfxRenderer::fillRectImpl<Color::Black>(int, int, int, int) const;

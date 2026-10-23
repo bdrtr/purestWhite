@@ -17,6 +17,7 @@ mod css;
 #[cfg(target_os = "none")]
 mod device;
 mod expat;
+mod gfx;
 mod html;
 mod hyphenation;
 mod io;

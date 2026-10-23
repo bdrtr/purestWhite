@@ -1465,3 +1465,30 @@ kitaplarında bir önceki sürümle aynı ekranları verdi. x4pro'da flash 20 ba
 
 - [ ] Numaralı (iç içe olanlar dahil), madde işaretli ve işaretsiz listeler ile ruby (furigana) metni
   içeren bir kitabı açın: numaralar, madde işaretleri ve ruby metni eskisi gibi görünmeli.
+
+## Çizim temelleri Rust'ta ("rust: our own drawing primitives")
+
+Arayüzün ve kitap sayfalarının çizgileri, dikdörtgen çerçeveleri ve dolu dikdörtgenleri (siyah,
+beyaz, açık ve koyu gri titreme desenleri; seçim çubukları, düğmeler, ilerleme çubukları, tablo
+çerçeveleri, gölgeli kutular, yuvarlatılmış dikdörtgenlerin düz kenarları) artık `bembeyaz-gfx`
+crate'inde çiziliyor: mantıksal koordinatlar dört ekran yönelimiyle panelin bit düzenine eşleniyor,
+kırpma dikdörtgeni ve gri ton şeritleri gözetiliyor. GfxRenderer her çizimde tuvali (tampon,
+satırlar, panel boyu, yönelim, kırpma) `bb_gfx_canvas` olarak veriyor. Crate'in 5 birim testi (bir
+mini-fuzz dahil) var. GfxRenderer host testlerinde derlenmediği için eski çizim kodu yeni
+`test/gfx_primitives` host testine olduğu gibi kopyalandı; test her çalışmada 20000 rastgele tuvalde
+iki yolu karşılaştırıyor, C++'ta kalan yuvarlatılmış köşe titremesinin de Rust'ın dolgu deseniyle
+aynı olduğunu denetliyor (toplam 1048 host testi geçiyor). Geliştirme sırasında aynı düzenek,
+rastgele panel boyları, yönelimler, şeritler ve kırpmalarla 12000 tuvalde 144000 çizimde eski ve
+yeni tamponları bayt bayt, panel dışına düşen piksel sayılarını da aynı buldu; koda bilerek konan
+altı hatadan beşi yakalandı (altıncısı şeridin son satırının ötesine yazmaktı, tampon tam o boyda
+olduğundan zaten yazılamıyor). Çizgi ve çerçevelerde panel dışına düşen pikseller artık her biri
+için ayrı ayrı koordinatlarıyla değil, çizim başına tek bir hata satırıyla günlüğe yazılıyor; tampon
+yokken (bir derleme için ödünç verilmişken) çizilmeye çalışılırsa eskisi gibi çökmek yerine bir kez
+uyarılıyor. Emülatörde ayarlar, uyku, kütüphane, BLE ayarları, alıntı, okuma ve kitap açma (CSS ve
+XML), JPEG ve PNG senaryoları bir önceki sürümle aynı ekranları ve aynı çizim sürelerini verdi.
+x4pro'da flash 316 bayt küçüldü, RAM değişmedi.
+
+- [ ] Ana ekranı, menüleri, ayarları ve kütüphaneyi açın; bir kitabı dört Okuma Yönü'nde (Dikey,
+  Yatay (Saat Yönü), Dikey 180°, Yatay (Saat Yönü Tersi)) açın: seçim çubukları, çerçeveler, ilerleme
+  çubukları ve gri dolgular eskisi gibi görünmeli. Metin Yumuşatma (AA) açıkken tablolu, yatay
+  çizgili ve resimli bir sayfa da eskisi gibi çizilmeli.

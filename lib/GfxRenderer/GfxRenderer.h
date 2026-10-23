@@ -131,10 +131,7 @@ class GfxRenderer {
   void drawPixelDither(int x, int y) const;
   template <Color color>
   void fillArc(int maxRadius, int cx, int cy, int xDir, int yDir) const;
-  // Byte-aligned, orientation-specialized rectangle fill. Rotates the rect's
-  // two opposing corners into physical-framebuffer space once, then walks each
-  // physical row with head-mask / middle memset / tail-mask byte writes — no
-  // per-pixel rotation, no per-pixel RMW.
+  // Byte-aligned rectangle fill in bembeyaz-gfx: no per-pixel rotation or read-modify-write.
   template <Color color>
   void fillRectImpl(int x, int y, int width, int height) const;
 
