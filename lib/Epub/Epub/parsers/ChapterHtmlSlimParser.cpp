@@ -49,7 +49,6 @@ constexpr size_t MAX_ANCHORS_PER_CHAPTER = 1024;
 constexpr int16_t TABLE_CELL_HORIZONTAL_PADDING = 4;
 constexpr int16_t TABLE_ROW_SEPARATOR_GAP = 4;
 constexpr uint8_t TABLE_ROW_SEPARATOR_THICKNESS = 1;
-constexpr int16_t TABLE_MIN_CELL_WIDTH_LINE_HEIGHTS = 3;
 
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
 
@@ -794,6 +793,12 @@ void ChapterHtmlSlimParser::planTableColumns(const TableColumnMeasure& measure) 
           : 0;
 }
 
+// The layouts bembeyaz-ffi checks too.
+static_assert(sizeof(bb_table_cell) == 8 && offsetof(bb_table_cell, padding_right) == 6 && sizeof(bb_table_row) == 28 &&
+                  offsetof(bb_table_row, x) == 8 && offsetof(bb_table_row, frame_width) == 16 &&
+                  offsetof(bb_table_row, top_padding) == 24 && offsetof(bb_table_row, bottom_padding) == 26,
+              "bb_table_cell and bb_table_row layout");
+
 void ChapterHtmlSlimParser::finishTableRow() {
   closeTableCell();
 
@@ -808,38 +813,25 @@ void ChapterHtmlSlimParser::finishTableRow() {
   const int16_t lineHeight =
       std::max<int16_t>(1, static_cast<int16_t>(renderer.getLineHeight(fontId) * lineCompression));
   const size_t columnCount = tableRowCells.size();
-  const bool planned = tableColumnCount == columnCount;
-  uint16_t columnWidths[MAX_GRID_TABLE_COLUMNS] = {};
-  bool fitsGrid = columnCount >= 2;
-  int16_t topPadding[MAX_GRID_TABLE_COLUMNS] = {};
-  int maxTopPadding = 0;
-  int maxBottomPadding = 0;
-  for (size_t column = 0; column < columnCount; ++column) {
-    columnWidths[column] = planned ? tableColumnWidths[column] : static_cast<uint16_t>(viewportWidth / columnCount);
-    // Equal columns keep enough width for a few glyphs so ordinary three-column tables stay
-    // tabular in portrait; planned columns already fit their longest word.
+  // closeTableCell stacks a row before its fifth cell, so the cells fit; the check keeps the
+  // array and the count in step.
+  bb_table_cell cells[MAX_GRID_TABLE_COLUMNS] = {};
+  for (size_t column = 0; column < std::min(columnCount, MAX_GRID_TABLE_COLUMNS); ++column) {
     const auto& style = tableRowCells[column]->getBlockStyle();
-    topPadding[column] = style.paddingTop;
-    maxTopPadding = std::max<int>(maxTopPadding, style.paddingTop);
-    maxBottomPadding = std::max<int>(maxBottomPadding, style.paddingBottom);
-    fitsGrid = fitsGrid && columnWidths[column] > style.paddingLeft + style.paddingRight &&
-               (planned || columnWidths[column] >= lineHeight * TABLE_MIN_CELL_WIDTH_LINE_HEIGHTS);
+    cells[column] = {style.paddingTop, style.paddingBottom, style.paddingLeft, style.paddingRight};
   }
-  if (!fitsGrid) {
+  bb_table_row grid{};
+  const uint16_t* planned = tableColumnCount == columnCount ? tableColumnWidths.data() : nullptr;
+  if (columnCount > MAX_GRID_TABLE_COLUMNS ||
+      !bb_table_plan_row(cells, columnCount, planned, viewportWidth, lineHeight, tableRowRtl, &grid)) {
     fallbackTableRowToStacked();
     addTableRowSeparator();
     tableRowStacked = false;
     return;
   }
-  const bool rowIsRtl = tableRowRtl;
-  // Left edge of a logical column; RTL rows mirror the column order.
-  const auto columnX = [&](const size_t column) {
-    int x = 0;
-    for (size_t other = 0; other < columnCount; ++other) {
-      if (rowIsRtl ? other > column : other < column) x += columnWidths[other];
-    }
-    return x;
-  };
+  const uint16_t* columnWidths = grid.width;
+  const int maxTopPadding = grid.top_padding;
+  const int maxBottomPadding = grid.bottom_padding;
   for (auto& lines : tableCellLines) {
     lines.clear();
   }
@@ -855,8 +847,7 @@ void ChapterHtmlSlimParser::finishTableRow() {
     const int cellFontId = prepareBlockFont(*tableRowCells[column], tableRowCells[column]->getBlockStyle().fontScale);
     tableRowCells[column]->layoutAndExtractLines(
         renderer, cellFontId,
-        static_cast<uint16_t>(columnWidths[column] - tableRowCells[column]->getBlockStyle().paddingLeft -
-                              tableRowCells[column]->getBlockStyle().paddingRight),
+        static_cast<uint16_t>(columnWidths[column] - cells[column].padding_left - cells[column].padding_right),
         [this, &lines](std::unique_ptr<TextBlock> line, const uint32_t offset) {
           const size_t lineIndex = lines.size();
           lines.push_back(std::move(line));
@@ -893,10 +884,8 @@ void ChapterHtmlSlimParser::finishTableRow() {
     const int height = std::min(bottom + 1, static_cast<int>(viewportHeight)) - top;
     if (height <= 0) return;
     for (size_t column = 0; column < columnCount; ++column) {
-      const int x = columnX(column);
-      const int width = x + columnWidths[column] >= viewportWidth ? viewportWidth - x : columnWidths[column] + 1;
-      auto box = makeUniqueNoThrow<PageBorderBox>(static_cast<uint16_t>(width), static_cast<uint16_t>(height), sides,
-                                                  false, static_cast<int16_t>(x), static_cast<int16_t>(top));
+      auto box = makeUniqueNoThrow<PageBorderBox>(grid.frame_width[column], static_cast<uint16_t>(height), sides, false,
+                                                  grid.x[column], static_cast<int16_t>(top));
       if (!box) {
         LOG_ERR("EHP", "OOM: table cell border");
         return;
@@ -960,10 +949,10 @@ void ChapterHtmlSlimParser::finishTableRow() {
 
       auto& line = tableCellLines[column][lineIndex];
       auto style = line->getBlockStyle();
-      style.marginLeft = static_cast<int16_t>(columnX(column));
+      style.marginLeft = grid.x[column];
       line->setBlockStyle(style);
 
-      currentPageNextY = static_cast<int16_t>(rowY - maxTopPadding + topPadding[column]);
+      currentPageNextY = static_cast<int16_t>(rowY - maxTopPadding + cells[column].padding_top);
       addLineToPage(std::move(line), lineVisibleOffset);
     }
     currentPageNextY = static_cast<int16_t>(rowY + rowLineHeight);

@@ -30,6 +30,30 @@ bool bb_table_measure_columns(size_t (*read)(void* context, uint8_t* buf, size_t
 // are fewer than two or more than four columns, or a pointer is NULL.
 bool bb_table_plan_columns(const bb_table_measure* measure, int available, int padding, uint16_t* widths);
 
+// A grid row's cell: the padding its block style gives it.
+typedef struct {
+  int16_t padding_top;
+  int16_t padding_bottom;
+  int16_t padding_left;
+  int16_t padding_right;
+} bb_table_cell;
+
+// Where a grid row's cells go, in logical column order.
+typedef struct {
+  uint16_t width[4];
+  int16_t x[4];             // left edge
+  uint16_t frame_width[4];  // one pixel into the next column, but not past the page
+  int16_t top_padding;      // the largest (at least 0), which the whole row reserves
+  int16_t bottom_padding;   // the same for the bottom
+} bb_table_row;
+
+// Lays out a row of count cells across viewport into out: in the planned widths (count of them;
+// NULL shares it equally), right to left when rtl. False, leaving out alone, when the row should
+// stack instead (fewer than two cells, more than four, a cell whose padding fills its column, or
+// an unplanned column narrower than three line_heights) or cells or out is NULL.
+bool bb_table_plan_row(const bb_table_cell* cells, size_t count, const uint16_t* planned, uint16_t viewport,
+                       int16_t line_height, bool rtl, bb_table_row* out);
+
 #ifdef __cplusplus
 }
 #endif

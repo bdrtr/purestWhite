@@ -1404,3 +1404,24 @@ ekranları verdi. x4pro'da flash 216 bayt büyüdü, RAM değişmedi.
 - [ ] Başlıkları ve uzun paragrafları olan bir kitapta birkaç sayfa ilerleyin: paragrafların sayfa
   altında ya da başında yalnız kalan tek satırları ve sayfa altındaki başlıklar eskisi gibi sonraki
   sayfaya taşınmalı.
+
+## Tablo satırı geometrisi Rust'ta ("rust: our own table row geometry")
+
+Bölüm ayrıştırıcısı bir tablo satırını ızgara olarak dizerken her sütunun genişliğini (ön taramayla
+planlanmışsa onu, değilse sayfa genişliğinin eşit payını), sol kenarını (sağdan sola bir satırda
+sütunlar aynalanır), hücre çerçevesinin genişliğini (yandaki sütuna bir piksel taşar, sayfa
+kenarında durur) ve satırın ayırdığı en büyük üst ve alt iç boşluğu bulur; satır tek hücreliyse, bir
+hücrenin yan boşlukları sütununu dolduruyorsa ya da planlanmamış bir sütun üç satır yüksekliğinden
+darsa hücreler alt alta dizilir. Bu hesap artık `bembeyaz-layout`'un `table` modülünde, sütun
+genişliklerinin planının yanında; hücreleri dizmek, sayfayı kırmak ve çerçeveleri çizmek C++'ta
+kaldı. Bir önceki commit (f17b4572) satır geometrisini 6 testle sabitledi; toplam 1042 host testi
+geçiyor. Bölüm ayrıştırıcısının fark testi, rastgele bölümlere çerçeveli ya da çerçevesiz, sağdan
+sola satırlı, farklı iç boşluklu hücrelerden oluşan düzgün tablolar ve 120 ile 481 piksel arası
+sayfa genişlikleri eklenerek 5000 rastgele bölümde eski ve yeni sayfaları bayt bayt aynı buldu; koda
+bilerek konan beş hatanın hepsi yakalandı (bu tablolar eklenmeden önce hiçbiri görünmüyordu).
+Emülatörde okuma ve kitap açma senaryoları CSS, iki yönlü ve XML (tablolu) kitaplarında bir önceki
+sürümle aynı ekranları verdi. x4pro'da flash 384 bayt büyüdü, RAM değişmedi.
+
+- [ ] İki ila dört sütunlu, çerçeveli ve çerçevesiz tablolar (sağdan sola bir tablo dahil) içeren bir
+  kitabı dikey ve yatay ekranda açın: sütunlar, çerçeveler ve hücre boşlukları eskisi gibi görünmeli;
+  büyük yazı boyutunda ya da tek hücreli satırlarda hücreler alt alta dizilmeli.

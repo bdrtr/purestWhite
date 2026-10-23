@@ -1,6 +1,6 @@
 //! Exports for the chapter parser's grid tables (see `rust/include/bembeyaz/table.h`).
 
-use bembeyaz_layout::table::{self, MAX_COLUMNS, Measure};
+use bembeyaz_layout::table::{self, Cell, MAX_COLUMNS, Measure, Row};
 use core::ffi::{c_char, c_int, c_void};
 use core::slice;
 
@@ -83,5 +83,44 @@ pub unsafe extern "C" fn bb_table_plan_columns(
     for (slot, width) in out.iter_mut().zip(planned) {
         *slot = width;
     }
+    true
+}
+
+// table.h's bb_table_cell and bb_table_row; the parser checks the same layout.
+const _: () = assert!(
+    size_of::<Cell>() == 8
+        && core::mem::offset_of!(Cell, padding_right) == 6
+        && size_of::<Row>() == 28
+        && core::mem::offset_of!(Row, x) == 8
+        && core::mem::offset_of!(Row, frame_width) == 16
+        && core::mem::offset_of!(Row, top_padding) == 24
+        && core::mem::offset_of!(Row, bottom_padding) == 26
+);
+
+/// # Safety
+/// `cells` is NULL or holds `count` cells; `planned` is NULL or holds `count` widths; `out` is
+/// NULL or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_table_plan_row(
+    cells: *const Cell,
+    count: usize,
+    planned: *const u16,
+    viewport: u16,
+    line_height: i16,
+    rtl: bool,
+    out: *mut Row,
+) -> bool {
+    if out.is_null() {
+        return false;
+    }
+    // SAFETY: as documented.
+    let cells = unsafe { crate::view(cells, count) };
+    // SAFETY: as documented.
+    let planned = (!planned.is_null()).then(|| unsafe { crate::view(planned, count) });
+    let Some(row) = table::plan_row(cells, planned, viewport, line_height, rtl) else {
+        return false;
+    };
+    // SAFETY: as documented.
+    unsafe { out.write(row) };
     true
 }

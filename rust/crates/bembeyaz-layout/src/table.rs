@@ -8,6 +8,9 @@
 //! column but are not measured.
 //! It reads at most about 32 KB; a table that does not end by then, or that has more than
 //! [`MAX_COLUMNS`] cells in a row, is not planned.
+//!
+//! [`plan_row`] then places one grid row: its column edges (mirrored right to left), cell frames
+//! and padding, or whether it stacks instead.
 
 /// Columns a grid table may have.
 pub const MAX_COLUMNS: usize = 4;
@@ -353,6 +356,92 @@ pub fn plan_columns(measure: &Measure, available: i32, padding: i32) -> Option<[
     Some(widths)
 }
 
+/// A grid row's cell: the padding its block style gives it.
+#[derive(Clone, Copy, Debug, Default)]
+#[repr(C)]
+pub struct Cell {
+    pub padding_top: i16,
+    pub padding_bottom: i16,
+    pub padding_left: i16,
+    pub padding_right: i16,
+}
+
+/// Where a grid row's cells go, in logical column order.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(C)]
+pub struct Row {
+    pub width: [u16; MAX_COLUMNS],
+    /// The left edge, kept to 16 bits as page positions are.
+    pub x: [i16; MAX_COLUMNS],
+    /// The cell frame's width: one pixel into the next column, but not past the page.
+    pub frame_width: [u16; MAX_COLUMNS],
+    /// The largest top padding (at least 0), which the whole row reserves.
+    pub top_padding: i16,
+    /// The same for the bottom.
+    pub bottom_padding: i16,
+}
+
+/// Unplanned (equal) columns are at least this many line heights wide, enough for a few glyphs,
+/// so ordinary three-column tables stay tabular in portrait; planned columns already fit their
+/// longest word.
+const MIN_CELL_LINE_HEIGHTS: i32 = 3;
+
+/// Lays out a row of `cells` across `viewport`: in the `planned` widths (one per cell), or sharing
+/// it equally;
+/// right to left when `rtl`. `None` when the row should stack instead: fewer than two cells (or
+/// more than [`MAX_COLUMNS`]), a cell whose padding fills its column, or an unplanned column
+/// narrower than three `line_height`s.
+#[must_use]
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+pub fn plan_row(
+    cells: &[Cell],
+    planned: Option<&[u16]>,
+    viewport: u16,
+    line_height: i16,
+    rtl: bool,
+) -> Option<Row> {
+    let columns = cells.len();
+    if !(2..=MAX_COLUMNS).contains(&columns) {
+        return None;
+    }
+    let mut row = Row::default();
+    // At most MAX_COLUMNS, so the count fits.
+    let equal = viewport / columns as u16;
+    for ((cell, width), c) in cells.iter().zip(row.width.iter_mut()).zip(0..) {
+        *width = planned.and_then(|p| p.get(c)).copied().unwrap_or(equal);
+        row.top_padding = row.top_padding.max(cell.padding_top);
+        row.bottom_padding = row.bottom_padding.max(cell.padding_bottom);
+        let w = i32::from(*width);
+        if w <= i32::from(cell.padding_left) + i32::from(cell.padding_right)
+            || (planned.is_none() && w < i32::from(line_height) * MIN_CELL_LINE_HEIGHTS)
+        {
+            return None;
+        }
+    }
+    // Walk the page from the left; right-to-left rows start with the last logical column.
+    let viewport = i32::from(viewport);
+    let mut edge = 0;
+    for c in 0..columns {
+        let c = if rtl { columns - 1 - c } else { c };
+        let (Some(&width), Some(x), Some(frame)) = (
+            row.width.get(c),
+            row.x.get_mut(c),
+            row.frame_width.get_mut(c),
+        ) else {
+            return None;
+        };
+        let width = i32::from(width);
+        *x = edge as i16;
+        *frame = if edge + width >= viewport {
+            viewport - edge
+        } else {
+            width + 1
+        } as u16;
+        edge += width;
+    }
+    Some(row)
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(
@@ -505,5 +594,54 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn rows_share_mirror_frame_and_stack() {
+        use super::{Cell, plan_row};
+        let plain = [Cell::default(); 3];
+        let row = plan_row(&plain, None, 480, 16, false).unwrap();
+        assert_eq!(row.width[..3], [160, 160, 160]);
+        assert_eq!(row.x[..3], [0, 160, 320]);
+        assert_eq!(row.frame_width[..3], [161, 161, 160]);
+        let rtl = plan_row(&plain, None, 480, 16, true).unwrap();
+        assert_eq!(rtl.x[..3], [320, 160, 0]);
+        assert_eq!(rtl.frame_width[..3], [160, 161, 161]);
+        assert_eq!(
+            plan_row(&plain, None, 481, 16, false).unwrap().frame_width[2],
+            161
+        );
+        // Too narrow unless planned.
+        assert_eq!(plan_row(&plain, None, 143, 16, false), None);
+        assert!(plan_row(&plain, None, 144, 16, false).is_some());
+        let planned = [100, 20, 360, 0];
+        let row = plan_row(&plain, Some(&planned[..3]), 480, 16, false).unwrap();
+        assert_eq!(row.x[..3], [0, 100, 120]);
+        // Padding as wide as the column stacks the row.
+        let padded = [
+            Cell {
+                padding_top: 9,
+                padding_bottom: 13,
+                padding_left: 120,
+                padding_right: 119,
+            },
+            Cell {
+                padding_top: 3,
+                padding_bottom: -5,
+                ..Cell::default()
+            },
+        ];
+        let row = plan_row(&padded, None, 480, 16, false).unwrap();
+        assert_eq!((row.top_padding, row.bottom_padding), (9, 13));
+        let wide = [
+            Cell {
+                padding_right: 120,
+                ..padded[0]
+            },
+            padded[1],
+        ];
+        assert_eq!(plan_row(&wide, None, 480, 16, false), None);
+        assert_eq!(plan_row(&plain[..1], None, 480, 16, false), None);
+        assert_eq!(plan_row(&[Cell::default(); 5], None, 480, 16, false), None);
     }
 }
