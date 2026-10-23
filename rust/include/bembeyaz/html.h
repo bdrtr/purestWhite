@@ -1,6 +1,6 @@
 // C ABI of rust/crates/bembeyaz-ffi/src/html.rs (rust/crates/bembeyaz-html).
 // Use lib/Epub/Epub/htmlEntities.h and lib/Txt/TxtToHtml.h instead (ChapterHtmlSlimParser calls
-// bb_html_scan_words directly).
+// bb_html_scan_words, bb_html_element, bb_html_table_span and bb_html_internal_link directly).
 #pragma once
 
 #include <stdbool.h>
@@ -84,6 +84,29 @@ enum {
 // Returns a BB_HTML_WORDS_ code.
 int bb_html_scan_words(const char* text, size_t len, bool counted, uint32_t start, bool preserve, bool footnote_link,
                        const bb_html_words* words);
+
+// An element's kind, from bb_html_element: the heading level (1 to 6 for h1 to h6, else 0) and
+// flags. Names match exactly and case-sensitively, except that BB_HTML_HIDDEN takes any case.
+enum {
+  BB_HTML_HEADING_LEVEL = 0x7,
+  BB_HTML_BLOCK = 1 << 3,         // p, li, div, br, blockquote, ul, ol, pre, figure
+  BB_HTML_BOLD = 1 << 4,          // b, strong
+  BB_HTML_ITALIC = 1 << 5,        // i, em
+  BB_HTML_UNDERLINE = 1 << 6,     // u, ins
+  BB_HTML_LINE_THROUGH = 1 << 7,  // del, s, strike
+  BB_HTML_IMAGE = 1 << 8,         // img, image
+  BB_HTML_TABLE = 1 << 9,         // table, tr, td, th
+  BB_HTML_HIDDEN = 1 << 10,       // head, style, script, title, rp: text not shown
+};
+
+// The kind of the element named by the len bytes at name.
+uint16_t bb_html_element(const char* name, size_t len);
+// A colspan or rowspan value of len bytes: digits only, else 1; 0, or digits passing UINT16_MAX
+// before any other byte, mean the rest of the table (UINT16_MAX).
+uint16_t bb_html_table_span(const char* value, size_t len);
+// Whether the len-byte href points inside the book: not empty, and not starting with http://,
+// https://, mailto:, ftp://, tel: or javascript: (case-sensitive).
+bool bb_html_internal_link(const char* href, size_t len);
 
 #ifdef __cplusplus
 }

@@ -310,7 +310,7 @@ TEST_F(ChapterHtmlSlimParserTest, MissingVariantProviderFallsBackToBodyFont) {
 TEST_F(ChapterHtmlSlimParserTest, BlockFontScaleInheritsAndUsesHeadingDefaults) {
   parser.blockStyleStack.assign(1, BlockStyle{});
   BlockStyle heading;
-  parser.applyBlockFontScale(heading, CssStyle{}, "h2");
+  parser.applyBlockFontScale(heading, CssStyle{}, 2);
   EXPECT_FLOAT_EQ(heading.fontScale, 1.5f);
 
   CssStyle css;
@@ -318,11 +318,11 @@ TEST_F(ChapterHtmlSlimParserTest, BlockFontScaleInheritsAndUsesHeadingDefaults) 
   css.defined.fontSize = 1;
   parser.blockStyleStack.push_back(heading);
   BlockStyle child;
-  parser.applyBlockFontScale(child, css, "p");
+  parser.applyBlockFontScale(child, css, 0);
   EXPECT_FLOAT_EQ(child.fontScale, 0.75f);
 
   css.fontSize = CssLength{1.2f, CssUnit::Rem};
-  parser.applyBlockFontScale(child, css, "p");
+  parser.applyBlockFontScale(child, css, 0);
   EXPECT_FLOAT_EQ(child.fontScale, 1.2f);
 
   BlockStyle plain;

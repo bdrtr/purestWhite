@@ -1356,3 +1356,30 @@ ekranları verdi. x4pro'da flash 544 bayt büyüdü (C++ ayrıştırıcısı 585
   listeleri ve sayfa sonları olan bir kitabı açın (`python3 emu/make_css_epub.py <klasör>` bir kısmını
   üretir); **Paragraf hizalaması** ayarını "Kitabın Stili" ile başka bir değer arasında değiştirip
   deneyin: boşluklar, girintiler ve hizalama eskisi gibi görünmeli.
+
+## Öğe sınıflandırması Rust'ta ("rust: our own chapter element classification")
+
+Bölüm ayrıştırıcısı her açılan ve kapanan öğenin adından ne olduğuna karar verir: `h1`–`h6` başlık
+düzeyi, `p`, `li`, `div`, `br`, `blockquote`, `ul`, `ol`, `pre`, `figure` blok, `b`/`strong` kalın,
+`i`/`em` italik, `u`/`ins` altı çizili, `del`/`s`/`strike` üstü çizili, `img`/`image` resim,
+`table`/`tr`/`td`/`th` tablo sayılır; bu adlar büyük/küçük harfe duyarlı karşılaştırılır. Adı büyük
+ya da küçük harfle yazılsın `head`, `style`, `script`, `title` ve `rp` öğelerinin metni gösterilmez.
+`colspan` ve `rowspan` yalnızca rakamlardan oluşursa okunur, değilse 1'dir (0 ya da taşan değer
+tablonun geri kalanı demektir); bir bağlantı da `http://`, `https://`, `mailto:`, `ftp://`, `tel:`
+ya da `javascript:` ile başlamıyorsa kitabın içinde sayılır. Bu kararlar artık `bembeyaz-html`'in
+`element` modülünde. C++ açılışta ve kapanışta sınıflandırmayı birer kez çağırıp bayraklara bakıyor
+(eskiden etiket listelerini `strcmp` ile tek tek tarıyordu); `a`, `hr`, `span`, `sup`/`sub`,
+`ruby`/`rt` gibi tek tek denetlenen etiketler C++'ta kaldı; `VisibleTextUtils.h` silindi. Bir önceki
+commit (9c1b95ec) davranışı 4 testle sabitledi; toplam 1034 host testi geçiyor. Bölüm
+ayrıştırıcısının fark testi, etiket havuzuna `rp`, `title`, `th`, `figure`, `ol`, `image` ve büyük
+harfli `STRONG`, `B` eklenerek 5000 rastgele bölümde eski ve yeni sayfaları bayt bayt aynı buldu;
+koda bilerek konan yedi hatadan beşi (sınıflandırmadakiler) yakalandı, bağlantı denetimine konan
+ikisi rastgele bölümlerde görünmedi, onları sabitleme testi ve Rust birim testi yakalıyor.
+Emülatörde okuma ve kitap açma senaryoları CSS, iki yönlü, heceleme ve XML kitaplarında, JPEG ve PNG
+senaryoları da resimli kitaplarda bir önceki sürümle aynı ekranları verdi. x4pro'da flash 24 bayt
+büyüdü, RAM değişmedi.
+
+- [ ] Başlıklar, kalın, italik, altı ve üstü çizili metin, resimler, tablolar (`colspan`'lı hücreler
+  dahil), ruby (furigana) metni, dipnotlar ve dış bağlantılar içeren bir kitabı açın: hepsi eskisi
+  gibi görünmeli; ruby'nin ayraçları (`rp`) görünmemeli, dipnot bağlantıları açılmalı, dış
+  bağlantılar kitabın içinde bir yere gitmemeli.

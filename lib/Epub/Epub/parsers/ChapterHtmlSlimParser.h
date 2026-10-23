@@ -263,7 +263,8 @@ class ChapterHtmlSlimParser {
   void addTableRowSeparator();
   void setCurrentPageVisibleOffset(uint32_t offset);
   void makePages(bool includeLastLine = true, bool paragraphEnd = true);
-  void applyBlockFontScale(BlockStyle& blockStyle, const CssStyle& cssStyle, const char* tagName) const;
+  // headingLevel: 1 to 6 for h1 to h6, else 0.
+  void applyBlockFontScale(BlockStyle& blockStyle, const CssStyle& cssStyle, uint8_t headingLevel) const;
   int fontIdForScale(float scale) const;
   int prepareBlockFont(ParsedText& text, float scale);
   static EpdFontFamily::Style fontStyleForTextDecoration(CssTextDecoration decoration);

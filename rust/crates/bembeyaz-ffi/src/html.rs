@@ -1,4 +1,4 @@
-//! Exports for `lib/Epub/Epub/htmlEntities` and `lib/Txt/TxtToHtml` (see
+//! Exports for `lib/Epub/Epub/htmlEntities`, `lib/Txt/TxtToHtml` and the chapter parser (see
 //! `rust/include/bembeyaz/html.h`).
 
 use core::ffi::c_char;
@@ -211,4 +211,55 @@ pub unsafe extern "C" fn bb_html_scan_words(
         Scan::Done => 0,
         Scan::Stopped => 1,
     }
+}
+
+use bembeyaz_html::element;
+
+// html.h's BB_HTML_* element flags.
+const _: () = assert!(
+    element::HEADING_LEVEL == 0x7
+        && element::BLOCK == 1 << 3
+        && element::BOLD == 1 << 4
+        && element::ITALIC == 1 << 5
+        && element::UNDERLINE == 1 << 6
+        && element::LINE_THROUGH == 1 << 7
+        && element::IMAGE == 1 << 8
+        && element::TABLE == 1 << 9
+        && element::HIDDEN == 1 << 10
+);
+
+/// `len` bytes at `data`, or none for NULL or 0.
+///
+/// # Safety
+/// `data` is NULL or holds `len` bytes.
+unsafe fn bytes<'a>(data: *const c_char, len: usize) -> &'a [u8] {
+    // SAFETY: as documented.
+    unsafe { crate::view(data.cast::<u8>(), len) }
+}
+
+/// # Safety
+/// `name` is NULL or holds `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_html_element(name: *const c_char, len: usize) -> u16 {
+    // SAFETY: as documented.
+    element::kind(unsafe { bytes(name, len) })
+}
+
+/// # Safety
+/// `value` is NULL or holds `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_html_table_span(value: *const c_char, len: usize) -> u16 {
+    // SAFETY: as documented.
+    match element::table_span(unsafe { bytes(value, len) }) {
+        element::Span::Cells(n) => n.get(),
+        element::Span::Rest => u16::MAX,
+    }
+}
+
+/// # Safety
+/// `href` is NULL or holds `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_html_internal_link(href: *const c_char, len: usize) -> bool {
+    // SAFETY: as documented.
+    element::is_internal_link(unsafe { bytes(href, len) })
 }

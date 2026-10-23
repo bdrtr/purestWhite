@@ -7,11 +7,13 @@
 //! bytes with no pointers, and every value is followed by a NUL for the C++ API that returns it as
 //! a C string.
 //!
-//! [`text`] turns a plain text book into an XHTML body; [`words`] cuts a chapter's text into words.
+//! [`text`] turns a plain text book into an XHTML body; [`words`] cuts a chapter's text into words;
+//! [`element`] classifies a chapter's elements.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
+pub mod element;
 pub mod text;
 pub mod words;
 
@@ -35,7 +37,6 @@ impl Value {
 }
 
 /// Elements whose text is not shown: `head`, `style`, `script`, `title` and `rp`, in any case.
-/// lib/Epub's `VisibleTextUtils::isNonVisibleElement` keeps the same list for the chapter parser.
 #[must_use]
 pub fn is_non_visible_element(name: &[u8]) -> bool {
     [&b"head"[..], b"style", b"script", b"title", b"rp"]

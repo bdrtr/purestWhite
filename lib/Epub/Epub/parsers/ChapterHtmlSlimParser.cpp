@@ -19,7 +19,6 @@
 
 #include "Epub.h"
 #include "Epub/Page.h"
-#include "Epub/VisibleTextUtils.h"
 #include "Epub/converters/ImageDecoderFactory.h"
 #include "Epub/converters/ImageDimsProbe.h"
 #include "Epub/converters/ImageToFramebufferDecoder.h"
@@ -52,13 +51,6 @@ constexpr int16_t TABLE_ROW_SEPARATOR_GAP = 4;
 constexpr uint8_t TABLE_ROW_SEPARATOR_THICKNESS = 1;
 constexpr int16_t TABLE_MIN_CELL_WIDTH_LINE_HEIGHTS = 3;
 
-constexpr const char* HEADER_TAGS[] = {"h1", "h2", "h3", "h4", "h5", "h6"};
-constexpr const char* BLOCK_TAGS[] = {"p", "li", "div", "br", "blockquote", "ul", "ol", "pre", "figure"};
-constexpr const char* BOLD_TAGS[] = {"b", "strong"};
-constexpr const char* ITALIC_TAGS[] = {"i", "em"};
-constexpr const char* UNDERLINE_TAGS[] = {"u", "ins"};
-constexpr const char* LINETHROUGH_TAGS[] = {"del", "s", "strike"};
-constexpr const char* IMAGE_TAGS[] = {"img", "image"};
 bool isWhitespace(const char c) { return c == ' ' || c == '\r' || c == '\n' || c == '\t'; }
 
 std::string trimAndNormalize(const std::string& str) {
@@ -89,16 +81,11 @@ std::string trimAndNormalize(const std::string& str) {
   return result;
 }
 
-bool matches(const char* tag_name, const char* const* possible_tags, size_t count) {
-  for (size_t i = 0; i < count; i++) {
-    if (strcmp(tag_name, possible_tags[i]) == 0) {
-      return true;
-    }
-  }
-  return false;
-}
+uint16_t elementKind(const char* name) { return bb_html_element(name, strlen(name)); }
 
-bool isNonVisibleTextTag(const char* name) { return VisibleTextUtils::isNonVisibleElement(name); }
+bool headerOrBlock(const uint16_t element) { return (element & (BB_HTML_HEADING_LEVEL | BB_HTML_BLOCK)) != 0; }
+
+uint8_t headingLevel(const uint16_t element) { return static_cast<uint8_t>(element & BB_HTML_HEADING_LEVEL); }
 
 const char* getAttribute(const char** atts, const char* attrName) {
   if (!atts) return nullptr;
@@ -108,18 +95,7 @@ const char* getAttribute(const char** atts, const char* attrName) {
   return nullptr;
 }
 
-uint16_t parseTableSpan(const char* value) {
-  if (!value || value[0] == '\0') return 1;
-
-  uint32_t span = 0;
-  for (const char* current = value; *current != '\0'; ++current) {
-    if (*current < '0' || *current > '9') return 1;
-    const uint32_t digit = static_cast<uint32_t>(*current - '0');
-    if (span > (UINT16_MAX - digit) / 10) return UINT16_MAX;
-    span = span * 10 + digit;
-  }
-  return span == 0 ? UINT16_MAX : static_cast<uint16_t>(span);
-}
+uint16_t parseTableSpan(const char* value) { return value ? bb_html_table_span(value, strlen(value)) : 1; }
 
 // Returns true if the HTML element is a purely inline, non-navigable wrapper.
 // IDs on these elements are never meaningful navigation targets in epub content.
@@ -129,23 +105,12 @@ uint16_t parseTableSpan(const char* value) {
 // Block-level, sectioning, and structural elements are always considered navigable.
 bool isNonNavigableInlineElement(const char* name) { return strcmp(name, "span") == 0; }
 
-bool isInternalEpubLink(const char* href) {
-  if (!href || href[0] == '\0') return false;
-  if (strncmp(href, "http://", 7) == 0 || strncmp(href, "https://", 8) == 0) return false;
-  if (strncmp(href, "mailto:", 7) == 0) return false;
-  if (strncmp(href, "ftp://", 6) == 0) return false;
-  if (strncmp(href, "tel:", 4) == 0) return false;
-  if (strncmp(href, "javascript:", 11) == 0) return false;
-  return true;
-}
+bool isInternalEpubLink(const char* href) { return href && bb_html_internal_link(href, strlen(href)); }
 
-bool isHeaderOrBlock(const char* name) {
-  return matches(name, HEADER_TAGS, std::size(HEADER_TAGS)) || matches(name, BLOCK_TAGS, std::size(BLOCK_TAGS));
-}
+// The host tests check the classification through these two.
+bool isHeaderOrBlock(const char* name) { return headerOrBlock(elementKind(name)); }
 
-bool isTableStructuralTag(const char* name) {
-  return strcmp(name, "table") == 0 || strcmp(name, "tr") == 0 || strcmp(name, "td") == 0 || strcmp(name, "th") == 0;
-}
+bool isTableStructuralTag(const char* name) { return (elementKind(name) & BB_HTML_TABLE) != 0; }
 
 EpdFontFamily::Style ChapterHtmlSlimParser::fontStyleForTextDecoration(const CssTextDecoration decoration) {
   EpdFontFamily::Style style = EpdFontFamily::REGULAR;
@@ -1018,13 +983,14 @@ void ChapterHtmlSlimParser::finishTableRow() {
 
 void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const char** atts) {
   auto* self = static_cast<ChapterHtmlSlimParser*>(userData);
+  const uint16_t element = elementKind(name);
   if (strcasecmp(name, "body") == 0) {
     // Case-insensitive to match ParagraphStreamer's tag matching (ProgressMapper). A case
     // mismatch here would leave visibleTextOffset at 0 for the whole section, so every page
     // would record offset 0 while the sync resolver still counts a non-zero offset.
     self->insideBody = true;
   }
-  if (self->insideBody && (self->nonVisibleTextDepth > 0 || isNonVisibleTextTag(name))) {
+  if (self->insideBody && (self->nonVisibleTextDepth > 0 || (element & BB_HTML_HIDDEN))) {
     self->nonVisibleTextDepth++;
   }
 
@@ -1236,7 +1202,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     }
 
     auto tableCellBlockStyle = BlockStyle();
-    self->applyBlockFontScale(tableCellBlockStyle, cssStyle, name);
+    self->applyBlockFontScale(tableCellBlockStyle, cssStyle, headingLevel(element));
     const float emSize = static_cast<float>(self->renderer.getFontAscenderSize(self->fontId));
     // Bound author padding so even a stacked cell leaves room for content.
     const auto padding = [&](const CssLength& length, const int limit) {
@@ -1289,13 +1255,13 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
   }
 
   if (self->tableDepth >= 1 && self->insideTableCell &&
-      (isHeaderOrBlock(name) || strcmp(name, "hr") == 0 || matches(name, IMAGE_TAGS, std::size(IMAGE_TAGS)))) {
+      (headerOrBlock(element) || strcmp(name, "hr") == 0 || (element & BB_HTML_IMAGE))) {
     // ponytail: rich cells use full-width flow; keep a grid only for plain inline content.
     if (self->partWordBufferIndex > 0) self->flushPartWordBuffer();
     self->fallbackTableRowToStacked();
   }
 
-  if (matches(name, IMAGE_TAGS, std::size(IMAGE_TAGS))) {
+  if (element & BB_HTML_IMAGE) {
     std::string src;
     std::string alt;
     if (atts != nullptr) {
@@ -1633,7 +1599,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     return;
   }
 
-  if (VisibleTextUtils::isNonVisibleElement(name)) {
+  if (element & BB_HTML_HIDDEN) {
     // start skip
     self->skipUntilDepth = self->depth;
     self->depth += 1;
@@ -1722,7 +1688,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     return;
   }
 
-  if (matches(name, HEADER_TAGS, std::size(HEADER_TAGS))) {
+  if (element & BB_HTML_HEADING_LEVEL) {
     // Text running straight into a block ("text<h3>…") is still in the part-word
     // buffer; flush it into the block it belongs to before that block is replaced.
     if (self->partWordBufferIndex > 0) {
@@ -1734,7 +1700,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     if (self->embeddedStyle && cssStyle.hasTextAlign()) {
       headerBlockStyle.alignment = cssStyle.textAlign;
     }
-    self->applyBlockFontScale(headerBlockStyle, cssStyle, name);
+    self->applyBlockFontScale(headerBlockStyle, cssStyle, headingLevel(element));
     headerBlockStyle.keepWithNext = true;
     self->openBoxScope(headerBlockStyle, cssStyle);
     const auto accumulated =
@@ -1745,7 +1711,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     self->armFirstLetterDropCap(name, classAttr, idAttr);
     self->boldUntilDepth = std::min(self->boldUntilDepth, self->depth);
     self->updateEffectiveInlineStyle();
-  } else if (matches(name, BLOCK_TAGS, std::size(BLOCK_TAGS))) {
+  } else if (element & BB_HTML_BLOCK) {
     if (strcmp(name, "br") == 0) {
       if (self->partWordBufferIndex > 0) {
         // flush word preceding <br/> to currentTextBlock before calling startNewTextBlock
@@ -1759,7 +1725,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
       }
       self->currentCssStyle = cssStyle;
       auto blockStyle = userAlignmentBlockStyle;
-      self->applyBlockFontScale(blockStyle, cssStyle, name);
+      self->applyBlockFontScale(blockStyle, cssStyle, headingLevel(element));
       self->openBoxScope(blockStyle, cssStyle);
       const auto accumulated =
           self->blockStyleStack.back().getCombinedBlockStyle(blockStyle, BlockStyle::CombineAxis::Horizontal);
@@ -1802,21 +1768,21 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
         self->listStack.push_back(ctx);
       }
     }
-  } else if (matches(name, UNDERLINE_TAGS, std::size(UNDERLINE_TAGS))) {
+  } else if (element & BB_HTML_UNDERLINE) {
     // Flush buffer before style change so preceding text gets current style
     if (self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
       self->nextWordContinues = true;
     }
     self->pushDecorationStyleEntry(CssTextDecoration::Underline, cssStyle);
-  } else if (matches(name, LINETHROUGH_TAGS, std::size(LINETHROUGH_TAGS))) {
+  } else if (element & BB_HTML_LINE_THROUGH) {
     // Flush buffer before style change so preceding text gets current style
     if (self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
       self->nextWordContinues = true;
     }
     self->pushDecorationStyleEntry(CssTextDecoration::LineThrough, cssStyle);
-  } else if (matches(name, BOLD_TAGS, std::size(BOLD_TAGS))) {
+  } else if (element & BB_HTML_BOLD) {
     // Flush buffer before style change so preceding text gets current style
     if (self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
@@ -1828,7 +1794,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     kind.kind = BB_CSS_ENTRY_BOLD;
     StyleStackEntry entry;
     if (self->makeInlineEntry(kind, cssStyle, entry)) self->pushInlineEntry(entry);
-  } else if (matches(name, ITALIC_TAGS, std::size(ITALIC_TAGS))) {
+  } else if (element & BB_HTML_ITALIC) {
     // Flush buffer before style change so preceding text gets current style
     if (self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
@@ -1849,7 +1815,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     kind.kind = strcmp(name, "sup") == 0 ? BB_CSS_ENTRY_SUP : BB_CSS_ENTRY_SUB;
     StyleStackEntry entry;
     if (self->makeInlineEntry(kind, cssStyle, entry)) self->pushInlineEntry(entry);
-  } else if (strcmp(name, "span") == 0 || !isHeaderOrBlock(name)) {
+  } else if (strcmp(name, "span") == 0 || !headerOrBlock(element)) {
     if (cssStyle.hasFontSize() && self->tableDepth == 0 && self->partWordBufferIndex == 0 && self->currentTextBlock &&
         self->currentTextBlock->isEmpty() && (!self->inlineSize.valid || self->inlineSize.open)) {
       const float base =
@@ -2087,8 +2053,9 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
   const bool willClearItalic = self->italicUntilDepth == self->depth - 1;
 
   const bool styleWillChange = willPopStyleStack || willClearBold || willClearItalic;
-  const bool headerOrBlockTag = isHeaderOrBlock(name);
-  const bool tableStructuralTag = isTableStructuralTag(name);
+  const uint16_t element = elementKind(name);
+  const bool headerOrBlockTag = headerOrBlock(element);
+  const bool tableStructuralTag = (element & BB_HTML_TABLE) != 0;
   const bool insideSkippedSubtree = self->depth - 1 >= self->skipUntilDepth;
 
   if (!insideSkippedSubtree && self->tableDepth > 1 && strcmp(name, "table") == 0) {
@@ -2105,13 +2072,10 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
   // Flush buffer with current style BEFORE any style changes
   if (self->partWordBufferIndex > 0) {
     // Flush if style will change OR if we're closing a block/structural element
-    const bool isInlineTag = !headerOrBlockTag && !tableStructuralTag &&
-                             !matches(name, IMAGE_TAGS, std::size(IMAGE_TAGS)) && self->depth != 1;
-    const bool shouldFlush = styleWillChange || headerOrBlockTag || matches(name, BOLD_TAGS, std::size(BOLD_TAGS)) ||
-                             matches(name, ITALIC_TAGS, std::size(ITALIC_TAGS)) ||
-                             matches(name, UNDERLINE_TAGS, std::size(UNDERLINE_TAGS)) ||
-                             matches(name, LINETHROUGH_TAGS, std::size(LINETHROUGH_TAGS)) || tableStructuralTag ||
-                             matches(name, IMAGE_TAGS, std::size(IMAGE_TAGS)) || self->depth == 1;
+    const bool isInlineTag = !headerOrBlockTag && !tableStructuralTag && !(element & BB_HTML_IMAGE) && self->depth != 1;
+    const bool shouldFlush =
+        styleWillChange || headerOrBlockTag || tableStructuralTag || self->depth == 1 ||
+        (element & (BB_HTML_BOLD | BB_HTML_ITALIC | BB_HTML_UNDERLINE | BB_HTML_LINE_THROUGH | BB_HTML_IMAGE));
 
     if (shouldFlush) {
       self->flushPartWordBuffer();
@@ -2420,9 +2384,8 @@ bool ChapterHtmlSlimParser::parseAndBuildPages() {
 }
 
 void ChapterHtmlSlimParser::applyBlockFontScale(BlockStyle& blockStyle, const CssStyle& cssStyle,
-                                                const char* tagName) const {
-  const bool heading = tagName[0] == 'h' && tagName[1] >= '1' && tagName[1] <= '6' && tagName[2] == '\0';
-  blockStyle.fontScale = bb_css_block_scale(cssOf(cssStyle), heading ? static_cast<uint8_t>(tagName[1] - '0') : 0,
+                                                const uint8_t headingLevel) const {
+  blockStyle.fontScale = bb_css_block_scale(cssOf(cssStyle), headingLevel,
                                             blockStyleStack.empty() ? 1.0f : blockStyleStack.back().fontScale,
                                             inlineStyleStack.data(), inlineStyleStack.size());
   blockStyle.fontScaleDefined = true;
