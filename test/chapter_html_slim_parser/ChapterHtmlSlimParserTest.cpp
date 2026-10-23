@@ -2571,3 +2571,18 @@ TEST_F(ChapterBlockDecorationTest, NamedTagsMatchExactly) {
   EXPECT_EQ(run("UL", "LI", "HR", "BR", "SUP"), "before:0 | item:0 | ab:0 1:0 | rules=0");
   EXPECT_EQ(run("ol", "li", "Hr", "Br", "Sup"), "before:0 | 1.:0 item:0 | ab:0 1:0 | rules=0");
 }
+
+TEST_F(ChapterBlockDecorationTest, SpanIdsAreNotAnchorsButOtherElementIdsAre) {
+  for (const char* tag : {"span", "p", "SPAN", "a"}) {
+    const char* attributes[] = {"id", tag, nullptr};
+    ChapterHtmlSlimParser::startElement(&parser, tag, attributes);
+    text("x ");
+    close(tag);
+  }
+  open("p", nullptr);
+  text("end");
+  close("p");
+  std::vector<std::string> ids;
+  for (const auto& anchor : parser.getAnchors()) ids.push_back(anchor.first);
+  EXPECT_EQ(ids, (std::vector<std::string>{"p", "SPAN", "a"}));
+}

@@ -85,8 +85,9 @@ enum {
 int bb_html_scan_words(const char* text, size_t len, bool counted, uint32_t start, bool preserve, bool footnote_link,
                        const bb_html_words* words);
 
-// An element's kind, from bb_html_element: the heading level (1 to 6 for h1 to h6, else 0) and
-// flags. Names match exactly and case-sensitively, except that BB_HTML_HIDDEN takes any case.
+// An element's kind, from bb_html_element: the heading level (1 to 6 for h1 to h6, else 0),
+// flags and a name. Names match exactly and case-sensitively, except that BB_HTML_HIDDEN takes
+// any case.
 enum {
   BB_HTML_HEADING_LEVEL = 0x7,
   BB_HTML_BLOCK = 1 << 3,         // p, li, div, br, blockquote, ul, ol, pre, figure
@@ -97,6 +98,31 @@ enum {
   BB_HTML_IMAGE = 1 << 8,         // img, image
   BB_HTML_TABLE = 1 << 9,         // table, tr, td, th
   BB_HTML_HIDDEN = 1 << 10,       // head, style, script, title, rp: text not shown
+};
+
+// The bits of a kind that name the element, for the names the parser checks one by one (0 for
+// others), and those names.
+enum {
+  BB_HTML_NAME = 0x1f << 11,
+  BB_HTML_TAG_A = 1 << 11,
+  BB_HTML_TAG_HR = 2 << 11,
+  BB_HTML_TAG_SPAN = 3 << 11,
+  BB_HTML_TAG_SUP = 4 << 11,
+  BB_HTML_TAG_SUB = 5 << 11,
+  BB_HTML_TAG_RUBY = 6 << 11,
+  BB_HTML_TAG_RT = 7 << 11,
+  BB_HTML_TAG_HTML = 8 << 11,
+  BB_HTML_TAG_BODY = 9 << 11,
+  BB_HTML_TAG_LI = 10 << 11,
+  BB_HTML_TAG_OL = 11 << 11,
+  BB_HTML_TAG_UL = 12 << 11,
+  BB_HTML_TAG_P = 13 << 11,
+  BB_HTML_TAG_PRE = 14 << 11,
+  BB_HTML_TAG_BR = 15 << 11,
+  BB_HTML_TAG_TABLE = 16 << 11,
+  BB_HTML_TAG_TR = 17 << 11,
+  BB_HTML_TAG_TD = 18 << 11,
+  BB_HTML_TAG_TH = 19 << 11,
 };
 
 // The kind of the element named by the len bytes at name.

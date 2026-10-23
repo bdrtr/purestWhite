@@ -102,7 +102,7 @@ uint16_t parseTableSpan(const char* value) { return value ? bb_html_table_span(v
 // of such IDs for progress tracking or internal bookkeeping, and recording each one
 // as a navigation anchor exhausts the heap on memory-constrained devices.
 // Block-level, sectioning, and structural elements are always considered navigable.
-bool isNonNavigableInlineElement(const char* name) { return strcmp(name, "span") == 0; }
+bool isNonNavigableInlineElement(const uint16_t element) { return (element & BB_HTML_NAME) == BB_HTML_TAG_SPAN; }
 
 bool isInternalEpubLink(const char* href) { return href && bb_html_internal_link(href, strlen(href)); }
 
@@ -973,6 +973,7 @@ void ChapterHtmlSlimParser::finishTableRow() {
 void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const char** atts) {
   auto* self = static_cast<ChapterHtmlSlimParser*>(userData);
   const uint16_t element = elementKind(name);
+  const uint16_t named = element & BB_HTML_NAME;
   if (strcasecmp(name, "body") == 0) {
     // Case-insensitive to match ParagraphStreamer's tag matching (ProgressMapper). A case
     // mismatch here would leave visibleTextOffset at 0 for the whole section, so every page
@@ -990,10 +991,10 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
   }
 
   // rust/crates/bembeyaz-kosync counts <p> and <li> the same way for KOReader positions.
-  if (strcmp(name, "p") == 0) {
+  if (named == BB_HTML_TAG_P) {
     self->xpathParagraphIndex++;
   }
-  if (strcmp(name, "li") == 0) {
+  if (named == BB_HTML_TAG_LI) {
     self->xpathListItemIndex++;
   }
 
@@ -1021,7 +1022,8 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
         idAttr = idValue;
         const bool isTocAnchor =
             std::find(self->tocAnchors.begin(), self->tocAnchors.end(), idValue) != self->tocAnchors.end();
-        if (isTocAnchor || (!isNonNavigableInlineElement(name) && self->anchorData.size() < MAX_ANCHORS_PER_CHAPTER)) {
+        if (isTocAnchor ||
+            (!isNonNavigableInlineElement(element) && self->anchorData.size() < MAX_ANCHORS_PER_CHAPTER)) {
           // Flush a displaced anchor before overwriting. Consecutive non-block elements
           // (e.g. <aside id="fn1">text</aside><aside id="fn2">) with no intervening block
           // never trigger startNewTextBlock, so fn1 gets silently overwritten. That leaves
@@ -1060,7 +1062,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     }
   }
 
-  if (strcmp(name, "pre") == 0 && !cssStyle.defined.whiteSpace) {
+  if (named == BB_HTML_TAG_PRE && !cssStyle.defined.whiteSpace) {
     cssStyle.preserveWhitespace = true;
     cssStyle.defined.whiteSpace = 1;
   }
@@ -1097,7 +1099,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
   }
 
   // Buffer one simple row; oversized rows fall back to full-width flow.
-  if (strcmp(name, "table") == 0) {
+  if (named == BB_HTML_TAG_TABLE) {
     // Flatten nested content without allocating a recursive row buffer.
     if (self->tableDepth > 0) {
       if (self->tableDepth == 1 && self->insideTableCell && self->partWordBufferIndex > 0) {
@@ -1152,7 +1154,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     return;
   }
 
-  if (self->tableDepth == 1 && strcmp(name, "tr") == 0) {
+  if (self->tableDepth == 1 && named == BB_HTML_TAG_TR) {
     self->finishTableRow();
     if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
       // Text before the first row is typically a <caption>.
@@ -1170,7 +1172,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     return;
   }
 
-  if (self->tableDepth == 1 && (strcmp(name, "td") == 0 || strcmp(name, "th") == 0)) {
+  if (self->tableDepth == 1 && (named == BB_HTML_TAG_TD || named == BB_HTML_TAG_TH)) {
     if (self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
     }
@@ -1235,7 +1237,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     self->flushPendingAnchor();
     self->pushBlockTextStyleEntry(cssStyle);
 
-    if (strcmp(name, "th") == 0 && (!cssStyle.hasFontWeight() || cssStyle.fontWeight == CssFontWeight::Bold)) {
+    if (named == BB_HTML_TAG_TH && (!cssStyle.hasFontWeight() || cssStyle.fontWeight == CssFontWeight::Bold)) {
       self->boldUntilDepth = std::min(self->boldUntilDepth, self->depth);
     }
 
@@ -1244,7 +1246,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
   }
 
   if (self->tableDepth >= 1 && self->insideTableCell &&
-      (headerOrBlock(element) || strcmp(name, "hr") == 0 || (element & BB_HTML_IMAGE))) {
+      (headerOrBlock(element) || named == BB_HTML_TAG_HR || (element & BB_HTML_IMAGE))) {
     // ponytail: rich cells use full-width flow; keep a grid only for plain inline content.
     if (self->partWordBufferIndex > 0) self->flushPartWordBuffer();
     self->fallbackTableRowToStacked();
@@ -1566,7 +1568,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
   }
 
   // Ruby tag handling
-  if (strcmp(name, "ruby") == 0) {
+  if (named == BB_HTML_TAG_RUBY) {
     // <ruby> is an inline element: a base that follows text with no whitespace between them
     // continues the same visual word, exactly like <b>/<i> handling in endElement().
     if (self->partWordBufferIndex > 0) {
@@ -1579,7 +1581,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     self->depth += 1;
     return;
   }
-  if (strcmp(name, "rt") == 0) {
+  if (named == BB_HTML_TAG_RT) {
     if (self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
     }
@@ -1610,7 +1612,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
   // Detect internal <a href="..."> links (footnotes, cross-references)
   // Note: <aside epub:type="footnote"> elements are rendered as normal content
   // without special handling. Links pointing to them are collected as footnotes.
-  if (strcmp(name, "a") == 0) {
+  if (named == BB_HTML_TAG_A) {
     const char* href = getAttribute(atts, "href");
 
     bool isInternalLink = isInternalEpubLink(href);
@@ -1658,7 +1660,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
   const auto userAlignmentBlockStyle = BlockStyle::fromCssStyle(
       cssStyle, emSize, static_cast<CssTextAlign>(self->paragraphAlignment), self->viewportWidth);
 
-  if (strcmp(name, "hr") == 0) {
+  if (named == BB_HTML_TAG_HR) {
     auto hrBlockStyle = BlockStyle::fromCssStyle(cssStyle, emSize, CssTextAlign::Left, self->viewportWidth);
     if (!self->embeddedStyle) {
       hrBlockStyle.marginLeft = 0;
@@ -1701,7 +1703,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     self->boldUntilDepth = std::min(self->boldUntilDepth, self->depth);
     self->updateEffectiveInlineStyle();
   } else if (element & BB_HTML_BLOCK) {
-    if (strcmp(name, "br") == 0) {
+    if (named == BB_HTML_TAG_BR) {
       if (self->partWordBufferIndex > 0) {
         // flush word preceding <br/> to currentTextBlock before calling startNewTextBlock
         self->flushPartWordBuffer();
@@ -1727,9 +1729,9 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
       }
       self->pushBlockTextStyleEntry(cssStyle);
       self->updateEffectiveInlineStyle();
-      if (strcmp(name, "li") != 0) self->armFirstLetterDropCap(name, classAttr, idAttr);
+      if (named != BB_HTML_TAG_LI) self->armFirstLetterDropCap(name, classAttr, idAttr);
 
-      if (strcmp(name, "li") == 0) {
+      if (named == BB_HTML_TAG_LI) {
         // Innermost open <ul>/<ol> (if any) decides whether this item gets a bullet,
         // a number, or no marker at all (list-style-type: none). A malformed <li>
         // with no enclosing list falls back to the plain bullet.
@@ -1746,12 +1748,12 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
                                           self->visibleTextOffset);
           self->listItemBulletOnly = true;
         }
-      } else if (strcmp(name, "ul") == 0 || strcmp(name, "ol") == 0) {
+      } else if (named == BB_HTML_TAG_UL || named == BB_HTML_TAG_OL) {
         // <ul>/<ol> container accumulation: pushing the block-style stack here includes
         // the container's own margin/padding in the inset children combine with, so a
         // hanging text-indent on <li><p> children keeps the first line on the page.
         ChapterHtmlSlimParser::ListContext ctx;
-        ctx.ordered = strcmp(name, "ol") == 0;
+        ctx.ordered = named == BB_HTML_TAG_OL;
         ctx.styleNone = cssStyle.hasListStyleType() && cssStyle.listStyleType == CssListStyleType::None;
         ctx.depth = self->depth;
         self->listStack.push_back(ctx);
@@ -1795,16 +1797,16 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     kind.kind = BB_CSS_ENTRY_ITALIC;
     StyleStackEntry entry;
     if (self->makeInlineEntry(kind, cssStyle, entry)) self->pushInlineEntry(entry);
-  } else if (strcmp(name, "sup") == 0 || strcmp(name, "sub") == 0) {
+  } else if (named == BB_HTML_TAG_SUP || named == BB_HTML_TAG_SUB) {
     if (self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
       self->nextWordContinues = true;
     }
     bb_css_entry_kind kind{};
-    kind.kind = strcmp(name, "sup") == 0 ? BB_CSS_ENTRY_SUP : BB_CSS_ENTRY_SUB;
+    kind.kind = named == BB_HTML_TAG_SUP ? BB_CSS_ENTRY_SUP : BB_CSS_ENTRY_SUB;
     StyleStackEntry entry;
     if (self->makeInlineEntry(kind, cssStyle, entry)) self->pushInlineEntry(entry);
-  } else if (strcmp(name, "span") == 0 || !headerOrBlock(element)) {
+  } else if (named == BB_HTML_TAG_SPAN || !headerOrBlock(element)) {
     if (cssStyle.hasFontSize() && self->tableDepth == 0 && self->partWordBufferIndex == 0 && self->currentTextBlock &&
         self->currentTextBlock->isEmpty() && (!self->inlineSize.valid || self->inlineSize.open)) {
       const float base =
@@ -1829,7 +1831,7 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
     // Handle span and other inline elements for CSS styling.
     bb_css_entry_kind kind{};
     kind.kind = BB_CSS_ENTRY_INLINE;
-    kind.sets_paragraph = strcmp(name, "html") == 0 || strcmp(name, "body") == 0;
+    kind.sets_paragraph = named == BB_HTML_TAG_HTML || named == BB_HTML_TAG_BODY;
     kind.in_table = self->tableDepth >= 1;
     kind.scale = bb_css_tag_scale(name, strlen(name));
     StyleStackEntry entry;
@@ -1985,12 +1987,14 @@ void ChapterHtmlSlimParser::skippedEntity(void* userData, const char* name) {
 
 void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
   auto* self = static_cast<ChapterHtmlSlimParser*>(userData);
+  const uint16_t element = elementKind(name);
+  const uint16_t named = element & BB_HTML_NAME;
   if (self->nonVisibleTextDepth > 0) {
     self->nonVisibleTextDepth--;
   }
 
   // Ruby text: </rt> distributes ruby to base words, </ruby> resets ruby state
-  if (strcmp(name, "rt") == 0) {
+  if (named == BB_HTML_TAG_RT) {
     self->collectingRubyText = false;
     if (self->inRuby && self->currentTextBlock) {
       const int currentWordCount = static_cast<int>(self->currentTextBlock->size());
@@ -2022,7 +2026,7 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
     self->depth -= 1;
     return;
   }
-  if (strcmp(name, "ruby") == 0 && self->inRuby) {
+  if (named == BB_HTML_TAG_RUBY && self->inRuby) {
     self->inRuby = false;
     self->rubyStartWordIndex = -1;
     self->rubyTextBuffer.clear();
@@ -2042,12 +2046,11 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
   const bool willClearItalic = self->italicUntilDepth == self->depth - 1;
 
   const bool styleWillChange = willPopStyleStack || willClearBold || willClearItalic;
-  const uint16_t element = elementKind(name);
   const bool headerOrBlockTag = headerOrBlock(element);
   const bool tableStructuralTag = (element & BB_HTML_TABLE) != 0;
   const bool insideSkippedSubtree = self->depth - 1 >= self->skipUntilDepth;
 
-  if (!insideSkippedSubtree && self->tableDepth > 1 && strcmp(name, "table") == 0) {
+  if (!insideSkippedSubtree && self->tableDepth > 1 && named == BB_HTML_TAG_TABLE) {
     if (self->partWordBufferIndex > 0) {
       self->flushPartWordBuffer();
     }
@@ -2076,7 +2079,7 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
   }
 
   // A captured letter without body text is ordinary block content.
-  if (headerOrBlockTag && strcmp(name, "br") != 0 && !insideSkippedSubtree && self->currentTextBlock &&
+  if (headerOrBlockTag && named != BB_HTML_TAG_BR && !insideSkippedSubtree && self->currentTextBlock &&
       self->currentTextBlock->isEmpty() && self->dropCap.length > 0) {
     self->cancelDropCapToWord();
     self->flushPartWordBuffer();
@@ -2113,17 +2116,17 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
     self->skipUntilDepth = INT_MAX;
   }
 
-  if (!insideSkippedSubtree && self->tableDepth == 1 && (strcmp(name, "td") == 0 || strcmp(name, "th") == 0)) {
+  if (!insideSkippedSubtree && self->tableDepth == 1 && (named == BB_HTML_TAG_TD || named == BB_HTML_TAG_TH)) {
     self->closeTableCell();
     self->nextWordContinues = false;
   }
 
-  if (!insideSkippedSubtree && self->tableDepth == 1 && (strcmp(name, "tr") == 0)) {
+  if (!insideSkippedSubtree && self->tableDepth == 1 && (named == BB_HTML_TAG_TR)) {
     self->finishTableRow();
     self->nextWordContinues = false;
   }
 
-  if (!insideSkippedSubtree && self->tableDepth == 1 && strcmp(name, "table") == 0) {
+  if (!insideSkippedSubtree && self->tableDepth == 1 && named == BB_HTML_TAG_TABLE) {
     self->finishTableRow();
     if (self->currentTextBlock && !self->currentTextBlock->isEmpty()) {
       self->makePages();
@@ -2170,7 +2173,7 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
     self->updateEffectiveInlineStyle();
 
     // br is self-closing and not a container — it doesn't push/pop the stack.
-    if (strcmp(name, "br") != 0 && self->blockStyleStack.size() > 1) {
+    if (named != BB_HTML_TAG_BR && self->blockStyleStack.size() > 1) {
       // Apply closing element's bottom margin to the current text block so
       // container spacing appears after the element's content (on the last child),
       // not on the first child via the empty-block merge in startNewTextBlock.
@@ -2193,7 +2196,7 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
     // </li> closes: if the bullet never got inline text (empty <li> or <li> with only
     // block children that were flushed), clear the flag so the next sibling doesn't
     // merge into this block.
-    if (strcmp(name, "li") == 0) {
+    if (named == BB_HTML_TAG_LI) {
       self->listItemBulletOnly = false;
     }
   }
@@ -2204,14 +2207,14 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
   // returns early in startElement without ever pushing a context (see the
   // hasDisplay()/CssDisplay::None branch above), so its closing tag must not pop
   // the *parent* list's context out from under still-unprocessed siblings.
-  if ((strcmp(name, "ul") == 0 || strcmp(name, "ol") == 0) && !self->listStack.empty() &&
+  if ((named == BB_HTML_TAG_UL || named == BB_HTML_TAG_OL) && !self->listStack.empty() &&
       self->listStack.back().depth == self->depth) {
     self->listStack.pop_back();
   }
-  if (strcmp(name, "body") == 0) {
+  if (named == BB_HTML_TAG_BODY) {
     self->insideBody = false;
   }
-  if (strcmp(name, "html") == 0) {
+  if (named == BB_HTML_TAG_HTML) {
     self->htmlEnded_ = true;
   }
 }

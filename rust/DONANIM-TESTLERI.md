@@ -1425,3 +1425,23 @@ sürümle aynı ekranları verdi. x4pro'da flash 384 bayt büyüdü, RAM değiş
 - [ ] İki ila dört sütunlu, çerçeveli ve çerçevesiz tablolar (sağdan sola bir tablo dahil) içeren bir
   kitabı dikey ve yatay ekranda açın: sütunlar, çerçeveler ve hücre boşlukları eskisi gibi görünmeli;
   büyük yazı boyutunda ya da tek hücreli satırlarda hücreler alt alta dizilmeli.
+
+## Tek tek denetlenen etiket adları Rust'ta ("rust: our own chapter element names")
+
+Bölüm ayrıştırıcısı açılan ve kapanan öğelerde `a`, `hr`, `span`, `sup`, `sub`, `ruby`, `rt`,
+`html`, `body`, `li`, `ol`, `ul`, `p`, `pre`, `br`, `table`, `tr`, `td` ve `th` adlarını hâlâ tek
+tek `strcmp` ile denetliyordu; artık sınıflandırma bu 19 ad için bir ad kimliği de veriyor ve C++ bu
+kimliği karşılaştırıyor (adlar yine büyük/küçük harfe duyarlı; `body` açılışta büyük/küçük harf
+gözetmeden aranmaya devam ediyor). Bir önceki commit (72df85eb) bu adlardan altısının yalnızca küçük
+harfle işe yaradığını 1 testle sabitledi; bu commit de `span`'ların `id`'sinin çapa sayılmadığını
+sınayan bir test ekledi (fark testi `id` üretmediği için bunu göremiyordu). Toplam 1044 host testi
+geçiyor. Bölüm ayrıştırıcısının fark testi 5000 rastgele bölümde eski ve yeni sayfaları bayt bayt
+aynı buldu; ad kimliklerine bilerek konan altı hatadan beşi yakalandı, `span`'ınkini yeni test
+yakalıyor. Emülatörde okuma ve kitap açma senaryoları CSS, iki yönlü, heceleme ve XML kitaplarında,
+JPEG senaryosu da resimli kitapta bir önceki sürümle aynı ekranları verdi. x4pro'da flash 96 bayt
+küçüldü, RAM değişmedi.
+
+- [ ] Listeler (numaralı ve madde işaretli), yatay çizgiler, satır sonları, önceden biçimlendirilmiş
+  (`pre`) metin, üst ve alt simgeler, ruby metni, tablolar ve içindekilerden ya da dipnotlardan
+  bağlantı verilen başlıklar içeren bir kitabı açın: hepsi eskisi gibi görünmeli, bağlantılar doğru
+  yere gitmeli; KOReader eşitlemesinden sonra aynı paragrafa dönülmeli.

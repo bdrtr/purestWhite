@@ -215,7 +215,7 @@ pub unsafe extern "C" fn bb_html_scan_words(
 
 use bembeyaz_html::element;
 
-// html.h's BB_HTML_* element flags.
+// html.h's BB_HTML_* element flags and names.
 const _: () = assert!(
     element::HEADING_LEVEL == 0x7
         && element::BLOCK == 1 << 3
@@ -226,6 +226,26 @@ const _: () = assert!(
         && element::IMAGE == 1 << 8
         && element::TABLE == 1 << 9
         && element::HIDDEN == 1 << 10
+        && element::NAME == 0x1f << 11
+        && element::name::A == 1 << 11
+        && element::name::HR == 2 << 11
+        && element::name::SPAN == 3 << 11
+        && element::name::SUP == 4 << 11
+        && element::name::SUB == 5 << 11
+        && element::name::RUBY == 6 << 11
+        && element::name::RT == 7 << 11
+        && element::name::HTML == 8 << 11
+        && element::name::BODY == 9 << 11
+        && element::name::LI == 10 << 11
+        && element::name::OL == 11 << 11
+        && element::name::UL == 12 << 11
+        && element::name::P == 13 << 11
+        && element::name::PRE == 14 << 11
+        && element::name::BR == 15 << 11
+        && element::name::TABLE == 16 << 11
+        && element::name::TR == 17 << 11
+        && element::name::TD == 18 << 11
+        && element::name::TH == 19 << 11
 );
 
 /// `len` bytes at `data`, or none for NULL or 0.
