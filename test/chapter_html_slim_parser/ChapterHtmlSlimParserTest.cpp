@@ -2586,3 +2586,55 @@ TEST_F(ChapterBlockDecorationTest, SpanIdsAreNotAnchorsButOtherElementIdsAre) {
   for (const auto& anchor : parser.getAnchors()) ids.push_back(anchor.first);
   EXPECT_EQ(ids, (std::vector<std::string>{"p", "SPAN", "a"}));
 }
+
+// The ruby text cleanup (ChapterHtmlSlimParser.cpp).
+std::string trimAndNormalize(const std::string& str);
+
+TEST(ChapterRubyTextTest, WhitespaceIsTrimmedAndCollapsed) {
+  EXPECT_EQ(trimAndNormalize(""), "");
+  EXPECT_EQ(trimAndNormalize(" \t\r\n "), "");
+  EXPECT_EQ(trimAndNormalize("かん"), "かん");
+  EXPECT_EQ(trimAndNormalize("  a \t\n b\r\nc  "), "a b c");
+  EXPECT_EQ(trimAndNormalize("a\xC2\xA0 b"), "a\xC2\xA0 b");  // only ASCII whitespace
+  EXPECT_EQ(trimAndNormalize("\x0b"
+                             "a\x0c"),
+            "\x0b"
+            "a\x0c");
+  EXPECT_EQ(trimAndNormalize("x"), "x");
+  EXPECT_EQ(trimAndNormalize(" x"), "x");
+}
+
+TEST_F(ChapterBlockDecorationTest, ListItemsGetBulletsNumbersOrNothing) {
+  const auto item = [&](const char* text_) {
+    open("li", nullptr);
+    text(text_);
+    close("li");
+  };
+  open("ol", nullptr);
+  for (int i = 0; i < 11; ++i) item("n");
+  open("li", nullptr);
+  text("outer");
+  open("ol", nullptr);
+  item("inner");
+  close("ol");
+  close("li");
+  item("after");
+  close("ol");
+  open("ul", "list-style-type: none");
+  item("plain");
+  open("ul", "display: none");
+  item("hidden");
+  close("ul");
+  item("still");
+  close("ul");
+  item("orphan");
+  std::vector<std::string> firsts;
+  for (const PageElement* element : elementsWithTag(TAG_PageLine)) {
+    const auto& block = *static_cast<const PageLine*>(element)->getBlock();
+    firsts.push_back(block.wordText(0));
+  }
+  // A nested list counts on its own; a hidden one leaves its parent's alone; an item outside any
+  // list gets a bullet.
+  EXPECT_EQ(firsts, (std::vector<std::string>{"1.", "2.", "3.", "4.", "5.", "6.", "7.", "8.", "9.", "10.", "11.", "12.",
+                                              "1.", "13.", "plain", "still", "\xE2\x80\xA2"}));
+}
