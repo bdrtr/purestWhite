@@ -2464,3 +2464,68 @@ TEST_F(ChapterWidowOrphanTest, CarryKeepsParagraphEndsAndHeadingsTogether) {
   EXPECT_EQ(carry(nullptr, false, 3, 0, 1), "0/0");
   parser.layoutParagraph = nullptr;
 }
+
+// A grid row's geometry: each cell line's word and x, and each cell frame's x and width.
+class ChapterTableRowTest : public ChapterBlockDecorationTest {
+ protected:
+  std::vector<std::string> row(const uint16_t width, const char* rowStyle, const std::vector<const char*>& cellStyles,
+                               const char** tableAttributes = nullptr) {
+    parser.viewportWidth = width;
+    ChapterHtmlSlimParser::startElement(&parser, "table", tableAttributes);
+    open("tr", rowStyle);
+    for (size_t i = 0; i < cellStyles.size(); ++i) {
+      open("td", cellStyles[i]);
+      text("c" + std::to_string(i));
+      close("td");
+    }
+    close("tr");
+    close("table");
+    std::vector<std::string> out;
+    for (const PageElement* element : elementsWithTag(TAG_PageLine)) {
+      const auto& block = *static_cast<const PageLine*>(element)->getBlock();
+      out.push_back(std::string(block.wordText(0)) + "@" + std::to_string(element->xPos));
+    }
+    for (const PageElement* element : elementsWithTag(TAG_PageBorderBox)) {
+      out.push_back("box@" + std::to_string(element->xPos) + "+" +
+                    std::to_string(static_cast<const PageBorderBox*>(element)->getWidth()));
+    }
+    return out;
+  }
+};
+
+TEST_F(ChapterTableRowTest, EqualColumnsShareTheWidth) {
+  // Each cell keeps 4 px of padding.
+  EXPECT_EQ(row(480, nullptr, {nullptr, nullptr, nullptr}), (std::vector<std::string>{"c0@4", "c1@164", "c2@324"}));
+}
+
+TEST_F(ChapterTableRowTest, RightToLeftRowsMirrorTheColumns) {
+  EXPECT_EQ(row(480, "direction: rtl", {nullptr, nullptr, nullptr}),
+            (std::vector<std::string>{"c0@324", "c1@164", "c2@4"}));
+}
+
+TEST_F(ChapterTableRowTest, FramesOverlapAndStopAtTheRightEdge) {
+  const char* attributes[] = {"border", "1", nullptr};
+  // A frame reaches one pixel into its neighbour's; the last one stops at the page edge.
+  EXPECT_EQ(row(480, nullptr, {nullptr, nullptr, nullptr}, attributes),
+            (std::vector<std::string>{"c0@4", "c1@164", "c2@324", "box@0+161", "box@160+161", "box@320+160"}));
+  pages.clear();
+  parser.currentPage.reset();
+  EXPECT_EQ(row(481, nullptr, {nullptr, nullptr, nullptr}, attributes),
+            (std::vector<std::string>{"c0@4", "c1@164", "c2@324", "box@0+161", "box@160+161", "box@320+161"}));
+}
+
+TEST_F(ChapterTableRowTest, NarrowColumnsStack) {
+  // Three line heights is the least an unplanned column keeps.
+  EXPECT_EQ(row(100, nullptr, {nullptr, nullptr, nullptr}), (std::vector<std::string>{"c0@4", "c1@4", "c2@4"}));
+}
+
+TEST_F(ChapterTableRowTest, PaddingWiderThanItsColumnStacks) {
+  EXPECT_EQ(row(480, nullptr, {"padding: 0 120px 0 120px", nullptr}), (std::vector<std::string>{"c0@120", "c1@4"}));
+  pages.clear();
+  parser.currentPage.reset();
+  EXPECT_EQ(row(480, nullptr, {"padding: 0 119px 0 120px", nullptr}), (std::vector<std::string>{"c0@120", "c1@244"}));
+}
+
+TEST_F(ChapterTableRowTest, ASingleCellStacks) {
+  EXPECT_EQ(row(480, nullptr, {nullptr}), (std::vector<std::string>{"c0@4"}));
+}
