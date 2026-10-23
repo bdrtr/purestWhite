@@ -2529,3 +2529,45 @@ TEST_F(ChapterTableRowTest, PaddingWiderThanItsColumnStacks) {
 TEST_F(ChapterTableRowTest, ASingleCellStacks) {
   EXPECT_EQ(row(480, nullptr, {nullptr}), (std::vector<std::string>{"c0@4"}));
 }
+
+// Tag names the parser checks one by one match exactly too: in other cases they are plain inline
+// elements.
+TEST_F(ChapterBlockDecorationTest, NamedTagsMatchExactly) {
+  const auto run = [&](const char* list, const char* item, const char* rule, const char* breakTag, const char* raise) {
+    pages.clear();
+    parser.currentPage.reset();
+    open("p", nullptr);
+    text("before");
+    close("p");
+    open(list, nullptr);
+    open(item, nullptr);
+    text("item");
+    close(item);
+    close(list);
+    open(rule, nullptr);
+    close(rule);
+    open("p", nullptr);
+    text("a");
+    open(breakTag, nullptr);
+    close(breakTag);
+    text("b ");
+    open(raise, nullptr);
+    text("1");
+    close(raise);
+    close("p");
+    std::string out;
+    for (const PageElement* element : elementsWithTag(TAG_PageLine)) {
+      const auto& block = *static_cast<const PageLine*>(element)->getBlock();
+      for (uint16_t i = 0; i < block.wordCount(); ++i) {
+        out += std::string(block.wordText(i)) + ":" + std::to_string(static_cast<int>(block.wordStyle(i))) + " ";
+      }
+      out += "| ";
+    }
+    out += "rules=" + std::to_string(elementsWithTag(TAG_PageHorizontalRule).size());
+    return out;
+  };
+  // A bullet, a rule, a line break and a raised (16) footnote number.
+  EXPECT_EQ(run("ul", "li", "hr", "br", "sup"), "before:0 | \xE2\x80\xA2:0 item:0 | a:0 | b:0 1:16 | rules=1");
+  EXPECT_EQ(run("UL", "LI", "HR", "BR", "SUP"), "before:0 | item:0 | ab:0 1:0 | rules=0");
+  EXPECT_EQ(run("ol", "li", "Hr", "Br", "Sup"), "before:0 | 1.:0 item:0 | ab:0 1:0 | rules=0");
+}
