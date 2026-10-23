@@ -1,5 +1,5 @@
 // bembeyaz-gfx against the drawing code GfxRenderer had before it (lib/GfxRenderer/GfxRenderer.cpp
-// up to 87481ce5, copied below as Old): random panels, orientations, strips, clips and shapes must
+// at 87481ce5, copied below as Old): random panels, orientations, strips, clips and shapes must
 // give the same pixels, and the same count of pixels off the panel.
 #include <bembeyaz/gfx.h>
 #include <gtest/gtest.h>
@@ -32,6 +32,18 @@ struct Old {
   void drawRect(int x, int y, int width, int height, int lineWidth, bool state) const;
   template <Color C>
   void fillRectImpl(int x, int y, int width, int height) const;
+  void drawArc(int maxRadius, int cx, int cy, int xDir, int yDir, int lineWidth, bool state) const;
+  void drawRoundedRect(int x, int y, int width, int height, int lineWidth, int cornerRadius, bool roundTopLeft,
+                       bool roundTopRight, bool roundBottomLeft, bool roundBottomRight, bool state) const;
+  void maskRoundedRectOutsideCorners(int x, int y, int width, int height, int radius, Color color) const;
+  void fillRect(int x, int y, int width, int height, bool state) const;
+  void fillRectDither(int x, int y, int width, int height, Color color) const;
+  void fillRoundedRect(int x, int y, int width, int height, int cornerRadius, bool roundTopLeft, bool roundTopRight,
+                       bool roundBottomLeft, bool roundBottomRight, Color color) const;
+  template <Color color>
+  void drawPixelDither(int x, int y) const;
+  template <Color color>
+  void fillArc(int maxRadius, int cx, int cy, int xDir, int yDir) const;
   int getScreenWidth() const;
   int getScreenHeight() const;
 };
@@ -372,6 +384,294 @@ int Old::getScreenHeight() const {
   return panelWidth;
 }
 
+void Old::drawArc(const int maxRadius, const int cx, const int cy, const int xDir, const int yDir, const int lineWidth,
+                  const bool state) const {
+  const int stroke = std::min(lineWidth, maxRadius);
+  const int innerRadius = std::max(maxRadius - stroke, 0);
+  const int outerRadius = maxRadius;
+
+  if (outerRadius <= 0) {
+    return;
+  }
+
+  const int outerRadiusSq = outerRadius * outerRadius;
+  const int innerRadiusSq = innerRadius * innerRadius;
+
+  int xOuter = outerRadius;
+  int xInner = innerRadius;
+
+  for (int dy = 0; dy <= outerRadius; ++dy) {
+    while (xOuter > 0 && (xOuter * xOuter + dy * dy) > outerRadiusSq) {
+      --xOuter;
+    }
+    // Keep the smallest x that still lies outside/at the inner radius,
+    // i.e. (x^2 + y^2) >= innerRadiusSq.
+    while (xInner > 0 && ((xInner - 1) * (xInner - 1) + dy * dy) >= innerRadiusSq) {
+      --xInner;
+    }
+
+    if (xOuter < xInner) {
+      continue;
+    }
+
+    const int x0 = cx + xDir * xInner;
+    const int x1 = cx + xDir * xOuter;
+    const int left = std::min(x0, x1);
+    const int width = std::abs(x1 - x0) + 1;
+    const int py = cy + yDir * dy;
+
+    fillRect(left, py, width, 1, state);
+  }
+};
+
+// Border is inside the rectangle, rounded corners
+void Old::drawRoundedRect(const int x, const int y, const int width, const int height, const int lineWidth,
+                          const int cornerRadius, bool roundTopLeft, bool roundTopRight, bool roundBottomLeft,
+                          bool roundBottomRight, bool state) const {
+  if (lineWidth <= 0 || width <= 0 || height <= 0) {
+    return;
+  }
+
+  const int maxRadius = std::min({cornerRadius, width / 2, height / 2});
+  if (maxRadius <= 0) {
+    drawRect(x, y, width, height, lineWidth, state);
+    return;
+  }
+
+  const int stroke = std::min(lineWidth, maxRadius);
+  const int right = x + width - 1;
+  const int bottom = y + height - 1;
+
+  const int horizontalWidth = width - 2 * maxRadius;
+  if (horizontalWidth > 0) {
+    if (roundTopLeft || roundTopRight) {
+      fillRect(x + maxRadius, y, horizontalWidth, stroke, state);
+    }
+    if (roundBottomLeft || roundBottomRight) {
+      fillRect(x + maxRadius, bottom - stroke + 1, horizontalWidth, stroke, state);
+    }
+  }
+
+  const int verticalHeight = height - 2 * maxRadius;
+  if (verticalHeight > 0) {
+    if (roundTopLeft || roundBottomLeft) {
+      fillRect(x, y + maxRadius, stroke, verticalHeight, state);
+    }
+    if (roundTopRight || roundBottomRight) {
+      fillRect(right - stroke + 1, y + maxRadius, stroke, verticalHeight, state);
+    }
+  }
+
+  if (roundTopLeft) {
+    drawArc(maxRadius, x + maxRadius, y + maxRadius, -1, -1, lineWidth, state);
+  }
+  if (roundTopRight) {
+    drawArc(maxRadius, right - maxRadius, y + maxRadius, 1, -1, lineWidth, state);
+  }
+  if (roundBottomRight) {
+    drawArc(maxRadius, right - maxRadius, bottom - maxRadius, 1, 1, lineWidth, state);
+  }
+  if (roundBottomLeft) {
+    drawArc(maxRadius, x + maxRadius, bottom - maxRadius, -1, 1, lineWidth, state);
+  }
+}
+
+void Old::fillRect(const int x, const int y, const int width, const int height, const bool state) const {
+  if (state) {
+    fillRectImpl<Color::Black>(x, y, width, height);
+  } else {
+    fillRectImpl<Color::White>(x, y, width, height);
+  }
+}
+
+// NOTE: Those are in critical path, and need to be templated to avoid runtime checks for every pixel.
+// Any branching must be done outside the loops to avoid performance degradation.
+template <>
+void Old::drawPixelDither<Color::Clear>(const int x, const int y) const {
+  // Do nothing
+}
+
+template <>
+void Old::drawPixelDither<Color::Black>(const int x, const int y) const {
+  drawPixel(x, y, true);
+}
+
+template <>
+void Old::drawPixelDither<Color::White>(const int x, const int y) const {
+  drawPixel(x, y, false);
+}
+
+template <>
+void Old::drawPixelDither<Color::LightGray>(const int x, const int y) const {
+  drawPixel(x, y, x % 2 == 0 && y % 2 == 0);
+}
+
+template <>
+void Old::drawPixelDither<Color::DarkGray>(const int x, const int y) const {
+  drawPixel(x, y, (x + y) % 2 == 0);  // TODO: maybe find a better pattern?
+}
+
+void Old::fillRectDither(const int x, const int y, const int width, const int height, Color color) const {
+  switch (color) {
+    case Color::Clear:
+      break;
+    case Color::Black:
+      fillRectImpl<Color::Black>(x, y, width, height);
+      break;
+    case Color::White:
+      fillRectImpl<Color::White>(x, y, width, height);
+      break;
+    case Color::LightGray:
+      fillRectImpl<Color::LightGray>(x, y, width, height);
+      break;
+    case Color::DarkGray:
+      fillRectImpl<Color::DarkGray>(x, y, width, height);
+      break;
+  }
+}
+
+void Old::maskRoundedRectOutsideCorners(const int x, const int y, const int width, const int height, const int radius,
+                                        const Color color) const {
+  if (radius <= 0 || color == Color::Clear) {
+    return;
+  }
+
+  const int rr = radius - 1;
+  const int rr2 = rr * rr;
+  for (int dy = 0; dy < radius; dy++) {
+    for (int dx = 0; dx < radius; dx++) {
+      const int tx = rr - dx;
+      const int ty = rr - dy;
+      if (tx * tx + ty * ty > rr2) {
+        if (color == Color::White || color == Color::Black) {
+          bool state = color == Color::Black;
+          drawPixel(x + dx, y + dy, state);                           // top-left
+          drawPixel(x + width - 1 - dx, y + dy, state);               // top-right
+          drawPixel(x + dx, y + height - 1 - dy, state);              // bottom-left
+          drawPixel(x + width - 1 - dx, y + height - 1 - dy, state);  // bottom-right
+        } else if (color == Color::LightGray) {
+          drawPixelDither<Color::LightGray>(x + dx, y + dy);                           // top-left
+          drawPixelDither<Color::LightGray>(x + width - 1 - dx, y + dy);               // top-right
+          drawPixelDither<Color::LightGray>(x + dx, y + height - 1 - dy);              // bottom-left
+          drawPixelDither<Color::LightGray>(x + width - 1 - dx, y + height - 1 - dy);  // bottom-right
+        } else if (color == Color::DarkGray) {
+          drawPixelDither<Color::DarkGray>(x + dx, y + dy);                           // top-left
+          drawPixelDither<Color::DarkGray>(x + width - 1 - dx, y + dy);               // top-right
+          drawPixelDither<Color::DarkGray>(x + dx, y + height - 1 - dy);              // bottom-left
+          drawPixelDither<Color::DarkGray>(x + width - 1 - dx, y + height - 1 - dy);  // bottom-right
+        }
+      }
+    }
+  }
+}
+
+template <Color color>
+void Old::fillArc(const int maxRadius, const int cx, const int cy, const int xDir, const int yDir) const {
+  if (maxRadius <= 0) return;
+
+  if constexpr (color == Color::Clear) {
+    return;
+  }
+
+  const int radiusSq = maxRadius * maxRadius;
+
+  // Avoid sqrt by scanning from outer radius inward while y grows.
+  int x = maxRadius;
+  for (int dy = 0; dy <= maxRadius; ++dy) {
+    while (x > 0 && (x * x + dy * dy) > radiusSq) {
+      --x;
+    }
+    if (x < 0) break;
+
+    const int py = cy + yDir * dy;
+    if (py < 0 || py >= getScreenHeight()) continue;
+
+    int x0 = cx;
+    int x1 = cx + xDir * x;
+    if (x0 > x1) std::swap(x0, x1);
+    const int width = x1 - x0 + 1;
+
+    if (width <= 0) continue;
+
+    if constexpr (color == Color::Black) {
+      fillRect(x0, py, width, 1, true);
+    } else if constexpr (color == Color::White) {
+      fillRect(x0, py, width, 1, false);
+    } else {
+      // LightGray / DarkGray: use existing dithered fill path.
+      fillRectDither(x0, py, width, 1, color);
+    }
+  }
+}
+
+void Old::fillRoundedRect(const int x, const int y, const int width, const int height, const int cornerRadius,
+                          bool roundTopLeft, bool roundTopRight, bool roundBottomLeft, bool roundBottomRight,
+                          const Color color) const {
+  if (width <= 0 || height <= 0) {
+    return;
+  }
+
+  // Assume if we're not rounding all corners then we are only rounding one side
+  const int roundedSides = (!roundTopLeft || !roundTopRight || !roundBottomLeft || !roundBottomRight) ? 1 : 2;
+  const int maxRadius = std::min({cornerRadius, width / roundedSides, height / roundedSides});
+  if (maxRadius <= 0) {
+    fillRectDither(x, y, width, height, color);
+    return;
+  }
+
+  const int horizontalWidth = width - 2 * maxRadius;
+  if (horizontalWidth > 0) {
+    fillRectDither(x + maxRadius + 1, y, horizontalWidth - 2, height, color);
+  }
+
+  const int leftFillTop = y + (roundTopLeft ? (maxRadius + 1) : 0);
+  const int leftFillBottom = y + height - 1 - (roundBottomLeft ? (maxRadius + 1) : 0);
+  if (leftFillBottom >= leftFillTop) {
+    fillRectDither(x, leftFillTop, maxRadius + 1, leftFillBottom - leftFillTop + 1, color);
+  }
+
+  const int rightFillTop = y + (roundTopRight ? (maxRadius + 1) : 0);
+  const int rightFillBottom = y + height - 1 - (roundBottomRight ? (maxRadius + 1) : 0);
+  if (rightFillBottom >= rightFillTop) {
+    fillRectDither(x + width - maxRadius - 1, rightFillTop, maxRadius + 1, rightFillBottom - rightFillTop + 1, color);
+  }
+
+  auto fillArcTemplated = [this](int maxRadius, int cx, int cy, int xDir, int yDir, Color color) {
+    switch (color) {
+      case Color::Clear:
+        break;
+      case Color::Black:
+        fillArc<Color::Black>(maxRadius, cx, cy, xDir, yDir);
+        break;
+      case Color::White:
+        fillArc<Color::White>(maxRadius, cx, cy, xDir, yDir);
+        break;
+      case Color::LightGray:
+        fillArc<Color::LightGray>(maxRadius, cx, cy, xDir, yDir);
+        break;
+      case Color::DarkGray:
+        fillArc<Color::DarkGray>(maxRadius, cx, cy, xDir, yDir);
+        break;
+    }
+  };
+
+  if (roundTopLeft) {
+    fillArcTemplated(maxRadius, x + maxRadius, y + maxRadius, -1, -1, color);
+  }
+
+  if (roundTopRight) {
+    fillArcTemplated(maxRadius, x + width - maxRadius - 1, y + maxRadius, 1, -1, color);
+  }
+
+  if (roundBottomRight) {
+    fillArcTemplated(maxRadius, x + width - maxRadius - 1, y + height - maxRadius - 1, 1, 1, color);
+  }
+
+  if (roundBottomLeft) {
+    fillArcTemplated(maxRadius, x + maxRadius, y + height - maxRadius - 1, -1, 1, color);
+  }
+}
+
 // ---- The comparison. ----
 
 static uint32_t seed;
@@ -412,12 +712,16 @@ TEST(GfxPrimitivesTest, MatchTheOldRenderer) {
       o.clipBottom_ = range(-10, 120);
     }
     for (int op = 0; op < 12; ++op) {
-      const int kind = range(0, 5);
+      const int kind = range(0, 9);
       const int x1 = range(-40, 140), y1 = range(-40, 140), x2 = range(-40, 140), y2 = range(-40, 140);
       const int w = range(-5, 120), h = range(-5, 120), lw = range(-1, 6);
       const bool black = rnd() % 2;
       const Color colors[] = {Clear, White, LightGray, DarkGray, Black};
       const Color color = colors[rnd() % 5];
+      const int radius = range(-3, 40), xDir = rnd() % 2 ? 1 : -1, yDir = rnd() % 2 ? 1 : -1;
+      const uint8_t round = rnd() % 3 == 0 ? 15 : static_cast<uint8_t>(rnd() % 16);
+      const bool tl = round & BB_GFX_TOP_LEFT, tr = round & BB_GFX_TOP_RIGHT, bl = round & BB_GFX_BOTTOM_LEFT,
+                 br = round & BB_GFX_BOTTOM_RIGHT;
       // Old
       o.frameBuffer = a.data();
       o._stripBuf = sa.data();
@@ -434,6 +738,18 @@ TEST(GfxPrimitivesTest, MatchTheOldRenderer) {
           break;
         case 3:
           o.drawRect(x1, y1, w, h, lw, black);
+          break;
+        case 6:
+          o.drawArc(radius, x1, y1, xDir, yDir, lw, black);
+          break;
+        case 7:
+          o.drawRoundedRect(x1, y1, w, h, lw, radius, tl, tr, bl, br, black);
+          break;
+        case 8:
+          o.fillRoundedRect(x1, y1, w, h, radius, tl, tr, bl, br, color);
+          break;
+        case 9:
+          o.maskRoundedRectOutsideCorners(x1, y1, w, h, radius, color);
           break;
         default:
           if (w > 0 && h > 0) {
@@ -484,6 +800,18 @@ TEST(GfxPrimitivesTest, MatchTheOldRenderer) {
         case 3:
           newOff = bb_gfx_rect(&cv, x1, y1, w, h, lw, black);
           break;
+        case 6:
+          bb_gfx_arc(&cv, radius, x1, y1, xDir, yDir, lw, black);
+          break;
+        case 7:
+          newOff = bb_gfx_rounded_rect(&cv, x1, y1, w, h, lw, radius, round, black);
+          break;
+        case 8:
+          bb_gfx_fill_rounded_rect(&cv, x1, y1, w, h, radius, round, color);
+          break;
+        case 9:
+          newOff = bb_gfx_mask_corners(&cv, x1, y1, w, h, radius, color);
+          break;
         default:
           if (w > 0 && h > 0) bb_gfx_fill_rect(&cv, x1, y1, w, h, color);
       }
@@ -494,40 +822,6 @@ TEST(GfxPrimitivesTest, MatchTheOldRenderer) {
         a = b;
         sa = sb;
       }
-    }
-  }
-}
-
-// GfxRenderer still paints dithered rounded-rect corners pixel by pixel (drawPixelDither) next to
-// bodies filled here: both must use the same pattern.
-TEST(GfxPrimitivesTest, OnePixelDitherFillsMatchThePixelRule) {
-  for (int orientation = 0; orientation < 4; ++orientation) {
-    for (const Color color : {LightGray, DarkGray}) {
-      Old o;
-      o.orientation = static_cast<Old::Orientation>(orientation);
-      o.panelWidthBytes = 3;
-      o.panelWidth = 24;
-      o.panelHeight = 13;
-      std::vector<uint8_t> a(o.panelWidthBytes * o.panelHeight, 0x5A), b = a;
-      o.frameBuffer = a.data();
-      bb_gfx_canvas cv{};
-      cv.buf = b.data();
-      cv.len = b.size();
-      cv.stride = o.panelWidthBytes;
-      cv.rows = o.panelHeight;
-      cv.panel_width = o.panelWidth;
-      cv.panel_height = o.panelHeight;
-      cv.clip_right = 32767;
-      cv.clip_bottom = 32767;
-      cv.orientation = static_cast<uint8_t>(orientation);
-      for (int y = 0; y < o.getScreenHeight(); ++y) {
-        for (int x = 0; x < o.getScreenWidth(); ++x) {
-          // GfxRenderer::drawPixelDither's rule.
-          o.drawPixel(x, y, color == LightGray ? x % 2 == 0 && y % 2 == 0 : (x + y) % 2 == 0);
-          bb_gfx_fill_rect(&cv, x, y, 1, 1, color);
-        }
-      }
-      EXPECT_EQ(a, b) << "orientation " << orientation << " color " << static_cast<int>(color);
     }
   }
 }

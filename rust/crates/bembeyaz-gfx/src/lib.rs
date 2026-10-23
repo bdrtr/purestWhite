@@ -33,6 +33,19 @@ pub enum Fill {
     DarkGray,
 }
 
+impl Fill {
+    /// Whether the fill is black at logical (`x`, `y`).
+    #[must_use]
+    pub fn black_at(self, x: i32, y: i32) -> bool {
+        match self {
+            Fill::Black => true,
+            Fill::White => false,
+            Fill::LightGray => x & 1 == 0 && y & 1 == 0,
+            Fill::DarkGray => x.wrapping_add(y) & 1 == 0,
+        }
+    }
+}
+
 /// The pixels a canvas lets through, in logical coordinates: `left <= x < right`, `top <= y < bottom`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Clip {
@@ -294,12 +307,7 @@ impl Canvas<'_> {
             };
             let mut black = 0u8;
             for b in 0..8 {
-                let (x, y) = (lx + b * dlx, ly + b * dly);
-                let dark = match fill {
-                    Fill::LightGray => x & 1 == 0 && y & 1 == 0,
-                    _ => (x + y) & 1 == 0,
-                };
-                if dark {
+                if fill.black_at(lx + b * dlx, ly + b * dly) {
                     black |= 0x80 >> b;
                 }
             }
@@ -310,6 +318,9 @@ impl Canvas<'_> {
         white
     }
 }
+
+mod round;
+pub use round::Corners;
 
 #[cfg(test)]
 mod tests;

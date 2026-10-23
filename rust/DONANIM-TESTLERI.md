@@ -1492,3 +1492,31 @@ x4pro'da flash 316 bayt küçüldü, RAM değişmedi.
   Yatay (Saat Yönü), Dikey 180°, Yatay (Saat Yönü Tersi)) açın: seçim çubukları, çerçeveler, ilerleme
   çubukları ve gri dolgular eskisi gibi görünmeli. Metin Yumuşatma (AA) açıkken tablolu, yatay
   çizgili ve resimli bir sayfa da eskisi gibi çizilmeli.
+
+## Yuvarlatılmış dikdörtgenler Rust'ta ("rust: our own rounded rectangles")
+
+Arayüzün yuvarlatılmış dikdörtgenleri artık `bembeyaz-gfx`'in `round` modülünde çiziliyor: çeyrek
+yaylar, yuvarlatılmış çerçeveler (Lyra'nın düğme ipuçları, RoundedRaff'ın alt ipucu grupları, metin
+seçimindeki düğmeler), yuvarlatılmış dolgular (açılır pencereler, menü satırları, ana ekranın seçili
+kapak kutusu, metin seçimi tutamaçları; köşeleri tek tek seçilebilir, gri titreme desenleri dahil)
+ve RoundedRaff'ın kapak resimlerinin köşelerini yuvarlatan maske. GfxRenderer eskiden bunları satır
+satır ya da piksel piksel çiziyordu; şimdi her şekil için tek bir Rust çağrısı var ve C++'taki
+`fillArc` ile `drawPixelDither` silindi. Crate'in 7 birim testi var; `test/gfx_primitives`'in eski
+kod kopyasına bu dört şeklin eski C++ kodu da eklendi ve 20000 rastgele tuvalde iki yol bayt bayt
+aynı, panel dışı piksel sayıları da aynı çıktı. Koda bilerek konan on hatadan dokuzunu yakaladı
+(onuncusu eşdeğerdi: orta dolgunun fazladan sütunu zaten sağ sütunun ya da köşe yayının altında
+kalıyor). Bir şey bilerek değişti: köşe maskesi de diğer çizimler gibi yazı tipi önbelleği taraması
+sırasında hiçbir şey çizmiyor (yalnızca RoundedRaff'ın ana ekranı çağırıyor, orada tarama yok),
+panel dışına düşen pikseller de her biri için ayrı satır yerine tek satırla günlüğe yazılıyor.
+Emülatörde ayarlar, uyku, kütüphane, BLE ayarları, alıntı, okuma, kitap açma, JPEG ve PNG
+senaryoları ile Lyra, Lyra Genişletilmiş, RoundedRaff, Cover Grid ve Klasik temalarının ekranları
+(RoundedRaff'ın kapaklı ana ekranı dahil) bir önceki sürümle piksel piksel aynı çıktı. Flash
+x4pro'da 156, x4c'de 328 bayt büyüdü, RAM değişmedi.
+
+- [ ] Ayarlar → Ekran → Arayüz Teması'nda sırayla Klasik, Lyra, Lyra Genişletilmiş, RoundedRaff ve
+  Cover Grid'i seçin; her birinde ana ekranı (kapaklı bir kitap açılmış olarak), menüleri, bir açılır
+  pencereyi ve alttaki düğme ipuçlarını açın: yuvarlatılmış köşeler, seçili kutular ve RoundedRaff'ın
+  kapaklarının yuvarlatılmış köşeleri eskisi gibi görünmeli; köşelerde kopukluk, fazladan nokta ya da
+  kesik kenar olmamalı. (Cover Grid yalnızca PSRAM'li cihazda listelenir.)
+- [ ] Dokunmatik ekranda bir kitapta metin seçin (Klasik ve Lyra temasında): seçim tutamaçları ve
+  Sözlükte Ara / Clip / Yer İmi düğmeleri eskisi gibi görünmeli.

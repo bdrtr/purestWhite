@@ -1,12 +1,14 @@
 #![allow(
     clippy::indexing_slicing,
     clippy::cast_sign_loss,
-    clippy::cast_possible_wrap
+    clippy::cast_possible_wrap,
+    clippy::many_single_char_names,
+    clippy::too_many_lines
 )]
 
 extern crate std;
 
-use super::{Canvas, Clip, Fill, Orientation};
+use super::{Canvas, Clip, Corners, Fill, Orientation};
 use std::vec;
 use std::vec::Vec;
 
@@ -169,6 +171,54 @@ fn dither_follows_logical_coordinates_in_every_orientation() {
     }
 }
 
+#[test]
+fn rounded_shapes() {
+    let mut buf = panel();
+    let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    assert_eq!(c.rounded_rect(0, 0, 8, 8, 1, 3, Corners::ALL, true), 0);
+    let top = Corners::TOP_LEFT | Corners::TOP_RIGHT;
+    c.fill_rounded_rect(9, 0, 7, 5, 3, top, Fill::Black);
+    c.arc(2, 9, 7, 1, -1, 1, Fill::Black);
+    assert_eq!(
+        picture(&buf),
+        [
+            "...##.......#...",
+            ".######...#####.",
+            ".#....#...#####.",
+            "##....##.#######",
+            "##....##.#######",
+            ".#....#..#......",
+            ".######..##.....",
+            "...##.....##....",
+        ]
+    );
+    // A radius of zero is a plain rectangle, which counts pixels off the panel.
+    let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    assert_eq!(c.rounded_rect(14, 6, 4, 2, 1, 0, Corners::ALL, true), 6);
+}
+
+#[test]
+fn masked_corners() {
+    let mut buf = vec![0u8; 2 * 8];
+    let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    assert_eq!(c.mask_corners(0, 0, 8, 6, 3, Fill::White), 0);
+    assert_eq!(c.mask_corners(10, 0, 8, 8, 3, Fill::LightGray), 6);
+    assert_eq!(c.mask_corners(0, 0, 8, 8, 0, Fill::White), 0);
+    assert_eq!(
+        picture(&buf),
+        [
+            "..####..###.####",
+            ".######.##.#####",
+            "################",
+            "################",
+            ".######.########",
+            "..####..########",
+            "################",
+            "##########..####",
+        ]
+    );
+}
+
 /// Random canvases, strips, clips and shapes, including extreme fill rectangles: nothing panics.
 #[test]
 fn mini_fuzz() {
@@ -210,7 +260,7 @@ fn mini_fuzz() {
         };
         for _ in 0..8 {
             let v = |next: &mut dyn FnMut(u32) -> u32| pick(140, next) - 50;
-            match next(5) {
+            match next(9) {
                 0 => {
                     c.pixel(v(&mut next), v(&mut next), next(2) == 0);
                 }
@@ -231,6 +281,55 @@ fn mini_fuzz() {
                     let fill = [Fill::Black, Fill::White, Fill::LightGray, Fill::DarkGray]
                         [pick(4, &mut next) as usize];
                     c.fill_rect(v(&mut next), v(&mut next), v(&mut next), v(&mut next), fill);
+                }
+                5 => {
+                    let r = pick(30, &mut next) - 5;
+                    c.arc(
+                        r,
+                        v(&mut next),
+                        v(&mut next),
+                        1,
+                        -1,
+                        pick(8, &mut next) - 2,
+                        Fill::Black,
+                    );
+                }
+                6 => {
+                    let r = pick(30, &mut next) - 5;
+                    let (x, y, w, h) = (v(&mut next), v(&mut next), v(&mut next), v(&mut next));
+                    c.rounded_rect(x, y, w, h, pick(5, &mut next), r, Corners::ALL, true);
+                }
+                7 => {
+                    let r = pick(30, &mut next) - 5;
+                    let (x, y, w, h) = (v(&mut next), v(&mut next), v(&mut next), v(&mut next));
+                    #[allow(clippy::cast_possible_truncation)]
+                    let corners = Corners(next(16) as u8);
+                    c.fill_rounded_rect(x, y, w, h, r, corners, Fill::DarkGray);
+                    c.mask_corners(x, y, w, h, r, Fill::White);
+                }
+                8 => {
+                    // Extreme positions; the work grows with the radius, so that stays small.
+                    c.arc(9, i32::MAX, i32::MIN, -1, -1, i32::MIN, Fill::White);
+                    c.fill_rounded_rect(
+                        i32::MIN,
+                        i32::MAX,
+                        i32::MAX,
+                        3,
+                        9,
+                        Corners::ALL,
+                        Fill::Black,
+                    );
+                    c.rounded_rect(
+                        i32::MAX,
+                        i32::MIN,
+                        i32::MAX,
+                        i32::MAX,
+                        i32::MAX,
+                        9,
+                        Corners::ALL,
+                        false,
+                    );
+                    c.mask_corners(i32::MAX, i32::MIN, i32::MIN, i32::MAX, 9, Fill::DarkGray);
                 }
                 _ => {
                     c.fill_rect(i32::MIN, i32::MIN + 1, i32::MAX, i32::MAX, Fill::DarkGray);

@@ -909,43 +909,17 @@ void GfxRenderer::drawRect(const int x, const int y, const int width, const int 
 
 void GfxRenderer::drawArc(const int maxRadius, const int cx, const int cy, const int xDir, const int yDir,
                           const int lineWidth, const bool state) const {
-  const int stroke = std::min(lineWidth, maxRadius);
-  const int innerRadius = std::max(maxRadius - stroke, 0);
-  const int outerRadius = maxRadius;
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
+  const auto c = canvasOf(*this);
+  bb_gfx_arc(&c, maxRadius, cx, cy, xDir, yDir, lineWidth, state);
+}
 
-  if (outerRadius <= 0) {
-    return;
-  }
-
-  const int outerRadiusSq = outerRadius * outerRadius;
-  const int innerRadiusSq = innerRadius * innerRadius;
-
-  int xOuter = outerRadius;
-  int xInner = innerRadius;
-
-  for (int dy = 0; dy <= outerRadius; ++dy) {
-    while (xOuter > 0 && (xOuter * xOuter + dy * dy) > outerRadiusSq) {
-      --xOuter;
-    }
-    // Keep the smallest x that still lies outside/at the inner radius,
-    // i.e. (x^2 + y^2) >= innerRadiusSq.
-    while (xInner > 0 && ((xInner - 1) * (xInner - 1) + dy * dy) >= innerRadiusSq) {
-      --xInner;
-    }
-
-    if (xOuter < xInner) {
-      continue;
-    }
-
-    const int x0 = cx + xDir * xInner;
-    const int x1 = cx + xDir * xOuter;
-    const int left = std::min(x0, x1);
-    const int width = std::abs(x1 - x0) + 1;
-    const int py = cy + yDir * dy;
-
-    fillRect(left, py, width, 1, state);
-  }
-};
+namespace {
+uint8_t roundCorners(const bool topLeft, const bool topRight, const bool bottomLeft, const bool bottomRight) {
+  return (topLeft ? BB_GFX_TOP_LEFT : 0) | (topRight ? BB_GFX_TOP_RIGHT : 0) | (bottomLeft ? BB_GFX_BOTTOM_LEFT : 0) |
+         (bottomRight ? BB_GFX_BOTTOM_RIGHT : 0);
+}
+}  // namespace
 
 // Border is inside the rectangle, rounded corners
 void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, const int height, const int lineWidth,
@@ -957,52 +931,10 @@ void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, con
 void GfxRenderer::drawRoundedRect(const int x, const int y, const int width, const int height, const int lineWidth,
                                   const int cornerRadius, bool roundTopLeft, bool roundTopRight, bool roundBottomLeft,
                                   bool roundBottomRight, bool state) const {
-  if (lineWidth <= 0 || width <= 0 || height <= 0) {
-    return;
-  }
-
-  const int maxRadius = std::min({cornerRadius, width / 2, height / 2});
-  if (maxRadius <= 0) {
-    drawRect(x, y, width, height, lineWidth, state);
-    return;
-  }
-
-  const int stroke = std::min(lineWidth, maxRadius);
-  const int right = x + width - 1;
-  const int bottom = y + height - 1;
-
-  const int horizontalWidth = width - 2 * maxRadius;
-  if (horizontalWidth > 0) {
-    if (roundTopLeft || roundTopRight) {
-      fillRect(x + maxRadius, y, horizontalWidth, stroke, state);
-    }
-    if (roundBottomLeft || roundBottomRight) {
-      fillRect(x + maxRadius, bottom - stroke + 1, horizontalWidth, stroke, state);
-    }
-  }
-
-  const int verticalHeight = height - 2 * maxRadius;
-  if (verticalHeight > 0) {
-    if (roundTopLeft || roundBottomLeft) {
-      fillRect(x, y + maxRadius, stroke, verticalHeight, state);
-    }
-    if (roundTopRight || roundBottomRight) {
-      fillRect(right - stroke + 1, y + maxRadius, stroke, verticalHeight, state);
-    }
-  }
-
-  if (roundTopLeft) {
-    drawArc(maxRadius, x + maxRadius, y + maxRadius, -1, -1, lineWidth, state);
-  }
-  if (roundTopRight) {
-    drawArc(maxRadius, right - maxRadius, y + maxRadius, 1, -1, lineWidth, state);
-  }
-  if (roundBottomRight) {
-    drawArc(maxRadius, right - maxRadius, bottom - maxRadius, 1, 1, lineWidth, state);
-  }
-  if (roundBottomLeft) {
-    drawArc(maxRadius, x + maxRadius, bottom - maxRadius, -1, 1, lineWidth, state);
-  }
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
+  const auto c = canvasOf(*this);
+  logOffPanel(bb_gfx_rounded_rect(&c, x, y, width, height, lineWidth, cornerRadius,
+                                  roundCorners(roundTopLeft, roundTopRight, roundBottomLeft, roundBottomRight), state));
 }
 
 void GfxRenderer::fillRect(const int x, const int y, const int width, const int height, const bool state) const {
@@ -1011,33 +943,6 @@ void GfxRenderer::fillRect(const int x, const int y, const int width, const int 
   } else {
     fillRectImpl<Color::White>(x, y, width, height);
   }
-}
-
-// NOTE: Those are in critical path, and need to be templated to avoid runtime checks for every pixel.
-// Any branching must be done outside the loops to avoid performance degradation.
-template <>
-void GfxRenderer::drawPixelDither<Color::Clear>(const int x, const int y) const {
-  // Do nothing
-}
-
-template <>
-void GfxRenderer::drawPixelDither<Color::Black>(const int x, const int y) const {
-  drawPixel(x, y, true);
-}
-
-template <>
-void GfxRenderer::drawPixelDither<Color::White>(const int x, const int y) const {
-  drawPixel(x, y, false);
-}
-
-template <>
-void GfxRenderer::drawPixelDither<Color::LightGray>(const int x, const int y) const {
-  drawPixel(x, y, x % 2 == 0 && y % 2 == 0);
-}
-
-template <>
-void GfxRenderer::drawPixelDither<Color::DarkGray>(const int x, const int y) const {
-  drawPixel(x, y, (x + y) % 2 == 0);  // TODO: maybe find a better pattern?
 }
 
 void GfxRenderer::fillRectDither(const int x, const int y, const int width, const int height, Color color) const {
@@ -1075,76 +980,9 @@ template void GfxRenderer::fillRectImpl<Color::DarkGray>(int, int, int, int) con
 
 void GfxRenderer::maskRoundedRectOutsideCorners(const int x, const int y, const int width, const int height,
                                                 const int radius, const Color color) const {
-  if (radius <= 0 || color == Color::Clear) {
-    return;
-  }
-
-  const int rr = radius - 1;
-  const int rr2 = rr * rr;
-  for (int dy = 0; dy < radius; dy++) {
-    for (int dx = 0; dx < radius; dx++) {
-      const int tx = rr - dx;
-      const int ty = rr - dy;
-      if (tx * tx + ty * ty > rr2) {
-        if (color == Color::White || color == Color::Black) {
-          bool state = color == Color::Black;
-          drawPixel(x + dx, y + dy, state);                           // top-left
-          drawPixel(x + width - 1 - dx, y + dy, state);               // top-right
-          drawPixel(x + dx, y + height - 1 - dy, state);              // bottom-left
-          drawPixel(x + width - 1 - dx, y + height - 1 - dy, state);  // bottom-right
-        } else if (color == Color::LightGray) {
-          drawPixelDither<Color::LightGray>(x + dx, y + dy);                           // top-left
-          drawPixelDither<Color::LightGray>(x + width - 1 - dx, y + dy);               // top-right
-          drawPixelDither<Color::LightGray>(x + dx, y + height - 1 - dy);              // bottom-left
-          drawPixelDither<Color::LightGray>(x + width - 1 - dx, y + height - 1 - dy);  // bottom-right
-        } else if (color == Color::DarkGray) {
-          drawPixelDither<Color::DarkGray>(x + dx, y + dy);                           // top-left
-          drawPixelDither<Color::DarkGray>(x + width - 1 - dx, y + dy);               // top-right
-          drawPixelDither<Color::DarkGray>(x + dx, y + height - 1 - dy);              // bottom-left
-          drawPixelDither<Color::DarkGray>(x + width - 1 - dx, y + height - 1 - dy);  // bottom-right
-        }
-      }
-    }
-  }
-}
-
-template <Color color>
-void GfxRenderer::fillArc(const int maxRadius, const int cx, const int cy, const int xDir, const int yDir) const {
-  if (maxRadius <= 0) return;
-
-  if constexpr (color == Color::Clear) {
-    return;
-  }
-
-  const int radiusSq = maxRadius * maxRadius;
-
-  // Avoid sqrt by scanning from outer radius inward while y grows.
-  int x = maxRadius;
-  for (int dy = 0; dy <= maxRadius; ++dy) {
-    while (x > 0 && (x * x + dy * dy) > radiusSq) {
-      --x;
-    }
-    if (x < 0) break;
-
-    const int py = cy + yDir * dy;
-    if (py < 0 || py >= getScreenHeight()) continue;
-
-    int x0 = cx;
-    int x1 = cx + xDir * x;
-    if (x0 > x1) std::swap(x0, x1);
-    const int width = x1 - x0 + 1;
-
-    if (width <= 0) continue;
-
-    if constexpr (color == Color::Black) {
-      fillRect(x0, py, width, 1, true);
-    } else if constexpr (color == Color::White) {
-      fillRect(x0, py, width, 1, false);
-    } else {
-      // LightGray / DarkGray: use existing dithered fill path.
-      fillRectDither(x0, py, width, 1, color);
-    }
-  }
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
+  const auto c = canvasOf(*this);
+  logOffPanel(bb_gfx_mask_corners(&c, x, y, width, height, radius, static_cast<uint8_t>(color)));
 }
 
 void GfxRenderer::fillRoundedRect(const int x, const int y, const int width, const int height, const int cornerRadius,
@@ -1155,69 +993,11 @@ void GfxRenderer::fillRoundedRect(const int x, const int y, const int width, con
 void GfxRenderer::fillRoundedRect(const int x, const int y, const int width, const int height, const int cornerRadius,
                                   bool roundTopLeft, bool roundTopRight, bool roundBottomLeft, bool roundBottomRight,
                                   const Color color) const {
-  if (width <= 0 || height <= 0) {
-    return;
-  }
-
-  // Assume if we're not rounding all corners then we are only rounding one side
-  const int roundedSides = (!roundTopLeft || !roundTopRight || !roundBottomLeft || !roundBottomRight) ? 1 : 2;
-  const int maxRadius = std::min({cornerRadius, width / roundedSides, height / roundedSides});
-  if (maxRadius <= 0) {
-    fillRectDither(x, y, width, height, color);
-    return;
-  }
-
-  const int horizontalWidth = width - 2 * maxRadius;
-  if (horizontalWidth > 0) {
-    fillRectDither(x + maxRadius + 1, y, horizontalWidth - 2, height, color);
-  }
-
-  const int leftFillTop = y + (roundTopLeft ? (maxRadius + 1) : 0);
-  const int leftFillBottom = y + height - 1 - (roundBottomLeft ? (maxRadius + 1) : 0);
-  if (leftFillBottom >= leftFillTop) {
-    fillRectDither(x, leftFillTop, maxRadius + 1, leftFillBottom - leftFillTop + 1, color);
-  }
-
-  const int rightFillTop = y + (roundTopRight ? (maxRadius + 1) : 0);
-  const int rightFillBottom = y + height - 1 - (roundBottomRight ? (maxRadius + 1) : 0);
-  if (rightFillBottom >= rightFillTop) {
-    fillRectDither(x + width - maxRadius - 1, rightFillTop, maxRadius + 1, rightFillBottom - rightFillTop + 1, color);
-  }
-
-  auto fillArcTemplated = [this](int maxRadius, int cx, int cy, int xDir, int yDir, Color color) {
-    switch (color) {
-      case Color::Clear:
-        break;
-      case Color::Black:
-        fillArc<Color::Black>(maxRadius, cx, cy, xDir, yDir);
-        break;
-      case Color::White:
-        fillArc<Color::White>(maxRadius, cx, cy, xDir, yDir);
-        break;
-      case Color::LightGray:
-        fillArc<Color::LightGray>(maxRadius, cx, cy, xDir, yDir);
-        break;
-      case Color::DarkGray:
-        fillArc<Color::DarkGray>(maxRadius, cx, cy, xDir, yDir);
-        break;
-    }
-  };
-
-  if (roundTopLeft) {
-    fillArcTemplated(maxRadius, x + maxRadius, y + maxRadius, -1, -1, color);
-  }
-
-  if (roundTopRight) {
-    fillArcTemplated(maxRadius, x + width - maxRadius - 1, y + maxRadius, 1, -1, color);
-  }
-
-  if (roundBottomRight) {
-    fillArcTemplated(maxRadius, x + width - maxRadius - 1, y + height - maxRadius - 1, 1, 1, color);
-  }
-
-  if (roundBottomLeft) {
-    fillArcTemplated(maxRadius, x + maxRadius, y + height - maxRadius - 1, -1, 1, color);
-  }
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
+  const auto c = canvasOf(*this);
+  bb_gfx_fill_rounded_rect(&c, x, y, width, height, cornerRadius,
+                           roundCorners(roundTopLeft, roundTopRight, roundBottomLeft, roundBottomRight),
+                           static_cast<uint8_t>(color));
 }
 
 void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, const int width, const int height) const {
