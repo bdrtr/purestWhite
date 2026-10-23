@@ -84,6 +84,13 @@ void bb_gfx_fill_rounded_rect(const bb_gfx_canvas* canvas, int32_t x, int32_t y,
 uint32_t bb_gfx_mask_corners(const bb_gfx_canvas* canvas, int32_t x, int32_t y, int32_t w, int32_t h, int32_t radius,
                              uint8_t color);
 
+// Fills the polygon with the count corners (xs[i], ys[i]) black or white (nothing for fewer than
+// three, or NULL arrays), clipped to the screen, the clip and the rows: on each row, between the
+// first and second edge crossing, the third and fourth, and so on. Each row goes over the edges
+// once per crossing, so keep count small. The points are int, not int32_t (long on Xtensa), so
+// that GfxRenderer's int arrays pass as they are.
+void bb_gfx_fill_polygon(const bb_gfx_canvas* canvas, const int* xs, const int* ys, size_t count, bool black);
+
 #ifdef __cplusplus
 }
 #endif

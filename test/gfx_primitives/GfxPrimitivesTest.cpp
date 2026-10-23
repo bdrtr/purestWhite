@@ -1,6 +1,7 @@
 // bembeyaz-gfx against the drawing code GfxRenderer had before it (lib/GfxRenderer/GfxRenderer.cpp
-// at 87481ce5, copied below as Old): random panels, orientations, strips, clips and shapes must
-// give the same pixels, and the same count of pixels off the panel.
+// at 87481ce5, and fillPolygon at 90f34acc, copied below as Old): random panels, orientations,
+// strips, clips and shapes must give the same pixels, and the same count of pixels off the panel.
+#include <Memory.h>
 #include <bembeyaz/gfx.h>
 #include <gtest/gtest.h>
 
@@ -44,6 +45,7 @@ struct Old {
   void drawPixelDither(int x, int y) const;
   template <Color color>
   void fillArc(int maxRadius, int cx, int cy, int xDir, int yDir) const;
+  void fillPolygon(const int* xPoints, const int* yPoints, int numPoints, bool state = true) const;
   int getScreenWidth() const;
   int getScreenHeight() const;
 };
@@ -54,6 +56,8 @@ constexpr auto PortraitInverted = Old::PortraitInverted;
 constexpr auto LandscapeCounterClockwise = Old::LandscapeCounterClockwise;
 
 // ---- Old: verbatim, except that off-panel pixels are counted rather than logged. ----
+
+#define LOG_ERR(...) ((void)0)
 
 static inline void rotateCoordinates(const Old::Orientation orientation, const int x, const int y, int* phyX, int* phyY,
                                      const uint16_t panelWidth, const uint16_t panelHeight) {
@@ -672,6 +676,64 @@ void Old::fillRoundedRect(const int x, const int y, const int width, const int h
   }
 }
 
+void Old::fillPolygon(const int* xPoints, const int* yPoints, int numPoints, bool state) const {
+  if (numPoints < 3) return;
+
+  // Find bounding box
+  int minY = yPoints[0], maxY = yPoints[0];
+  for (int i = 1; i < numPoints; i++) {
+    if (yPoints[i] < minY) minY = yPoints[i];
+    if (yPoints[i] > maxY) maxY = yPoints[i];
+  }
+
+  // Clip to screen
+  if (minY < 0) minY = 0;
+  if (maxY >= getScreenHeight()) maxY = getScreenHeight() - 1;
+
+  // Allocate node buffer for scanline algorithm
+  auto nodeX = makeUniqueNoThrow<int[]>(numPoints);
+  if (!nodeX) {
+    LOG_ERR("GFX", "!! Failed to allocate polygon node buffer");
+    return;
+  }
+
+  // Scanline fill algorithm
+  for (int scanY = minY; scanY <= maxY; scanY++) {
+    int nodes = 0;
+
+    // Find all intersection points with edges
+    int j = numPoints - 1;
+    for (int i = 0; i < numPoints; i++) {
+      if ((yPoints[i] < scanY && yPoints[j] >= scanY) || (yPoints[j] < scanY && yPoints[i] >= scanY)) {
+        // Calculate X intersection using fixed-point to avoid float
+        int dy = yPoints[j] - yPoints[i];
+        if (dy != 0) {
+          nodeX[nodes++] = xPoints[i] + (scanY - yPoints[i]) * (xPoints[j] - xPoints[i]) / dy;
+        }
+      }
+      j = i;
+    }
+
+    // Sort nodes by X
+    std::sort(nodeX.get(), nodeX.get() + nodes);
+
+    // Fill between pairs of nodes
+    for (int i = 0; i < nodes - 1; i += 2) {
+      int startX = nodeX[i];
+      int endX = nodeX[i + 1];
+
+      // Clip to screen
+      if (startX < 0) startX = 0;
+      if (endX >= getScreenWidth()) endX = getScreenWidth() - 1;
+
+      // Draw horizontal line
+      for (int x = startX; x <= endX; x++) {
+        drawPixel(x, scanY, state);
+      }
+    }
+  }
+}
+
 // ---- The comparison. ----
 
 static uint32_t seed;
@@ -712,7 +774,7 @@ TEST(GfxPrimitivesTest, MatchTheOldRenderer) {
       o.clipBottom_ = range(-10, 120);
     }
     for (int op = 0; op < 12; ++op) {
-      const int kind = range(0, 9);
+      const int kind = range(0, 10);
       const int x1 = range(-40, 140), y1 = range(-40, 140), x2 = range(-40, 140), y2 = range(-40, 140);
       const int w = range(-5, 120), h = range(-5, 120), lw = range(-1, 6);
       const bool black = rnd() % 2;
@@ -720,6 +782,12 @@ TEST(GfxPrimitivesTest, MatchTheOldRenderer) {
       const Color color = colors[rnd() % 5];
       const int radius = range(-3, 40), xDir = rnd() % 2 ? 1 : -1, yDir = rnd() % 2 ? 1 : -1;
       const uint8_t round = rnd() % 3 == 0 ? 15 : static_cast<uint8_t>(rnd() % 16);
+      int xs[8], ys[8];
+      const int points = range(0, 8);
+      for (int p = 0; p < points; ++p) {
+        xs[p] = range(-40, 140);
+        ys[p] = range(-40, 140);
+      }
       const bool tl = round & BB_GFX_TOP_LEFT, tr = round & BB_GFX_TOP_RIGHT, bl = round & BB_GFX_BOTTOM_LEFT,
                  br = round & BB_GFX_BOTTOM_RIGHT;
       // Old
@@ -750,6 +818,9 @@ TEST(GfxPrimitivesTest, MatchTheOldRenderer) {
           break;
         case 9:
           o.maskRoundedRectOutsideCorners(x1, y1, w, h, radius, color);
+          break;
+        case 10:
+          o.fillPolygon(xs, ys, points, black);
           break;
         default:
           if (w > 0 && h > 0) {
@@ -811,6 +882,9 @@ TEST(GfxPrimitivesTest, MatchTheOldRenderer) {
           break;
         case 9:
           newOff = bb_gfx_mask_corners(&cv, x1, y1, w, h, radius, color);
+          break;
+        case 10:
+          bb_gfx_fill_polygon(&cv, xs, ys, static_cast<size_t>(points), black);
           break;
         default:
           if (w > 0 && h > 0) bb_gfx_fill_rect(&cv, x1, y1, w, h, color);

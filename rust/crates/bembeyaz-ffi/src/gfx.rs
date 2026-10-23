@@ -210,3 +210,22 @@ pub unsafe extern "C" fn bb_gfx_mask_corners(
     // SAFETY: as documented.
     unsafe { self::canvas(canvas) }.map_or(0, |mut c| c.mask_corners(x, y, w, h, radius, fill))
 }
+
+/// # Safety
+/// `canvas` is NULL or as gfx.h describes; `xs` and `ys` are NULL or hold `count` values each.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_gfx_fill_polygon(
+    canvas: *const CCanvas,
+    xs: *const core::ffi::c_int,
+    ys: *const core::ffi::c_int,
+    count: usize,
+    black: bool,
+) {
+    let fill = if black { Fill::Black } else { Fill::White };
+    // SAFETY: as documented.
+    let (xs, ys) = unsafe { (crate::view(xs, count), crate::view(ys, count)) };
+    // SAFETY: as documented.
+    if let Some(mut c) = unsafe { self::canvas(canvas) } {
+        c.fill_polygon(xs, ys, fill);
+    }
+}

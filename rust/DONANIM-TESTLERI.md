@@ -1520,3 +1520,28 @@ x4pro'da 156, x4c'de 328 bayt büyüdü, RAM değişmedi.
   kesik kenar olmamalı. (Cover Grid yalnızca PSRAM'li cihazda listelenir.)
 - [ ] Dokunmatik ekranda bir kitapta metin seçin (Klasik ve Lyra temasında): seçim tutamaçları ve
   Sözlükte Ara / Clip / Yer İmi düğmeleri eskisi gibi görünmeli.
+
+## Dolu çokgenler Rust'ta ("rust: our own filled polygons")
+
+GfxRenderer'ın `fillPolygon`'u (Klasik temanın ana ekranında kapaksız kitabın yer imi şeridi,
+FreeInkUI'nin üçgenleri: bugün yalnızca Kütüphane'nin sekme çubuğundaki sıralama oku) artık
+`bembeyaz-gfx`'in `polygon` modülünde. Eski kod her çağrıda heap'te bir düğüm tamponu ayırıyor, her
+satırda kesişimleri sıralıyor ve her pikseli ayrı ayrı çiziyordu; yeni kod tampon ayırmıyor (ayırma
+hatası yolu da kalmadı), her satırın kesişimlerini kenarları yeniden gezerek sırayla buluyor ve
+aralarını tek `fill_rect` ile dolduruyor. Bunun bedeli, satır başına işin nokta sayısının karesiyle
+büyümesi; çağıranlar 3 ve 5 noktalı şekiller çiziyor. Kesişimler 64 bitle hesaplanıyor: eski kodun
+büyük koordinatlardaki tanımsız taşması yok, değerler ancak i32 sınırlarına yakın koordinatlarda
+sarar. Görünür tek fark: çokgen de diğer çizimler gibi yazı tipi önbelleği taraması sırasında hiçbir
+şey çizmiyor. `test/gfx_primitives`'in eski kod kopyasına eski `fillPolygon` eklendi; rastgele 0–8
+noktalı çokgenlerle 20000 tuvalde iki yol bayt bayt aynı, koda bilerek konan dokuz hatanın hepsi
+yakalandı. Crate'in 8 birim testi var. Emülatörde Klasik temanın ana ekranındaki yer imi şeridi
+(kart seçiliyken ve değilken), Kütüphane'nin iki yöndeki sıralama oku ve ayarlar, kütüphane, okuma,
+kitap açma, uyku, alıntı ve BLE ayarları senaryoları bir önceki sürümle piksel piksel aynı çıktı.
+Flash x4pro'da 64, x4c'de 240 bayt küçüldü, RAM değişmedi.
+
+- [ ] Klasik temada kapaksız bir kitabı açıp ana ekrana dönün: kitap kutusundaki yer imi şeridi
+  (alt ucu çentikli) eskisi gibi görünmeli. Kutu açılışta seçili olduğundan kart siyah, şerit beyaz
+  çizilir; seçimi aşağı taşıyınca şerit siyah görünmeli.
+- [ ] Kütüphane'yi açın: etkin sekmedeki üçgen sıralama oku eskisi gibi görünmeli. Sekmeler
+  seçiliyken Onay'a uzun basın (dokunmatik ekranda etkin sekmeye dokunun): sıralama yönü ve ok
+  dönmeli.

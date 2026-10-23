@@ -1268,60 +1268,9 @@ void GfxRenderer::preserveImagePolarity(const int x, const int y, const int widt
 
 void GfxRenderer::fillPolygon(const int* xPoints, const int* yPoints, int numPoints, bool state) const {
   if (numPoints < 3) return;
-
-  // Find bounding box
-  int minY = yPoints[0], maxY = yPoints[0];
-  for (int i = 1; i < numPoints; i++) {
-    if (yPoints[i] < minY) minY = yPoints[i];
-    if (yPoints[i] > maxY) maxY = yPoints[i];
-  }
-
-  // Clip to screen
-  if (minY < 0) minY = 0;
-  if (maxY >= getScreenHeight()) maxY = getScreenHeight() - 1;
-
-  // Allocate node buffer for scanline algorithm
-  auto nodeX = makeUniqueNoThrow<int[]>(numPoints);
-  if (!nodeX) {
-    LOG_ERR("GFX", "!! Failed to allocate polygon node buffer");
-    return;
-  }
-
-  // Scanline fill algorithm
-  for (int scanY = minY; scanY <= maxY; scanY++) {
-    int nodes = 0;
-
-    // Find all intersection points with edges
-    int j = numPoints - 1;
-    for (int i = 0; i < numPoints; i++) {
-      if ((yPoints[i] < scanY && yPoints[j] >= scanY) || (yPoints[j] < scanY && yPoints[i] >= scanY)) {
-        // Calculate X intersection using fixed-point to avoid float
-        int dy = yPoints[j] - yPoints[i];
-        if (dy != 0) {
-          nodeX[nodes++] = xPoints[i] + (scanY - yPoints[i]) * (xPoints[j] - xPoints[i]) / dy;
-        }
-      }
-      j = i;
-    }
-
-    // Sort nodes by X
-    std::sort(nodeX.get(), nodeX.get() + nodes);
-
-    // Fill between pairs of nodes
-    for (int i = 0; i < nodes - 1; i += 2) {
-      int startX = nodeX[i];
-      int endX = nodeX[i + 1];
-
-      // Clip to screen
-      if (startX < 0) startX = 0;
-      if (endX >= getScreenWidth()) endX = getScreenWidth() - 1;
-
-      // Draw horizontal line
-      for (int x = startX; x <= endX; x++) {
-        drawPixel(x, scanY, state);
-      }
-    }
-  }
+  if (fontCacheManager_ && fontCacheManager_->isScanning()) return;
+  const auto c = canvasOf(*this);
+  bb_gfx_fill_polygon(&c, xPoints, yPoints, static_cast<size_t>(numPoints), state);
 }
 
 // For performance measurement (using static to allow "const" methods)

@@ -319,6 +319,7 @@ impl Canvas<'_> {
     }
 }
 
+mod polygon;
 mod round;
 pub use round::Corners;
 

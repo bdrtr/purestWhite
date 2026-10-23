@@ -219,6 +219,33 @@ fn masked_corners() {
     );
 }
 
+#[test]
+fn polygons() {
+    let mut buf = panel();
+    let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    // A triangle, and a bookmark ribbon with a notch, partly off the right edge.
+    c.fill_polygon(&[0, 6, 0], &[0, 3, 6], Fill::Black);
+    c.fill_polygon(&[10, 18, 18, 14, 10], &[0, 0, 7, 4, 7], Fill::Black);
+    // Fewer than three points, and mismatched lengths cut to the shorter.
+    c.fill_polygon(&[0, 15], &[7, 7], Fill::Black);
+    c.fill_polygon(&[0, 15, 15, 0], &[7, 7, 7], Fill::Black);
+    // As in the old code, an edge counts on a row only when one end lies above it, so the top row
+    // of each shape stays empty.
+    assert_eq!(
+        picture(&buf),
+        [
+            "................",
+            "###.......######",
+            "#####.....######",
+            "#######...######",
+            "#####.....######",
+            "###.......###..#",
+            "#.........##....",
+            "..........#.....",
+        ]
+    );
+}
+
 /// Random canvases, strips, clips and shapes, including extreme fill rectangles: nothing panics.
 #[test]
 fn mini_fuzz() {
@@ -260,7 +287,7 @@ fn mini_fuzz() {
         };
         for _ in 0..8 {
             let v = |next: &mut dyn FnMut(u32) -> u32| pick(140, next) - 50;
-            match next(9) {
+            match next(10) {
                 0 => {
                     c.pixel(v(&mut next), v(&mut next), next(2) == 0);
                 }
@@ -330,6 +357,18 @@ fn mini_fuzz() {
                         false,
                     );
                     c.mask_corners(i32::MAX, i32::MIN, i32::MIN, i32::MAX, 9, Fill::DarkGray);
+                }
+                9 => {
+                    let n = 3 + next(4) as usize;
+                    let xs: Vec<i32> = (0..n).map(|_| v(&mut next)).collect();
+                    let ys: Vec<i32> = (0..n).map(|_| v(&mut next)).collect();
+                    c.fill_polygon(&xs, &ys, Fill::White);
+                    c.fill_polygon(
+                        &[i32::MIN, i32::MAX, 0],
+                        &[i32::MAX, i32::MIN, 3],
+                        Fill::Black,
+                    );
+                    c.fill_polygon(&[0, 5, 0], &[i32::MIN, i32::MIN + 1, -1], Fill::Black);
                 }
                 _ => {
                     c.fill_rect(i32::MIN, i32::MIN + 1, i32::MAX, i32::MAX, Fill::DarkGray);
