@@ -1,0 +1,69 @@
+# Look words up in a card from make_dictionary_cards.py: a plural and a past tense (stems), a
+# quoted word, a possessive with a curly apostrophe, a British spelling (synonym file), a word
+# whose definition is over 16 KiB (shown as plain text), a word no dictionary has. Long press a
+# word, tap Look Up, and leave the definition with its back arrow:
+#   emu/compare.sh emu/dictionary.txt x4pro OUT/dict-book.epub OUT/plain/card/.dictionaries=/ \
+#       OUT/plain/card/.crosspoint=/
+# and the same with OUT/html/card.
+ready
+touch:240,348
+wait-screen
+touch:240,138
+wait-log:Page render
+wait-quiet:3
+shot:page
+touch:58,36:1200
+wait-quiet:3
+touch:70,53
+wait-quiet:5
+shot:stories
+touch:34,63
+wait-quiet:3
+touch:190,36:1200
+wait-quiet:3
+touch:169,53
+wait-quiet:5
+shot:walked
+touch:34,63
+wait-quiet:3
+touch:320,36:1200
+wait-quiet:3
+touch:169,53
+wait-quiet:5
+shot:zebra
+touch:34,63
+wait-quiet:3
+touch:437,36:1200
+wait-quiet:3
+touch:168,53
+wait-quiet:5
+shot:cats
+touch:34,63
+wait-quiet:3
+touch:56,74:1200
+wait-quiet:3
+touch:70,53
+wait-quiet:5
+shot:colour
+touch:34,63
+wait-quiet:3
+touch:412,131:1200
+wait-quiet:3
+touch:168,66
+wait-quiet:5
+shot:running
+touch:34,63
+wait-quiet:3
+touch:66,131:1200
+wait-quiet:3
+touch:70,66
+wait-quiet:5
+shot:quixotic
+heap:quixotic
+touch:34,63
+wait-quiet:3
+touch:90,169:1200
+wait-quiet:3
+touch:70,102
+wait-screen
+shot:qwertyuiop

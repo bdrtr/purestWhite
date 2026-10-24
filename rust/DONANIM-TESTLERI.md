@@ -1782,9 +1782,8 @@ rastgele resimde (kırpma, sığdırma ve tam boyut (büyütme dahil), konum, ek
 bayt aynı. Koda bilerek konan 13 hatanın 11'ini bu test, birini crate testi yakaladı (parçanın 4'ün
 katında başlamadığı eşik deseni; dönüştürücüde parçalar hep 4'ün katında başlıyor); kalanı sonucu
 değiştirmiyor. Emülatörde PNG ve JPEG resimli bölümler ile bozuk PNG bir önceki sürümle piksel piksel
-aynı, süreler değişmedi. Saydam PNG kaplaması emülatörde denenemedi: kaplama senaryosunun ayar dosyası
-(`sleepScreen`) emülatörde okunmuyor ve uyku ekranı varsayılanına düşüyor (BMP kaplamada da öyle;
-bu değişiklikten bağımsız). Flash x4pro'da 1656, x4c'de 1624 bayt büyüdü (maskeli ve maskesiz iki
+aynı, süreler değişmedi. Saydam PNG kaplaması da emülatörde (`emu/sleep.txt`, `make_bmp_files.py`'nin `overlay-png`
+kartı) bu değişiklikten önceki sürümle (38e2e5ef) piksel piksel aynı çizildi. Flash x4pro'da 1656, x4c'de 1624 bayt büyüdü (maskeli ve maskesiz iki
 yazma döngüsü, örnekleme), statik RAM değişmedi; yığında geri çağrı başına 192 baytlık tampon (JPEG'in tamponu gibi artık sıfırla
 başlatılıyor).
 
@@ -1812,7 +1811,8 @@ piksel türü ve iki bilinmeyen tür, 1, 2, 4 ve 8 bit, renk anahtarı eşleşen
 ya da alfasız, kaplama ya da değil) gri ve alfa bayt bayt aynı. Koda bilerek konan 15 hatanın 14'ü
 yakalandı; kalanı sonucu değiştirmiyor (1, 2 ve 4 bitte en büyük değer 255'i böler). Emülatörde PNG
 kitabı (her renk türü ve bit derinliği, palet ve renk anahtarı saydamlığı, alfa) ve bozuk PNG bir
-önceki sürümle piksel piksel aynı, süreler değişmedi. Flash x4pro'da 1332, x4c'de 1220 bayt büyüdü
+önceki sürümle piksel piksel aynı, süreler değişmedi; saydam PNG uyku kaplaması da (`emu/sleep.txt`)
+PNG değişikliklerinden önceki sürümle (38e2e5ef) aynı. Flash x4pro'da 1332, x4c'de 1220 bayt büyüdü
 (her piksel türü için alfalı ve alfasız ayrı döngüler), statik RAM değişmedi.
 
 - [ ] PNG resimli bir EPUB'ı (renkli, gri, paletli, saydam arka planlı resimlerle) ilk kez açın:
@@ -1901,9 +1901,10 @@ yakalandı (12'si bu testle, 9'u crate testleriyle); 3'ü sonucu değiştirmiyor
 tekrarı denetimi hiç tetiklenemediği için kaldırıldı (bir crate testi bunu sabitliyor). Okuma
 hatalarında bir fark kalabilir: SD kartta 32 baytlık bir okuma bozuk bir sektöre değerse bütünüyle
 başarısız oluyor; eski bayt bayt okuma bozuk sektörden önce biten bir girdiyi yine bulabiliyordu.
-`.dict.dz` sözlüklerinin tanım okuması (dictzip) bu testte yok, o yol değişmedi. Emülatörde sözlük
-açılamadığı için (ayar dosyası uygulanmıyor) yalnızca okuma senaryosu bir önceki sürümle
-karşılaştırıldı. Flash x4pro'da 2152, x4c'de 2156 bayt büyüdü, statik RAM değişmedi.
+`.dict.dz` sözlüklerinin tanım okuması (dictzip) bu testte yok, o yol değişmedi. Emülatörde sonradan `emu/dictionary.txt` (`emu/make_dictionary_cards.py`'nin düz ve
+HTML/dictzip kartlarıyla: kökler, eş anlamlılar, tırnaklı ve kesme işaretli sözcükler, 16 KiB'yi
+aşan tanım, bulunamayan sözcük) dört sözlük değişikliğinden önceki sürümle (da4da51c) piksel piksel
+aynı çıktı. Flash x4pro'da 2152, x4c'de 2156 bayt büyüdü, statik RAM değişmedi.
 
 - [ ] Daha önce endekslenmemiş bir StarDict sözlüğü ayarlayın (Sözlük; ya da klasördeki `.qidx` ve
   `.sidx` dosyalarını silin) ve bir kitapta Sözlükte Ara ile sözcükler arayın: ilk aramada "Sözlük
@@ -1934,8 +1935,10 @@ işaretlemeye ya da kaçışla yazılan karaktere dek bir seferde yazılıyor. E
 50000 rastgele etiket çorbasında (her türlü etiket, tırnaklı öznitelik, kapanmamış etiket, yorum,
 varlık, büyük harf, 15 karakterden uzun ad, UTF-8, rastgele bayt; kimi zaman yazma yarıda kesilerek)
 yazılan dosya ve sonuç aynı. Koda bilerek konan 17 hatanın 16'sı yakalandı; kalanı sonucu
-değiştirmiyor (boş öğelerin kapanışları zaten erkenden atılıyor). Emülatörde sözlük açılamadığı
-için (ayar dosyası uygulanmıyor) yalnızca okuma senaryosu bir önceki sürümle karşılaştırıldı.
+değiştirmiyor (boş öğelerin kapanışları zaten erkenden atılıyor). Emülatörde sonradan `emu/dictionary.txt` (`emu/make_dictionary_cards.py`'nin düz ve
+HTML/dictzip kartlarıyla: kökler, eş anlamlılar, tırnaklı ve kesme işaretli sözcükler, 16 KiB'yi
+aşan tanım, bulunamayan sözcük) dört sözlük değişikliğinden önceki sürümle (da4da51c) piksel piksel
+aynı çıktı.
 Flash x4pro'da 428, x4c'de 432 bayt büyüdü, statik RAM değişmedi.
 
 - [ ] HTML tanımlı bir StarDict sözlüğünde (ör. Wiktionary'den üretilmiş) Sözlükte Ara ile
@@ -1958,8 +1961,10 @@ ayırdığı dizeye yazıyor; eskisi de girdi boyunda yer ayırıyordu. Mevcut 6
 eski işlev olduğu gibi `test/html_to_plain_text`'e kopyalandı ve 50000 rastgele parçada (etiketler,
 büyük harf ve boşluklu adlar, adlı ve sayısal varlıklar, sınır dışı ve vekil kod noktaları, sekme,
 CR, satır sonu, UTF-8, rastgele bayt) çıktı aynı ve hiçbir zaman girdiden uzun değil. Koda bilerek
-konan 16 hatanın hepsi yakalandı. Emülatörde sözlük açılamadığı için yalnızca okuma senaryosu bir
-önceki sürümle karşılaştırıldı. Flash x4pro'da 384, x4c'de 372 bayt büyüdü, statik RAM değişmedi.
+konan 16 hatanın hepsi yakalandı. Emülatörde sonradan `emu/dictionary.txt` (`emu/make_dictionary_cards.py`'nin düz ve
+HTML/dictzip kartlarıyla: kökler, eş anlamlılar, tırnaklı ve kesme işaretli sözcükler, 16 KiB'yi
+aşan tanım, bulunamayan sözcük) dört sözlük değişikliğinden önceki sürümle (da4da51c) piksel piksel
+aynı çıktı. Flash x4pro'da 384, x4c'de 372 bayt büyüdü, statik RAM değişmedi.
 
 - [ ] HTML tanımlı bir sözlükte çok uzun (16 KiB'den büyük) bir tanımı olan bir sözcüğü arayın:
   tanım düz metin olarak, eskisi gibi satır ve paragraflara bölünmüş ve varlıkları (ör. `&amp;`,
@@ -1983,8 +1988,10 @@ da 8192'yi aşan parça sayısı, tutmayan uzunluklar, ad, açıklama, CRC, sıf
 okuma hatası, parça tablosuna yetmeyen bellek) sonuç, hata türü ve tablo aynı; geçerli başlıklarda
 70 binden fazla aralığın parça planı (atlanan ve alınan bayt, kimi zaman bir parçanın açılması
 başarısız olarak) da aynı. Koda bilerek konan 24 hatanın 19'u yakalandı; kalan 5'i sonucu
-değiştirmiyor (ulaşılamayan ya da gereksiz dallar). Emülatörde sözlük açılamadığı için yalnızca okuma senaryosu bir
-önceki sürümle karşılaştırıldı. Ayrıştırma başarısız olursa yarım parça tablosu artık hemen bırakılıyor. Crate'in dictzip için de
+değiştirmiyor (ulaşılamayan ya da gereksiz dallar). Emülatörde sonradan `emu/dictionary.txt` (`emu/make_dictionary_cards.py`'nin düz ve
+HTML/dictzip kartlarıyla: kökler, eş anlamlılar, tırnaklı ve kesme işaretli sözcükler, 16 KiB'yi
+aşan tanım, bulunamayan sözcük) dört sözlük değişikliğinden önceki sürümle (da4da51c) piksel piksel
+aynı çıktı. Ayrıştırma başarısız olursa yarım parça tablosu artık hemen bırakılıyor. Crate'in dictzip için de
 mini-fuzz testi var. Flash x4pro'da 528, x4c'de 520 bayt büyüdü, statik RAM değişmedi.
 
 - [ ] `.dict.dz` sıkıştırılmış bir StarDict sözlüğünde Sözlükte Ara ile birkaç sözcük arayın

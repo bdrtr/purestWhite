@@ -10,11 +10,14 @@ dithers images whose palette is not near the display's gray levels:
 - 7-cut.bmp: 24 bits with its pixel data cut short
 - overlay/card: a 32-bit BMP with transparency as /sleep-overlay.bmp, and the settings file that
   picks the transparent sleep screen (emu/sleep.txt)
+- overlay-png/card: the same ring as an RGBA /sleep-overlay.png, with an opaque white bar across it
+  (drawn white over the screen in black and white too), and the same settings file
 
   python3 emu/make_bmp_files.py OUT_DIR
 """
 import struct
 import sys
+import zlib
 from pathlib import Path
 
 out_dir = Path(sys.argv[1])
@@ -77,5 +80,27 @@ for y in range(H):
 card = out_dir / "overlay" / "card"
 (card / ".crosspoint").mkdir(parents=True, exist_ok=True)
 (card / "sleep-overlay.bmp").write_bytes(bmp(W, H, 32, overlay, compression=3))
+(card / ".crosspoint" / "settings.json").write_text('{"sleepScreen": 7}\n')
+print(card)
+
+# The PNG overlay: the ring, and an opaque white bar.
+def png(width, height, rows):
+    def chunk(kind, data):
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+    raw = b"".join(b"\0" + row for row in rows)
+    return (b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw, 6)) + chunk(b"IEND", b""))
+
+
+rgba = []
+for y, row in enumerate(overlay):
+    out = bytearray()
+    for x in range(W):
+        b, g, r, a = row[4 * x:4 * x + 4]
+        out += bytes((255, 255, 255, 255)) if 300 <= y < 330 else bytes((r, g, b, a))
+    rgba.append(bytes(out))
+card = out_dir / "overlay-png" / "card"
+(card / ".crosspoint").mkdir(parents=True, exist_ok=True)
+(card / "sleep-overlay.png").write_bytes(png(W, H, rgba))
 (card / ".crosspoint" / "settings.json").write_text('{"sleepScreen": 7}\n')
 print(card)

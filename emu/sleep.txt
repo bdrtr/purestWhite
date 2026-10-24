@@ -1,5 +1,8 @@
-# Card from make_bmp_files.py (overlay/card): hold Power to sleep; the transparent sleep screen
-# draws /sleep-overlay.bmp over the current screen
+# Card from make_bmp_files.py: hold Power to sleep; the transparent sleep screen draws the overlay
+# over the current screen. Put the card folder's contents at the root (a folder given as HOST=/ is
+# copied as a folder, not its contents):
+#   emu/compare.sh emu/sleep.txt x4pro OUT/overlay/card/sleep-overlay.bmp=/ OUT/overlay/card/.crosspoint=/
+#   emu/compare.sh emu/sleep.txt x4pro OUT/overlay-png/card/sleep-overlay.png=/ OUT/overlay-png/card/.crosspoint=/
 ready
 shot:home
 press:power:2000
