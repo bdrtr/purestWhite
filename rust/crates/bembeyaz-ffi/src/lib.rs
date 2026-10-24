@@ -21,6 +21,7 @@ mod expat;
 mod gfx;
 mod html;
 mod hyphenation;
+mod image;
 mod io;
 mod jpeg;
 mod json;

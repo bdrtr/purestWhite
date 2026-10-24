@@ -1843,3 +1843,23 @@ x4pro'da 284, x4c'de 316 bayt büyüdü, statik RAM değişmedi.
   ile deneyin: kapak eskisi gibi görünmeli.
 - [ ] İlerlemeli (progressive) JPEG kapaklı bir kitap varsa onun küçük resmi de eskisi gibi
   yumuşak görünmeli.
+
+## Resim boyutu yoklaması Rust'ta ("rust: our own image size probe")
+
+Bölüm derlenirken her resmin boyutu, resmin tamamı açılmadan EPUB'dan akan ilk baytlarından
+bulunuyor (`ImageDimsProbe`): JPEG'de işaretçi bölümleri (her boyuttaki EXIF/APPn, tamponlamadan)
+bir çerçeve başlığına (SOFn) dek atlanıyor, PNG'de IHDR'deki genişlik ve yükseklik sabit
+konumlarından okunuyor. Bu durum makinesi artık yeni `bembeyaz-image` crate'inde; durumu C++
+sınıfının içinde 28 baytlık opak `bb_image_probe` belleğinde duruyor ve `bb_image_probe_init` ile
+kuruluyor (yeni bir bellek ayırma yok), boyutun sınır denetimi ve günlük satırı C++'ta. Crate'in
+kısaltılmış ve bozulmuş başlıklarla mini-fuzz testi var. Eski ayrıştırıcının doğrudan bir testi yoktu; olduğu gibi
+`test/image_probe`'a kopyalandı: 20000 rastgele başlıkta (her türden JPEG işaretçisi ve bölüm
+uzunluğu, dolgu baytları, çerçeve başlığı ya da öncesinde tarama veya dosya sonu, PNG imzası ve
+IHDR, rastgele bozulmalar ve çöp, rastgele parçalar halinde) alınan bayt sayıları ve bulunan boyut
+aynı. Koda bilerek konan 17 hatanın hepsi yakalandı (biri crate testiyle). Emülatörde JPEG ve PNG
+resimli kitaplar ile bozuk JPEG bir önceki sürümle piksel piksel aynı, resim çıkarma günlük
+satırları da aynı. Flash x4pro'da 100, x4c'de 188 bayt büyüdü, statik RAM değişmedi.
+
+- [ ] JPEG ve PNG resimli bir EPUB'ı ilk kez açın: resimler eskisi gibi yerleşmeli (boyutları
+  doğru, sayfa sonları eskisi gibi) ve ilk açılış eskisi kadar hızlı olmalı (yoklama başarısız
+  olursa resim bütünüyle çıkarılır: doğru ama resim başına saniyeler sürer).

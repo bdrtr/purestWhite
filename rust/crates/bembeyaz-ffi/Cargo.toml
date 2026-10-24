@@ -24,6 +24,7 @@ bembeyaz-html = { path = "../bembeyaz-html" }
 bembeyaz-book = { path = "../bembeyaz-book" }
 bembeyaz-clippings = { path = "../bembeyaz-clippings" }
 bembeyaz-hyphenation = { path = "../bembeyaz-hyphenation" }
+bembeyaz-image = { path = "../bembeyaz-image" }
 bembeyaz-io = { path = "../bembeyaz-io" }
 bembeyaz-jpeg = { path = "../bembeyaz-jpeg" }
 bembeyaz-json = { path = "../bembeyaz-json" }
