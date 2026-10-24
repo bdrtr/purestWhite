@@ -28,7 +28,7 @@ CrossPoint, `../crosspoint-prev` 609d473.
   "Failed to index - invalid book" ya da eksik içindekiler).
 - [ ] OPDS kataloğu: göz atma, arama, indirme.
 - [ ] WebDAV ile dosya listesi.
-- [ ] KOReader eşitleme: konum gönderme ve alma.
+- [x] KOReader eşitleme: konum gönderme ve alma.
 - [ ] KOReader eşitleme, `&nbsp;` gibi HTML varlıkları bol bir kitapta ("fix: KOReader
   sync counts HTML entities as the chapter shows them"): bölüm ortasında konum gönderin,
   KOReader aynı yeri açmalı; KOReader'dan gelen konum da aynı sayfaya düşmeli. Eskiden
@@ -63,7 +63,7 @@ CrossPoint, `../crosspoint-prev` 609d473.
 - [ ] Odaklanmış Okuma (Focus Reading) açıkken: sözcük başları kalın olmalı, hizalama kaymamalı.
 - [ ] Japonca/Çince bir kitap (ruby varsa iyi olur), Korece bir kitap ve Arapça/İbranice bir
   kitap: satır kırma ve sağdan sola sıralama eskisi gibi olmalı.
-- [ ] Dipnot bağlantıları olan bir kitap: bağlantıya dokunulunca dipnot açılmalı.
+- [x] Dipnot bağlantıları olan bir kitap: bağlantıya dokunulunca dipnot açılmalı.
 - [ ] SD karttan yüklenen bir yazı tipiyle uzun bir bölüm: ilk sayfa oluşturma süresi
   (`Time to parse and build pages`) eskisinden uzun olmamalı.
 - [ ] Çok uzun tek paragraflı bir bölüm (ör. Çince romanda bölüm boyu tek paragraf): açılmalı,
@@ -77,7 +77,7 @@ CrossPoint, `../crosspoint-prev` 609d473.
 - [ ] SD karttan yüklenen bir yazı tipiyle okuma: glifler bozulmadan çizilmeli, sayfa
   çevirme hızı eskisi gibi olmalı.
 - [ ] PNG kapaklı bir kitap: kapak görünmeli.
-- [ ] Sözlük (.dict.dz): kelime aramaları tanımları getirmeli.
+- [x] Sözlük (.dict.dz): kelime aramaları tanımları getirmeli.
 
 ## CSS (46ebf6e)
 
@@ -108,7 +108,7 @@ Bu iki düzeltme artık yalnızca PNG resimlerinde (`bembeyaz-png`) geçerli; el
 dosyalarda çıkar ve host testleri kapsar. Bozuk EPUB denemesi aşağıdaki "ROM'daki inflate"
 bölümünde.
 
-- [ ] Cihazda ayrıca denenecek bir şey yok: "PNG resimleri" bölümündeki `png-broken.epub`
+- [x] Cihazda ayrıca denenecek bir şey yok: "PNG resimleri" bölümündeki `png-broken.epub`
   denemesinde donma olmaması yeterli. Sağlam kitaplar bu değişikliklerden etkilenmez.
 
 ## Sıkıştırma hızı ("rust: inflate for the PNG decoder")
@@ -131,7 +131,7 @@ açın. Hata belirtileri: kayık ya da çizgili satırlar, yanlış gri tonlar, 
   13 bölümü sırayla açın; her bölümde tek resim var. Görünüşleri
   `emu/compare.sh emu/png.txt x4pro emu/books/png/png.epub` çıktısındaki
   `emu/runs/png-png-*/report.html` ekran görüntüleriyle aynı olmalı.
-- [ ] Aynı klasördeki `png-broken.epub`: bölüm açılmalı, cihaz donmamalı. Günlükte
+- [x] Aynı klasördeki `png-broken.epub`: bölüm açılmalı, cihaz donmamalı. Günlükte
   `Decode failed: 1` görünmeli, resmin yerinde boş bir çerçeve olmalı (emülatörde de böyle).
   Eski sürüm bu resimde sonsuza dek bekliyordu.
 - [ ] Hız: büyük bir PNG resmi olan bir bölümü önbelleği silinmiş olarak açın, günlükteki
@@ -142,10 +142,10 @@ açın. Hata belirtileri: kayık ya da çizgili satırlar, yanlış gri tonlar, 
   görünmeli, önceki/sonraki resme geçiş çalışmalı.
 - [ ] OPDS kataloğunda PNG kapaklı bir kitabın Details (Ayrıntılar) ekranı: kapak görünmeli (bu ekran
   kapağı bölüm resmi çözücüsüyle çizer).
-- [ ] Uyku ekranı ayarını **Transparent** yapın, kartın köküne alfa kanallı bir
+- [x] Uyku ekranı ayarını **Transparent** yapın, kartın köküne alfa kanallı bir
   `sleep-overlay.png` koyun (kökte `sleep-overlay.bmp` olmasın, o önce gelir), cihazı uyutun:
   saydam yerlerden alttaki ekran, opak yerlerde resim görünmeli.
-- [ ] BLE kumanda bağlıyken PNG'li bir bölümü ilk kez açın: kumanda bağlı kalmalı, sayfa
+- [x] BLE kumanda bağlıyken PNG'li bir bölümü ilk kez açın: kumanda bağlı kalmalı, sayfa
   çevirme çalışmalı (çözücü dahili RAM'den hiçbir zaman 4 KB'tan büyük blok istemez).
 
 ## JPEG resimleri ("rust: our own JPEG decoder")
@@ -181,7 +181,7 @@ boş resim, donma ya da yeniden başlatma.
 
 ## Bozuk JPEG ("fix: JPEG open no longer loops on a segment past the end of the file")
 
-- [ ] `python3 emu/make_jpeg_epub.py emu/books/jpeg` ile üretilen `jpeg-broken.epub`'ı karta
+- [x] `python3 emu/make_jpeg_epub.py emu/books/jpeg` ile üretilen `jpeg-broken.epub`'ı karta
   kopyalayıp bölümünü açın: sayfa açılmalı, cihaz donmamalı. Sayfada yalnızca başlık görünür,
   resim atlanır (günlükte `Failed to open JPEG for dimensions (err=2)`); emülatörde de böyle. Eski
   sürüm bu resimde sonsuza dek bekliyordu. Sağlam JPEG'ler bu değişiklikten etkilenmez.
@@ -192,7 +192,7 @@ boş resim, donma ya da yeniden başlatma.
   okuyucu) artık bir `malloc` bloğundan kesiliyor. Önbelleği silinmiş birkaç kitabı açıp bölümler
   arasında gezinin, OPDS kataloğuna da göz atın: günlükte `Rust panic`, yeniden başlatma ya da donma
   olmamalı.
-- [ ] BLE kumanda bağlıyken bir kitabı ilk kez açın: kumanda bağlı kalmalı, sayfa çevirme çalışmalı.
+- [x] BLE kumanda bağlıyken bir kitabı ilk kez açın: kumanda bağlı kalmalı, sayfa çevirme çalışmalı.
 
 ## PNG kapak bit derinliği ("fix: PNG covers refuse a bit depth the color type does not allow")
 
@@ -251,8 +251,8 @@ tanımın gelmemesi, donma ya da yeniden başlatma; sağlam bir dosyada günlük
   (`emu/runs/inflate-inflate-*/report.html`) ekran görüntüleriyle aynı görünmeli.
 - [ ] Yerleşik yazı tipleriyle (farklı boyutlar, kalın/italik) ve indirilmiş bir yazı tipiyle
   okuma: glifler bozulmadan çizilmeli, sayfa çevirme eskisi kadar hızlı olmalı.
-- [ ] Sözlük (.dict.dz): birkaç kelime, uzun tanımlı bir kelime de arayın; tanımlar tam gelmeli.
-- [ ] KOReader eşitleme: konum gönderme ve alma çalışmalı.
+- [x] Sözlük (.dict.dz): birkaç kelime, uzun tanımlı bir kelime de arayın; tanımlar tam gelmeli.
+- [x] KOReader eşitleme: konum gönderme ve alma çalışmalı.
 - [ ] Bozuk bir EPUB: bir kitabın kopyasında dosyanın ortasındaki birkaç baytı bir hex
   düzenleyiciyle değiştirin (dosyanın sonundaki ZIP dizini sağlam kalsın; yarıda kesilmiş bir
   dosya inflate'e hiç ulaşmaz) ve bölümleri açın: donma ya da yeniden başlatma olmamalı; bozuk
@@ -769,10 +769,10 @@ Serif ASCII, 10 MB'lık Noto Sans CJK) ve bunların 9.200 bozulmuş kopyasında 
 aynıydı. Emülatörde bir SD fontuyla okunan kitap ve bozuk bir fonttan yerleşik fonta dönüş
 değiştirilmemiş CrossPoint'le aynı göründü.
 
-- [ ] Ayarlar → Manage Fonts / Yazı Tiplerini Yönet'ten indirilmiş ya da `/.fonts` (veya `/fonts`)
+- [x] Ayarlar → Manage Fonts / Yazı Tiplerini Yönet'ten indirilmiş ya da `/.fonts` (veya `/fonts`)
   altına konmuş bir fontu Text Settings / Metin ayarları → Font / Yazı tipi'nde okuma fontu olarak
   seçin ve bir kitap açın: metin o fontla, kalın ve italik yerler doğru stille görünmeli.
-- [ ] Bu fontla bir kitap açın, kapatın, cihazı yeniden başlatıp kitabı yeniden açın: bölümler
+- [x] Bu fontla bir kitap açın, kapatın, cihazı yeniden başlatıp kitabı yeniden açın: bölümler
   yeniden oluşturulmadan hemen açılmalı (günlükte `Parameters do not match` görünmemeli). Cihaz
   5f321eb'den eski bir sürümden geliyorsa, yüklemeden sonraki ilk açılışta kitap önbelleği
   `BOOK_CACHE_VERSION` artışı yüzünden bir kez yeniden kurulur.
@@ -815,7 +815,7 @@ fontlarda hiçbir şey değişmez. Yeni bir test dahil 927 host testi geçiyor. 
 bozulmuş bir fontla eski sürüm "e" yerine çizgili lekeler çizdi, bu sürüm boşluk bıraktı; sağlam
 fontla sayfalar değiştirilmemiş CrossPoint'le aynı.
 
-- [ ] Karttaki sağlam bir fontla birkaç sayfa okuyun: harfler eksiksiz görünmeli (hiçbir harf boş
+- [x] Karttaki sağlam bir fontla birkaç sayfa okuyun: harfler eksiksiz görünmeli (hiçbir harf boş
   kalmamalı).
 
 ## SD kart fontunun glif okuyucuları Rust'ta ("rust: our own .cpfont glyph readers")
@@ -833,7 +833,7 @@ benzetildi) toplam 160.240 adımda, ayrıca dört gerçek fontta karşılaştır
 Emülatörde sağlam ve bozuk fontlarla okunan sayfalar ve SD font günlük satırları değiştirilmemiş
 CrossPoint'le aynıydı; kısa bitmap'li fontla ekranlar bir önceki sürümle piksel piksel aynıydı.
 
-- [ ] Karttaki bir fontla daha önce bu fontla açılmamış bir kitap açın ya da yazı boyutunu
+- [x] Karttaki bir fontla daha önce bu fontla açılmamış bir kitap açın ya da yazı boyutunu
   değiştirip geri dönün (bölüm yeniden dizilir); birkaç sayfa ileri ve geri gidin: harfler, kalın
   ve italik yerler eksiksiz görünmeli, sözcükler üst üste binmemeli, satırlar sağ kenarı aşmamalı.
 - [ ] CJK karakterli bir SD fontunu (ör. Noto Sans CJK) okuma fontu yapıp Çince ya da Japonca bir
@@ -912,7 +912,7 @@ glif ölçüleri, bitmap baytları, ilerleme genişlikleri ile dosyadaki okuma v
 aynıydı. Emülatörde ekranlar ve SD font günlük satırları değiştirilmemiş CrossPoint'le aynıydı;
 bölüm dizme süresi değişmedi (önceki sürümde 2.508, bu sürümde 2.512 ms).
 
-- [ ] Karttaki bir fontu okuma fontu seçip daha önce bu fontla açılmamış bir kitap açın ya da yazı
+- [x] Karttaki bir fontu okuma fontu seçip daha önce bu fontla açılmamış bir kitap açın ya da yazı
   boyutunu değiştirip kitaba dönün (bölüm yeniden dizilir): sözcükler üst üste binmemeli, satırlar
   sağ kenarı aşmamalı, iki yana yaslı satırlarda boşluklar eskisi gibi olmalı.
 - [ ] `python3 emu/make_css_epub.py emu/books/css` ile üretilen `css-test.epub`'ı karta kopyalayın;
@@ -976,10 +976,10 @@ olduğu için bu taşıma onları korumadı, ayrı ayrı regresyon testleriyle d
 Emülatörde okuma ve kitap açma ekranları değiştirilmemiş CrossPoint'le, okuma ekranları bir önceki
 sürümle aynıydı; sayfa çizme süresi değişmedi (1.260–1.261 ms yerine 1.259–1.260 ms).
 
-- [ ] Önceki firmware'le açılmış bir kitabı (bir bölümü tam dizilmiş, uzun bir bölümü yarım
+- [x] Önceki firmware'le açılmış bir kitabı (bir bölümü tam dizilmiş, uzun bir bölümü yarım
   kalmış) yeni sürümü yükledikten sonra açın: yeniden dizilmeden hemen açılmalı, günlükte
   `Unknown version` ya da `Parameters do not match` olmamalı.
-- [ ] Bir kitabı açıp birkaç sayfa okuyun, kitaptan çıkıp yeniden açın: aynı sayfada ve hemen
+- [x] Bir kitabı açıp birkaç sayfa okuyun, kitaptan çıkıp yeniden açın: aynı sayfada ve hemen
   açılmalı (bölüm önbellekten okunur).
 - [ ] Okurken metin menüsünden yazı boyutunu değiştirin (Türkçe arayüzde bu satır şimdilik
   "Arayüz Yazı Boyutu" diye görünüyor): bölüm yeniden dizilmeli, sayfalar yeni boyutta olmalı;
@@ -1007,7 +1007,7 @@ sözcüklerin metni, adresler) yazılıyordu; aynı kitap her dizilişte farklı
 alan sıfırla ilklenir. Sayfa biçimini bayt bayt ve her doğrulama dalını sabitleyen 6 yeni host testi
 (`test/page_codec`) dahil 975 host testi geçiyor; emülatörde okuma ekranları aynı.
 
-- [ ] İç bağlantıları (dipnot, içindekiler bağlantısı) olan bir bölümde bağlantılara dokunun
+- [x] İç bağlantıları (dipnot, içindekiler bağlantısı) olan bir bölümde bağlantılara dokunun
   (X4 Pro) ya da bağlantı seçimini kullanın: doğru yere gitmeli.
 
 ## Bölüm sayfaları Rust'ta ("rust: our own section pages")
@@ -1037,8 +1037,8 @@ değiştirilmemiş CrossPoint'le, okuma ekranları bir önceki sürümle aynıyd
 - [ ] Aşağıdaki adımlarda yeni yazıcının da çalışması için kitabın önbelleğini silin (Kitap
   Önbelleğini Sil) ya da hiç açılmamış bir kitapla başlayın; okuduktan sonra kitaptan çıkıp yeniden
   açın.
-- [ ] Resimli bir kitapta resim içeren sayfalar ve yer tutucuları doğru yerde olmalı.
-- [ ] Ayarlar'da Gömülü Stil açıkken, CSS'li bir kitapta (kalın, italik, altı/üstü çizili, üst ve
+- [x] Resimli bir kitapta resim içeren sayfalar ve yer tutucuları doğru yerde olmalı.
+- [x] Ayarlar'da Gömülü Stil açıkken, CSS'li bir kitapta (kalın, italik, altı/üstü çizili, üst ve
   alt simge, küçük büyük harf, farklı yazı boyutlu sözcükler; `::first-letter` ya da büyük ilk harf
   ile başlayan paragraflar; kenarlıklı ya da açık arka planlı kutular) sayfalar yeniden açınca aynı
   görünmeli. `<hr>` çizgileri Gömülü Stil kapalıyken de görünmeli.
@@ -1046,7 +1046,7 @@ değiştirilmemiş CrossPoint'le, okuma ekranları bir önceki sürümle aynıyd
   olmalı.
 - [ ] Okuma yazı tipi olarak CJK destekli bir SD fontu seçiliyken furiganalı Japonca bir kitapta
   (ör. bir Aozora Bunko EPUB'u) ruby metinleri yeniden açınca yerinde olmalı.
-- [ ] Dipnot ve iç bağlantılı bir bölümde bağlantılar yeniden açınca da doğru yere gitmeli.
+- [x] Dipnot ve iç bağlantılı bir bölümde bağlantılar yeniden açınca da doğru yere gitmeli.
 - [ ] Geliştirme derlemesinin (`pio run -e x4pro`) seri günlüğünde `[PGE] Deserialization failed`,
   `[PGE] Serialization failed`, `[TXB] OOM` ya da `[ERS] Failed to load page from SD` satırları
   görünmemeli.
@@ -1241,7 +1241,7 @@ değişmedi.
   görünmeli, karakterler bozulmamalı.
 - [ ] `<pre>` kod bloğu ya da `white-space: pre` kullanan bir bölüm açın (sekmeli olursa daha iyi):
   boşluklar, sekmeler ve satırlar korunmalı.
-- [ ] CSS'inde `::first-letter` ya da `initial-letter` olan (ya da büyük ilk harf span'ı kullanan) bir
+- [x] CSS'inde `::first-letter` ya da `initial-letter` olan (ya da büyük ilk harf span'ı kullanan) bir
   kitap açın: büyük ilk harf eskisi gibi görünmeli.
 
 ## Büyük ilk harfin yakalanması Rust'ta ("rust: our own initial letter capture")
@@ -1263,7 +1263,7 @@ senaryosu ve büyük ilk harfli CSS kitabı ile iki yönlü ve heceleme kitaplar
 ekranları verdi, CSS kitabının bölüm önbelleği bayt bayt aynıydı. x4pro'da flash 208 bayt
 büyüdü, RAM değişmedi.
 
-- [ ] CSS'inde `::first-letter` ya da `initial-letter` olan (ya da büyük ilk harf span'ı kullanan) bir
+- [x] CSS'inde `::first-letter` ya da `initial-letter` olan (ya da büyük ilk harf span'ı kullanan) bir
   kitap açın: büyük ilk harf ve önündeki tırnak ya da noktalama eskisi gibi görünmeli; paragrafın
   geri kalanı harfin yanında akmalı. (Böyle bir kitap `python3 emu/make_css_epub.py <klasör>` ile
   üretilebilir: `p.drop::first-letter` kuralı içerir.)
@@ -1308,7 +1308,7 @@ fonksiyon `float`'ı FFI'dan değer olarak geçiren ilk fonksiyonlar; firmware'i
 Rust'ın argümanı ve dönüşü aynı yazmaçlarda taşıdığı görüldü (yanlış olsaydı başlıkların ve boyutlu
 span'ların boyutu bozulurdu). x4pro'da flash 240 bayt büyüdü, RAM değişmedi.
 
-- [ ] Başlıkları (h1–h6), `font-size` verilmiş paragrafları ve yazı boyutu büyütülmüş ya da
+- [x] Başlıkları (h1–h6), `font-size` verilmiş paragrafları ve yazı boyutu büyütülmüş ya da
   küçültülmüş span'ları (`small`/`big` ya da `font-size` verilmiş) olan bir kitabı açın (`python3
   emu/make_css_epub.py <klasör>` bir kısmını üretir): yazı boyutları eskisi gibi görünmeli.
 
@@ -1612,7 +1612,7 @@ Emülatörde ayarlar, kütüphane, kitap açma (CSS, iki yönlü ve XML kitaplar
 yatay), uyku, alıntı, BLE ayarları, BMP görüntüleyici, gece modu ve Klasik, Lyra Genişletilmiş,
 RoundedRaff ve Cover Grid ana ekranları bir önceki sürümle piksel piksel aynı çıktı.
 
-- [ ] Bir kitabı dört Okuma Yönü'nde (Dikey, Yatay (Saat Yönü), Dikey 180°, Yatay (Saat Yönü Tersi)),
+- [x] Bir kitabı dört Okuma Yönü'nde (Dikey, Yatay (Saat Yönü), Dikey 180°, Yatay (Saat Yönü Tersi)),
   Metin Yumuşatma (AA) kapalı ve açık okuyun: harfler AA kapalıyken keskin, açıkken gri kenarlı ve
   eskisi gibi görünmeli; sayfa kenarlarında ve kırpılan yerlerde kesik ya da kaymış harf olmamalı.
 - [ ] Seri günlükte `Page render:` satırlarındaki `bw_render`, `gray_lsb` ve `gray_msb` sürelerini
@@ -1730,7 +1730,7 @@ sürümle aynı. Flash x4pro'da 460, x4c'de 480 bayt büyüdü, statik RAM deği
 
 - [ ] JPEG ve PNG resimli bir EPUB'ı açın, resimli sayfaları ileri geri çevirin: resimlerin gri tonları
   ve kenarları bir önceki sürümdeki gibi görünmeli (gri tonlar ilk gösterimde de önbellekten çizilir).
-- [ ] Aynı sayfaları dört yönelimde (Okuma Yönü ayarı) açın: resim yerinde olmalı, kayma ya da yarım
+- [x] Aynı sayfaları dört yönelimde (Okuma Yönü ayarı) açın: resim yerinde olmalı, kayma ya da yarım
   kalmış şerit olmamalı.
 
 ## JPEG resimlerinin çizimi Rust'ta ("rust: our own JPEG image sampling")
@@ -1791,7 +1791,7 @@ başlatılıyor).
 - [ ] Dosyalara Göz At'tan bir PNG açın: eskisi gibi görünmeli.
 - [ ] OPDS kataloğunda PNG kapaklı bir kitabın Details (Ayrıntılar) ekranını açın: kapak eskisi gibi
   görünmeli.
-- [ ] Uyku Ekranı'nı Transparent (Türkçe çevirisi yok) yapıp kartın köküne saydam bir
+- [x] Uyku Ekranı'nı Transparent (Türkçe çevirisi yok) yapıp kartın köküne saydam bir
   `sleep-overlay.png` koyun (kenarı opak, içi giderek saydamlaşan bir halka gibi; kökte
   `sleep-overlay.bmp` olmasın, önce o seçilir) ve uykuya geçin: kaplama ekrandakinin üstüne eskisi
   gibi binmeli; saydam yerlerde alttaki görünmeli, opak beyaz yerler beyaz olmalı.
@@ -1817,7 +1817,7 @@ PNG değişikliklerinden önceki sürümle (38e2e5ef) aynı. Flash x4pro'da 1332
 
 - [ ] PNG resimli bir EPUB'ı (renkli, gri, paletli, saydam arka planlı resimlerle) ilk kez açın:
   resimler eskisi gibi görünmeli; saydam arka planlar beyaz olmalı.
-- [ ] Saydam uyku kaplaması (`/sleep-overlay.png`, önceki maddedeki gibi): kaplama eskisi gibi
+- [x] Saydam uyku kaplaması (`/sleep-overlay.png`, önceki maddedeki gibi): kaplama eskisi gibi
   binmeli.
 
 ## Kapak satırlarının ölçeklenmesi Rust'ta ("rust: our own cover scaling")
@@ -1839,7 +1839,7 @@ x4pro'da 284, x4c'de 316 bayt büyüdü, statik RAM değişmedi.
 
 - [ ] Daha önce açılmamış JPEG ve PNG kapaklı kitapları açıp Ana Sayfa'ya dönün: küçük resimler
   eskisi gibi görünmeli.
-- [ ] Uyku Ekranı'nı Kapak yapıp bir kitaptan uykuya geçin; Uyku Ekranı Kapak Modu'nu Sığdır ve Kırp
+- [x] Uyku Ekranı'nı Kapak yapıp bir kitaptan uykuya geçin; Uyku Ekranı Kapak Modu'nu Sığdır ve Kırp
   ile deneyin: kapak eskisi gibi görünmeli.
 - [ ] İlerlemeli (progressive) JPEG kapaklı bir kitap varsa onun küçük resmi de eskisi gibi
   yumuşak görünmeli.
@@ -1860,7 +1860,7 @@ aynı. Koda bilerek konan 17 hatanın hepsi yakalandı (biri crate testiyle). Em
 resimli kitaplar ile bozuk JPEG bir önceki sürümle piksel piksel aynı, resim çıkarma günlük
 satırları da aynı. Flash x4pro'da 100, x4c'de 188 bayt büyüdü, statik RAM değişmedi.
 
-- [ ] JPEG ve PNG resimli bir EPUB'ı ilk kez açın: resimler eskisi gibi yerleşmeli (boyutları
+- [x] JPEG ve PNG resimli bir EPUB'ı ilk kez açın: resimler eskisi gibi yerleşmeli (boyutları
   doğru, sayfa sonları eskisi gibi) ve ilk açılış eskisi kadar hızlı olmalı (yoklama başarısız
   olursa resim bütünüyle çıkarılır: doğru ama resim başına saniyeler sürer).
 
@@ -1911,9 +1911,9 @@ aynı çıktı. Flash x4pro'da 2152, x4c'de 2156 bayt büyüdü, statik RAM değ
   endeksleniyor..." görünmeli, sonra tanımlar eskisi gibi gelmeli.
 - [ ] Eski sürümün endekslediği bir sözlük yeniden endekslenmeden açılmalı (dizin biçimi
   değişmedi).
-- [ ] Tırnak içindeki, büyük harfle başlayan ve çoğul ya da -ed/-ing ekli sözcükler kök hâlleriyle
+- [x] Tırnak içindeki, büyük harfle başlayan ve çoğul ya da -ed/-ing ekli sözcükler kök hâlleriyle
   bulunmalı; sözlükte olmayan bir sözcük "Bulunamadı" demeli.
-- [ ] `.syn` dosyası olan bir sözlükte bir eş anlamlı (ör. düzensiz bir biçim) aranınca ana
+- [x] `.syn` dosyası olan bir sözlükte bir eş anlamlı (ör. düzensiz bir biçim) aranınca ana
   girdisi gelmeli.
 - [ ] Hem `.dict` hem `.dict.dz` sözlüklerde aramalar eskisi kadar hızlı ya da daha hızlı olmalı;
   özellikle FAT32 kartta büyük (`.idx` 20 MB'tan büyük) bir sözlükte, bulunan sözcüklerle birlikte
@@ -1941,7 +1941,7 @@ aşan tanım, bulunamayan sözcük) dört sözlük değişikliğinden önceki s�
 aynı çıktı.
 Flash x4pro'da 428, x4c'de 432 bayt büyüdü, statik RAM değişmedi.
 
-- [ ] HTML tanımlı bir StarDict sözlüğünde (ör. Wiktionary'den üretilmiş) Sözlükte Ara ile
+- [x] HTML tanımlı bir StarDict sözlüğünde (ör. Wiktionary'den üretilmiş) Sözlükte Ara ile
   sözcükler arayın: tanımlar eskisi gibi biçimli (kalın, italik, listeler, satır sonları)
   görünmeli; düz metne düşmemeli.
 - [ ] OPDS kataloğunda HTML açıklamalı bir kitabın Details (Ayrıntılar) ekranını ve oradaki Details
@@ -1966,7 +1966,7 @@ HTML/dictzip kartlarıyla: kökler, eş anlamlılar, tırnaklı ve kesme işaret
 aşan tanım, bulunamayan sözcük) dört sözlük değişikliğinden önceki sürümle (da4da51c) piksel piksel
 aynı çıktı. Flash x4pro'da 384, x4c'de 372 bayt büyüdü, statik RAM değişmedi.
 
-- [ ] HTML tanımlı bir sözlükte çok uzun (16 KiB'den büyük) bir tanımı olan bir sözcüğü arayın:
+- [x] HTML tanımlı bir sözlükte çok uzun (16 KiB'den büyük) bir tanımı olan bir sözcüğü arayın:
   tanım düz metin olarak, eskisi gibi satır ve paragraflara bölünmüş ve varlıkları (ör. `&amp;`,
   `&#233;`) çözülmüş görünmeli.
 - [ ] OPDS kataloğunda HTML açıklamalı bir kitabın Details (Ayrıntılar) ekranı bellek azken (ör.
@@ -1994,7 +1994,7 @@ aşan tanım, bulunamayan sözcük) dört sözlük değişikliğinden önceki s�
 aynı çıktı. Ayrıştırma başarısız olursa yarım parça tablosu artık hemen bırakılıyor. Crate'in dictzip için de
 mini-fuzz testi var. Flash x4pro'da 528, x4c'de 520 bayt büyüdü, statik RAM değişmedi.
 
-- [ ] `.dict.dz` sıkıştırılmış bir StarDict sözlüğünde Sözlükte Ara ile birkaç sözcük arayın
+- [x] `.dict.dz` sıkıştırılmış bir StarDict sözlüğünde Sözlükte Ara ile birkaç sözcük arayın
   (kısa ve uzun tanımlar, sözlüğün başından ve sonundan sözcükler): tanımlar eskisi gibi gelmeli.
 
 ## Çerçeveli kutular Rust'ta ("rust: our own framed boxes")
@@ -2015,7 +2015,7 @@ testleri yakaladı. Emülatörde CSS kitabı (çerçeveli ve gölgeli kutular) o
 senaryolarında bir önceki sürümle piksel piksel aynı. Flash x4pro'da 484, x4c'de 416 bayt büyüdü,
 statik RAM değişmedi.
 
-- [ ] Kenarlıklı ya da arka planı gri kutuları olan bir EPUB'da (ör. not ya da alıntı kutuları)
+- [x] Kenarlıklı ya da arka planı gri kutuları olan bir EPUB'da (ör. not ya da alıntı kutuları)
   kutunun birden çok sayfaya taştığı bir yere gelin: çerçeve her sayfada eskisi gibi çizilmeli,
   sayfa sonunda kesilen üst ve alt kenarlar açık kalmalı. Kenarlıkla çizilmiş içi boş bir çizgi
   sayfanın en altına denk gelirse sonraki sayfada eskisi gibi çizilmeli.
@@ -2039,7 +2039,7 @@ fark testi, bu kez glif ölçüleri harfe ve yazı tipine göre değişen (kimi 
 büyük ilk harfli CSS kitabı okuma ve kitap açma senaryolarında bir önceki sürümle piksel piksel
 aynı. Flash x4pro'da 280, x4c'de 284 bayt büyüdü, statik RAM değişmedi.
 
-- [ ] CSS'inde `::first-letter` ya da `initial-letter` olan (ya da büyük ilk harf span'ı kullanan)
+- [x] CSS'inde `::first-letter` ya da `initial-letter` olan (ya da büyük ilk harf span'ı kullanan)
   bir kitap açın, yazı boyutunu ve yazı tipini değiştirerek birkaç kez bakın: büyük ilk harf eskisi
   gibi büyüklükte, üstü ilk satırın büyük harfleriyle, tabanı son satırın tabanıyla hizalı ve
   yanındaki satırlar eskisi gibi girintili olmalı. Sayfanın altına denk gelen büyük ilk harfli bir
@@ -2062,7 +2062,7 @@ yeni bir kitap (`jpeg-sized.epub`, senaryosu `emu/jpeg-sized.txt`) eklendi; bu s
 PNG senaryoları bir önceki sürümle piksel piksel aynı. Flash x4pro'da 512, x4c'de 444 bayt büyüdü,
 statik RAM değişmedi.
 
-- [ ] Resimlerine CSS ile genişlik ya da yükseklik veren bir EPUB'da (ör. `width: 50%` ya da
+- [x] Resimlerine CSS ile genişlik ya da yükseklik veren bir EPUB'da (ör. `width: 50%` ya da
   `height: 10em`) resimli sayfalara bakın: resimler eskisi gibi büyüklükte ve oranları bozulmadan
   görünmeli, sayfadan taşmamalı.
 
@@ -2084,7 +2084,7 @@ eklendiği için taşınanlar zaten sonda durur ve fark testi sıra bozulmasın�
 değiştirmiyor. Emülatörde dipnotlu CSS kitabı ve heceleme kitabı bir önceki sürümle piksel piksel
 aynı. Flash x4pro'da 812, x4c'de 648 bayt büyüdü, statik RAM değişmedi.
 
-- [ ] Dipnotlu bir kitapta, dipnot bağlantısı olan bir satırın sayfa sonunda sonraki sayfaya
+- [x] Dipnotlu bir kitapta, dipnot bağlantısı olan bir satırın sayfa sonunda sonraki sayfaya
   taşındığı bir yere gelin (ör. paragrafın son satırı): bağlantıya dokununca (Dokunmatik okuyucu
   kontrolleri açıkken) dipnot eskisi gibi açılmalı; dipnot, taşınan satırın geldiği sayfada
   menüdeki "Bağlantılar ve dipnotlar" listesinde görünmeli, önceki sayfanın listesinde ise yalnızca
@@ -2105,7 +2105,7 @@ başlayan resimlerin kırpılması, uzun bir öğeden sonraki KOReader konumu) v
 Bütün emülatör senaryoları 0.0.2 ile karşılaştırıldı (sonuçlar `rust/TEST-PLANI-0.0.3.md`'de);
 cihaz denemesi o plana göre yapılır.
 
-- [ ] Hakkında'da Firmware satırı "purestWhite next 0.0.3" olmalı, açılışta altta "0.0.3"; Start
+- [x] Hakkında'da Firmware satırı "purestWhite next 0.0.3" olmalı, açılışta altta "0.0.3"; Start
   Other Firmware önceki yazılımı adıyla ("purestWhite next 0.0.2") göstermeli.
 - [ ] 0.0.3 GitHub'da yayımlandıktan sonra 0.0.2 çalışan bir cihazda Check for Updates 0.0.3'ü
   önermeli.
