@@ -183,7 +183,7 @@ int jpegDrawCallback(void* user, const bb_jpeg_block* block) {
   const uint8_t quantize = useDithering ? BB_DITHER_QUANTIZE_BAYER : BB_DITHER_QUANTIZE_THIRDS;
   // The levels of up to this many columns of a row at a time.
   constexpr int PIECE = 512;
-  uint8_t levels[PIECE / 4];
+  uint8_t levels[PIECE / 4]{};
   for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
     const int outY = cfgY + dstY;
     // The row in the cache band, or none outside it.

@@ -276,7 +276,7 @@ class GfxRenderer {
   // Corners are rotated to physical, so it is orientation-aware.
   bool glyphIntersectsStrip(int x0, int y0, int x1, int y1) const;
 
-  // Active pixel-write target for raw writers (DirectPixelWriter) that bypass
+  // Active pixel-write target for the Rust canvas (canvasOf), which bypasses
   // drawPixel for speed. When a strip target is active these return the band
   // scratch plus its physical-row origin and extent; otherwise the full
   // framebuffer ([0, panelHeight)). Writers subtract the origin and clip to the
@@ -317,8 +317,10 @@ class GfxRenderer {
   void drawImage(const uint8_t bitmap[], int x, int y, int width, int height) const;
   // A row of width 2-bit levels (four to a byte, most significant first, 0 black to 3 white: the image
   // cache's format) along logical row y from column x, in the current render mode; the clip does not
-  // apply. White is left as it is in black and white.
-  void drawLevelRow(const uint8_t* row, int width, int x, int y) const;
+  // apply. White is left as it is in black and white. With a mask ((width + 7) / 8 bytes, a bit a
+  // column, most significant first), only the columns it lets through are drawn, and opaque: white
+  // too.
+  void drawLevelRow(const uint8_t* row, int width, int x, int y, const uint8_t* mask = nullptr) const;
   void drawIcon(const uint8_t bitmap[], int x, int y, int size) const;
   bool drawBitmap(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight, float cropX = 0, float cropY = 0,
                   bool whiteAsTransparent = false) const;

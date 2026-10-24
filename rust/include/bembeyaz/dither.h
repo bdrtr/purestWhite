@@ -43,11 +43,12 @@ void bb_dither_next_row(bb_dither* dither);
 // Starts over: no carried error, row 0 again.
 void bb_dither_reset(bb_dither* dither);
 
-// Chapter images as they decode: blocks of gray resampled to the output size, each pixel turned into
+// Images as they decode: blocks or lines of gray resampled to the output size, each pixel turned into
 // a 2-bit level (0 black to 3 white), packed four to a byte, most significant first.
 enum {
-  BB_DITHER_QUANTIZE_BAYER = 0,   // ordered dithering, 4x4 Bayer matrix at the screen position
-  BB_DITHER_QUANTIZE_THIRDS = 1,  // gray / 85
+  BB_DITHER_QUANTIZE_BAYER = 0,     // ordered dithering, 4x4 Bayer matrix at the screen position
+  BB_DITHER_QUANTIZE_THIRDS = 1,    // gray / 85
+  BB_DITHER_QUANTIZE_QUARTERS = 2,  // the top two bits
 };
 
 // Gray pixels at (x, y) of the source: height rows stride bytes apart (len bytes in all), the first
@@ -78,6 +79,24 @@ typedef struct {
 // positions are kept in the block.
 void bb_dither_block_row(const bb_dither_gray_block* block, const bb_dither_scale* scale, int32_t dst_y, int32_t start,
                          int32_t end, int32_t ox, int32_t oy, uint8_t quantize, uint8_t* out, size_t out_len);
+// A source line of gray values and, for images drawn over the screen, alpha (or NULL), len bytes
+// each, stepped through for an output dst_width columns wide: column c takes pixel
+// crop + c * visible / dst_width, rounded down.
+typedef struct {
+  const uint8_t* gray;
+  const uint8_t* alpha;
+  size_t len;
+  int32_t crop;
+  int32_t visible;
+  int32_t dst_width;
+} bb_dither_line;
+
+// Writes the levels of output row out_y's columns start to end (exclusive) from line into out as
+// bb_dither_block_row does; the output's left edge is at screen column ox. With a mask (mask_len
+// bytes), each column also gets a bit there, most significant first: set where its pixel is opaque
+// enough to draw against a 4x4 ordered threshold at its screen position, all set without alpha.
+void bb_dither_line_row(const bb_dither_line* line, int32_t start, int32_t end, int32_t ox, int32_t out_y,
+                        uint8_t quantize, uint8_t* out, size_t out_len, uint8_t* mask, size_t mask_len);
 // Copies count packed levels from src (src_len bytes) into the packed row dst (dst_len bytes) from its
 // column at, leaving out the columns before its start or past its last byte.
 void bb_dither_put_levels(uint8_t* dst, size_t dst_len, int32_t at, const uint8_t* src, size_t src_len, size_t count);

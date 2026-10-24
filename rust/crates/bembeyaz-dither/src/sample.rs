@@ -1,7 +1,8 @@
-//! Chapter images drawn as they decode (lib/Epub's framebuffer converters): blocks of gray resampled
-//! to the output size in 16.16 fixed point, each pixel turned into one of the panel's four levels by
-//! its screen position (ordered dithering) or by plain thresholds, and written as packed 2-bit rows
-//! (four levels to a byte, most significant first: the chapter image cache's format).
+//! Images drawn as they decode (lib/Epub's framebuffer converters): JPEG blocks of gray resampled to
+//! the output size in 16.16 fixed point, or PNG lines stepped through column by column, each pixel
+//! turned into one of the panel's four levels by its screen position (ordered dithering) or by plain
+//! thresholds, and written as packed 2-bit rows (four levels to a byte, most significant first: the
+//! chapter image cache's format).
 
 /// 1.0 in 16.16 fixed point.
 const ONE: i32 = 1 << 16;
@@ -14,6 +15,8 @@ pub enum Quantize {
     Bayer,
     /// A third of the range each: gray / 85.
     Thirds,
+    /// The top two bits.
+    Quarters,
 }
 
 const BAYER: [[i32; 4]; 4] = [[0, 8, 2, 10], [12, 4, 14, 6], [3, 11, 1, 9], [15, 7, 13, 5]];
@@ -117,14 +120,123 @@ pub fn block_row(
     }
 }
 
-/// Packs the levels of columns `start..end` into `out`, column `start` + `i`'s gray being `gray(i)`.
+/// A source line of gray values (and alpha, for images drawn over what is on the screen) stepped
+/// through for an output `dst_width` columns wide: column `c` takes pixel `crop + c * visible /
+/// dst_width`, rounded down.
+#[derive(Clone, Copy, Debug)]
+pub struct Line<'a> {
+    pub gray: &'a [u8],
+    pub alpha: Option<&'a [u8]>,
+    pub crop: i32,
+    pub visible: i32,
+    pub dst_width: i32,
+}
+
+/// Where each output column of a [`Line`] reads, from column `start` on.
+struct Steps {
+    src: i32,
+    error: i32,
+    whole: i32,
+    rest: i32,
+    dst: i32,
+}
+
+impl Steps {
+    fn new(line: &Line, start: i32) -> Self {
+        let dst = line.dst_width.max(1);
+        let at = i64::from(start) * i64::from(line.visible);
+        // Both fit: the quotient is below `visible` times `start` over `dst`, the remainder below `dst`.
+        #[allow(clippy::cast_possible_truncation)]
+        let (q, r) = (
+            (at.div_euclid(i64::from(dst))) as i32,
+            (at.rem_euclid(i64::from(dst))) as i32,
+        );
+        Steps {
+            src: line.crop.wrapping_add(q),
+            error: r,
+            whole: line.visible.div_euclid(dst),
+            rest: line.visible.rem_euclid(dst),
+            dst,
+        }
+    }
+
+    /// The source pixel of this column; moves on to the next.
+    #[allow(clippy::inline_always)]
+    #[inline(always)]
+    fn next(&mut self) -> i32 {
+        let src = self.src;
+        self.src = self.src.wrapping_add(self.whole);
+        self.error += self.rest;
+        if self.error >= self.dst {
+            self.error -= self.dst;
+            self.src = self.src.wrapping_add(1);
+        }
+        src
+    }
+}
+
+/// Writes the levels of output row `out_y`'s columns `start..end` from `line` into `out`, packed from
+/// its first bit as [`block_row`] does; the output's left edge is at screen column `ox`. With `mask`,
+/// each column also gets a bit there (most significant first): set where its pixel is opaque enough
+/// to draw against a 4×4 ordered threshold at its screen position, all set without alpha.
+pub fn line_row(
+    line: &Line,
+    (start, end): (i32, i32),
+    (ox, out_y): (i32, i32),
+    quantize: Quantize,
+    out: &mut [u8],
+    mask: Option<&mut [u8]>,
+) {
+    if start >= end || line.dst_width <= 0 {
+        return;
+    }
+    if let Some(mask) = mask {
+        let mut steps = Steps::new(line, start);
+        #[allow(clippy::cast_sign_loss)]
+        let mut thresholds = BAYER
+            .get((out_y & 3) as usize)
+            .copied()
+            .unwrap_or_default()
+            .map(|b| b * 16);
+        #[allow(clippy::cast_sign_loss)]
+        thresholds.rotate_left((ox.wrapping_add(start) & 3) as usize);
+        let count = end - start;
+        let mut i = 0;
+        for byte in mask {
+            if i >= count {
+                break;
+            }
+            let mut bits = 0u8;
+            for _ in 0..8 {
+                let opaque = i < count && {
+                    let src = steps.next();
+                    let alpha = line.alpha.map_or(255, |a| pixel(a, src));
+                    #[allow(clippy::cast_sign_loss)]
+                    let threshold = thresholds.get((i & 3) as usize).copied().unwrap_or(0);
+                    alpha >= 8 && alpha > threshold
+                };
+                bits = (bits << 1) | u8::from(opaque);
+                i += 1;
+            }
+            *byte = bits;
+        }
+    }
+    // `emit` asks for the columns in order, once each.
+    let mut steps = Steps::new(line, start);
+    emit(out, start, end, (ox, out_y), quantize, |_| {
+        pixel(line.gray, steps.next())
+    });
+}
+
+/// Packs the levels of columns `start..end` into `out`, column `start` + `i`'s gray being `gray(i)`
+/// (asked for in order, once each).
 fn emit(
     out: &mut [u8],
     start: i32,
     end: i32,
     (ox, out_y): (i32, i32),
     quantize: Quantize,
-    gray: impl Fn(i32) -> i32,
+    mut gray: impl FnMut(i32) -> i32,
 ) {
     // The dither offsets of the row, from column `start` on.
     #[allow(clippy::cast_sign_loss)]
@@ -142,13 +254,14 @@ fn emit(
             (gray(i) + d).clamp(0, 255) >> 6
         }),
         Quantize::Thirds => pack(out, start, end, |i| (gray(i) / 85).min(3)),
+        Quantize::Quarters => pack(out, start, end, |i| gray(i) >> 6),
     }
 }
 
-/// Packs levels `level(0..end - start)` into `out`.
+/// Packs levels `level(0..end - start)` into `out`, asking for each in order.
 #[allow(clippy::inline_always)]
 #[inline(always)]
-fn pack(out: &mut [u8], start: i32, end: i32, level: impl Fn(i32) -> i32) {
+fn pack(out: &mut [u8], start: i32, end: i32, mut level: impl FnMut(i32) -> i32) {
     let count = end.saturating_sub(start);
     let mut i = 0;
     for byte in out {

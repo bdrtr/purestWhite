@@ -1763,3 +1763,36 @@ bayt büyüdü, statik RAM değişmedi; yığında geri çağrı başına 128 ba
 - [ ] Dosyalara Göz At'tan bir JPEG açın: eskisi gibi görünmeli. Uyku Ekranı Kapak Modu'nu önce Kırp
   yapın, ekrandan büyük bir JPEG'de Kapak Ayarla deyin ve uykuya geçin; sonra Sığdır ile tekrarlayın:
   uyku resmi eskisi gibi, kırpması doğru olmalı.
+
+## PNG resimlerinin çizimi Rust'ta ("rust: our own PNG image sampling")
+
+PNG'ler (bölüm resimleri, OPDS kataloğundaki kitapların Details (Ayrıntılar) ekranındaki kapak,
+resim görüntüleyici ve saydam uyku kaplaması `/sleep-overlay.png`) çözülürken her çıkış satırı
+artık JPEG'lerdeki gibi en çok 512 sütunluk parçalar halinde üç çağrıyla çiziliyor: `bembeyaz-dither`
+sütunları kaynak satırda Bresenham adımıyla örnekliyor (sütun c, kaynakta kırpma + c × görünen
+genişlik / çıkış genişliği pikselini okur; parçanın başı kapalı biçimde hesaplanıyor), Bayer
+deseniyle ya da titremesiz üst iki bitle seviyelere çeviriyor ve saydam resimlerde alfayı 4×4
+düzenli eşikle bir sütun maskesine çeviriyor. Satırlar ekrana seviye satırlarıyla yazılıyor; bu yazıcı
+artık bir maske alıyor ve maskeli satırlarda (yalnızca saydam kaplama) siyah-beyazda beyazı da
+yazıyor (eski yazıcının `writeWhiteInBw`'si). Böylece `DirectPixelWriter.h` ve `DitherUtils.h`
+kullanılmaz oldu ve silindi; eski kopyaları testlerde duruyor. Kaynak satırın griye çevrilmesi ve
+satır seçimi değişmedi. Eski geri çağrı olduğu gibi `test/image_sampling`'e kopyalandı: 20000
+rastgele resimde (kırpma, sığdırma ve tam boyut (büyütme dahil), konum, ekrandan taşma, dört yönelim,
+üç düzlem, şeritler, titreme, saydamlık, önbellek; testte parçalar 24 sütun) ekran ve önbellek bayt
+bayt aynı. Koda bilerek konan 13 hatanın 11'ini bu test, birini crate testi yakaladı (parçanın 4'ün
+katında başlamadığı eşik deseni; dönüştürücüde parçalar hep 4'ün katında başlıyor); kalanı sonucu
+değiştirmiyor. Emülatörde PNG ve JPEG resimli bölümler ile bozuk PNG bir önceki sürümle piksel piksel
+aynı, süreler değişmedi. Saydam PNG kaplaması emülatörde denenemedi: kaplama senaryosunun ayar dosyası
+(`sleepScreen`) emülatörde okunmuyor ve uyku ekranı varsayılanına düşüyor (BMP kaplamada da öyle;
+bu değişiklikten bağımsız). Flash x4pro'da 1656, x4c'de 1624 bayt büyüdü (maskeli ve maskesiz iki
+yazma döngüsü, örnekleme), statik RAM değişmedi; yığında geri çağrı başına 192 baytlık tampon (JPEG'in tamponu gibi artık sıfırla
+başlatılıyor).
+
+- [ ] PNG resimli bir EPUB'ı ilk kez açın ve sayfaları çevirin: resimler eskisi gibi görünmeli.
+- [ ] Dosyalara Göz At'tan bir PNG açın: eskisi gibi görünmeli.
+- [ ] OPDS kataloğunda PNG kapaklı bir kitabın Details (Ayrıntılar) ekranını açın: kapak eskisi gibi
+  görünmeli.
+- [ ] Uyku Ekranı'nı Transparent (Türkçe çevirisi yok) yapıp kartın köküne saydam bir
+  `sleep-overlay.png` koyun (kenarı opak, içi giderek saydamlaşan bir halka gibi; kökte
+  `sleep-overlay.bmp` olmasın, önce o seçilir) ve uykuya geçin: kaplama ekrandakinin üstüne eskisi
+  gibi binmeli; saydam yerlerde alttaki görünmeli, opak beyaz yerler beyaz olmalı.

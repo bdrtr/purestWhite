@@ -5,6 +5,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <bembeyaz/dither.h>
 #include <bembeyaz/png.h>
 
 #include <algorithm>
@@ -12,8 +13,6 @@
 #include <cstdlib>
 #include <memory>
 
-#include "DirectPixelWriter.h"
-#include "DitherUtils.h"
 #include "PixelCache.h"
 
 // png.h's layouts, which bembeyaz-ffi's png.rs checks from its side.
@@ -21,6 +20,9 @@ static_assert(offsetof(bb_png_info, has_alpha) == 10);
 static_assert(offsetof(bb_png_row, y) == 2 * sizeof(void*) &&
               offsetof(bb_png_row, transparent) == 2 * sizeof(void*) + 12 &&
               offsetof(bb_png_row, has_alpha) == 2 * sizeof(void*) + 18);
+// dither.h's, which bembeyaz-ffi's dither.rs checks too.
+static_assert(offsetof(bb_dither_line, crop) == 3 * sizeof(size_t) &&
+              offsetof(bb_dither_line, dst_width) == 3 * sizeof(size_t) + 8);
 
 namespace {
 
@@ -135,11 +137,6 @@ uint8_t expandSampleToByte(uint8_t sample, int bitsPerSample) {
   return static_cast<uint8_t>((sample * 255U) / maxSample);
 }
 
-uint8_t alphaThreshold4x4(const int x, const int y) {
-  static constexpr uint8_t BAYER_4X4[16] = {0, 128, 32, 160, 192, 64, 224, 96, 48, 176, 16, 144, 240, 112, 208, 80};
-  return BAYER_4X4[((y & 0x03) << 2) | (x & 0x03)];
-}
-
 // Convert an entire source line to grayscale and optionally retain alpha.
 // Low-bit-depth grayscale/indexed scanlines are packed most-significant sample first.
 // For indexed PNGs with tRNS chunk, alpha values are stored at palette[768] onwards.
@@ -209,6 +206,7 @@ void convertLineToGray(const uint8_t* pPixels, uint8_t* grayLine, int width, int
   }
 }
 
+// test/image_sampling's newPngDraw mirrors this callback's drawing: change both.
 int pngDrawCallback(void* user, const bb_png_row* row) {
   PngContext* ctx = static_cast<PngContext*>(user);
   if (!ctx || !ctx->config || !ctx->renderer || !ctx->grayLineBuffer) return 0;
@@ -239,65 +237,49 @@ int pngDrawCallback(void* user, const bb_png_row* row) {
   convertLineToGray(row->pixels, ctx->grayLineBuffer, srcWidth, row->pixel_type, row->bpp, row->palette, row->has_alpha,
                     row->transparent, ctx->alphaLineBuffer);
 
-  // Render scaled rows using Bresenham-style integer stepping (no floating-point division)
-  int dstWidth = ctx->dstWidth;
-  int outXBase = ctx->config->x;
-  int screenWidth = ctx->screenWidth;
-  bool useDithering = ctx->config->useDithering;
-
-  // Pre-compute orientation and render-mode state once per callback.
-  DirectPixelWriter pw;
-  pw.init(*ctx->renderer);
+  // Columns step through the source line Bresenham-style (dst column c reads cropLeft + c * visibleWidth /
+  // dstWidth); those past the screen's right edge are left out.
+  const int outXBase = ctx->config->x;
+  const int columns = std::min(ctx->dstWidth, ctx->screenWidth - outXBase);
+  const bool transparent = ctx->alphaLineBuffer != nullptr;
+  const bb_dither_line line{ctx->grayLineBuffer, ctx->alphaLineBuffer, static_cast<size_t>(srcWidth),
+                            ctx->cropLeft,       ctx->visibleWidth,    ctx->dstWidth};
+  const uint8_t quantize = ctx->config->useDithering ? BB_DITHER_QUANTIZE_BAYER : BB_DITHER_QUANTIZE_QUARTERS;
+  // The levels (and, with alpha, which pixels show) of up to this many columns of a row at a time.
+  constexpr int PIECE = 512;
+  uint8_t levels[PIECE / 4]{};
+  uint8_t mask[PIECE / 8]{};
 
   for (int dstY = firstDstY; dstY < endDstY; dstY++) {
     ctx->lastDstY = dstY;
     int outY = ctx->config->y + dstY;
     if (outY >= ctx->screenHeight) continue;
 
-    pw.beginRow(outY);
-
     // The cache streams to disk one row at a time. Flushing rows below this one
     // (the decoder delivers scanlines top to bottom) repositions the single-row band.
     // A flush failure stops caching for the rest of the decode so we never write
     // past the band buffer; finalize() then drops the partial file.
-    bool caching = ctx->caching;
-    DirectCacheWriter cw;
-    if (caching) {
+    uint8_t* cacheRow = nullptr;
+    if (ctx->caching) {
       if (!ctx->cache.advanceTo(dstY)) {
-        caching = false;
         ctx->caching = false;
       } else {
-        cw.init(ctx->cache.buffer, ctx->cache.bytesPerRow, ctx->cache.bandRows, ctx->cache.originX);
-        cw.beginRow(outY, ctx->config->y + ctx->cache.bandStart);
+        const int bandRow = outY - (ctx->config->y + ctx->cache.bandStart);
+        if (static_cast<unsigned>(bandRow) < static_cast<unsigned>(ctx->cache.bandRows)) {
+          cacheRow = ctx->cache.buffer + static_cast<size_t>(bandRow) * ctx->cache.bytesPerRow;
+        }
       }
     }
 
-    int srcX = ctx->cropLeft;
-    int error = 0;
-
-    for (int dstX = 0; dstX < dstWidth; dstX++) {
-      int outX = outXBase + dstX;
-      if (outX < screenWidth) {
-        const uint8_t alpha = ctx->alphaLineBuffer ? ctx->alphaLineBuffer[srcX] : 255;
-        if (alpha >= 8 && alpha > alphaThreshold4x4(outX, outY)) {
-          uint8_t gray = ctx->grayLineBuffer[srcX];
-
-          uint8_t ditheredGray;
-          if (useDithering) {
-            ditheredGray = applyBayerDither4Level(gray, outX, outY);
-          } else {
-            ditheredGray = gray >> 6;
-          }
-          pw.writePixel(outX, ditheredGray, ctx->alphaLineBuffer != nullptr);
-          if (caching) cw.writePixel(outX, ditheredGray);
-        }
-      }
-
-      // Bresenham-style stepping: advance srcX based on ratio visibleWidth/dstWidth
-      error += ctx->visibleWidth;
-      while (error >= dstWidth) {
-        error -= dstWidth;
-        srcX++;
+    for (int from = 0; from < columns; from += PIECE) {
+      const int count = std::min(PIECE, columns - from);
+      bb_dither_line_row(&line, from, from + count, outXBase, outY, quantize, levels, sizeof(levels),
+                         transparent ? mask : nullptr, sizeof(mask));
+      ctx->renderer->drawLevelRow(levels, count, outXBase + from, outY, transparent ? mask : nullptr);
+      // Images with alpha are never cached, so the mask has no part here.
+      if (cacheRow) {
+        bb_dither_put_levels(cacheRow, ctx->cache.bytesPerRow, outXBase + from - ctx->cache.originX, levels,
+                             sizeof(levels), count);
       }
     }
   }

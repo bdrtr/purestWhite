@@ -1,7 +1,7 @@
-// bembeyaz-dither's block rows, drawn with bembeyaz-gfx's level rows and copied into the cache
-// band as lib/Epub's JPEG framebuffer converter does, against the converter's old draw callback
-// (OldJpegSampling.h): random images, scales, crops, positions, panels, strips and blocks must give
-// the same screen and the same cache.
+// bembeyaz-dither's block and line rows, drawn with bembeyaz-gfx's level rows and copied into the
+// cache band as lib/Epub's JPEG and PNG framebuffer converters do, against the converters' old draw
+// callbacks (OldJpegSampling.h, OldPngSampling.h): random images, scales, crops, positions, panels,
+// strips, blocks and transparency must give the same screen and the same cache.
 #include <bembeyaz/dither.h>
 #include <bembeyaz/gfx.h>
 #include <gtest/gtest.h>
@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "OldJpegSampling.h"
+#include "OldPngSampling.h"
 
 namespace {
 
@@ -80,7 +81,7 @@ void newDraw(oldJpeg::JpegContext* ctx, const bb_jpeg_block* block, const bb_gfx
     for (int from = dstXStart; from < dstXEnd; from += PIECE) {
       const int count = std::min(PIECE, dstXEnd - from);
       bb_dither_block_row(&source, &scale, dstY, from, from + count, cfgX, cfgY, quantize, levels, sizeof(levels));
-      bb_gfx_level_row(&canvas, levels, (static_cast<size_t>(count) + 3) / 4, count, cfgX + from, outY,
+      bb_gfx_level_row(&canvas, levels, (static_cast<size_t>(count) + 3) / 4, nullptr, 0, count, cfgX + from, outY,
                        static_cast<uint8_t>(ctx->renderer->mode), ctx->renderer->absolute);
       if (cacheRow) {
         bb_dither_put_levels(cacheRow, ctx->cache.bytesPerRow, cfgX + from - ctx->cache.originX, levels, sizeof(levels),
@@ -90,7 +91,178 @@ void newDraw(oldJpeg::JpegContext* ctx, const bb_jpeg_block* block, const bb_gfx
   }
 }
 
+// The new PNG callback (PngToFramebufferConverter.cpp's pngDrawCallback), likewise.
+void newPngDraw(oldPng::PngContext* ctx, const bb_png_row* row, const bb_gfx_canvas& canvas) {
+  int srcY = row->y;
+  int srcWidth = ctx->srcWidth;
+  if (srcY < ctx->cropTop || srcY >= ctx->cropTop + ctx->visibleHeight) return;
+  const int visibleSrcY = srcY - ctx->cropTop;
+  int firstDstY = (visibleSrcY * ctx->dstHeight) / ctx->visibleHeight;
+  int endDstY = firstDstY + 1;
+  if (ctx->dstHeight > ctx->visibleHeight) {
+    endDstY = ((visibleSrcY + 1) * ctx->dstHeight) / ctx->visibleHeight;
+  }
+  if (firstDstY <= ctx->lastDstY) firstDstY = ctx->lastDstY + 1;
+  if (firstDstY >= endDstY || firstDstY >= ctx->dstHeight) return;
+  if (endDstY > ctx->dstHeight) endDstY = ctx->dstHeight;
+  oldPng::convertLineToGray(row->pixels, ctx->grayLineBuffer, srcWidth, row->pixel_type, row->bpp, row->palette,
+                            row->has_alpha, row->transparent, ctx->alphaLineBuffer);
+
+  const int outXBase = ctx->config->x;
+  const int columns = std::min(ctx->dstWidth, ctx->screenWidth - outXBase);
+  const bool transparent = ctx->alphaLineBuffer != nullptr;
+  const bb_dither_line line{ctx->grayLineBuffer, ctx->alphaLineBuffer, static_cast<size_t>(srcWidth),
+                            ctx->cropLeft,       ctx->visibleWidth,    ctx->dstWidth};
+  const uint8_t quantize = ctx->config->useDithering ? BB_DITHER_QUANTIZE_BAYER : BB_DITHER_QUANTIZE_QUARTERS;
+  // Smaller pieces than the converter's 512 columns, so that rows split.
+  constexpr int PIECE = 24;
+  uint8_t levels[PIECE / 4];
+  uint8_t mask[PIECE / 8];
+  for (int dstY = firstDstY; dstY < endDstY; dstY++) {
+    ctx->lastDstY = dstY;
+    int outY = ctx->config->y + dstY;
+    if (outY >= ctx->screenHeight) continue;
+    uint8_t* cacheRow = nullptr;
+    if (ctx->caching) {
+      if (!ctx->cache.advanceTo(dstY)) {
+        ctx->caching = false;
+      } else {
+        const int bandRow = outY - (ctx->config->y + ctx->cache.bandStart);
+        if (static_cast<unsigned>(bandRow) < static_cast<unsigned>(ctx->cache.bandRows)) {
+          cacheRow = ctx->cache.buffer + static_cast<size_t>(bandRow) * ctx->cache.bytesPerRow;
+        }
+      }
+    }
+    for (int from = 0; from < columns; from += PIECE) {
+      const int count = std::min(PIECE, columns - from);
+      bb_dither_line_row(&line, from, from + count, outXBase, outY, quantize, levels, sizeof(levels),
+                         transparent ? mask : nullptr, sizeof(mask));
+      bb_gfx_level_row(&canvas, levels, (static_cast<size_t>(count) + 3) / 4, transparent ? mask : nullptr,
+                       transparent ? (static_cast<size_t>(count) + 7) / 8 : 0, count, outXBase + from, outY,
+                       static_cast<uint8_t>(ctx->renderer->mode), ctx->renderer->absolute);
+      if (cacheRow) {
+        bb_dither_put_levels(cacheRow, ctx->cache.bytesPerRow, outXBase + from - ctx->cache.originX, levels,
+                             sizeof(levels), count);
+      }
+    }
+  }
+}
+
+// A random panel (orientation, plane, strip) with random contents, and the canvas over a copy of it.
+struct Panels {
+  oldLevels::GfxRenderer r{};
+  std::vector<uint8_t> a, b;
+  bb_gfx_canvas cv{};
+  bool portrait;
+
+  Panels() {
+    r.widthBytes = range(2, 30);
+    r.width = r.widthBytes * 8 - (rnd() % 3 == 0 ? range(0, 7) : 0);
+    r.height = range(8, 200);
+    r.orientation = static_cast<oldLevels::GfxRenderer::Orientation>(rnd() % 4);
+    r.mode = static_cast<oldLevels::GfxRenderer::RenderMode>(rnd() % 3);
+    r.absolute = rnd() % 2;
+    r.originY = 0;
+    r.rows = r.height;
+    if (rnd() % 3 == 0) {
+      r.originY = range(0, r.height - 1);
+      r.rows = range(1, r.height - r.originY);
+    }
+    a.resize(static_cast<size_t>(r.rows) * r.widthBytes);
+    for (auto& v : a) v = static_cast<uint8_t>(rnd());
+    b = a;
+    r.target = a.data();
+    portrait =
+        r.orientation == oldLevels::GfxRenderer::Portrait || r.orientation == oldLevels::GfxRenderer::PortraitInverted;
+    cv.buf = b.data();
+    cv.len = b.size();
+    cv.stride = static_cast<size_t>(r.widthBytes);
+    cv.origin_y = r.originY;
+    cv.rows = r.rows;
+    cv.panel_width = r.width;
+    cv.panel_height = r.height;
+    cv.clip_left = INT32_MIN;
+    cv.clip_top = INT32_MIN;
+    cv.clip_right = INT32_MAX;
+    cv.clip_bottom = INT32_MAX;
+    cv.orientation = static_cast<uint8_t>(r.orientation);
+  }
+  int screenWidth() const { return portrait ? r.height : r.width; }
+  int screenHeight() const { return portrait ? r.width : r.height; }
+};
+
 }  // namespace
+
+TEST(ImageSampling, PngLinesMatchTheOldConverter) {
+  seed = 29;
+  unsigned diffs = 0;
+  for (int c = 0; c < 20000; ++c) {
+    Panels p;
+    const int srcW = range(1, 200), srcH = range(1, 60);
+    const int cropLeft = rnd() % 4 == 0 ? range(0, (srcW - 1) / 2) : 0;
+    const int cropTop = rnd() % 4 == 0 ? range(0, (srcH - 1) / 2) : 0;
+    const int visibleW = srcW - 2 * cropLeft, visibleH = srcH - 2 * cropTop;
+    // Fitted (never grown), or exact dimensions (either way).
+    const bool exact = rnd() % 2;
+    const int dstW = exact ? range(1, 2 * visibleW) : range(1, visibleW);
+    const int dstH = exact ? range(1, 2 * visibleH) : range(1, visibleH);
+    oldPng::RenderConfig config{};
+    config.useDithering = rnd() % 2;
+    config.x = range(0, p.screenWidth() - 1);
+    config.y = range(0, p.screenHeight() - 1);
+    const bool alpha = rnd() % 3 == 0;
+    std::vector<uint8_t> grayA(srcW * (alpha ? 2 : 1)), grayB(grayA.size());
+    oldPng::PngContext ctx{};
+    ctx.renderer = &p.r;
+    ctx.config = &config;
+    ctx.screenWidth = p.screenWidth();
+    ctx.screenHeight = p.screenHeight();
+    ctx.srcWidth = srcW;
+    ctx.cropLeft = cropLeft;
+    ctx.cropTop = cropTop;
+    ctx.visibleWidth = visibleW;
+    ctx.visibleHeight = visibleH;
+    ctx.dstWidth = dstW;
+    ctx.dstHeight = dstH;
+    ctx.lastDstY = -1;
+    ctx.caching = !alpha && rnd() % 3 != 0;
+    const int bytesPerRow = (dstW + 3) / 4;
+    std::vector<uint8_t> ca(static_cast<size_t>(bytesPerRow) * dstH);
+    for (auto& v : ca) v = static_cast<uint8_t>(rnd());
+    auto cb = ca;
+    ctx.cache = {ca.data(), bytesPerRow, dstH, config.x, 0};
+    auto fresh = ctx;
+    fresh.cache.buffer = cb.data();
+    ctx.grayLineBuffer = grayA.data();
+    ctx.alphaLineBuffer = alpha ? grayA.data() + srcW : nullptr;
+    fresh.grayLineBuffer = grayB.data();
+    fresh.alphaLineBuffer = alpha ? grayB.data() + srcW : nullptr;
+
+    for (int y = 0; y < srcH; ++y) {
+      std::vector<uint8_t> pixels(srcW * 2);
+      for (auto& v : pixels) v = static_cast<uint8_t>(rnd());
+      // Alpha: often fully clear or opaque.
+      for (int x = 0; x < srcW; ++x) {
+        const uint32_t k = rnd() % 4;
+        if (k == 0) pixels[srcW + x] = 0;
+        if (k == 1) pixels[srcW + x] = 255;
+      }
+      bb_png_row row{};
+      row.pixels = pixels.data();
+      row.y = y;
+      row.width = srcW;
+      oldPng::pngDrawCallback(&ctx, &row);
+      newPngDraw(&fresh, &row, p.cv);
+    }
+    if (p.a != p.b || ca != cb) {
+      ADD_FAILURE() << "case " << c << " orientation " << p.r.orientation << " mode " << p.r.mode << " src " << srcW
+                    << "x" << srcH << " dst " << dstW << "x" << dstH << " at " << config.x << "," << config.y
+                    << " alpha " << alpha << " dithering " << config.useDithering << (p.a != p.b ? " screen" : "")
+                    << (ca != cb ? " cache" : "");
+      if (++diffs == 5) return;
+    }
+  }
+}
 
 TEST(ImageSampling, JpegBlocksMatchTheOldConverter) {
   seed = 23;

@@ -593,12 +593,16 @@ pub unsafe extern "C" fn bb_gfx_write_region(
 }
 
 /// # Safety
-/// `canvas` is NULL or as gfx.h describes; `bits` is NULL or holds `len` bytes.
+/// `canvas` is NULL or as gfx.h describes; `bits` is NULL or holds `len` bytes; `mask` is NULL or
+/// holds `mask_len` bytes.
 #[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
 pub unsafe extern "C" fn bb_gfx_level_row(
     canvas: *const CCanvas,
     bits: *const u8,
     len: usize,
+    mask: *const u8,
+    mask_len: usize,
     width: i32,
     x: i32,
     y: i32,
@@ -607,12 +611,16 @@ pub unsafe extern "C" fn bb_gfx_level_row(
 ) {
     // SAFETY: as documented.
     let row = unsafe { crate::view(bits, len) };
+    // SAFETY: as documented.
+    let mask = (!mask.is_null()).then(|| unsafe { crate::view(mask, mask_len) });
+    // A masked row is drawn opaque where the mask lets it through.
     let ink = Ink {
         plane: plane(plane_value),
         absolute,
+        white_in_bw: mask.is_some(),
     };
     // SAFETY: as documented.
     if let Some(mut c) = unsafe { self::canvas(canvas) } {
-        c.level_row(row, width, x, y, ink);
+        c.level_row(row, mask, width, x, y, ink);
     }
 }

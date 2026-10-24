@@ -178,10 +178,12 @@ uint32_t bb_gfx_resampled_glyph(const bb_gfx_canvas* canvas, const uint8_t* bits
 
 // Draws the first width 2-bit gray levels of a row (len bytes, four levels to a byte, most significant
 // first, 0 black to 3 white) along logical row y from column x, kept to the panel and the rows (the
-// clip does not apply). In BB_GFX_PLANE_BW levels 0 to 2 draw black and 3 is left as it is; the gray
-// planes follow grayPlanePixel (absolute or as differences).
-void bb_gfx_level_row(const bb_gfx_canvas* canvas, const uint8_t* bits, size_t len, int32_t width, int32_t x, int32_t y,
-                      uint8_t plane, bool absolute);
+// clip does not apply). With a mask (mask_len bytes, a bit a column, most significant first) only the
+// columns whose bit is set are drawn. In BB_GFX_PLANE_BW levels 0 to 2 draw black and 3 draws white
+// with a mask and is left as it is without one; the gray planes follow grayPlanePixel (absolute or as
+// differences).
+void bb_gfx_level_row(const bb_gfx_canvas* canvas, const uint8_t* bits, size_t len, const uint8_t* mask,
+                      size_t mask_len, int32_t width, int32_t x, int32_t y, uint8_t plane, bool absolute);
 
 // Regions: the whole bytes of the rows that a logical rectangle (x, y, w, h) covers on the panel,
 // kept on the panel (the clip does not apply). aligned snaps the panel x range out to multiples of

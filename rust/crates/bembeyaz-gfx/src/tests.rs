@@ -626,11 +626,12 @@ fn level_rows_stay_on_the_panel_and_in_the_strip() {
     let ink = Ink {
         plane: Plane::Bw,
         absolute: false,
+        white_in_bw: false,
     };
     // Twelve black levels from column 10 of a 16-wide panel: six land, none wrap to the next row.
     let mut buf = panel();
     let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
-    c.level_row(&[0; 3], 12, 10, 3, ink);
+    c.level_row(&[0; 3], None, 12, 10, 3, ink);
     assert_eq!(picture(&buf)[3], "..........######");
     assert_eq!(picture(&buf)[4], "................");
     // Portrait: the row runs up the panel's column 2 (logical y) from panel row 7 - x; a strip of
@@ -641,15 +642,37 @@ fn level_rows_stay_on_the_panel_and_in_the_strip() {
         rows: 2,
         ..canvas(&mut strip, Orientation::Portrait)
     };
-    c.level_row(&[0; 2], 8, 0, 2, ink);
+    c.level_row(&[0; 2], None, 8, 0, 2, ink);
     assert_eq!(strip, [0xDF, 0xFF, 0xDF, 0xFF]);
     // Rotated 180°: a row starting two columns left of the screen runs leftwards on the panel
     // from past its right edge; those two columns land nowhere (not in the row below).
     let mut buf = panel();
     let mut c = canvas(&mut buf, Orientation::LandscapeClockwise);
-    c.level_row(&[0; 1], 4, -2, 5, ink);
+    c.level_row(&[0; 1], None, 4, -2, 5, ink);
     assert_eq!(picture(&buf)[2], "..............##");
     assert_eq!(picture(&buf)[3], "................");
+}
+
+#[test]
+fn masked_level_rows_draw_only_what_the_mask_lets_through() {
+    // White, black, white, black, then white: the mask lets columns 0, 2, 3 and 8 through, and
+    // white is written too.
+    let ink = Ink {
+        plane: Plane::Bw,
+        absolute: false,
+        white_in_bw: true,
+    };
+    let mut buf = vec![0u8; 2 * 8];
+    let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    c.level_row(
+        &[0b11_00_11_00, 0xFF, 0xFF],
+        Some(&[0b1011_0000, 0b1000_0000]),
+        12,
+        0,
+        1,
+        ink,
+    );
+    assert_eq!(picture(&buf)[1], ".#.#####.#######");
 }
 
 /// Random canvases, strips, clips and shapes, including extreme fill rectangles: nothing panics.

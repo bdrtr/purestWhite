@@ -2,7 +2,7 @@
 
 extern crate std;
 
-use super::{Ditherer, GrayBlock, Method, Quantize, Scale, block_row, put_levels};
+use super::{Ditherer, GrayBlock, Line, Method, Quantize, Scale, block_row, line_row, put_levels};
 use std::vec;
 
 fn run(method: Method, width: usize, rows: &[&[u8]]) -> std::vec::Vec<std::vec::Vec<u8>> {
@@ -188,4 +188,41 @@ fn levels_put_into_a_row_stay_in_it() {
     put_levels(&mut row, -1, &[0b11_10_01_00], 4);
     put_levels(&mut row, 6, &[0b11_10_01_00], 4);
     assert_eq!(row, [0b10_01_00_00, 0b00_00_11_10]);
+}
+
+#[test]
+fn line_rows_step_through_the_source_and_mask_by_position() {
+    // Three source pixels over seven columns; alpha 100 shows against thresholds 0, 128, 32, 160.
+    let gray = [0, 128, 255];
+    let alpha = [100; 3];
+    let line = Line {
+        gray: &gray,
+        alpha: Some(&alpha),
+        crop: 0,
+        visible: 3,
+        dst_width: 7,
+    };
+    let (mut out, mut mask) = ([0; 2], [0; 1]);
+    line_row(
+        &line,
+        (0, 7),
+        (0, 0),
+        Quantize::Quarters,
+        &mut out,
+        Some(&mut mask),
+    );
+    // Columns read pixels 0, 0, 0, 1, 1, 2, 2.
+    assert_eq!(out, [0b00_00_00_10, 0b10_11_11_00]);
+    assert_eq!(mask, [0b1010_1010]);
+    // From column 1: the source steps and the thresholds follow the column.
+    line_row(
+        &line,
+        (1, 5),
+        (0, 0),
+        Quantize::Quarters,
+        &mut out,
+        Some(&mut mask),
+    );
+    assert_eq!(out[0], 0b00_00_10_10);
+    assert_eq!(mask, [0b0101_0000]);
 }

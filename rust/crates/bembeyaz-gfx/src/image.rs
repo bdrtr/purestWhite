@@ -93,6 +93,7 @@ fn ink(level: u8, place: &Placement) -> Option<bool> {
     let ink = Ink {
         plane: place.plane,
         absolute: place.absolute_gray,
+        white_in_bw: false,
     };
     ink.of(level)
 }

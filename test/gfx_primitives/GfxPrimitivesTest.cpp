@@ -1780,7 +1780,7 @@ TEST(GfxPrimitivesTest, LevelRowsMatchTheOldWriter) {
     cv.clip_right = INT32_MAX;
     cv.clip_bottom = INT32_MAX;
     cv.orientation = static_cast<uint8_t>(r.orientation);
-    bb_gfx_level_row(&cv, row.data(), row.size(), width, x, y, static_cast<uint8_t>(r.mode), r.absolute);
+    bb_gfx_level_row(&cv, row.data(), row.size(), nullptr, 0, width, x, y, static_cast<uint8_t>(r.mode), r.absolute);
     if (a != b) {
       ADD_FAILURE() << "case " << c << " orientation " << r.orientation << " mode " << r.mode << " strip " << r.originY
                     << "+" << r.rows;

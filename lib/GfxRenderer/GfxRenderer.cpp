@@ -946,11 +946,13 @@ void GfxRenderer::drawImage(const uint8_t bitmap[], const int x, const int y, co
   display.drawImage(bitmap, rotatedX, rotatedY, width, height);
 }
 
-void GfxRenderer::drawLevelRow(const uint8_t* row, const int width, const int x, const int y) const {
+void GfxRenderer::drawLevelRow(const uint8_t* row, const int width, const int x, const int y,
+                               const uint8_t* mask) const {
   if (width <= 0 || (fontCacheManager_ && fontCacheManager_->isScanning())) return;
   const auto c = canvasOf(*this);
   const size_t bytes = (static_cast<size_t>(width) + 3) / 4;
-  bb_gfx_level_row(&c, row, bytes, width, x, y, static_cast<uint8_t>(renderMode), absoluteGrayPlanes);
+  bb_gfx_level_row(&c, row, bytes, mask, mask ? (static_cast<size_t>(width) + 7) / 8 : 0, width, x, y,
+                   static_cast<uint8_t>(renderMode), absoluteGrayPlanes);
 }
 
 void GfxRenderer::drawIcon(const uint8_t bitmap[], const int x, const int y, const int size) const {

@@ -1,7 +1,7 @@
 //! Exports for lib/GfxRenderer's BitmapHelpers and lib/Epub's framebuffer converters (see
 //! `rust/include/bembeyaz/dither.h`).
 
-use bembeyaz_dither::{Ditherer, GrayBlock, Method, Quantize, Scale};
+use bembeyaz_dither::{Ditherer, GrayBlock, Line, Method, Quantize, Scale};
 
 /// dither.h's `bb_dither`.
 #[repr(C)]
@@ -135,6 +135,7 @@ const _: () = assert!(
 fn quantize(value: u8) -> Quantize {
     match value {
         1 => Quantize::Thirds,
+        2 => Quantize::Quarters,
         _ => Quantize::Bayer,
     }
 }
@@ -202,4 +203,66 @@ pub unsafe extern "C" fn bb_dither_put_levels(
     // SAFETY: as documented.
     let (dst, src) = unsafe { (crate::view_mut(dst, dst_len), crate::view(src, src_len)) };
     bembeyaz_dither::put_levels(dst, at, src, count);
+}
+
+/// dither.h's `bb_dither_line`.
+#[repr(C)]
+pub struct CLine {
+    gray: *const u8,
+    alpha: *const u8,
+    len: usize,
+    crop: i32,
+    visible: i32,
+    dst_width: i32,
+}
+
+// dither.h's layout; the PNG converter checks the same.
+const _: () = assert!(
+    size_of::<CLine>() == (3 * size_of::<usize>() + 12).next_multiple_of(align_of::<usize>())
+        && core::mem::offset_of!(CLine, crop) == 3 * size_of::<usize>()
+        && core::mem::offset_of!(CLine, dst_width) == 3 * size_of::<usize>() + 8
+);
+
+/// # Safety
+/// `line` is NULL or valid, its `gray` and `alpha` each NULL or holding `len` bytes; `out` is NULL
+/// or holds `out_len` writable bytes, and `mask` NULL or `mask_len`.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn bb_dither_line_row(
+    line: *const CLine,
+    start: i32,
+    end: i32,
+    ox: i32,
+    out_y: i32,
+    quantize_value: u8,
+    out: *mut u8,
+    out_len: usize,
+    mask: *mut u8,
+    mask_len: usize,
+) {
+    // SAFETY: as documented.
+    let Some(l) = (unsafe { line.as_ref() }) else {
+        return;
+    };
+    let line = Line {
+        // SAFETY: as documented.
+        gray: unsafe { crate::view(l.gray, l.len) },
+        // SAFETY: as documented.
+        alpha: (!l.alpha.is_null()).then(|| unsafe { crate::view(l.alpha, l.len) }),
+        crop: l.crop,
+        visible: l.visible,
+        dst_width: l.dst_width,
+    };
+    // SAFETY: as documented.
+    let out = unsafe { crate::view_mut(out, out_len) };
+    // SAFETY: as documented.
+    let mask = (!mask.is_null()).then(|| unsafe { crate::view_mut(mask, mask_len) });
+    bembeyaz_dither::line_row(
+        &line,
+        (start, end),
+        (ox, out_y),
+        quantize(quantize_value),
+        out,
+        mask,
+    );
 }
