@@ -11,7 +11,6 @@
 #include <new>
 #include <utility>
 
-#include "Epub/converters/DirectPixelWriter.h"
 #include "Epub/converters/ImageDecoderFactory.h"
 
 // Cache file format:
@@ -168,20 +167,9 @@ void renderRowsFromPxcSlot(GfxRenderer& renderer, int x, int y) {
   const int bytesPerRow = (pxcSlotWidth + 3) / 4;
   uint8_t tempRow[PXC_MAX_BYTES_PER_ROW];
 
-  DirectPixelWriter pw;
-  pw.init(renderer);
-
   for (int row = 0; row < pxcSlotHeight; row++) {
     const uint8_t* rowBuffer = pxcRowPtr((size_t)row * bytesPerRow, bytesPerRow, tempRow);
-    pw.beginRow(y + row);
-    int colStart, colEnd;
-    pw.bandColRange(x, pxcSlotWidth, colStart, colEnd);
-    for (int col = colStart; col < colEnd; col++) {
-      const int byteIdx = col >> 2;            // col / 4
-      const int bitShift = 6 - (col & 3) * 2;  // MSB first within byte
-      const uint8_t pixelValue = (rowBuffer[byteIdx] >> bitShift) & 0x03;
-      pw.writePixel(x + col, pixelValue);
-    }
+    renderer.drawLevelRow(rowBuffer, pxcSlotWidth, x, y + row);
   }
 }
 
@@ -245,9 +233,6 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
     return false;
   }
 
-  DirectPixelWriter pw;
-  pw.init(renderer);
-
   int rowsInBuffer = 0;
   int bufferRow = 0;
   for (int row = 0; row < cachedHeight; row++) {
@@ -266,19 +251,7 @@ bool renderFromCache(GfxRenderer& renderer, const std::string& cachePath, int x,
     const uint8_t* rowBuffer = readBuffer + (size_t)bufferRow * bytesPerRow;
     bufferRow++;
 
-    const int destY = y + row;
-    pw.beginRow(destY);
-    // On a grayscale strip pass only a narrow column window of the image is in
-    // the active band; skip the rest instead of unpacking+clipping every pixel.
-    int colStart, colEnd;
-    pw.bandColRange(x, cachedWidth, colStart, colEnd);
-    for (int col = colStart; col < colEnd; col++) {
-      const int byteIdx = col >> 2;            // col / 4
-      const int bitShift = 6 - (col & 3) * 2;  // MSB first within byte
-      uint8_t pixelValue = (rowBuffer[byteIdx] >> bitShift) & 0x03;
-
-      pw.writePixel(x + col, pixelValue);
-    }
+    renderer.drawLevelRow(rowBuffer, cachedWidth, x, y + row);
   }
 
   free(readBuffer);
@@ -314,7 +287,7 @@ void ImageBlock::renderPlaceholder(GfxRenderer& renderer, const int x, const int
 
 void ImageBlock::render(GfxRenderer& renderer, const int x, const int y) {
   // The font-prewarm scan pass only accumulates glyphs; an image contributes
-  // none, and its DirectPixelWriter output bypasses the renderer's scan-mode
+  // none, and its pixel output bypasses the renderer's scan-mode
   // suppression, so it would otherwise do a full (discarded) cache render every
   // page view. Skip it here. The image still draws in the real BW/grayscale
   // passes; on first view this just moves the one-time decode to the BW pass.

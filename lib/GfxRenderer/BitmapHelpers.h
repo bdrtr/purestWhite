@@ -19,8 +19,8 @@ struct GrayPlanePixel {
   bool black;
 };
 
-// level: 0=black, 1=dark, 2=light, 3=white. drawPixel(true) clears a bit. bembeyaz-gfx's image.rs
-// (ink) has the same rule for pictures: change both.
+// level: 0=black, 1=dark, 2=light, 3=white. drawPixel(true) clears a bit. bembeyaz-gfx's levels.rs
+// (Ink::of) has the same rule for pictures and cached image rows: change both.
 constexpr GrayPlanePixel grayPlanePixel(uint8_t level, bool msb, bool absolute) {
   if (absolute) return {true, !(level == 3 || level == (msb ? 2 : 1))};
   return {msb ? (level == 1 || level == 2) : level == 1, false};

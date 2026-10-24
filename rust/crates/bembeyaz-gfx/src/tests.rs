@@ -9,8 +9,8 @@
 extern crate std;
 
 use super::{
-    Bitmap, Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane, Region,
-    Widen,
+    Bitmap, Canvas, Clip, Corners, Fill, Frame, Ink, Orientation, Picture, Placement, Plane,
+    Region, Widen,
 };
 use std::vec;
 use std::vec::Vec;
@@ -619,6 +619,37 @@ fn regions() {
         ..canvas(&mut [], Orientation::LandscapeCounterClockwise)
     };
     assert!(!empty.read_region(&region, &mut copy));
+}
+
+#[test]
+fn level_rows_stay_on_the_panel_and_in_the_strip() {
+    let ink = Ink {
+        plane: Plane::Bw,
+        absolute: false,
+    };
+    // Twelve black levels from column 10 of a 16-wide panel: six land, none wrap to the next row.
+    let mut buf = panel();
+    let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    c.level_row(&[0; 3], 12, 10, 3, ink);
+    assert_eq!(picture(&buf)[3], "..........######");
+    assert_eq!(picture(&buf)[4], "................");
+    // Portrait: the row runs up the panel's column 2 (logical y) from panel row 7 - x; a strip of
+    // panel rows 2 and 3 keeps two of them.
+    let mut strip = vec![0xFFu8; 2 * 2];
+    let mut c = Canvas {
+        origin_y: 2,
+        rows: 2,
+        ..canvas(&mut strip, Orientation::Portrait)
+    };
+    c.level_row(&[0; 2], 8, 0, 2, ink);
+    assert_eq!(strip, [0xDF, 0xFF, 0xDF, 0xFF]);
+    // Rotated 180°: a row starting two columns left of the screen runs leftwards on the panel
+    // from past its right edge; those two columns land nowhere (not in the row below).
+    let mut buf = panel();
+    let mut c = canvas(&mut buf, Orientation::LandscapeClockwise);
+    c.level_row(&[0; 1], 4, -2, 5, ink);
+    assert_eq!(picture(&buf)[2], "..............##");
+    assert_eq!(picture(&buf)[3], "................");
 }
 
 /// Random canvases, strips, clips and shapes, including extreme fill rectangles: nothing panics.

@@ -2,7 +2,7 @@
 //! hands them out) placed, cropped and shrunk onto the canvas; 1-bit icons; and the inversion
 //! that keeps a picture's polarity on a dark-mode screen.
 
-use super::Canvas;
+use super::{Canvas, Ink};
 
 /// Which plane a draw writes: black and white, or one bit of the two-bit gray levels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -90,23 +90,11 @@ fn ink(level: u8, place: &Placement) -> Option<bool> {
     if place.white_transparent && level == 3 {
         return None;
     }
-    let msb = match place.plane {
-        Plane::Bw => return (level < 3).then_some(true),
-        Plane::GrayLsb => false,
-        Plane::GrayMsb => true,
+    let ink = Ink {
+        plane: place.plane,
+        absolute: place.absolute_gray,
     };
-    // BitmapHelpers.h's grayPlanePixel, still used in C++: change both.
-    let mid = if msb { 2 } else { 1 };
-    if place.absolute_gray {
-        Some(!(level == 3 || level == mid))
-    } else {
-        let write = if msb {
-            level == 1 || level == 2
-        } else {
-            level == 1
-        };
-        write.then_some(false)
-    }
+    ink.of(level)
 }
 
 impl Canvas<'_> {

@@ -321,12 +321,14 @@ impl Canvas<'_> {
 
 mod glyph;
 mod image;
+mod levels;
 mod polygon;
 mod region;
 mod round;
 mod scaled;
 pub use glyph::{Bitmap, Frame};
 pub use image::{Drawn, Picture, Placement, Plane};
+pub use levels::Ink;
 pub use region::{Region, Widen};
 pub use round::Corners;
 

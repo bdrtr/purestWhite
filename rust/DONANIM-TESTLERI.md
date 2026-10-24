@@ -1709,3 +1709,26 @@ RAM değişmedi.
   Uyku Ekranı'nı Kapak yapıp bir kitaptan uykuya da geçin: resimler eskisi gibi görünmeli.
 - [ ] Daha önce açılmamış JPEG ve PNG kapaklı kitapları açıp Ana Sayfa'ya dönün (küçük resim orada,
   "Yükleniyor" sırasında oluşur): kapaklar eskisi gibi görünmeli, bekleme belirgin biçimde uzamamalı.
+
+## Önbellekteki resim satırları Rust'ta ("rust: our own cached image rows")
+
+Bölüm resimleri ilk kez çözüldükten sonra (ilk gösterimin gri geçişleri dahil) önbellekten (2 bitlik
+gri seviye satırları) çiziliyor; bu satırların ekrana yazılması artık `bembeyaz-gfx`'in `levels` modülünde (`GfxRenderer::drawLevelRow`).
+Yönelim satır başına bir kez çözülüyor, yalnızca panelde ve o anki gri ton şeridinde kalan sütunlar
+geziliyor ve her sütun bir öncekinden tek bir bit adımı ötede: eski `DirectPixelWriter` döngüsü her
+piksel için seviyeyi açıp konumu yeniden hesaplıyordu. Önbelleğin okunması ve resmin ilk kez çözülüp
+önbelleğe yazılması değişmedi (JPEG ve PNG dönüştürücüleri hâlâ `DirectPixelWriter` kullanıyor).
+Eski yazıcı olduğu gibi `test/gfx_primitives`'e kopyalandı: 20000 rastgele satırda (dört yönelim,
+siyah-beyaz ve iki gri düzlem, mutlak ve fark gri düzlemleri, şeritler; eski yazıcı ekranın dışına
+taşan satırları desteklemediği için yalnızca ekrandakiler) tampon bayt bayt aynı. Ekranın dışına
+taşan satırların kesilmesini crate testleri sınıyor (önbellekteki resim bir sütun ya da satır geniş
+olabildiği için ekranın kenarına dayanan resimde eski yazıcı bu pikseli bir sonraki panel satırına,
+şeridin son satırında tamponun bir bayt ötesine yazıyordu; şimdi atılıyor). Koda bilerek konan 10 hatanın hepsi yakalandı
+(ikisi yalnızca bu kenar testleriyle). Emülatörde JPEG ve PNG resimli bölümlerde gri düzlem
+çizimi %11–15 kısaldı (sayfa başına ortanca 97–98→85–86 ve 86→73–74 ms), ekran görüntülerinin hepsi bir önceki
+sürümle aynı. Flash x4pro'da 460, x4c'de 480 bayt büyüdü, statik RAM değişmedi.
+
+- [ ] JPEG ve PNG resimli bir EPUB'ı açın, resimli sayfaları ileri geri çevirin: resimlerin gri tonları
+  ve kenarları bir önceki sürümdeki gibi görünmeli (gri tonlar ilk gösterimde de önbellekten çizilir).
+- [ ] Aynı sayfaları dört yönelimde (Okuma Yönü ayarı) açın: resim yerinde olmalı, kayma ya da yarım
+  kalmış şerit olmamalı.

@@ -176,6 +176,13 @@ uint32_t bb_gfx_reduced_glyph(const bb_gfx_canvas* canvas, const uint8_t* bits, 
 uint32_t bb_gfx_resampled_glyph(const bb_gfx_canvas* canvas, const uint8_t* bits, size_t len, int32_t width,
                                 int32_t height, bool two_bit, int32_t scale256, int32_t x, int32_t y);
 
+// Draws the first width 2-bit gray levels of a row (len bytes, four levels to a byte, most significant
+// first, 0 black to 3 white) along logical row y from column x, kept to the panel and the rows (the
+// clip does not apply). In BB_GFX_PLANE_BW levels 0 to 2 draw black and 3 is left as it is; the gray
+// planes follow grayPlanePixel (absolute or as differences).
+void bb_gfx_level_row(const bb_gfx_canvas* canvas, const uint8_t* bits, size_t len, int32_t width, int32_t x, int32_t y,
+                      uint8_t plane, bool absolute);
+
 // Regions: the whole bytes of the rows that a logical rectangle (x, y, w, h) covers on the panel,
 // kept on the panel (the clip does not apply). aligned snaps the panel x range out to multiples of
 // 8 pixels first and leaves out a last partial byte the panel's width cuts off (the panel's window

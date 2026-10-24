@@ -315,6 +315,10 @@ class GfxRenderer {
   void fillRoundedRect(int x, int y, int width, int height, int cornerRadius, bool roundTopLeft, bool roundTopRight,
                        bool roundBottomLeft, bool roundBottomRight, Color color) const;
   void drawImage(const uint8_t bitmap[], int x, int y, int width, int height) const;
+  // A row of width 2-bit levels (four to a byte, most significant first, 0 black to 3 white: the image
+  // cache's format) along logical row y from column x, in the current render mode; the clip does not
+  // apply. White is left as it is in black and white.
+  void drawLevelRow(const uint8_t* row, int width, int x, int y) const;
   void drawIcon(const uint8_t bitmap[], int x, int y, int size) const;
   bool drawBitmap(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight, float cropX = 0, float cropY = 0,
                   bool whiteAsTransparent = false) const;

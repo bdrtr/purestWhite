@@ -14,6 +14,8 @@
 #include <utility>
 #include <vector>
 
+#include "OldDirectPixelWriter.h"
+
 // A picture in memory standing in for lib/GfxRenderer's Bitmap: packed 2-bit rows, and a row
 // whose read fails.
 enum class BmpReaderError { Ok, ShortReadRow };
@@ -1728,6 +1730,60 @@ TEST(GfxPrimitivesTest, RegionsMatchTheOldRenderer) {
       ADD_FAILURE() << "case " << c << " aligned " << aligned << " orientation " << o.orientation << " size " << oldSize
                     << "/" << newSize << " read " << oldRead << "/" << newRead << " wrote " << oldWrote << "/"
                     << newWrote;
+      if (++diffs == 5) return;
+    }
+  }
+}
+
+// Rows of 2-bit levels (the image cache's format) against DirectPixelWriter and ImageBlock's loop.
+TEST(GfxPrimitivesTest, LevelRowsMatchTheOldWriter) {
+  seed = 19;
+  unsigned diffs = 0;
+  for (int c = 0; c < 20000; ++c) {
+    oldLevels::GfxRenderer r{};
+    r.widthBytes = range(1, 12);
+    r.width = r.widthBytes * 8 - (rnd() % 3 == 0 ? range(0, 7) : 0);
+    r.height = range(1, 70);
+    r.orientation = static_cast<oldLevels::GfxRenderer::Orientation>(rnd() % 4);
+    r.mode = static_cast<oldLevels::GfxRenderer::RenderMode>(rnd() % 3);
+    r.absolute = rnd() % 2;
+    r.originY = 0;
+    r.rows = r.height;
+    if (rnd() % 3 == 0) {
+      r.originY = range(0, r.height - 1);
+      r.rows = range(1, r.height - r.originY);
+    }
+    std::vector<uint8_t> a(static_cast<size_t>(r.rows) * r.widthBytes);
+    for (auto& v : a) v = static_cast<uint8_t>(rnd());
+    auto b = a;
+    r.target = a.data();
+    // The old writer trusts its callers to stay on the screen.
+    const bool portrait =
+        r.orientation == oldLevels::GfxRenderer::Portrait || r.orientation == oldLevels::GfxRenderer::PortraitInverted;
+    const int screenW = portrait ? r.height : r.width, screenH = portrait ? r.width : r.height;
+    const int x = range(0, screenW - 1), y = range(0, screenH - 1);
+    const int width = range(1, screenW - x);
+    std::vector<uint8_t> row((width + 3) / 4);
+    for (auto& v : row) v = static_cast<uint8_t>(rnd());
+    oldLevels::drawRow(r, row.data(), width, x, y, false);
+
+    bb_gfx_canvas cv{};
+    cv.buf = b.data();
+    cv.len = b.size();
+    cv.stride = static_cast<size_t>(r.widthBytes);
+    cv.origin_y = r.originY;
+    cv.rows = r.rows;
+    cv.panel_width = r.width;
+    cv.panel_height = r.height;
+    cv.clip_left = INT32_MIN;
+    cv.clip_top = INT32_MIN;
+    cv.clip_right = INT32_MAX;
+    cv.clip_bottom = INT32_MAX;
+    cv.orientation = static_cast<uint8_t>(r.orientation);
+    bb_gfx_level_row(&cv, row.data(), row.size(), width, x, y, static_cast<uint8_t>(r.mode), r.absolute);
+    if (a != b) {
+      ADD_FAILURE() << "case " << c << " orientation " << r.orientation << " mode " << r.mode << " strip " << r.originY
+                    << "+" << r.rows;
       if (++diffs == 5) return;
     }
   }

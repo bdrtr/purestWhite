@@ -1,7 +1,7 @@
 //! Exports for lib/GfxRenderer (see `rust/include/bembeyaz/gfx.h`).
 
 use bembeyaz_gfx::{
-    Bitmap, Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane, Widen,
+    Bitmap, Canvas, Clip, Corners, Fill, Frame, Ink, Orientation, Picture, Placement, Plane, Widen,
 };
 
 /// gfx.h's `bb_gfx_canvas`.
@@ -590,4 +590,29 @@ pub unsafe extern "C" fn bb_gfx_write_region(
     // SAFETY: as documented.
     let src = unsafe { crate::view(src, len) };
     c.write_region(&region, src)
+}
+
+/// # Safety
+/// `canvas` is NULL or as gfx.h describes; `bits` is NULL or holds `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_gfx_level_row(
+    canvas: *const CCanvas,
+    bits: *const u8,
+    len: usize,
+    width: i32,
+    x: i32,
+    y: i32,
+    plane_value: u8,
+    absolute: bool,
+) {
+    // SAFETY: as documented.
+    let row = unsafe { crate::view(bits, len) };
+    let ink = Ink {
+        plane: plane(plane_value),
+        absolute,
+    };
+    // SAFETY: as documented.
+    if let Some(mut c) = unsafe { self::canvas(canvas) } {
+        c.level_row(row, width, x, y, ink);
+    }
 }
