@@ -27,6 +27,7 @@
 extern crate alloc;
 
 pub mod cover;
+mod gray;
 
 use alloc::alloc::{Layout, alloc_zeroed};
 use alloc::boxed::Box;
@@ -41,7 +42,8 @@ pub const MAX_PITCH: i32 = 16416;
 
 /// The size of the read buffer, which decides how chunks are walked.
 const FILE_BUF_SIZE: usize = 2048;
-const PALETTE_SIZE: usize = 1024;
+/// A row's palette: 256 RGB triples, then 256 alpha values.
+pub const PALETTE_SIZE: usize = 1024;
 /// Where the palette's alpha values start.
 const ALPHA: usize = 768;
 /// Bytes a PLTE chunk may fill: the whole palette, alpha included, as far as PNGdec's copy reached.

@@ -1796,3 +1796,26 @@ başlatılıyor).
   `sleep-overlay.png` koyun (kenarı opak, içi giderek saydamlaşan bir halka gibi; kökte
   `sleep-overlay.bmp` olmasın, önce o seçilir) ve uykuya geçin: kaplama ekrandakinin üstüne eskisi
   gibi binmeli; saydam yerlerde alttaki görünmeli, opak beyaz yerler beyaz olmalı.
+
+## PNG satırlarının griye çevrilmesi Rust'ta ("rust: our own PNG row gray")
+
+PNG'ler çözülürken her kaynak satırın griye çevrilmesi (PngToFramebufferConverter'ın
+`convertLineToGray`'i: bölüm resimleri, OPDS kataloğundaki Details (Ayrıntılar) kapağı, resim
+görüntüleyici, saydam uyku kaplaması) artık `bembeyaz-png`'nin `gray` modülünde: piksel türüne göre
+luma (256'da 77/150/29), 1, 2 ve 4 bitlik örneklerin 255'e ölçeklenmesi, palet ve paletin alfası,
+tRNS renk anahtarının saydam sayılması, alfanın kaplama için ayrı tutulması ya da beyaza
+karıştırılması, bilinmeyen türlerde orta gri. Örnekler bölmesiz okunuyor; dizinler sınır denetimli,
+satırın dışı 0 okunuyor (eski kod satırın yeterince uzun olduğunu varsayıyordu). Paletsiz satır (çözücü hep palet
+verdiği için olmayan bir durum) artık orta gri; eskiden dizinli olmayan satırlar paletsiz de
+çevriliyor, dizinli satırlar gri ölçeği gibi okunuyordu. Eski işlev olduğu gibi `test/image_sampling`'e kopyalandı: 20000 rastgele satırda (beş
+piksel türü ve iki bilinmeyen tür, 1, 2, 4 ve 8 bit, renk anahtarı eşleşen ya da eşleşmeyen, alfalı
+ya da alfasız, kaplama ya da değil) gri ve alfa bayt bayt aynı. Koda bilerek konan 15 hatanın 14'ü
+yakalandı; kalanı sonucu değiştirmiyor (1, 2 ve 4 bitte en büyük değer 255'i böler). Emülatörde PNG
+kitabı (her renk türü ve bit derinliği, palet ve renk anahtarı saydamlığı, alfa) ve bozuk PNG bir
+önceki sürümle piksel piksel aynı, süreler değişmedi. Flash x4pro'da 1332, x4c'de 1220 bayt büyüdü
+(her piksel türü için alfalı ve alfasız ayrı döngüler), statik RAM değişmedi.
+
+- [ ] PNG resimli bir EPUB'ı (renkli, gri, paletli, saydam arka planlı resimlerle) ilk kez açın:
+  resimler eskisi gibi görünmeli; saydam arka planlar beyaz olmalı.
+- [ ] Saydam uyku kaplaması (`/sleep-overlay.png`, önceki maddedeki gibi): kaplama eskisi gibi
+  binmeli.

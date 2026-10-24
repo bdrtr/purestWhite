@@ -5,7 +5,7 @@
 //! `bb_png_open` hands out and `bb_png_free` takes back.
 
 use alloc::alloc::{Layout, alloc, dealloc};
-use bembeyaz_png::{Error, MAX_PITCH, Png, Row, Source, pixel};
+use bembeyaz_png::{Error, MAX_PITCH, PALETTE_SIZE, Png, Row, Source, pixel};
 use core::ffi::{c_int, c_void};
 use core::mem::{MaybeUninit, offset_of, size_of};
 use core::ptr;
@@ -215,3 +215,50 @@ const _: () = assert!(!core::mem::needs_drop::<BbPng>());
 // requests of up to 4096 bytes (RadioPolicy.h).
 #[cfg(target_pointer_width = "32")]
 const _: () = assert!(core::mem::size_of::<BbPng>() <= 4096);
+
+/// Writes the gray of `row`'s pixels into `gray` (`len` bytes) and their alpha into `alpha` (NULL,
+/// or `len` bytes), or without `alpha` composited onto white; a row without a palette is mid gray.
+///
+/// # Safety
+/// `row` is NULL or as `bb_png_decode` hands it (or alike: `pixels` holds `pitch` bytes, `palette`
+/// is NULL or holds the whole palette); `gray` and `alpha` are NULL or hold `len` writable bytes,
+/// and overlap neither each other nor the row.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_png_row_gray(
+    row: *const BbPngRow,
+    gray: *mut u8,
+    len: usize,
+    alpha: *mut u8,
+) {
+    // SAFETY: per the contract.
+    let Some(r) = (unsafe { row.as_ref() }) else {
+        return;
+    };
+    if r.palette.is_null() {
+        // SAFETY: per the contract.
+        unsafe { crate::view_mut(gray, len) }.fill(128);
+        if !alpha.is_null() {
+            // SAFETY: per the contract.
+            unsafe { crate::view_mut(alpha, len) }.fill(255);
+        }
+        return;
+    }
+    // SAFETY: per the contract.
+    let palette = unsafe { &*r.palette.cast::<[u8; PALETTE_SIZE]>() };
+    let row = Row {
+        y: r.y,
+        width: r.width,
+        // SAFETY: per the contract.
+        pixels: unsafe { crate::view(r.pixels, usize::try_from(r.pitch).unwrap_or(0)) },
+        palette,
+        transparent: r.transparent,
+        pixel_type: r.pixel_type,
+        bpp: r.bpp,
+        has_alpha: r.has_alpha,
+    };
+    // SAFETY: per the contract.
+    let gray = unsafe { crate::view_mut(gray, len) };
+    // SAFETY: per the contract.
+    let alpha = (!alpha.is_null()).then(|| unsafe { crate::view_mut(alpha, len) });
+    row.to_gray(gray, alpha);
+}

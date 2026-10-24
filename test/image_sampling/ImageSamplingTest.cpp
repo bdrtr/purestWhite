@@ -1,7 +1,8 @@
 // bembeyaz-dither's block and line rows, drawn with bembeyaz-gfx's level rows and copied into the
 // cache band as lib/Epub's JPEG and PNG framebuffer converters do, against the converters' old draw
 // callbacks (OldJpegSampling.h, OldPngSampling.h): random images, scales, crops, positions, panels,
-// strips, blocks and transparency must give the same screen and the same cache.
+// strips, blocks and transparency must give the same screen and the same cache; and bembeyaz-png's
+// row gray against the PNG converter's old convertLineToGray (OldPngGray.h).
 #include <bembeyaz/dither.h>
 #include <bembeyaz/gfx.h>
 #include <gtest/gtest.h>
@@ -12,6 +13,7 @@
 #include <vector>
 
 #include "OldJpegSampling.h"
+#include "OldPngGray.h"
 #include "OldPngSampling.h"
 
 namespace {
@@ -370,6 +372,63 @@ TEST(ImageSampling, JpegBlocksMatchTheOldConverter) {
       ADD_FAILURE() << "case " << c << " orientation " << r.orientation << " mode " << r.mode << " src " << srcW << "x"
                     << srcH << " dst " << dstW << "x" << dstH << " at " << config.x << "," << config.y << " dithering "
                     << config.useDithering << (a != b ? " screen" : "") << (ca != cb ? " cache" : "");
+      if (++diffs == 5) return;
+    }
+  }
+}
+
+TEST(ImageSampling, PngRowGrayMatchesTheOldConversion) {
+  seed = 31;
+  unsigned diffs = 0;
+  static constexpr uint8_t TYPES[] = {BB_PNG_PIXEL_GRAYSCALE,
+                                      BB_PNG_PIXEL_TRUECOLOR,
+                                      BB_PNG_PIXEL_INDEXED,
+                                      BB_PNG_PIXEL_GRAY_ALPHA,
+                                      BB_PNG_PIXEL_TRUECOLOR_ALPHA,
+                                      1,
+                                      5};
+  for (int c = 0; c < 20000; ++c) {
+    const uint8_t type = TYPES[rnd() % 7];
+    const bool packed = type == BB_PNG_PIXEL_GRAYSCALE || type == BB_PNG_PIXEL_INDEXED;
+    static constexpr uint8_t DEPTHS[] = {1, 2, 4, 8};
+    const uint8_t bpp = packed ? DEPTHS[rnd() % 4] : 8;
+    const int channels = type == BB_PNG_PIXEL_TRUECOLOR         ? 3
+                         : type == BB_PNG_PIXEL_GRAY_ALPHA      ? 2
+                         : type == BB_PNG_PIXEL_TRUECOLOR_ALPHA ? 4
+                                                                : 1;
+    const int width = range(1, 300);
+    const int pitch = (width * bpp * channels + 7) / 8;
+    std::vector<uint8_t> pixels(pitch), palette(1024);
+    for (auto& v : pixels) v = static_cast<uint8_t>(rnd());
+    for (auto& v : palette) v = static_cast<uint8_t>(rnd());
+    // A color key that some pixels match.
+    uint32_t key = rnd();
+    if (rnd() % 2) {
+      if (type == BB_PNG_PIXEL_TRUECOLOR) {
+        const int x = range(0, width - 1);
+        key = (uint32_t{pixels[x * 3]} << 16) | (uint32_t{pixels[x * 3 + 1]} << 8) | pixels[x * 3 + 2];
+      } else {
+        key = rnd() % (1u << bpp);
+      }
+    }
+    bb_png_row row{};
+    row.pixels = pixels.data();
+    row.palette = palette.data();
+    row.width = width;
+    row.pitch = pitch;
+    row.transparent = key;
+    row.pixel_type = type;
+    row.bpp = bpp;
+    row.has_alpha = rnd() % 2;
+    const bool keepAlpha = rnd() % 2;
+    std::vector<uint8_t> grayA(width, 0x5A), grayB(width, 0x5A), alphaA(width, 0xA5), alphaB(width, 0xA5);
+    oldPngGray::convertLineToGray(pixels.data(), grayA.data(), width, type, bpp, palette.data(), row.has_alpha, key,
+                                  keepAlpha ? alphaA.data() : nullptr);
+    bb_png_row_gray(&row, grayB.data(), grayB.size(), keepAlpha ? alphaB.data() : nullptr);
+    if (grayA != grayB || alphaA != alphaB) {
+      ADD_FAILURE() << "case " << c << " type " << int{type} << " bpp " << int{bpp} << " width " << width
+                    << " has_alpha " << row.has_alpha << " keep alpha " << keepAlpha << (grayA != grayB ? " gray" : "")
+                    << (alphaA != alphaB ? " alpha" : "");
       if (++diffs == 5) return;
     }
   }

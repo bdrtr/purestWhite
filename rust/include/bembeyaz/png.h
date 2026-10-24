@@ -76,6 +76,11 @@ void bb_png_get_info(const bb_png* png, bb_png_info* info);
 // height may follow); draw returns 0 to stop. The row lives until draw returns. Allocates about
 // 37 KB plus two rows for the call. Returns a result above.
 int bb_png_decode(bb_png* png, int (*draw)(void* user, const bb_png_row* row), void* user);
+// Writes the gray (0 black to 255 white) of row's pixels into gray (len bytes, at most the row's
+// width used) and their alpha into alpha (NULL, or len bytes), or without alpha composited onto
+// white: luma 77/150/29 in 256, low-depth samples scaled to 255, a tRNS color key clear, unknown
+// pixel types mid gray. row is as bb_png_decode hands it (without a palette, mid gray).
+void bb_png_row_gray(const bb_png_row* row, uint8_t* gray, size_t len, uint8_t* alpha);
 void bb_png_free(bb_png* png);
 
 #ifdef __cplusplus
