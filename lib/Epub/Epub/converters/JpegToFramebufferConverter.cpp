@@ -5,6 +5,7 @@
 #include <HalStorage.h>
 #include <Logging.h>
 #include <Memory.h>
+#include <bembeyaz/dither.h>
 #include <bembeyaz/jpeg.h>
 
 #include <algorithm>
@@ -12,13 +13,15 @@
 #include <cstdlib>
 #include <memory>
 
-#include "DirectPixelWriter.h"
-#include "DitherUtils.h"
 #include "PixelCache.h"
 
 // jpeg.h's layouts, which bembeyaz-ffi's jpeg.rs checks from its side.
 static_assert(offsetof(bb_jpeg_info, progressive) == 8);
 static_assert(offsetof(bb_jpeg_block, x) == sizeof(void*) && offsetof(bb_jpeg_block, width_used) == sizeof(void*) + 16);
+// dither.h's, which bembeyaz-ffi's dither.rs checks too.
+static_assert(sizeof(bb_dither_gray_block) == 3 * sizeof(size_t) + 16 &&
+              offsetof(bb_dither_gray_block, width) == 3 * sizeof(size_t));
+static_assert(sizeof(bb_dither_scale) == 16 && offsetof(bb_dither_scale, inv_y) == 12);
 
 namespace {
 
@@ -109,8 +112,8 @@ int chooseJpegScale(float targetScale, int& jpegScaleOption) {
 // Fixed-point 16.16 arithmetic avoids software float emulation on ESP32-C3 (no FPU).
 constexpr int FP_SHIFT = 16;
 constexpr int32_t FP_ONE = 1 << FP_SHIFT;
-constexpr int32_t FP_MASK = FP_ONE - 1;
 
+// test/image_sampling's newDraw mirrors this callback: change both.
 int jpegDrawCallback(void* user, const bb_jpeg_block* block) {
   JpegContext* ctx = static_cast<JpegContext*>(user);
   if (!ctx || !ctx->config || !ctx->renderer) return 0;
@@ -159,190 +162,45 @@ int jpegDrawCallback(void* user, const bb_jpeg_block* block) {
 
   if (dstYStart >= dstYEnd || dstXStart >= dstXEnd) return 1;
 
-  // Pre-compute orientation and render-mode state once per callback invocation
-  DirectPixelWriter pw;
-  pw.init(renderer);
-
   // The cache streams to disk one MCU-row band at a time. Flushing rows below
   // this block (raster order guarantees they are final) repositions the band;
   // cacheOriginY then maps screen rows to the band-local buffer rows. If a flush
   // write fails, stop caching for the rest of this decode (and let finalize drop
   // the partial file) rather than writing past the band buffer.
-  DirectCacheWriter cw;
   int cacheOriginY = 0;
   if (caching) {
     if (!ctx->cache.advanceTo(dstYStart)) {
       caching = false;
       ctx->caching = false;
     } else {
-      cw.init(ctx->cache.buffer, ctx->cache.bytesPerRow, ctx->cache.bandRows, ctx->cache.originX);
       cacheOriginY = ctx->config->y + ctx->cache.bandStart;
     }
   }
 
-  // === 1:1 fast path: no scaling math ===
-  if (fineScaleFPX == FP_ONE && fineScaleFPY == FP_ONE) {
-    for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
-      const int outY = cfgY + dstY;
-      pw.beginRow(outY);
-      if (caching) cw.beginRow(outY, cacheOriginY);
-      const uint8_t* row = &pixels[(dstY - blockY) * stride];
-      for (int dstX = dstXStart; dstX < dstXEnd; dstX++) {
-        const int outX = cfgX + dstX;
-        uint8_t gray = row[dstX - blockX];
-        uint8_t dithered;
-        if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
-        } else {
-          dithered = gray / 85;
-          if (dithered > 3) dithered = 3;
-        }
-        pw.writePixel(outX, dithered);
-        if (caching) cw.writePixel(outX, dithered);
-      }
-    }
-    return 1;
-  }
-
-  // === Bilinear interpolation (upscale: fineScale > 1.0) ===
-  // Smooths block boundaries that would otherwise create visible banding
-  // on progressive JPEG DC-only decode (1/8 resolution upscaled to target).
-  if (fineScaleFPX > FP_ONE && fineScaleFPY > FP_ONE) {
-    // Pre-compute safe X range where lx0 and lx0+1 are both in [0, validW-1].
-    // Only the left/right edge pixels (typically 0-2 and 1-8 respectively) need clamping.
-    int safeXStart = (int)(((int64_t)blockX * fineScaleFPX + FP_MASK) >> FP_SHIFT);
-    int safeXEnd = (int)((int64_t)(blockX + validW - 1) * fineScaleFPX >> FP_SHIFT);
-    if (safeXStart < dstXStart) safeXStart = dstXStart;
-    if (safeXEnd > dstXEnd) safeXEnd = dstXEnd;
-    if (safeXStart > safeXEnd) safeXEnd = safeXStart;
-
-    for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
-      const int outY = cfgY + dstY;
-      pw.beginRow(outY);
-      if (caching) cw.beginRow(outY, cacheOriginY);
-      const int32_t srcFyFP = dstY * invScaleFPY;
-      const int32_t fy = srcFyFP & FP_MASK;
-      const int32_t fyInv = FP_ONE - fy;
-      int ly0 = (srcFyFP >> FP_SHIFT) - blockY;
-      int ly1 = ly0 + 1;
-      if (ly0 < 0) ly0 = 0;
-      if (ly0 >= blockH) ly0 = blockH - 1;
-      if (ly1 >= blockH) ly1 = blockH - 1;
-
-      const uint8_t* row0 = &pixels[ly0 * stride];
-      const uint8_t* row1 = &pixels[ly1 * stride];
-
-      // Left edge (with X boundary clamping)
-      for (int dstX = dstXStart; dstX < safeXStart; dstX++) {
-        const int outX = cfgX + dstX;
-        const int32_t srcFxFP = dstX * invScaleFPX;
-        const int32_t fx = srcFxFP & FP_MASK;
-        const int32_t fxInv = FP_ONE - fx;
-        int lx0 = (srcFxFP >> FP_SHIFT) - blockX;
-        int lx1 = lx0 + 1;
-        if (lx0 < 0) lx0 = 0;
-        if (lx1 < 0) lx1 = 0;
-        if (lx0 >= validW) lx0 = validW - 1;
-        if (lx1 >= validW) lx1 = validW - 1;
-
-        int top = ((int)row0[lx0] * fxInv + (int)row0[lx1] * fx) >> FP_SHIFT;
-        int bot = ((int)row1[lx0] * fxInv + (int)row1[lx1] * fx) >> FP_SHIFT;
-        uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
-
-        uint8_t dithered;
-        if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
-        } else {
-          dithered = gray / 85;
-          if (dithered > 3) dithered = 3;
-        }
-        pw.writePixel(outX, dithered);
-        if (caching) cw.writePixel(outX, dithered);
-      }
-
-      // Interior (no X boundary checks — lx0 and lx0+1 guaranteed in bounds)
-      for (int dstX = safeXStart; dstX < safeXEnd; dstX++) {
-        const int outX = cfgX + dstX;
-        const int32_t srcFxFP = dstX * invScaleFPX;
-        const int32_t fx = srcFxFP & FP_MASK;
-        const int32_t fxInv = FP_ONE - fx;
-        const int lx0 = (srcFxFP >> FP_SHIFT) - blockX;
-
-        int top = ((int)row0[lx0] * fxInv + (int)row0[lx0 + 1] * fx) >> FP_SHIFT;
-        int bot = ((int)row1[lx0] * fxInv + (int)row1[lx0 + 1] * fx) >> FP_SHIFT;
-        uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
-
-        uint8_t dithered;
-        if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
-        } else {
-          dithered = gray / 85;
-          if (dithered > 3) dithered = 3;
-        }
-        pw.writePixel(outX, dithered);
-        if (caching) cw.writePixel(outX, dithered);
-      }
-
-      // Right edge (with X boundary clamping)
-      for (int dstX = safeXEnd; dstX < dstXEnd; dstX++) {
-        const int outX = cfgX + dstX;
-        const int32_t srcFxFP = dstX * invScaleFPX;
-        const int32_t fx = srcFxFP & FP_MASK;
-        const int32_t fxInv = FP_ONE - fx;
-        int lx0 = (srcFxFP >> FP_SHIFT) - blockX;
-        int lx1 = lx0 + 1;
-        if (lx0 >= validW) lx0 = validW - 1;
-        if (lx1 >= validW) lx1 = validW - 1;
-
-        int top = ((int)row0[lx0] * fxInv + (int)row0[lx1] * fx) >> FP_SHIFT;
-        int bot = ((int)row1[lx0] * fxInv + (int)row1[lx1] * fx) >> FP_SHIFT;
-        uint8_t gray = (uint8_t)((top * fyInv + bot * fy) >> FP_SHIFT);
-
-        uint8_t dithered;
-        if (useDithering) {
-          dithered = applyBayerDither4Level(gray, outX, outY);
-        } else {
-          dithered = gray / 85;
-          if (dithered > 3) dithered = 3;
-        }
-        pw.writePixel(outX, dithered);
-        if (caching) cw.writePixel(outX, dithered);
-      }
-    }
-    return 1;
-  }
-
-  // === Nearest-neighbor (downscale: fineScale < 1.0) ===
+  const bb_dither_gray_block source{
+      pixels, static_cast<size_t>(stride) * blockH, static_cast<size_t>(stride), validW, blockH, blockX, blockY};
+  const bb_dither_scale scale{fineScaleFPX, invScaleFPX, fineScaleFPY, invScaleFPY};
+  const uint8_t quantize = useDithering ? BB_DITHER_QUANTIZE_BAYER : BB_DITHER_QUANTIZE_THIRDS;
+  // The levels of up to this many columns of a row at a time.
+  constexpr int PIECE = 512;
+  uint8_t levels[PIECE / 4];
   for (int dstY = dstYStart; dstY < dstYEnd; dstY++) {
     const int outY = cfgY + dstY;
-    pw.beginRow(outY);
-    if (caching) cw.beginRow(outY, cacheOriginY);
-    const int32_t srcFyFP = dstY * invScaleFPY;
-    int ly = (srcFyFP >> FP_SHIFT) - blockY;
-    if (ly < 0) ly = 0;
-    if (ly >= blockH) ly = blockH - 1;
-    const uint8_t* row = &pixels[ly * stride];
-
-    for (int dstX = dstXStart; dstX < dstXEnd; dstX++) {
-      const int outX = cfgX + dstX;
-      const int32_t srcFxFP = dstX * invScaleFPX;
-      int lx = (srcFxFP >> FP_SHIFT) - blockX;
-      if (lx < 0) lx = 0;
-      if (lx >= validW) lx = validW - 1;
-      uint8_t gray = row[lx];
-
-      uint8_t dithered;
-      if (useDithering) {
-        dithered = applyBayerDither4Level(gray, outX, outY);
-      } else {
-        dithered = gray / 85;
-        if (dithered > 3) dithered = 3;
+    // The row in the cache band, or none outside it.
+    const int bandRow = outY - cacheOriginY;
+    uint8_t* cacheRow = caching && static_cast<unsigned>(bandRow) < static_cast<unsigned>(ctx->cache.bandRows)
+                            ? ctx->cache.buffer + static_cast<size_t>(bandRow) * ctx->cache.bytesPerRow
+                            : nullptr;
+    for (int from = dstXStart; from < dstXEnd; from += PIECE) {
+      const int count = std::min(PIECE, dstXEnd - from);
+      bb_dither_block_row(&source, &scale, dstY, from, from + count, cfgX, cfgY, quantize, levels, sizeof(levels));
+      renderer.drawLevelRow(levels, count, cfgX + from, outY);
+      if (cacheRow) {
+        bb_dither_put_levels(cacheRow, ctx->cache.bytesPerRow, cfgX + from - ctx->cache.originX, levels, sizeof(levels),
+                             count);
       }
-      pw.writePixel(outX, dithered);
-      if (caching) cw.writePixel(outX, dithered);
     }
   }
-
   return 1;
 }
 

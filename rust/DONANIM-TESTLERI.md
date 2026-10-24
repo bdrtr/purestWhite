@@ -1732,3 +1732,34 @@ sürümle aynı. Flash x4pro'da 460, x4c'de 480 bayt büyüdü, statik RAM deği
   ve kenarları bir önceki sürümdeki gibi görünmeli (gri tonlar ilk gösterimde de önbellekten çizilir).
 - [ ] Aynı sayfaları dört yönelimde (Okuma Yönü ayarı) açın: resim yerinde olmalı, kayma ya da yarım
   kalmış şerit olmamalı.
+
+## JPEG resimlerinin çizimi Rust'ta ("rust: our own JPEG image sampling")
+
+Bölüm resimleri, OPDS kataloğundaki kitapların Details (Ayrıntılar) ekranındaki kapak, resim
+görüntüleyicide açılan ve orada "Kapak Ayarla" ile uyku resmi yapılan JPEG'ler çözülürken ekrana
+böyle çiziliyor: çözücünün verdiği gri bloklar çıkış boyutuna getiriliyor (iki eksende de
+büyütmede çift doğrusal, 1:1'de kopya, diğer durumlarda en yakın piksel), 4×4 Bayer deseniyle ya da
+titremesiz üçte bir eşikleriyle panelin dört seviyesine çevriliyor ve satır satır ekrana ve
+önbellek bandına yazılıyor. Bunların hepsi artık `bembeyaz-dither`'ın `sample` modülünde; satırlar
+ekrana önceki işteki seviye satırlarıyla yazılıyor. Eskiden her piksel için bir `DirectPixelWriter`
+ve bir önbellek yazımı vardı; şimdi bloğun her satırı için, en çok 512 sütunluk parçalar halinde üç
+çağrı var (`bb_dither_block_row`, `drawLevelRow`, `bb_dither_put_levels`). Eski çift doğrusal
+döngüde bir hata düzeltildi: ters ölçek aşağı yuvarlandığı için bir bloğun ilk sütunu kaynakta
+-1'e düşebiliyor ve iç döngüde (bir sütunluk bloklarda sağ kenar döngüsünde de) satırdan önceki
+bayt okunuyordu (ilk satırda tamponun bir bayt öncesi). Bu, blok sınırlarında tek tek piksellerin
+bir seviye kaymasına yol açabiliyordu; şimdi her sütun bloğun içinde kalıyor. Eski geri çağrı
+`test/image_sampling`'e kopyalandı (bu düzeltmeler işaretli): 20000 rastgele resimde (ölçekler,
+kırpma, konum, ekrandan taşma, dört yönelim, üç düzlem, şeritler, blok boyutları, titreme açık ya
+da kapalı, önbellekli ya da önbelleksiz) ekran ve önbellek bayt bayt aynı. Koda bilerek konan 18
+hatanın 16'sını bu test, birini crate testleri yakaladı; kalanı sonucu değiştirmiyor (255 ile 254
+aynı seviyeye düşüyor). Emülatörde JPEG resimli bölüm ve bozuk JPEG senaryoları bir önceki sürümle
+piksel piksel aynı, sayfa süreleri değişmedi (çözme süresi baskın). Flash x4pro'da 440, x4c'de 448
+bayt büyüdü, statik RAM değişmedi; yığında geri çağrı başına 128 baytlık bir tampon.
+
+- [ ] JPEG resimli bir EPUB'ı ilk kez açın (önbellek yokken resim çözülürken çizilir): resimler
+  eskisi gibi görünmeli; büyütülen küçük resimlerde blok sınırlarında çizgi ya da kayma olmamalı.
+- [ ] OPDS kataloğunda JPEG kapaklı bir kitabın Details (Ayrıntılar) ekranını açın: kapak eskisi
+  gibi görünmeli.
+- [ ] Dosyalara Göz At'tan bir JPEG açın: eskisi gibi görünmeli. Uyku Ekranı Kapak Modu'nu önce Kırp
+  yapın, ekrandan büyük bir JPEG'de Kapak Ayarla deyin ve uykuya geçin; sonra Sığdır ile tekrarlayın:
+  uyku resmi eskisi gibi, kırpması doğru olmalı.

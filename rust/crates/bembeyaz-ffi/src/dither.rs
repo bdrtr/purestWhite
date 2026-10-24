@@ -1,6 +1,7 @@
-//! Exports for lib/GfxRenderer's BitmapHelpers (see `rust/include/bembeyaz/dither.h`).
+//! Exports for lib/GfxRenderer's BitmapHelpers and lib/Epub's framebuffer converters (see
+//! `rust/include/bembeyaz/dither.h`).
 
-use bembeyaz_dither::{Ditherer, Method};
+use bembeyaz_dither::{Ditherer, GrayBlock, Method, Quantize, Scale};
 
 /// dither.h's `bb_dither`.
 #[repr(C)]
@@ -98,4 +99,107 @@ pub unsafe extern "C" fn bb_dither_reset(d: *mut CDither) {
 #[unsafe(no_mangle)]
 pub extern "C" fn bb_dither_adjust(gray: u8) -> u8 {
     bembeyaz_dither::adjust(gray)
+}
+
+/// dither.h's `bb_dither_gray_block`.
+#[repr(C)]
+pub struct CGrayBlock {
+    pixels: *const u8,
+    len: usize,
+    stride: usize,
+    width: i32,
+    height: i32,
+    x: i32,
+    y: i32,
+}
+
+/// dither.h's `bb_dither_scale`.
+#[repr(C)]
+pub struct CScale {
+    x: i32,
+    inv_x: i32,
+    y: i32,
+    inv_y: i32,
+}
+
+// dither.h's layouts; the JPEG converter checks the same.
+const _: () = assert!(
+    size_of::<CGrayBlock>() == 3 * size_of::<usize>() + 16
+        && core::mem::offset_of!(CGrayBlock, width) == 3 * size_of::<usize>()
+        && core::mem::offset_of!(CGrayBlock, y) == 3 * size_of::<usize>() + 12
+        && size_of::<CScale>() == 16
+        && core::mem::offset_of!(CScale, inv_y) == 12
+);
+
+/// dither.h's BB_DITHER_QUANTIZE_* values.
+fn quantize(value: u8) -> Quantize {
+    match value {
+        1 => Quantize::Thirds,
+        _ => Quantize::Bayer,
+    }
+}
+
+/// # Safety
+/// `block` and `scale` are NULL or valid, and `block`'s `pixels` is NULL or holds `len` bytes;
+/// `out` is NULL or holds `out_len` writable bytes.
+#[unsafe(no_mangle)]
+#[allow(clippy::too_many_arguments)]
+pub unsafe extern "C" fn bb_dither_block_row(
+    block: *const CGrayBlock,
+    scale: *const CScale,
+    dst_y: i32,
+    start: i32,
+    end: i32,
+    ox: i32,
+    oy: i32,
+    quantize_value: u8,
+    out: *mut u8,
+    out_len: usize,
+) {
+    // SAFETY: as documented.
+    let (Some(b), Some(s)) = (unsafe { block.as_ref() }, unsafe { scale.as_ref() }) else {
+        return;
+    };
+    let block = GrayBlock {
+        // SAFETY: as documented.
+        pixels: unsafe { crate::view(b.pixels, b.len) },
+        stride: b.stride,
+        width: b.width,
+        height: b.height,
+        x: b.x,
+        y: b.y,
+    };
+    let scale = Scale {
+        x: s.x,
+        inv_x: s.inv_x,
+        y: s.y,
+        inv_y: s.inv_y,
+    };
+    // SAFETY: as documented.
+    let out = unsafe { crate::view_mut(out, out_len) };
+    bembeyaz_dither::block_row(
+        &block,
+        &scale,
+        dst_y,
+        (start, end),
+        (ox, oy),
+        quantize(quantize_value),
+        out,
+    );
+}
+
+/// # Safety
+/// `dst` is NULL or holds `dst_len` writable bytes; `src` is NULL or holds `src_len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_dither_put_levels(
+    dst: *mut u8,
+    dst_len: usize,
+    at: i32,
+    src: *const u8,
+    src_len: usize,
+    count: usize,
+) {
+    // SAFETY: as documented.
+    let (dst, src) = unsafe { (crate::view_mut(dst, dst_len), crate::view(src, src_len)) };
+    bembeyaz_dither::put_levels(dst, at, src, count);
 }

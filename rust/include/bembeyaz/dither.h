@@ -1,4 +1,5 @@
-// C ABI of rust/crates/bembeyaz-ffi/src/dither.rs. Use lib/GfxRenderer/BitmapHelpers.h instead.
+// C ABI of rust/crates/bembeyaz-ffi/src/dither.rs. lib/GfxRenderer/BitmapHelpers.h wraps the
+// ditherer; lib/Epub's framebuffer converters use the sampling directly.
 #pragma once
 
 #include <stdbool.h>
@@ -41,6 +42,45 @@ void bb_dither_pixels(bb_dither* dither, const uint8_t* gray, size_t count, size
 void bb_dither_next_row(bb_dither* dither);
 // Starts over: no carried error, row 0 again.
 void bb_dither_reset(bb_dither* dither);
+
+// Chapter images as they decode: blocks of gray resampled to the output size, each pixel turned into
+// a 2-bit level (0 black to 3 white), packed four to a byte, most significant first.
+enum {
+  BB_DITHER_QUANTIZE_BAYER = 0,   // ordered dithering, 4x4 Bayer matrix at the screen position
+  BB_DITHER_QUANTIZE_THIRDS = 1,  // gray / 85
+};
+
+// Gray pixels at (x, y) of the source: height rows stride bytes apart (len bytes in all), the first
+// width of each valid.
+typedef struct {
+  const uint8_t* pixels;
+  size_t len;
+  size_t stride;
+  int32_t width;
+  int32_t height;
+  int32_t x;
+  int32_t y;
+} bb_dither_gray_block;
+
+// Output size over source size on each axis (x, y) and source over output (inv_x, inv_y), 16.16
+// fixed point.
+typedef struct {
+  int32_t x;
+  int32_t inv_x;
+  int32_t y;
+  int32_t inv_y;
+} bb_dither_scale;
+
+// Writes the levels of output row dst_y's columns start to end (exclusive) into out (out_len bytes),
+// packed from its first bit; the last byte's spare bits are 0. The output's top left is at screen
+// (ox, oy), which places the dither pattern. Growing on both axes interpolates bilinearly, 1:1 copies
+// (the row as it is, up to its stride), and anything else takes the nearest pixel; other source
+// positions are kept in the block.
+void bb_dither_block_row(const bb_dither_gray_block* block, const bb_dither_scale* scale, int32_t dst_y, int32_t start,
+                         int32_t end, int32_t ox, int32_t oy, uint8_t quantize, uint8_t* out, size_t out_len);
+// Copies count packed levels from src (src_len bytes) into the packed row dst (dst_len bytes) from its
+// column at, leaving out the columns before its start or past its last byte.
+void bb_dither_put_levels(uint8_t* dst, size_t dst_len, int32_t at, const uint8_t* src, size_t src_len, size_t count);
 
 #ifdef __cplusplus
 }
