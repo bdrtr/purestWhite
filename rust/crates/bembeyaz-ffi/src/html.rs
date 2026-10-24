@@ -310,3 +310,23 @@ pub unsafe extern "C" fn bb_html_collapse_space(text: *mut c_char, len: usize) -
     // SAFETY: as documented.
     words::collapse_space(unsafe { crate::view_mut(text.cast::<u8>(), len) })
 }
+
+/// # Safety
+/// `html` is NULL or holds `len` bytes; `out` is callable with `context`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_html_normalize_xhtml(
+    html: *const u8,
+    len: usize,
+    out: Option<unsafe extern "C" fn(*mut c_void, *const u8, usize) -> bool>,
+    context: *mut c_void,
+) -> bool {
+    let Some(out) = out else {
+        return false;
+    };
+    // SAFETY: as documented.
+    let html = unsafe { crate::view(html, len) };
+    // SAFETY: the caller's callback; each piece stays valid for the call.
+    bembeyaz_html::xhtml::normalize(html, |piece| unsafe {
+        out(context, piece.as_ptr(), piece.len())
+    })
+}

@@ -8,7 +8,8 @@
 //! a C string.
 //!
 //! [`text`] turns a plain text book into an XHTML body; [`words`] cuts a chapter's text into words;
-//! [`element`] classifies a chapter's elements; [`list`] gives list items their markers.
+//! [`element`] classifies a chapter's elements; [`list`] gives list items their markers; [`xhtml`]
+//! makes a dictionary's HTML definition well-formed XHTML.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -17,6 +18,7 @@ pub mod element;
 pub mod list;
 pub mod text;
 pub mod words;
+pub mod xhtml;
 
 /// An entity's value.
 #[derive(Clone, Copy)]

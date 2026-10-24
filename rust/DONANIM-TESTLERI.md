@@ -1918,3 +1918,29 @@ karşılaştırıldı. Flash x4pro'da 2152, x4c'de 2156 bayt büyüdü, statik R
   özellikle FAT32 kartta büyük (`.idx` 20 MB'tan büyük) bir sözlükte, bulunan sözcüklerle birlikte
   kök varyantlarıyla da bulunamayan sözcükleri deneyin (her girdi ayrı konumdan okunuyor; küme
   sınırında geri sarma FAT zincirini baştan yürütebilir).
+
+## Sözlük HTML tanımlarının XHTML'e çevrilmesi Rust'ta ("rust: our own dictionary XHTML")
+
+HTML ya da XDXF tanımlı (`.ifo`'da `sametypesequence=h` veya `x`) StarDict sözlüklerinde tanım
+(ve OPDS kataloğundaki kitapların ve eklenti kataloğundaki HTML öğelerin Details (Ayrıntılar)
+ekranındaki açıklama), biçimli sayfalara
+dökülmeden önce bölüm ayrıştırıcısının okuyabileceği düzgün XHTML'e çevriliyor:
+`<html><body>` içine alınıyor, etiket adları küçültülüyor (15 karakterde kesiliyor), boş öğeler
+kapatılıyor (`<br>` → `<br/>`) ve kapanışları (`</br>`) atılıyor, yorumlar, doctype ve işleme
+yönergeleri atılıyor, işaretleme ya da varlık başvurusu olmayan `<` ve `&`, `&lt;` ve `&amp;` olarak yazılıyor. Bu dönüşüm
+artık `bembeyaz-html`'in `xhtml` modülünde; geçici dosyaya 128 baytlık tamponla yazma, yığın
+denetimleri ve sayfalama C++'ta. Metin parçaları artık karakter karakter değil, bir sonraki
+işaretlemeye ya da kaçışla yazılan karaktere dek bir seferde yazılıyor. Eski işlev olduğu gibi `test/dict_html`'e kopyalandı:
+50000 rastgele etiket çorbasında (her türlü etiket, tırnaklı öznitelik, kapanmamış etiket, yorum,
+varlık, büyük harf, 15 karakterden uzun ad, UTF-8, rastgele bayt; kimi zaman yazma yarıda kesilerek)
+yazılan dosya ve sonuç aynı. Koda bilerek konan 17 hatanın 16'sı yakalandı; kalanı sonucu
+değiştirmiyor (boş öğelerin kapanışları zaten erkenden atılıyor). Emülatörde sözlük açılamadığı
+için (ayar dosyası uygulanmıyor) yalnızca okuma senaryosu bir önceki sürümle karşılaştırıldı.
+Flash x4pro'da 428, x4c'de 432 bayt büyüdü, statik RAM değişmedi.
+
+- [ ] HTML tanımlı bir StarDict sözlüğünde (ör. Wiktionary'den üretilmiş) Sözlükte Ara ile
+  sözcükler arayın: tanımlar eskisi gibi biçimli (kalın, italik, listeler, satır sonları)
+  görünmeli; düz metne düşmemeli.
+- [ ] OPDS kataloğunda HTML açıklamalı bir kitabın Details (Ayrıntılar) ekranını ve oradaki Details
+  düğmesiyle açılan tam açıklamayı açın: açıklama eskisi gibi biçimli görünmeli, düz metne
+  düşmemeli.

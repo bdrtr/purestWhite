@@ -1,0 +1,3 @@
+add_executable(DictHtmlTest DictHtmlTest.cpp)
+target_link_libraries(DictHtmlTest PRIVATE crosspoint_test_common GTest::gtest_main)
+gtest_discover_tests(DictHtmlTest)

@@ -152,6 +152,13 @@ size_t bb_html_list_marker(bb_html_list* list, char* out);
 // in place; returns the new length.
 size_t bb_html_collapse_space(char* text, size_t len);
 
+// Writes a StarDict HTML definition (tag soup, len bytes) as a well-formed XHTML document to out in
+// pieces: wrapped in <html><body>, tag names lower-cased (cut at 15 characters), void elements
+// self-closed and their closers dropped, comments, doctypes and processing instructions dropped, and
+// '<' and '&' outside markup or an entity reference escaped. False as soon as out is.
+bool bb_html_normalize_xhtml(const char* html, size_t len, bool (*out)(void* context, const char* piece, size_t len),
+                             void* context);
+
 #ifdef __cplusplus
 }
 #endif
