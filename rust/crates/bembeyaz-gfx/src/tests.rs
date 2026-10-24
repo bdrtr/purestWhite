@@ -8,7 +8,7 @@
 
 extern crate std;
 
-use super::{Canvas, Clip, Corners, Fill, Orientation, Picture, Placement, Plane};
+use super::{Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane};
 use std::vec;
 use std::vec::Vec;
 
@@ -403,6 +403,72 @@ fn icons_and_inversion() {
     );
 }
 
+#[test]
+fn glyphs() {
+    let mut buf = panel();
+    let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    // A 3x3 1-bit "L", upright, then rotated 90 degrees clockwise (glyph x up, glyph y right).
+    let ell = [0b1001_0011, 0b1000_0000];
+    let upright = Frame {
+        x: 0,
+        y: 0,
+        dx_x: 1,
+        dx_y: 0,
+        dy_x: 0,
+        dy_y: 1,
+    };
+    c.glyph(&ell, 3, 3, &upright, false, Plane::Bw, true);
+    let rotated = Frame {
+        x: 5,
+        y: 2,
+        dx_x: 0,
+        dx_y: -1,
+        dy_x: 1,
+        dy_y: 0,
+    };
+    c.glyph(&ell, 3, 3, &rotated, false, Plane::Bw, true);
+    // A 2-bit glyph (white, light, dark, black) in each plane (the gray planes only set bits, so
+    // nothing shows on white), and clipped at the panel's edge.
+    let levels = [0b0001_1011];
+    for (y, plane) in [(4, Plane::Bw), (5, Plane::GrayMsb), (6, Plane::GrayLsb)] {
+        let at = Frame { y, ..upright };
+        c.glyph(&levels, 4, 1, &at, true, plane, true);
+    }
+    let edge = Frame { x: 14, ..upright };
+    c.glyph(&ell, 3, 3, &edge, false, Plane::Bw, true);
+    // Frames that are not an orthogonal unit rotation draw nothing.
+    for skewed in [
+        Frame { dx_y: 1, ..upright },
+        Frame { dx_x: 2, ..upright },
+        Frame {
+            dy_x: 1,
+            dy_y: 0,
+            ..upright
+        },
+        Frame { dx_x: 0, ..upright },
+    ] {
+        let at = Frame {
+            x: 8,
+            y: 4,
+            ..skewed
+        };
+        c.glyph(&ell, 3, 3, &at, false, Plane::Bw, true);
+    }
+    assert_eq!(
+        picture(&buf),
+        [
+            "#......#......#.",
+            "#......#......#.",
+            "###..###......##",
+            "................",
+            ".###............",
+            "................",
+            "................",
+            "................",
+        ]
+    );
+}
+
 /// Random canvases, strips, clips and shapes, including extreme fill rectangles: nothing panics.
 #[test]
 fn mini_fuzz() {
@@ -444,7 +510,7 @@ fn mini_fuzz() {
         };
         for _ in 0..8 {
             let v = |next: &mut dyn FnMut(u32) -> u32| pick(140, next) - 50;
-            match next(11) {
+            match next(12) {
                 0 => {
                     c.pixel(v(&mut next), v(&mut next), next(2) == 0);
                 }
@@ -517,6 +583,32 @@ fn mini_fuzz() {
                     let bits = [0x3Cu8; 9];
                     c.icon(&bits, v(&mut next), v(&mut next), pick(30, &mut next) - 3);
                     c.invert_rect(v(&mut next), v(&mut next), v(&mut next), v(&mut next));
+                }
+                11 => {
+                    let bits = [0xA7u8; 64];
+                    let axes = [(1, 0, 0, 1), (0, -1, 1, 0), (-1, 0, 0, -1), (0, 1, 1, 0)]
+                        [pick(4, &mut next) as usize];
+                    let frame = Frame {
+                        x: v(&mut next),
+                        y: v(&mut next),
+                        dx_x: axes.0,
+                        dx_y: axes.1,
+                        dy_x: axes.2,
+                        dy_y: axes.3,
+                    };
+                    let plane =
+                        [Plane::Bw, Plane::GrayLsb, Plane::GrayMsb][pick(3, &mut next) as usize];
+                    let (w, h) = (pick(30, &mut next) - 2, pick(30, &mut next) - 2);
+                    c.glyph(&bits, w, h, &frame, next(2) == 0, plane, next(2) == 0);
+                    // A skewed frame breaks the contract and draws nothing.
+                    let skewed = Frame { dx_y: 1, ..frame };
+                    c.glyph(&bits, w, h, &skewed, true, plane, true);
+                    let far = Frame {
+                        x: i32::MAX,
+                        y: i32::MIN,
+                        ..frame
+                    };
+                    c.glyph(&bits, w, h, &far, true, plane, true);
                 }
                 8 => {
                     // Extreme positions; the work grows with the radius, so that stays small.

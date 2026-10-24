@@ -1585,3 +1585,39 @@ ve okuma senaryoları bir önceki sürümle piksel piksel aynı çıktı; resim 
   görünmeli.
 - [ ] Dosyalara Göz At'tan 1, 2, 4, 8, 24 ve 32 bitlik BMP'leri resim görüntüleyicide, gece modu
   kapalı ve açıkken açın: eskisi gibi görünmeli.
+
+## Glifler Rust'ta ("rust: our own glyph drawing")
+
+Ölçeklenmemiş her glif (kitap metninin gövdesi, menüler, düğme ipuçları, ekran klavyesinin yan
+düğmelerindeki döndürülmüş yazılar) artık `bembeyaz-gfx`'in `glyph` modülünde çiziliyor: mantıksal
+kırpma, metnin döndürülmesi ve panel yönelimi tek bir dik dönüşümde birleşiyor, şerit (gri ton
+bandı) kırpması ve adresleme glif başına bir kez hesaplanıyor; 1 ve 2 bitlik pikseller, siyah-beyaz
+ve iki gri düzlem kuralları eskisiyle aynı. Bu yoldan geçmeyenler eskisi gibi: üst ve alt simgeler
+ile küçük büyük harfler (ölçeklenmiş glifler) ve büyük ilk harf (drop cap) piksel piksel, fontta
+olmayan karakterlerin kutuları dolu dikdörtgen olarak çiziliyor. `GlyphBitmap.h`'te yalnızca
+yerleşim yapısı kaldı; dik olmayan bir yerleşim artık hiçbir şey çizmiyor (çağıranlar hep dik
+yerleşim veriyor). İlk sürüm sayfa çizimini %20 yavaşlattı; dikey yönelimde glif satırının panelde
+tek bir bit sütununa düştüğü yol ayrıldı (maske satır başına bir kez, bayt adımı sabit), 2 bitlik
+tam baytlar sabit kaydırmalarla açıldı, düzlem kuralları derleme zamanına, siyah/beyaz seçimi dalsız
+maskeye taşındı, panel ekseni tek bir yönelim eşleşmesiyle bulunuyor. Emülatörde sayfa çizim
+süreleri eskisiyle neredeyse aynı: dikeyde üç sayfada siyah-beyaz 44–45 ms (eski 44), gri düzlemler
+216 ve 249 ms (eski 215 ve 246, en çok %1); yatayda bir sayfada 11 (eski 10), 69–70 ve 80 ms (eski
+69 ve 79). Bunun bedeli flash: x4pro'da 3324, x4c'de 3440 bayt (dört düzlem ve derinlik için ayrı
+döngüler), RAM değişmedi; yığın çerçevesi 256 bayt (eski iç içe 272). Mevcut `test/glyph_bitmap`
+testinin piksel piksel referansı artık Rust'a karşı çalışıyor; eski `GlyphBitmap.h` test dizinine
+olduğu gibi (yalnızca ad alanı değişerek) kopyalandı ve 20000 rastgele glifte (sekiz dik glif yönü,
+dört panel yönelimi, şeritler, kırpmalar, kimi 8'in katı olmayan panel genişlikleri) iki yol bayt
+bayt aynı. Son koda bilerek konan 24 hatanın hepsi yakalandı. Crate'in 12 birim testi var.
+Emülatörde ayarlar, kütüphane, kitap açma (CSS, iki yönlü ve XML kitapları dahil), okuma (dikey ve
+yatay), uyku, alıntı, BLE ayarları, BMP görüntüleyici, gece modu ve Klasik, Lyra Genişletilmiş,
+RoundedRaff ve Cover Grid ana ekranları bir önceki sürümle piksel piksel aynı çıktı.
+
+- [ ] Bir kitabı dört Okuma Yönü'nde (Dikey, Yatay (Saat Yönü), Dikey 180°, Yatay (Saat Yönü Tersi)),
+  Metin Yumuşatma (AA) kapalı ve açık okuyun: harfler AA kapalıyken keskin, açıkken gri kenarlı ve
+  eskisi gibi görünmeli; sayfa kenarlarında ve kırpılan yerlerde kesik ya da kaymış harf olmamalı.
+- [ ] Seri günlükte `Page render:` satırlarındaki `bw_render`, `gray_lsb` ve `gray_msb` sürelerini
+  dikey ve yatay okumada bir önceki sürümle (64b27c5b) karşılaştırın: aynı ya da çok yakın olmalı
+  (emülatörde dikeyde sayfa başına yaklaşık 15/72/83 ms); belirgin bir yavaşlama varsa bildirin.
+- [ ] Dokunmatik olmayan bir cihazda ekran klavyesini açın (ör. bir Wi-Fi şifresi girerken): yan
+  düğmelerdeki döndürülmüş ">" ve "<" yazıları eskisi gibi görünmeli. Menüleri ve alttaki düğme
+  ipuçlarını da gözden geçirin.

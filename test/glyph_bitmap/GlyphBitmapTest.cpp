@@ -1,17 +1,21 @@
+// bembeyaz-gfx's glyph drawing (bb_gfx_glyph) against a per-pixel reference, and against the C++
+// rasterizer it replaced (OldGlyphBitmap.h, with GfxRenderer::drawGlyphBitmap's setup below).
+#include <bembeyaz/gfx.h>
 #include <gtest/gtest.h>
 
 #include <array>
+#include <cstdint>
 #include <utility>
 #include <vector>
 
-#include "lib/GfxRenderer/GlyphBitmap.h"
+#include "OldGlyphBitmap.h"
 
 namespace {
 constexpr int PANEL_WIDTH = 40;
 constexpr int PANEL_HEIGHT = 32;
 constexpr int STRIDE = PANEL_WIDTH / 8;
 
-using glyphBitmap::Plane;
+enum class Plane : uint8_t { BW = BB_GFX_PLANE_BW, GrayLSB = BB_GFX_PLANE_GRAY_LSB, GrayMSB = BB_GFX_PLANE_GRAY_MSB };
 
 // Logical placements used by the renderer: unrotated text, and side-button
 // labels rotated 90 degrees clockwise (glyph x runs up, glyph y runs right).
@@ -44,7 +48,7 @@ void compare(int orientation, int rotation, bool twoBit, Plane plane, bool state
                                     << ',' << state << " size=" << width << 'x' << height << " at=" << x << ',' << y
                                     << " band=" << originY << ',' << rows);
   const auto [dxX, dxY, dyX, dyY] = AXES[rotation];
-  const glyphBitmap::Frame logical{x, y, dxX, dxY, dyX, dyY};
+  const bb_gfx_frame logical{x, y, dxX, dxY, dyX, dyY};
   std::vector<uint8_t> bitmap((width * height * (twoBit ? 2 : 1) + 7) / 8);
   for (size_t i = 0; i < bitmap.size(); ++i) bitmap[i] = static_cast<uint8_t>(i * 73 + 0x1b);
   // Nonuniform background and guards verify transparent pixels and all off-band bytes.
@@ -79,15 +83,25 @@ void compare(int orientation, int rotation, bool twoBit, Plane plane, bool state
     }
   }
 
-  glyphBitmap::Clip local{0, 0, width, height};
-  glyphBitmap::clipToRect(logical, clip.left, clip.top, clip.right, clip.bottom, local);
-
-  const auto [px, py] = physical(orientation, x, y);
-  const auto [xx, xy] = physical(orientation, x + dxX, y + dxY);
-  const auto [yx, yy] = physical(orientation, x + dyX, y + dyY);
-  const glyphBitmap::Target target{
-      actual.data() + 16, PANEL_WIDTH, STRIDE, originY, rows, {px, py, xx - px, xy - py, yx - px, yy - py}};
-  glyphBitmap::draw(bitmap.data(), width, height, twoBit, plane, state, target, local);
+  bb_gfx_canvas canvas{};
+  canvas.buf = actual.data() + 16;
+  canvas.len = static_cast<size_t>(rows) * STRIDE;
+  canvas.stride = STRIDE;
+  canvas.origin_y = originY;
+  canvas.rows = rows;
+  canvas.panel_width = PANEL_WIDTH;
+  canvas.panel_height = PANEL_HEIGHT;
+  canvas.clip_left = clip.left;
+  canvas.clip_top = clip.top;
+  canvas.clip_right = clip.right;
+  canvas.clip_bottom = clip.bottom;
+  // The test's orientations are bb_gfx_canvas's in order.
+  static_assert(BB_GFX_PORTRAIT == 0 && BB_GFX_LANDSCAPE_CLOCKWISE == 1 && BB_GFX_PORTRAIT_INVERTED == 2 &&
+                    BB_GFX_LANDSCAPE_COUNTER_CLOCKWISE == 3,
+                "orientation order");
+  canvas.orientation = static_cast<uint8_t>(orientation);
+  bb_gfx_glyph(&canvas, bitmap.data(), bitmap.size(), width, height, &logical, twoBit, static_cast<uint8_t>(plane),
+               state);
   EXPECT_EQ(expected, actual);
 }
 }  // namespace
@@ -121,6 +135,139 @@ TEST(GlyphBitmap, EmptyAndFullyClippedGlyphsDoNotWrite) {
       compare(orientation, rotation, true, Plane::BW, true, 0, 0, 0, 0, 0, 32, {0, 0, 40, 32});
       compare(orientation, rotation, true, Plane::BW, true, 11, 9, 100, 100, 0, 32, {0, 0, 40, 32});
       compare(orientation, rotation, true, Plane::BW, true, 11, 9, 0, 0, 0, 32, {12, 10, 15, 20});
+    }
+  }
+}
+
+namespace {
+// GfxRenderer's rotateCoordinates and drawGlyphBitmap at 64b27c5b, on oldGlyphBitmap.
+struct OldRenderer {
+  int orientation;
+  int panelWidth, panelHeight, panelWidthBytes;
+  uint8_t* target;
+  int originY, rows;
+  int clipLeft_, clipTop_, clipRight_, clipBottom_;
+
+  void rotateCoordinates(const int x, const int y, int* phyX, int* phyY) const {
+    switch (orientation) {
+      case 0:
+        *phyX = y;
+        *phyY = panelHeight - 1 - x;
+        break;
+      case 1:
+        *phyX = panelWidth - 1 - x;
+        *phyY = panelHeight - 1 - y;
+        break;
+      case 2:
+        *phyX = panelWidth - 1 - y;
+        *phyY = x;
+        break;
+      default:
+        *phyX = x;
+        *phyY = y;
+    }
+  }
+
+  void drawGlyphBitmap(const uint8_t* bitmap, const int width, const int height, const oldGlyphBitmap::Frame& frame,
+                       const bool twoBit, const oldGlyphBitmap::Plane plane, const bool state) const {
+    oldGlyphBitmap::Clip clip{0, 0, width, height};
+    oldGlyphBitmap::clipToRect(frame, clipLeft_, clipTop_, clipRight_, clipBottom_, clip);
+    oldGlyphBitmap::Target t{target, panelWidth, panelWidthBytes, originY, rows, {}};
+    oldGlyphBitmap::Frame& physical = t.frame;
+    rotateCoordinates(frame.x, frame.y, &physical.x, &physical.y);
+    int nextX, nextY;
+    rotateCoordinates(frame.x + frame.dxX, frame.y + frame.dxY, &nextX, &nextY);
+    physical.dxX = nextX - physical.x;
+    physical.dxY = nextY - physical.y;
+    rotateCoordinates(frame.x + frame.dyX, frame.y + frame.dyY, &nextX, &nextY);
+    physical.dyX = nextX - physical.x;
+    physical.dyY = nextY - physical.y;
+    oldGlyphBitmap::draw(bitmap, width, height, twoBit, plane, state, t, clip);
+  }
+};
+
+uint32_t seed = 1;
+uint32_t rnd() {
+  seed ^= seed << 13;
+  seed ^= seed >> 17;
+  seed ^= seed << 5;
+  return seed;
+}
+int range(int lo, int hi) { return lo + static_cast<int>(rnd() % static_cast<uint32_t>(hi - lo + 1)); }
+}  // namespace
+
+// Random panels (some widths not a multiple of 8), all eight orthogonal glyph frames, clips, strips,
+// sizes and positions: the same bytes as the old rasterizer.
+TEST(GlyphBitmap, MatchesTheOldRasterizer) {
+  constexpr std::array<std::array<int, 4>, 8> FRAMES = {{{1, 0, 0, 1},
+                                                         {0, -1, 1, 0},
+                                                         {-1, 0, 0, -1},
+                                                         {0, 1, -1, 0},
+                                                         {-1, 0, 0, 1},
+                                                         {1, 0, 0, -1},
+                                                         {0, 1, 1, 0},
+                                                         {0, -1, -1, 0}}};
+  unsigned diffs = 0;
+  for (int c = 0; c < 20000; ++c) {
+    OldRenderer o{};
+    o.orientation = range(0, 3);
+    o.panelWidthBytes = range(1, 10);
+    o.panelWidth = o.panelWidthBytes * 8 - (rnd() % 3 == 0 ? range(0, 7) : 0);
+    o.panelHeight = range(1, 60);
+    o.originY = 0;
+    o.rows = o.panelHeight;
+    if (rnd() % 3 == 0) {
+      o.originY = range(0, o.panelHeight - 1);
+      o.rows = range(1, o.panelHeight - o.originY);
+    }
+    o.clipLeft_ = 0;
+    o.clipTop_ = 0;
+    o.clipRight_ = 32767;
+    o.clipBottom_ = 32767;
+    if (rnd() % 2) {
+      o.clipLeft_ = range(-10, 50);
+      o.clipTop_ = range(-10, 50);
+      o.clipRight_ = range(-10, 100);
+      o.clipBottom_ = range(-10, 100);
+    }
+    std::vector<uint8_t> a(static_cast<size_t>(o.rows) * o.panelWidthBytes);
+    for (auto& v : a) v = static_cast<uint8_t>(rnd());
+    auto b = a;
+    o.target = a.data();
+
+    const int width = range(0, 40), height = range(0, 40);
+    const bool twoBit = rnd() % 2;
+    std::vector<uint8_t> bitmap((static_cast<size_t>(width) * height * (twoBit ? 2 : 1) + 7) / 8);
+    for (auto& v : bitmap) v = static_cast<uint8_t>(rnd());
+    const auto& f = FRAMES[rnd() % 8];
+    const int x = range(-50, 120), y = range(-50, 120);
+    const int plane = range(0, 2);
+    const bool state = rnd() % 2;
+    if (width > 0 && height > 0) {
+      o.drawGlyphBitmap(bitmap.data(), width, height, {x, y, f[0], f[1], f[2], f[3]}, twoBit,
+                        static_cast<oldGlyphBitmap::Plane>(plane), state);
+    }
+
+    bb_gfx_canvas canvas{};
+    canvas.buf = b.data();
+    canvas.len = b.size();
+    canvas.stride = static_cast<size_t>(o.panelWidthBytes);
+    canvas.origin_y = o.originY;
+    canvas.rows = o.rows;
+    canvas.panel_width = o.panelWidth;
+    canvas.panel_height = o.panelHeight;
+    canvas.clip_left = o.clipLeft_;
+    canvas.clip_top = o.clipTop_;
+    canvas.clip_right = o.clipRight_;
+    canvas.clip_bottom = o.clipBottom_;
+    canvas.orientation = static_cast<uint8_t>(o.orientation);
+    const bb_gfx_frame frame{x, y, f[0], f[1], f[2], f[3]};
+    bb_gfx_glyph(&canvas, bitmap.data(), bitmap.size(), width, height, &frame, twoBit, static_cast<uint8_t>(plane),
+                 state);
+    if (a != b) {
+      ADD_FAILURE() << "case " << c << " orientation " << o.orientation << " frame " << f[0] << f[1] << f[2] << f[3]
+                    << " size " << width << "x" << height << " twoBit " << twoBit << " plane " << plane;
+      if (++diffs == 5) return;
     }
   }
 }

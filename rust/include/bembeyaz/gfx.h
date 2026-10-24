@@ -142,6 +142,26 @@ uint32_t bb_gfx_icon(const bb_gfx_canvas* canvas, const uint8_t* bits, size_t le
 // Inverts every pixel of a rectangle, clipped to the screen, the clip and the rows.
 void bb_gfx_invert_rect(const bb_gfx_canvas* canvas, int32_t x, int32_t y, int32_t w, int32_t h);
 
+// Where glyph pixel (0, 0) lands, in logical coordinates, and the step for one move along the
+// glyph's x and y axes: an orthogonal unit rotation, each axis +/-1 on exactly one component and
+// the two on different ones (bb_gfx_glyph draws nothing for any other frame).
+typedef struct {
+  int32_t x;
+  int32_t y;
+  int32_t dx_x;
+  int32_t dx_y;
+  int32_t dy_x;
+  int32_t dy_y;
+} bb_gfx_frame;
+
+// Draws a packed glyph of width by height pixels (len bytes: rows back to back, most significant
+// bit first, 1 or 2 bits per pixel) placed by frame, clipped to the clip, the panel and the rows.
+// 2-bit values are 0 white, 1 light gray, 2 dark gray, 3 black. In BB_GFX_PLANE_BW every non-white
+// value is drawn black or white as black says; the gray planes only set bits (light and dark gray
+// for MSB, dark gray for LSB). 1-bit glyphs draw ink (value 1) as black says in every plane.
+void bb_gfx_glyph(const bb_gfx_canvas* canvas, const uint8_t* bits, size_t len, int32_t width, int32_t height,
+                  const bb_gfx_frame* frame, bool two_bit, uint8_t plane, bool black);
+
 #ifdef __cplusplus
 }
 #endif

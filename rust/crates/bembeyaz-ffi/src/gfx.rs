@@ -1,6 +1,6 @@
 //! Exports for lib/GfxRenderer (see `rust/include/bembeyaz/gfx.h`).
 
-use bembeyaz_gfx::{Canvas, Clip, Corners, Fill, Orientation, Picture, Placement, Plane};
+use bembeyaz_gfx::{Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane};
 
 /// gfx.h's `bb_gfx_canvas`.
 #[repr(C)]
@@ -271,6 +271,15 @@ const _: () = assert!(
 const PLANE_GRAY_LSB: u8 = 1;
 const PLANE_GRAY_MSB: u8 = 2;
 
+/// gfx.h's BB_GFX_PLANE_*; anything else is black and white.
+fn plane(value: u8) -> Plane {
+    match value {
+        PLANE_GRAY_LSB => Plane::GrayLsb,
+        PLANE_GRAY_MSB => Plane::GrayMsb,
+        _ => Plane::Bw,
+    }
+}
+
 /// Reads the next picture row into its argument; false when it cannot.
 pub type ReadRow = unsafe extern "C" fn(ctx: *mut core::ffi::c_void, row: *mut u8) -> bool;
 
@@ -313,11 +322,7 @@ pub unsafe extern "C" fn bb_gfx_draw_picture(
     }
     // SAFETY: as documented; the row is only written through `read`, between Rust's reads.
     let row = unsafe { crate::view_mut(row, row_len) };
-    let plane = match p.plane {
-        PLANE_GRAY_LSB => Plane::GrayLsb,
-        PLANE_GRAY_MSB => Plane::GrayMsb,
-        _ => Plane::Bw,
-    };
+    let plane = plane(p.plane);
     let picture = Picture {
         width: p.width,
         height: p.height,
@@ -393,5 +398,59 @@ pub unsafe extern "C" fn bb_gfx_invert_rect(
     // SAFETY: as documented.
     if let Some(mut c) = unsafe { self::canvas(canvas) } {
         c.invert_rect(x, y, w, h);
+    }
+}
+
+/// gfx.h's `bb_gfx_frame`.
+#[repr(C)]
+pub struct CFrame {
+    x: i32,
+    y: i32,
+    dx_x: i32,
+    dx_y: i32,
+    dy_x: i32,
+    dy_y: i32,
+}
+
+/// # Safety
+/// `canvas` is NULL or as gfx.h describes; `bits` is NULL or holds `len` bytes; `frame` is NULL or
+/// valid.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_gfx_glyph(
+    canvas: *const CCanvas,
+    bits: *const u8,
+    len: usize,
+    width: i32,
+    height: i32,
+    frame: *const CFrame,
+    two_bit: bool,
+    plane_value: u8,
+    black: bool,
+) {
+    // SAFETY: as documented.
+    let Some(f) = (unsafe { frame.as_ref() }) else {
+        return;
+    };
+    let frame = Frame {
+        x: f.x,
+        y: f.y,
+        dx_x: f.dx_x,
+        dx_y: f.dx_y,
+        dy_x: f.dy_x,
+        dy_y: f.dy_y,
+    };
+    // SAFETY: as documented.
+    let bits = unsafe { crate::view(bits, len) };
+    // SAFETY: as documented.
+    if let Some(mut c) = unsafe { self::canvas(canvas) } {
+        c.glyph(
+            bits,
+            width,
+            height,
+            &frame,
+            two_bit,
+            plane(plane_value),
+            black,
+        );
     }
 }

@@ -586,37 +586,21 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
   renderer.drawGlyphBitmap(bitmap, width, height, frame, is2Bit, renderMode, pixelState);
 }
 
-// Draw an unscaled glyph placed by a logical frame. Equivalent to calling
-// drawPixel() for each ink pixel, but the clip test, orientation rotation,
-// strip-band check and address math are resolved once per glyph rather than
-// once per pixel.
+namespace {
+bb_gfx_canvas canvasOf(const GfxRenderer& renderer);
+}  // namespace
+
+// Draw an unscaled glyph placed by a logical frame: as if drawPixel() were called for each ink
+// pixel, with clipping, rotation, the strip band and addressing resolved once per glyph in Rust.
 void GfxRenderer::drawGlyphBitmap(const uint8_t* bitmap, const int width, const int height,
                                   const glyphBitmap::Frame& frame, const bool twoBit, const RenderMode mode,
                                   const bool state) const {
-  // Apply the logical clip rectangle before rotating, in glyph-local pixels.
-  glyphBitmap::Clip clip{0, 0, width, height};
-  glyphBitmap::clipToRect(frame, clipLeft_, clipTop_, clipRight_, clipBottom_, clip);
-
-  // Writes go to the framebuffer, or to the strip scratch in tiled grayscale
-  // mode; getWriteOriginY()/getWriteRows() bound the rows that exist there.
-  glyphBitmap::Target target{getWriteTarget(), panelWidth, panelWidthBytes, getWriteOriginY(), getWriteRows(), {}};
-  // Rotate the glyph origin once, then derive the two physical axes by
-  // rotating its neighbours along each logical axis. Together these encode
-  // the text rotation and the panel orientation as one orthogonal transform.
-  glyphBitmap::Frame& physical = target.frame;
-  rotateCoordinates(orientation, frame.x, frame.y, &physical.x, &physical.y, panelWidth, panelHeight);
-  int nextX, nextY;
-  rotateCoordinates(orientation, frame.x + frame.dxX, frame.y + frame.dxY, &nextX, &nextY, panelWidth, panelHeight);
-  physical.dxX = nextX - physical.x;
-  physical.dxY = nextY - physical.y;
-  rotateCoordinates(orientation, frame.x + frame.dyX, frame.y + frame.dyY, &nextX, &nextY, panelWidth, panelHeight);
-  physical.dyX = nextX - physical.x;
-  physical.dyY = nextY - physical.y;
-
-  const glyphBitmap::Plane plane = mode == BW              ? glyphBitmap::Plane::BW
-                                   : mode == GRAYSCALE_MSB ? glyphBitmap::Plane::GrayMSB
-                                                           : glyphBitmap::Plane::GrayLSB;
-  glyphBitmap::draw(bitmap, width, height, twoBit, plane, state, target, clip);
+  if (width <= 0 || height <= 0) return;
+  static_assert(sizeof(bb_gfx_frame) == 6 * sizeof(int32_t), "bb_gfx_frame layout");
+  const bb_gfx_frame placed{frame.x, frame.y, frame.dxX, frame.dxY, frame.dyX, frame.dyY};
+  const size_t bits = static_cast<size_t>(width) * static_cast<size_t>(height) * (twoBit ? 2 : 1);
+  const auto c = canvasOf(*this);
+  bb_gfx_glyph(&c, bitmap, (bits + 7) / 8, width, height, &placed, twoBit, static_cast<uint8_t>(mode), state);
 }
 
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and

@@ -319,9 +319,11 @@ impl Canvas<'_> {
     }
 }
 
+mod glyph;
 mod image;
 mod polygon;
 mod round;
+pub use glyph::Frame;
 pub use image::{Drawn, Picture, Placement, Plane};
 pub use round::Corners;
 
