@@ -426,6 +426,35 @@ pub unsafe extern "C" fn bb_css_drop_cap_lines(css: *const Style) -> u8 {
 }
 
 /// # Safety
+/// `css` is NULL or a readable `CssStyle`; `width` and `height` are NULL or writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_css_image_size(
+    css: *const Style,
+    natural_width: i16,
+    natural_height: i16,
+    em: f32,
+    container_width: c_int,
+    page_height: u16,
+    width: *mut c_int,
+    height: *mut c_int,
+) {
+    // SAFETY: as documented.
+    let css = unsafe { css.as_ref() }.unwrap_or(&Style::DEFAULT);
+    let (w, h) = bembeyaz_css::image::size(
+        css,
+        (natural_width, natural_height),
+        em,
+        container_width,
+        page_height,
+    );
+    // SAFETY: as documented.
+    unsafe {
+        crate::set(width, w);
+        crate::set(height, h);
+    }
+}
+
+/// # Safety
 /// `name` is NULL or holds `len` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bb_css_tag_scale(name: *const c_char, len: usize) -> f32 {

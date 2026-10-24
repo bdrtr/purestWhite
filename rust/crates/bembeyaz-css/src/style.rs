@@ -96,6 +96,16 @@ pub struct Length {
 }
 
 impl Length {
+    /// In pixels: ems and rems of `em`, points, or a percentage of `width`.
+    pub(crate) fn pixels(self, em: f32, width: f32) -> f32 {
+        match self.unit {
+            Unit::Em | Unit::Rem => self.value * em,
+            Unit::Points => self.value * 1.33,
+            Unit::Percent => self.value * width / 100.0,
+            Unit::Pixels => self.value,
+        }
+    }
+
     pub const ZERO: Self = Self {
         value: 0.0,
         unit: Unit::Pixels,

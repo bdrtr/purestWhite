@@ -205,6 +205,13 @@ float bb_css_span_scale(const bb_css_style* css, float base);
 // 0 for none: its initial-letter when set (under 2 is none); else a font size of at least 1.5
 // spans about its size in ems (2 to 4), and a float without one spans 3.
 uint8_t bb_css_drop_cap_lines(const bb_css_style* css);
+// The size to show an image natural_width x natural_height pixels large: from css's width and
+// height when it sets them (ems of em; a percentage width of container_width, a percentage height
+// of page_height), keeping the image's proportions for a side it leaves out, else the image's own
+// size; shrunk to fit container_width and page_height, never under a pixel when css sizes it.
+// Without a positive natural size, css is ignored. container_width is at least 1.
+void bb_css_image_size(const bb_css_style* css, int16_t natural_width, int16_t natural_height, float em,
+                       int container_width, uint16_t page_height, int* width, int* height);
 // The browser's default size of the len-byte inline element name (small, big) as a multiple of
 // its parent's; 0 for other names.
 float bb_css_tag_scale(const char* name, size_t len);

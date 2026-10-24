@@ -2,7 +2,7 @@
 //! nested blocks combine. Layout (`bembeyaz-layout`) and the section file (`bembeyaz-section`)
 //! keep their own parts of it.
 
-use crate::{Defined, Direction, Length, LengthField, Style, TextAlign, Unit};
+use crate::{Defined, Direction, LengthField, Style, TextAlign, Unit};
 
 /// The C++ `BlockStyle`, field for field; both sides check the layout.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -72,16 +72,6 @@ pub enum Axis {
 /// chapter openers keep lines of more than a word or two.
 const MAX_HORIZONTAL_INSET_EM: f32 = 2.0;
 
-/// `length` in pixels: ems and rems of `em`, points, or a percentage of `width`.
-fn pixels(length: Length, em: f32, width: f32) -> f32 {
-    match length.unit {
-        Unit::Em | Unit::Rem => length.value * em,
-        Unit::Points => length.value * 1.33,
-        Unit::Percent => length.value * width / 100.0,
-        Unit::Pixels => length.value,
-    }
-}
-
 /// `px` toward zero, kept to 16 bits as the C++ cast does for finite values.
 #[allow(clippy::cast_possible_truncation)]
 fn px16(px: f32) -> i16 {
@@ -91,7 +81,7 @@ fn px16(px: f32) -> i16 {
 /// `css`'s `field` in whole pixels; out of line: `from_css` calls it nine times.
 #[inline(never)]
 fn field_px(css: &Style, field: LengthField, em: f32, width: f32) -> i16 {
-    px16(pixels(css.length(field), em, width))
+    px16(css.length(field).pixels(em, width))
 }
 
 /// `css` as a block: its lengths in pixels over `em` (the font's line height) and `viewport` (0

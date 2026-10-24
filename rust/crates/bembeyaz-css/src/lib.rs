@@ -21,6 +21,7 @@ mod ascii;
 pub mod block;
 pub mod cache;
 mod declaration;
+pub mod image;
 pub mod inline;
 mod number;
 mod rules;

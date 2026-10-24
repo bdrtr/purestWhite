@@ -4,6 +4,9 @@
   chapter: grayscale, color at 4:4:4, 4:2:2 and 4:2:0, progressive, restart intervals, CMYK, and
   images large enough that the chapter converter decodes them at 1/2, 1/4 and 1/8 size (456 pixels
   wide on the X4 Pro with the default margins).
+- jpeg-sized.epub: one chapter of the same 300x200 picture sized by CSS (emu/jpeg-sized.txt): a
+  percentage width, a height in ems, both, a height taller than the page, a width in points, and a
+  full width inside a block with side margins.
 - jpeg-broken.epub: an image whose header segment runs past the end of the file, on which JPEGDEC
   looped forever.
 
@@ -69,7 +72,27 @@ def page(title, src):
     )
 
 
-def epub(path, book_id, title, pictures, cover=None):
+SIZED = [
+    "width: 50%",
+    "height: 4em",
+    "width: 120px; height: 3em",
+    "height: 150%",
+    "width: 30pt",
+    "width: 900px; height: 900px",
+]
+
+
+def sized_page(src):
+    images = "".join(f'<p>{style}</p><p><img src="{src}" alt="" style="{style}"/></p>' for style in SIZED)
+    return (
+        '<?xml version="1.0" encoding="utf-8"?><html xmlns="http://www.w3.org/1999/xhtml">'
+        f'<head><title>Sized</title></head><body>{images}'
+        f'<p>inside margins</p><div style="margin: 0 25%"><img src="{src}" alt="" style="width: 100%"/></div>'
+        "</body></html>"
+    )
+
+
+def epub(path, book_id, title, pictures, cover=None, page=page):
     manifest = spine = meta = ""
     files = {}
     if cover:
@@ -102,6 +125,8 @@ def epub(path, book_id, title, pictures, cover=None):
 
 
 epub(out_dir / "jpeg.epub", "bembeyaz-jpeg", "JPEG images", images, cover)
+epub(out_dir / "jpeg-sized.epub", "bembeyaz-jpeg-sized", "Sized images", {"Sized": images["Color 4:4:4"]},
+     page=lambda name, src: sized_page(src))
 # A comment segment jumps to an APP0 segment within 2048 bytes of the end, 65536 bytes long with
 # its marker: past the end. JPEGDEC's seek failed and it parsed the same stale segment again and
 # again, its file position running round its int back to the APP0 segment without end.

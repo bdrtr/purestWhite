@@ -2044,3 +2044,24 @@ aynı. Flash x4pro'da 280, x4c'de 284 bayt büyüdü, statik RAM değişmedi.
   gibi büyüklükte, üstü ilk satırın büyük harfleriyle, tabanı son satırın tabanıyla hizalı ve
   yanındaki satırlar eskisi gibi girintili olmalı. Sayfanın altına denk gelen büyük ilk harfli bir
   paragraf harfiyle birlikte sonraki sayfaya geçmeli.
+
+## Resim boyutu Rust'ta ("rust: our own image display size")
+
+Bölüm ayrıştırıcısı bir resmi sayfaya koyarken boyutunu şöyle bulur: CSS'te `width` ve `height`
+ikisi de varsa ikisini (em, rem, nokta ya da piksel; yüzde genişlik kapsayıcı bloğun, yüzde yükseklik
+sayfanın) alır ve kapsayıcıya ya da sayfaya sığmazsa ikisini aynı oranda küçültür; yalnızca biri
+varsa öbürünü resmin oranından bulur ve sığmayan kenarı sınırlar; CSS'te boyut yoksa resmin kendi
+boyutunu sığacak kadar küçültür. Bu hesap artık `bembeyaz-css`'in yeni `image` modülünde. Resmin
+boyutunun dosyadan okunması, kapsayıcının genişliği, sayfanın kırılması ve `PageImage`'ın kurulması
+C++'ta kaldı. Eski hesap olduğu gibi `test/css_parser/OldImageSize.h`'e kopyalandı ve 200 000
+rastgele durumda (her birimde, sıfır, negatif, kesirli ve aşırı büyük CSS değerleri; sıfır, negatif
+ve 32767'ye kadar resim boyutları; tanımsız bit ile saklanmış uzunluklar) sonuç aynı; toplam 1067
+host testi geçiyor. Koda bilerek konan 17 hatanın 16'sını bu test yakaladı; kalanı sonucu
+değiştirmiyordu ve o gereksiz denetim kaldırıldı. Emülatöre CSS ile boyutlanmış resimlerden oluşan
+yeni bir kitap (`jpeg-sized.epub`, senaryosu `emu/jpeg-sized.txt`) eklendi; bu senaryo ile JPEG ve
+PNG senaryoları bir önceki sürümle piksel piksel aynı. Flash x4pro'da 512, x4c'de 444 bayt büyüdü,
+statik RAM değişmedi.
+
+- [ ] Resimlerine CSS ile genişlik ya da yükseklik veren bir EPUB'da (ör. `width: 50%` ya da
+  `height: 10em`) resimli sayfalara bakın: resimler eskisi gibi büyüklükte ve oranları bozulmadan
+  görünmeli, sayfadan taşmamalı.

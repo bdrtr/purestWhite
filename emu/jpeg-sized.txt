@@ -1,0 +1,15 @@
+# Book from make_jpeg_epub.py (jpeg-sized.epub): one chapter of a picture sized by CSS (a
+# percentage width, a height in ems, both, too tall, points, oversized, inside side margins);
+# page through it
+ready
+touch:240,348
+wait-screen
+touch:240,138
+wait-log:Page render
+shot:sized-1
+swipe:left
+wait-log:Page render
+shot:sized-2
+swipe:left
+wait-log:Page render
+shot:sized-3

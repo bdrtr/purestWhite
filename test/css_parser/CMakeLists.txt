@@ -1,6 +1,7 @@
 add_executable(CssParserTest
   CssParserTest.cpp
   CssCorpusTest.cpp
+  CssImageSizeTest.cpp
   ${REPO_ROOT}/lib/Epub/Epub/css/CssParser.cpp
 )
 
