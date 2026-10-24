@@ -19,6 +19,7 @@ mod css;
 mod device;
 mod dict;
 mod dither;
+mod drop_cap;
 mod expat;
 mod gfx;
 mod html;

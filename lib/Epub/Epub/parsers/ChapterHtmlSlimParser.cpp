@@ -8,6 +8,7 @@
 #include <MemoryManager.h>
 #include <Utf8.h>
 #include <XmlParserUtils.h>
+#include <bembeyaz/drop_cap.h>
 #include <bembeyaz/html.h>
 
 #include <algorithm>
@@ -276,13 +277,7 @@ void ChapterHtmlSlimParser::addBoxSegment(const bb_box_segment& segment) {
 
 uint8_t ChapterHtmlSlimParser::dropCapLines(const CssStyle& style) {
   static_assert(MAX_DROP_CAP_BYTES == PageDropCap::MAX_TEXT_BYTES, "captured drop-cap text must fit a PageDropCap");
-  if (style.defined.initialLetter && style.initialLetter > 0) {
-    return style.initialLetter >= 2 ? style.initialLetter : 0;
-  }
-  const bool large = style.hasFontSize() && style.fontSize.value >= 1.5f;
-  if (!large && !(style.defined.floatLeft && style.floatLeft)) return 0;
-  // A floated letter without a size spans three lines; a sized one about its size in ems.
-  return large ? static_cast<uint8_t>(std::clamp(static_cast<int>(style.fontSize.value + 0.5f), 2, 4)) : 3;
+  return bb_css_drop_cap_lines(cssOf(style));
 }
 
 void ChapterHtmlSlimParser::armFirstLetterDropCap(const char* tagName, const std::string& classAttr,
@@ -335,6 +330,10 @@ void ChapterHtmlSlimParser::layoutCurrentBlock(const bool includeLastLine) {
   layoutParagraph = nullptr;
 }
 
+static_assert(sizeof(bb_drop_cap) == 16 && offsetof(bb_drop_cap, width) == 4 && offsetof(bb_drop_cap, baseline) == 8 &&
+                  offsetof(bb_drop_cap, height) == 12,
+              "bb_drop_cap layout");
+
 void ChapterHtmlSlimParser::layoutDropCapLines(
     const int layoutFontId, const uint16_t effectiveWidth,
     const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& emitLine, const bool includeLastLine) {
@@ -347,29 +346,23 @@ void ChapterHtmlSlimParser::layoutDropCapLines(
   // Enlarging the family's largest built-in size keeps outlines smoothest.
   const int capFontId = fontIdForScale(3.0f);
   const int lineHeight = renderer.getLineHeight(layoutFontId, lineCompression);
-  const int ascender = renderer.getFontAscenderSize(layoutFontId);
-  int32_t advanceFP = 0;
-  int bodyCapTop = 0;
-  int sourceCapTop = 0;
-  if (!renderer.getCodepointMetrics(layoutFontId, 'H', EpdFontFamily::REGULAR, advanceFP, bodyCapTop)) {
-    bodyCapTop = ascender * 7 / 10;
-  }
-  if (!renderer.getCodepointMetrics(capFontId, 'H', capStyle, advanceFP, sourceCapTop) || sourceCapTop <= 0) {
-    sourceCapTop = bodyCapTop > 0 ? bodyCapTop : 1;
-  }
-  // The letter's top aligns with the first line's capitals, its baseline with the last spanned line.
-  const int capHeight = (lines - 1) * lineHeight + bodyCapTop;
-  const int scale256 = std::clamp(capHeight * 256 / sourceCapTop, 256, 4096);
-
-  int capWidth = renderer.getSpaceWidth(layoutFontId, EpdFontFamily::REGULAR);
-  const auto* cursor = reinterpret_cast<const unsigned char*>(text);
-  while (const uint32_t cp = utf8NextCodepoint(&cursor)) {
-    int top = 0;
-    if (renderer.getCodepointMetrics(capFontId, cp, capStyle, advanceFP, top)) {
-      capWidth += fp4::toPixel(advanceFP * scale256 / 256);
-    }
-  }
-  capWidth = std::min(capWidth, effectiveWidth / 2);
+  struct Fonts {
+    const GfxRenderer& renderer;
+    int bodyFontId;
+    int capFontId;
+    EpdFontFamily::Style capStyle;
+  } fonts{renderer, layoutFontId, capFontId, capStyle};
+  const auto metrics = [](void* context, const bool cap, const uint32_t cp, int32_t* advance, int* top) {
+    const auto& f = *static_cast<const Fonts*>(context);
+    return f.renderer.getCodepointMetrics(cap ? f.capFontId : f.bodyFontId, cp,
+                                          cap ? f.capStyle : EpdFontFamily::REGULAR, *advance, *top);
+  };
+  bb_drop_cap cap{};
+  bb_drop_cap_place(lines, text, strnlen(text, sizeof(text)), lineHeight, renderer.getFontAscenderSize(layoutFontId),
+                    renderer.getSpaceWidth(layoutFontId, EpdFontFamily::REGULAR), effectiveWidth, metrics, &fonts,
+                    &cap);
+  const int capWidth = cap.width;
+  const int spannedHeight = cap.height;
 
   // Keep every spanned line on the letter's page.
   if (!currentPage) {
@@ -377,17 +370,16 @@ void ChapterHtmlSlimParser::layoutDropCapLines(
     currentPageNextY = 0;
     currentPageVisibleOffsetSet = false;
   }
-  if (!currentPage->elements.empty() && currentPageNextY + lines * lineHeight > viewportHeight) {
+  if (!currentPage->elements.empty() && currentPageNextY + spannedHeight > viewportHeight) {
     breakPageCarryingLines(keepWithNextCarry(), 0, visibleTextOffset);
   }
   BlockStyle& blockStyle = currentTextBlock->getBlockStyle();
   const int top = currentPageNextY;
-  auto element =
-      makeUniqueNoThrow<PageDropCap>(capFontId, static_cast<uint16_t>(scale256), capStyle, text, blockStyle.leftInset(),
-                                     static_cast<int16_t>(top + (lines - 1) * lineHeight + ascender));
+  auto element = makeUniqueNoThrow<PageDropCap>(capFontId, cap.scale, capStyle, text, blockStyle.leftInset(),
+                                                static_cast<int16_t>(top + static_cast<int>(cap.baseline)));
   if (element) {
     currentPage->elements.push_back(std::move(element));
-    noteContent(top, top + lines * lineHeight);
+    noteContent(top, top + spannedHeight);
   } else {
     LOG_ERR("EHP", "OOM: PageDropCap");
   }
@@ -400,7 +392,7 @@ void ChapterHtmlSlimParser::layoutDropCapLines(
   currentTextBlock->layoutAndExtractLines(renderer, layoutFontId, static_cast<uint16_t>(effectiveWidth - capWidth),
                                           emitLine, includeLastLine, characterSpacing, wordSpacingPercent, lines);
   blockStyle.marginLeft = static_cast<int16_t>(blockStyle.marginLeft - capWidth);
-  currentPageNextY = static_cast<int16_t>(std::max(static_cast<int>(currentPageNextY), top + lines * lineHeight));
+  currentPageNextY = static_cast<int16_t>(std::max(static_cast<int>(currentPageNextY), top + spannedHeight));
 }
 
 void ChapterHtmlSlimParser::completeCurrentPage() {

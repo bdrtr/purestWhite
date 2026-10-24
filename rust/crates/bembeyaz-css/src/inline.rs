@@ -489,12 +489,38 @@ pub fn block_scale(css: &Style, heading: u8, parent: f32, stack: &[Entry]) -> f3
     scale.clamp(MIN_SCALE, MAX_SCALE)
 }
 
+/// The lines a drop cap spans when `css` styles it (a `::first-letter`, or a span opening a
+/// paragraph), 0 for none: its `initial-letter` when that is set (under 2 is none); else a font
+/// size of at least 1.5 spans about its size in ems (2 to 4), and a float without one spans 3.
+#[must_use]
+pub fn drop_cap_lines(css: &Style) -> u8 {
+    if has(css, Defined::INITIAL_LETTER) && css.initial_letter > 0 {
+        return if css.initial_letter >= 2 {
+            css.initial_letter
+        } else {
+            0
+        };
+    }
+    let size = css.length(LengthField::FontSize).value;
+    if sized(css) && size >= 1.5 {
+        // In range for any size a style holds; the cast saturates past it.
+        #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+        return ((size + 0.5) as i32).clamp(2, 4) as u8;
+    }
+    if has(css, Defined::FLOAT_LEFT) && css.float_left {
+        3
+    } else {
+        0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::unwrap_used, clippy::float_cmp)]
 
     use super::{
-        Effective, Entry, Kind, block_scale, entry, fold, span_scale, tag_scale, word_scale,
+        Effective, Entry, Kind, block_scale, drop_cap_lines, entry, fold, span_scale, tag_scale,
+        word_scale,
     };
     use crate::{
         Decoration, Defined, Direction, FontWeight, Length, LengthField, Style, Unit, VerticalAlign,
@@ -693,5 +719,39 @@ mod tests {
         assert_eq!(tag_scale(b"big"), Some(1.2));
         assert_eq!(tag_scale(b"span"), None);
         assert_eq!(tag_scale(b"smal"), None);
+    }
+
+    #[test]
+    fn drop_caps_span_their_initial_letter_size_or_float() {
+        let sized = |value, unit| {
+            css(|s| {
+                s.set_length(LengthField::FontSize, Length { value, unit });
+                s.defined.set(Defined::length(LengthField::FontSize));
+            })
+        };
+        let lines = |s: &Style| drop_cap_lines(s);
+        assert_eq!(lines(&Style::DEFAULT), 0);
+        let letter = |n| {
+            css(|s| {
+                s.initial_letter = n;
+                s.defined.set(Defined::INITIAL_LETTER);
+            })
+        };
+        assert_eq!(
+            (lines(&letter(3)), lines(&letter(2)), lines(&letter(1))),
+            (3, 2, 0)
+        );
+        // An unset or zero initial-letter falls back to the size and float.
+        let mut floated = letter(0);
+        floated.float_left = true;
+        floated.defined.set(Defined::FLOAT_LEFT);
+        assert_eq!(lines(&floated), 3);
+        floated.defined = Defined(0);
+        assert_eq!(lines(&floated), 0);
+        assert_eq!(lines(&sized(1.4, Unit::Em)), 0);
+        assert_eq!(lines(&sized(1.5, Unit::Em)), 2);
+        assert_eq!(lines(&sized(2.5, Unit::Rem)), 3);
+        assert_eq!(lines(&sized(9.0, Unit::Em)), 4);
+        assert_eq!(lines(&sized(f32::MAX, Unit::Em)), 4);
     }
 }

@@ -418,6 +418,14 @@ pub unsafe extern "C" fn bb_css_span_scale(css: *const Style, base: f32) -> f32 
 }
 
 /// # Safety
+/// `css` is NULL or a readable `CssStyle`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_css_drop_cap_lines(css: *const Style) -> u8 {
+    // SAFETY: as documented.
+    unsafe { css.as_ref() }.map_or(0, inline::drop_cap_lines)
+}
+
+/// # Safety
 /// `name` is NULL or holds `len` bytes.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn bb_css_tag_scale(name: *const c_char, len: usize) -> f32 {

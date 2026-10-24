@@ -663,6 +663,27 @@ TEST_F(ChapterBlockDecorationTest, FloatedLeadingSpanBecomesDropCap) {
   EXPECT_STREQ(static_cast<const PageLine*>(lines[0])->getBlock()->wordText(0), "he");
 }
 
+TEST_F(ChapterBlockDecorationTest, DropCapSpansItsLinesFromCapitalsToLastBaseline) {
+  open("p", nullptr);
+  open("span", "float: left; font-size: 3em");
+  text("T");
+  close("span");
+  text("he " + words(60));
+  close("p");
+
+  const auto caps = elementsWithTag(TAG_PageDropCap);
+  ASSERT_EQ(caps.size(), 1u);
+  const auto& cap = *static_cast<const PageDropCap*>(caps[0]);
+  const auto lines = elementsWithTag(TAG_PageLine);
+  ASSERT_GT(lines.size(), 3u);
+  // Fixture fonts: 16 px lines, 12 px ascender, 4 px space, capitals 10 px tall and 8 px wide.
+  // Three lines from the first capitals to the last baseline: (2 * 16 + 10) / 10 = 4.2 times.
+  EXPECT_EQ(cap.getScale256(), 1075);
+  EXPECT_EQ(cap.yPos, lines[0]->yPos + 2 * 16 + 12);
+  // The letter (8 * 4.2 = 34 px) and a space.
+  EXPECT_EQ(lines[0]->xPos, 34 + 4);
+}
+
 TEST_F(ChapterBlockDecorationTest, MultiWordSpanStaysText) {
   open("p", nullptr);
   open("span", "float: left");

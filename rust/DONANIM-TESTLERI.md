@@ -2019,3 +2019,28 @@ statik RAM değişmedi.
   kutunun birden çok sayfaya taştığı bir yere gelin: çerçeve her sayfada eskisi gibi çizilmeli,
   sayfa sonunda kesilen üst ve alt kenarlar açık kalmalı. Kenarlıkla çizilmiş içi boş bir çizgi
   sayfanın en altına denk gelirse sonraki sayfada eskisi gibi çizilmeli.
+
+## Büyük ilk harfin yerleşimi Rust'ta ("rust: our own drop cap placement")
+
+Bölüm ayrıştırıcısı bir paragrafın ilk harfini büyük ilk harf (drop cap) yapabilir: CSS'te
+`::first-letter`'ın `initial-letter`'ı, en az 1,5 em yazı boyutu ya da `float: left`'i varsa, ya da
+paragrafı böyle bir span açıyorsa. Harfin kaç satıra yayılacağı (`initial-letter` 2'den küçükse hiç;
+yazı boyutu kadar, 2 ile 4 arası; boyutsuz bir float için 3) artık `bembeyaz-css`'in `inline`
+modülünde. Harfin büyütme oranı (üstü ilk satırın büyük harfleriyle, taban çizgisi son satırın
+taban çizgisiyle hizalanır; 1 ile 16 kat arası), genişliği (ardındaki bir boşlukla birlikte, en
+çok yerin yarısı; yanındaki satırlar bu kadar sağa kayar) ve taban çizgisinin yeri de
+`bembeyaz-layout`'un yeni `drop_cap` modülünde (ABI'si yeni `drop_cap.h`); yazı tiplerinin glif
+ölçüleri geri çağrıyla gelir, bir yazı tipinde 'H' yoksa eskisi gibi tahmin edilir. Yazı tipini
+seçmek, sayfayı kırmak, `PageDropCap`'i kurmak ve yanındaki satırları dizmek C++'ta kaldı.
+Geometriyi sabitleyen yeni bir test eklendi; toplam 1065 host testi geçiyor. Bölüm ayrıştırıcısının
+fark testi, bu kez glif ölçüleri harfe ve yazı tipine göre değişen (kimi glifleri eksik) bir sahte
+çiziciyle, 11600 rastgele bölümde eski ve yeni sayfaları bayt bayt aynı buldu. Koda bilerek konan
+19 hatanın 11'ini bu test, kalan 8'ini crate testleri yakalıyor (3'ü için test eklendi). Emülatörde
+büyük ilk harfli CSS kitabı okuma ve kitap açma senaryolarında bir önceki sürümle piksel piksel
+aynı. Flash x4pro'da 280, x4c'de 284 bayt büyüdü, statik RAM değişmedi.
+
+- [ ] CSS'inde `::first-letter` ya da `initial-letter` olan (ya da büyük ilk harf span'ı kullanan)
+  bir kitap açın, yazı boyutunu ve yazı tipini değiştirerek birkaç kez bakın: büyük ilk harf eskisi
+  gibi büyüklükte, üstü ilk satırın büyük harfleriyle, tabanı son satırın tabanıyla hizalı ve
+  yanındaki satırlar eskisi gibi girintili olmalı. Sayfanın altına denk gelen büyük ilk harfli bir
+  paragraf harfiyle birlikte sonraki sayfaya geçmeli.

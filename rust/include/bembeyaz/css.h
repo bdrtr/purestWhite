@@ -201,6 +201,10 @@ float bb_css_block_scale(const bb_css_style* css, uint8_t heading, float parent,
 // The size of a span that holds a whole block: css's font size over base (the block's, or the
 // enclosing such spans'), a multiple of it or rem, base when it sets none; within 0.5 to 3.
 float bb_css_span_scale(const bb_css_style* css, float base);
+// The lines a drop cap spans when css styles it (a ::first-letter, or a span opening a paragraph),
+// 0 for none: its initial-letter when set (under 2 is none); else a font size of at least 1.5
+// spans about its size in ems (2 to 4), and a float without one spans 3.
+uint8_t bb_css_drop_cap_lines(const bb_css_style* css);
 // The browser's default size of the len-byte inline element name (small, big) as a multiple of
 // its parent's; 0 for other names.
 float bb_css_tag_scale(const char* name, size_t len);

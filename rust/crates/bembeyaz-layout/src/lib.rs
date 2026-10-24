@@ -10,7 +10,8 @@
 //! dropped and [`Paragraph::dropped_words`] reports it, as the C++ did for its word arena.
 //!
 //! [`table`] plans the column widths of the chapter parser's grid tables; [`carry`] picks the lines
-//! its page breaks move; [`boxes`] frames its bordered and shaded elements.
+//! its page breaks move; [`boxes`] frames its bordered and shaded elements; [`drop_cap`] places its
+//! drop caps.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -19,6 +20,7 @@ extern crate alloc;
 
 pub mod boxes;
 pub mod carry;
+pub mod drop_cap;
 mod layout;
 mod offsets;
 mod store;
