@@ -149,9 +149,10 @@ impl Canvas<'_> {
                 height.wrapping_sub(1).wrapping_sub(file_row)
             };
             let y = scaled(from_top.wrapping_sub(crop_y), scale).wrapping_add(place.y);
-            // Below the screen, the gray path stops (so a bottom-up picture whose first row is
-            // below it draws nothing) and the 1-bit path reads on: both as the old renderer did.
-            if y >= screen_h && !one_bit {
+            // Below the screen, a top-down picture's later rows only go further down: the gray
+            // path stops there (the 1-bit path reads on, as the old renderer did). A bottom-up
+            // picture's later rows come back up onto the screen, so it reads on too.
+            if y >= screen_h && !one_bit && picture.top_down {
                 break;
             }
             if !read(row) {

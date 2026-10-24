@@ -1669,3 +1669,15 @@ bayt büyüdü, RAM değişmedi.
 - [ ] Uyku Ekranı'nı Transparent yapıp kartın köküne bir kaplama resmi (`/sleep-overlay.bmp` ya da
   `.png`) koyun; okurken (bir de döndürülmüş bir Okuma Yönü'nde) ve ana ekrandayken uykuya geçin:
   kaplamanın altında "Uyku moduna geçiliyor" penceresinden iz kalmamalı.
+
+## Alttan başlayan resimlerin kırpılması düzeltildi ("fix: draw bottom-up pictures that start below the screen")
+
+Alttan başlayan bir resim (BMP'lerin çoğu böyle saklanır) ekranın altına taşıyorsa, yani dosyadaki ilk
+satırı ekranın altına düşüyorsa, eskiden hiç çizilmiyordu: gri ton yolu ilk satırda "ekranın altı"
+deyip duruyordu. Üstten başlayan aynı resim görünen kısmıyla çiziliyordu. Artık alttan başlayan resim
+o satırları okuyup geçiyor ve ekrana geri gelen satırları çiziyor. Bugünkü ekranlar resmi hep ekrana
+sığdırdığı için görünür bir fark beklenmiyor; emülatörde resim görüntüleyici, uyku ve kapaklı ana
+ekran bir önceki sürümle aynı. Crate testi ve eski kodla karşılaştırma bu durumu sabitliyor.
+
+- [ ] Ekrandan büyük, kırpmasız gösterilen bir BMP varsa (ör. Uyku Ekranı'nda Kırp ile büyük bir
+  resim) eskisi gibi ya da daha doğru (alt kısmı kesik değil, görünen kısmı çizilmiş) görünmeli.

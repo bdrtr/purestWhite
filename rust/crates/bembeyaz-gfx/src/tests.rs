@@ -301,14 +301,18 @@ fn pictures() {
         })
     });
     assert_eq!(drawn.map(|d| (d.scale, d.width, d.height)), Ok((0.5, 2, 1)));
-    // A bottom-up picture whose first row is below the screen draws nothing, reading nothing
-    // (as the old renderer did).
+    // A bottom-up picture whose first row is below the screen still draws the rows that come
+    // back up onto it (the old renderer drew nothing).
+    let mut other = panel();
+    let mut c2 = canvas(&mut other, Orientation::LandscapeCounterClockwise);
     let mut reads = 0;
-    let none = c.picture(&pic, &place(0, 7, Plane::Bw), &mut row, |_| {
+    let partly = c2.picture(&pic, &place(0, 7, Plane::Bw), &mut row, |r| {
         reads += 1;
+        r.fill(0);
         true
     });
-    assert_eq!((none.map(|d| d.height), reads), (Ok(2), 0));
+    assert_eq!((partly.map(|d| d.height), reads), (Ok(2), 2));
+    assert_eq!(picture(&other)[7], "####............");
     let tall = Picture {
         height: 3,
         top_down: true,

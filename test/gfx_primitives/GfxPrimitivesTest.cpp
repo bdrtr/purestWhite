@@ -864,7 +864,14 @@ bool Old::drawBitmap(const Bitmap& bitmap, const int x, const int y, const int m
     }
     screenY += y;  // the offset should not be scaled
     if (screenY >= getScreenHeight()) {
-      break;
+      // Changed after 6603fc10: a bottom-up picture reads on, as its later rows come back up
+      // onto the screen (the old code broke here and drew nothing of it).
+      if (bitmap.isTopDown()) break;
+      if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
+        LOG_ERR("GFX", "Failed to read row %d from bitmap", bmpY);
+        return false;
+      }
+      continue;
     }
 
     if (bitmap.readNextRow(outputRow, rowBytes) != BmpReaderError::Ok) {
