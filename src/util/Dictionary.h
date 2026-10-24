@@ -1,6 +1,7 @@
 #pragma once
 
 #include <HalStorage.h>
+#include <bembeyaz/dict.h>
 
 #include <cstdint>
 #include <string>
@@ -22,8 +23,8 @@ struct DictLocation {
 // Expects /dictionaries/<folder>/<stem>.idx (uncompressed) plus <stem>.dict or
 // <stem>.dict.dz, and an optional <stem>.syn synonym index. Lookups
 // binary-search a lazily built sampled-offset sidecar (<stem>.qidx, byte offset
-// of every SAMPLE_INTERVAL-th .idx entry), then linear-scan at most
-// SAMPLE_INTERVAL entries. A present .syn gets a parallel <stem>.sidx sidecar;
+// of every 256th .idx entry), then linear-scan at most 256 entries.
+// (bembeyaz-dict reads the sidecars and runs the lookups.) A present .syn gets a parallel <stem>.sidx sidecar;
 // its entries carry an ordinal (the N-th .idx entry) resolved back to a byte
 // offset via the same fixed-interval .qidx samples. Everything streams from SD;
 // no index is held in RAM.
@@ -89,8 +90,6 @@ class Dictionary {
   static constexpr uint32_t MAX_DEFINITION_BYTES = 64 * 1024;
 
  private:
-  static constexpr uint32_t SAMPLE_INTERVAL = 256;
-
   // Longest "<basePath><suffix>" the lookup path builds, rounded up. basePath is
   // "/dictionaries/<folder>/<stem>" (14 fixed chars) and the longest suffix is
   // ".dict.dz", leaving ~137 chars for folder + stem — far beyond any real
@@ -131,6 +130,9 @@ class Dictionary {
     // so a miss is an unfinished search rather than a verdict. Distinct from
     // "this dictionary has no .syn", which is a legitimate miss.
     bool synFailed = false;
+
+    // .idx and .qidx as bembeyaz-dict reads them.
+    bb_dict_index index();
   };
 
   // Open .idx (required) and .qidx (optional — locate() falls back to a full
@@ -144,22 +146,15 @@ class Dictionary {
   // scanned linearly).
   bool openSynonyms(LookupSession& session);
 
-  // Bisect a sampled-offset sidecar (.qidx over .idx, .sidx over .syn) to the
-  // byte offset of the last sampled entry whose word is <= target, so the caller
-  // only has to linear-scan at most SAMPLE_INTERVAL entries from there. Returns
-  // 0 — scan source from the start — when sampleCount is 0 or a sample is
-  // unreadable. Clobbers wordBuf.
-  uint32_t bisectSamples(HalFile& sidecar, HalFile& source, uint32_t sampleCount, const char* target);
-
+  // Bisect the .qidx sidecar to the last sampled entry <= target, then scan at
+  // most 256 entries of .idx.
   DictLocation locate(LookupSession& session, const char* target, std::string* matchedHeadwordOut);
 
-  // Resolve an ordinal (the N-th .idx entry, 0-based) to its .dict location via
-  // the .qidx samples. Used to follow a .syn synonym back to its headword.
-  DictLocation locateByOrdinal(LookupSession& session, uint32_t ordinal, std::string* matchedHeadwordOut);
-
   // Bisect the .syn/.sidx synonym index for target; on a hit follow its ordinal
-  // through locateByOrdinal(). Returns not-found when no .syn exists.
+  // (the N-th .idx entry) through the .qidx samples. Returns not-found when no
+  // .syn exists.
   DictLocation locateSynonym(LookupSession& session, const char* target, std::string* matchedHeadwordOut);
+  static DictLocation located(const bb_dict_location& at, const char* headword, std::string* matchedHeadwordOut);
 
   // One streaming pass over sourcePath writing a sampled-offset sidecar. Each
   // source entry is a NUL-terminated word followed by suffixBytes fixed bytes
@@ -178,17 +173,12 @@ class Dictionary {
   bool readDefinition(const DictLocation& location, std::string& out, LookupResult* outResult = nullptr);
   static void stemVariants(const std::string& word, std::vector<std::string>& out);
 
-  // Read a null-terminated word from an open file into buf (max bufSize-1
-  // chars). Returns the number of characters read (excluding null), or -1 on
-  // EOF/error. Over-long words are truncated but the stream stays in sync.
-  static int readWordInto(HalFile& file, char* buf, size_t bufSize);
-
   std::string basePath;  // "/dictionaries/<folder>/<stem>", empty when not open
   bool hasPlainDict = false;
   bool hasSyn = false;  // a <stem>.syn synonym index exists next to the .idx
   bool htmlDefinitions = false;
 
-  // Shared scan buffer: lookups are single-threaded and this avoids a
-  // 256-byte array on the stack of every locate() call.
-  char wordBuf[256] = {};
+  // The headword buffer the lookups read words into: lookups are single-threaded,
+  // and this keeps a 256-byte array off the stack of every locate() call.
+  char wordBuf[BB_DICT_WORD_MAX + 1] = {};
 };

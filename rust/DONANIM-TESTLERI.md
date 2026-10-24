@@ -1875,3 +1875,46 @@ değişmeden geçiyor; emülatörde PNG kitabı piksel piksel aynı.
 
 - [ ] 1, 2 ya da 4 bitlik gri veya paletli PNG kapaklı bir kitabın küçük resmi eskisi gibi
   görünmeli.
+
+## Sözlük dizini ve aramaları Rust'ta ("rust: our own dictionary index")
+
+StarDict sözlüklerinde (`/dictionaries/<klasör>/`) `.ifo`'dan 64 bitlik konum ve HTML tanım
+bilgisinin okunması, ilk açılıştaki "Sözlük endeksleniyor..." sırasında `.qidx` ve `.sidx`
+örnekli dizinlerinin kurulması (her 256. girdinin konumu), aramadaki ikili arama ve en çok 256
+girdilik tarama, eş anlamlıdan (`.syn`) sıra numarasıyla girdiye gitme, aranan sözcüğün
+noktalamadan temizlenip küçültülmesi ve İngilizce kök varyantları (-'s, -’s, -ies, -es, -s, -ed,
+-ing) artık yeni `bembeyaz-dict` crate'inde. Dosyalar Rust'a konumdan okuyan bir geri çağrıyla
+veriliyor; geri çağrı başarısız konumlamayı (dosya sonunun ötesi ya da bozuk bir küme zinciri)
+okuma hatasından ayrı bildiriyor, çünkü taramanın başına konumlanamamak eskisi gibi "Bulunamadı"
+değil okuma hatası sayılıyor. Sözcükler artık bayt bayt değil 32 baytlık parçalarla okunuyor ve
+eskisi gibi sözlük nesnesindeki 256 baytlık tampona yazılıyor (Rust'ın arama işlevlerinin yığın
+çerçevesi 112 ve 144 bayt). Sözlük
+klasörünün bulunması, dosyaların açılması, bellek denetimleri, dictzip ve tanımın okunması C++'ta
+kaldı. Sözlük kodunun daha önce hiç testi yoktu: eski kod olduğu gibi `test/dictionary`'ye
+kopyalandı ve gerçek `Dictionary.cpp` ile aynı bellek içi dosya sistemi üzerinde karşılaştırılıyor.
+1000 rastgele sözlükte (rastgele ve 255 bayttan uzun başlık sözcükleri, eş anlamlılar, `.ifo`
+çeşitleri, kesik `.idx`, bozuk konumlar, bozulmuş, kesilmiş ya da silinmiş dizinler, okuma hataları
+ve bir konumdan sonra konumlanamayan bozuk kümeler) her biri 60 aramayla (büyük/küçük harf, tırnak
+ve noktalama, İngilizce ekler, uydurma ve çok uzun sözcükler) dizin dosyaları, endeksleme sonucu
+ve her aramanın sonucu, tanımı ve başlık sözcüğü aynı. Koda bilerek konan 24 hatanın 21'i
+yakalandı (12'si bu testle, 9'u crate testleriyle); 3'ü sonucu değiştirmiyor. Eski koddaki varyant
+tekrarı denetimi hiç tetiklenemediği için kaldırıldı (bir crate testi bunu sabitliyor). Okuma
+hatalarında bir fark kalabilir: SD kartta 32 baytlık bir okuma bozuk bir sektöre değerse bütünüyle
+başarısız oluyor; eski bayt bayt okuma bozuk sektörden önce biten bir girdiyi yine bulabiliyordu.
+`.dict.dz` sözlüklerinin tanım okuması (dictzip) bu testte yok, o yol değişmedi. Emülatörde sözlük
+açılamadığı için (ayar dosyası uygulanmıyor) yalnızca okuma senaryosu bir önceki sürümle
+karşılaştırıldı. Flash x4pro'da 2152, x4c'de 2156 bayt büyüdü, statik RAM değişmedi.
+
+- [ ] Daha önce endekslenmemiş bir StarDict sözlüğü ayarlayın (Sözlük; ya da klasördeki `.qidx` ve
+  `.sidx` dosyalarını silin) ve bir kitapta Sözlükte Ara ile sözcükler arayın: ilk aramada "Sözlük
+  endeksleniyor..." görünmeli, sonra tanımlar eskisi gibi gelmeli.
+- [ ] Eski sürümün endekslediği bir sözlük yeniden endekslenmeden açılmalı (dizin biçimi
+  değişmedi).
+- [ ] Tırnak içindeki, büyük harfle başlayan ve çoğul ya da -ed/-ing ekli sözcükler kök hâlleriyle
+  bulunmalı; sözlükte olmayan bir sözcük "Bulunamadı" demeli.
+- [ ] `.syn` dosyası olan bir sözlükte bir eş anlamlı (ör. düzensiz bir biçim) aranınca ana
+  girdisi gelmeli.
+- [ ] Hem `.dict` hem `.dict.dz` sözlüklerde aramalar eskisi kadar hızlı ya da daha hızlı olmalı;
+  özellikle FAT32 kartta büyük (`.idx` 20 MB'tan büyük) bir sözlükte, bulunan sözcüklerle birlikte
+  kök varyantlarıyla da bulunamayan sözcükleri deneyin (her girdi ayrı konumdan okunuyor; küme
+  sınırında geri sarma FAT zincirini baştan yürütebilir).

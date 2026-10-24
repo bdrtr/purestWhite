@@ -47,6 +47,10 @@ name = "bembeyaz-css"
 version = "0.1.0"
 
 [[package]]
+name = "bembeyaz-dict"
+version = "0.1.0"
+
+[[package]]
 name = "bembeyaz-dither"
 version = "0.1.0"
 
@@ -59,6 +63,7 @@ dependencies = [
  "bembeyaz-book",
  "bembeyaz-clippings",
  "bembeyaz-css",
+ "bembeyaz-dict",
  "bembeyaz-dither",
  "bembeyaz-font",
  "bembeyaz-gfx",
