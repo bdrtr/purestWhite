@@ -13,26 +13,19 @@ void* operator new[](std::size_t size, const std::nothrow_t&) noexcept {
 }
 
 TEST(AbsoluteGrayscale, DitherersReportScratchAllocationFailure) {
+  for (const uint8_t method : {BB_DITHER_ATKINSON, BB_DITHER_ATKINSON_1BIT, BB_DITHER_FLOYD_STEINBERG}) {
+    rowAllocationToFail = 0;
+    Ditherer failed(method, 8);
+    rowAllocationToFail = -1;
+    EXPECT_FALSE(failed.isValid()) << static_cast<int>(method);
+    Ditherer ditherer(method, 8);
+    EXPECT_TRUE(ditherer.isValid()) << static_cast<int>(method);
+  }
+  // Methods that carry no error need no rows.
   rowAllocationToFail = 0;
-  AtkinsonDitherer failedAtkinson(8);
+  Ditherer threshold(BB_DITHER_THRESHOLD, 8);
   rowAllocationToFail = -1;
-  EXPECT_FALSE(failedAtkinson.isValid());
-
-  rowAllocationToFail = 0;
-  Atkinson1BitDitherer failedOneBit(8);
-  rowAllocationToFail = -1;
-  EXPECT_FALSE(failedOneBit.isValid());
-
-  rowAllocationToFail = 0;
-  FloydSteinbergDitherer failedFloyd(8);
-  rowAllocationToFail = -1;
-  EXPECT_FALSE(failedFloyd.isValid());
-  AtkinsonDitherer atkinson(8);
-  Atkinson1BitDitherer oneBit(8);
-  FloydSteinbergDitherer floyd(8);
-  EXPECT_TRUE(atkinson.isValid());
-  EXPECT_TRUE(oneBit.isValid());
-  EXPECT_TRUE(floyd.isValid());
+  EXPECT_TRUE(threshold.isValid());
 }
 
 TEST(AbsoluteGrayscale, FullPlanesIncludeBlackWhiteAndBothGrayLevels) {
@@ -64,15 +57,22 @@ TEST(AbsoluteGrayscale, OverlayStillLeavesBlackAndWhiteToTheBase) {
   EXPECT_EQ(planes[1], 0x66);
 }
 
+namespace {
+// The 2-bit level the first pixel of a fresh ditherer gets for gray.
+uint8_t firstLevel(const uint8_t method, const uint8_t gray, const bool originalThresholds) {
+  Ditherer ditherer(method, 1, originalThresholds);
+  uint8_t out = 0;
+  ditherer.pixels(&gray, 1, 0, 0, &out, 1);
+  return out >> 6;
+}
+}  // namespace
+
 TEST(AbsoluteGrayscale, ImageQuantizersRetainFourEvenLevels) {
   for (uint8_t level = 0; level < 4; ++level) {
-    AtkinsonDitherer atkinson(1, true);
-    FloydSteinbergDitherer floyd(1, true);
-    EXPECT_EQ(atkinson.processPixel(level * 85, 0), level);
-    EXPECT_EQ(floyd.processPixel(level * 85, 0), level);
+    EXPECT_EQ(firstLevel(BB_DITHER_ATKINSON, level * 85, true), level);
+    EXPECT_EQ(firstLevel(BB_DITHER_FLOYD_STEINBERG, level * 85, true), level);
   }
-  AtkinsonDitherer overlay(1);
-  EXPECT_EQ(overlay.processPixel(85, 0), 2);
+  EXPECT_EQ(firstLevel(BB_DITHER_ATKINSON, 85, false), 2);
 }
 
 TEST(AbsoluteGrayscale, TransparentPassesRetainBackgroundWithoutClearingBetweenPlanes) {

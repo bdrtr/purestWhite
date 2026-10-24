@@ -16,6 +16,7 @@ mod cpfont;
 mod css;
 #[cfg(target_os = "none")]
 mod device;
+mod dither;
 mod expat;
 mod gfx;
 mod html;

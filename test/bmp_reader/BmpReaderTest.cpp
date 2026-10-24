@@ -53,13 +53,16 @@ Palette grays(const int count) {
 
 int lum(const int r, const int g, const int b) { return (77 * r + 150 * g + 29 * b) >> 8; }
 
+// The panel's 2-bit thresholds for gray without dithering.
+uint8_t thresholdLevel(const int gray) { return gray < 45 ? 0 : gray < 70 ? 1 : gray < 140 ? 2 : 3; }
+
 // The packed row Bitmap gives without dithering: direct levels for a native palette, otherwise
-// quantize().
-std::vector<uint8_t> expectedRow(const std::vector<int>& lums, const bool native, const int y) {
+// the thresholds.
+std::vector<uint8_t> expectedRow(const std::vector<int>& lums, const bool native) {
   std::vector<uint8_t> out((lums.size() + 3) / 4, 0);
   for (size_t x = 0; x < lums.size(); x++) {
     const int gray = adjustPixel(lums[x]);
-    const uint8_t level = native ? gray >> 6 : quantize(gray, static_cast<int>(x), y);
+    const uint8_t level = native ? gray >> 6 : thresholdLevel(gray);
     out[x / 4] |= level << (6 - 2 * (x % 4));
   }
   return out;
@@ -132,7 +135,7 @@ TEST(BmpReader, NativePalettesMapStraightToGrayLevels) {
   HalFile file(data);
   Bitmap bitmap(file);
   ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
-  EXPECT_EQ(readRow(bitmap), expectedRow({0, 85, 170, 255, 255, 170}, true, 0));
+  EXPECT_EQ(readRow(bitmap), expectedRow({0, 85, 170, 255, 255, 170}, true));
 }
 
 TEST(BmpReader, OtherPalettesAreQuantized) {
@@ -151,8 +154,8 @@ TEST(BmpReader, OtherPalettesAreQuantized) {
   HalFile file(data);
   Bitmap bitmap(file);
   ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
-  EXPECT_EQ(readRow(bitmap), expectedRow(lums0, false, 0));
-  EXPECT_EQ(readRow(bitmap), expectedRow(lums1, false, 1));
+  EXPECT_EQ(readRow(bitmap), expectedRow(lums0, false));
+  EXPECT_EQ(readRow(bitmap), expectedRow(lums1, false));
 }
 
 TEST(BmpReader, TrueColorRowsUseLuminance) {
@@ -171,7 +174,7 @@ TEST(BmpReader, TrueColorRowsUseLuminance) {
     HalFile file(data);
     Bitmap bitmap(file);
     ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
-    EXPECT_EQ(readRow(bitmap), expectedRow(lums, false, 0)) << bpp;
+    EXPECT_EQ(readRow(bitmap), expectedRow(lums, false)) << bpp;
   }
 }
 
@@ -181,7 +184,7 @@ TEST(BmpReader, OneBitRowsFollowThePalette) {
   HalFile file(data);
   Bitmap bitmap(file);
   ASSERT_EQ(bitmap.parseHeaders(), BmpReaderError::Ok);
-  EXPECT_EQ(readRow(bitmap), expectedRow({0, 255, 0, 0, 255, 255, 255, 255, 255, 0}, true, 0));
+  EXPECT_EQ(readRow(bitmap), expectedRow({0, 255, 0, 0, 255, 255, 255, 255, 255, 0}, true));
 }
 
 TEST(BmpReader, DitheredRowsRepeatAfterRewinding) {

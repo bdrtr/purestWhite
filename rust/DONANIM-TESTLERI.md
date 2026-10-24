@@ -1681,3 +1681,31 @@ ekran bir önceki sürümle aynı. Crate testi ve eski kodla karşılaştırma b
 
 - [ ] Ekrandan büyük, kırpmasız gösterilen bir BMP varsa (ör. Uyku Ekranı'nda Kırp ile büyük bir
   resim) eskisi gibi ya da daha doğru (alt kısmı kesik değil, görünen kısmı çizilmiş) görünmeli.
+
+## Titreme Rust'ta ("rust: our own dithering")
+
+Resimlerin panelin dört gri seviyesine ya da siyah-beyaza çevrilmesi (BMP resim görüntüleyici ve uyku
+ekranının özel resimleri, JPEG ve PNG kapakların ve ana ekran küçük resimlerinin BMP'ye dönüştürülmesi)
+artık yeni `bembeyaz-dither` crate'inde: Atkinson ve Floyd-Steinberg hata yayma, 1 bitlik Atkinson,
+panele ayarlı eşikler, doğal palet ve (derleme zamanında kapalı) parlaklık ayarı. Eskiden de hiçbir
+yoldan ulaşılmayan gürültülü 1 bitlik eşik kaldırıldı. `Bitmap`, PNG ve JPEG kapak dönüştürücüleri
+artık her piksel için değil, satır ya da 64 piksellik parça başına bir çağrı yapıyor; hata
+satırlarının belleği C++'taki tek `Ditherer` sınıfında (eski üç sınıfın yerine; `Bitmap` onu yerinde
+tutuyor, yeni bir bellek ayırma ya da hata yolu yok). Rust döngüsü hataları dizinlemeden, yazmaçta
+kaydırarak taşıyor: sınır denetimi ve panik yolu yok. İlk sürüm kapak küçük resmini %10
+yavaşlatmıştı; şimdi eskisiyle aynı ya da biraz hızlı (emülatörde JPEG küçük resmi 230–233 ms, eski
+232–235; resim görüntüleyicide yedi BMP toplamda 128 ms hızlı). Eski titreme sınıfları ve işlevleri
+olduğu gibi `test/dither`'a kopyalandı: 4000 rastgele resimde (her yöntem, rastgele parçalar, satır
+sınırları) çıktı bayt bayt aynı ve son baytın resim dışındaki bitleri değişmiyor. Koda bilerek konan
+21 hatanın hepsi yakalandı. PNG→BMP'nin 841 durumluk özet testi ve BMP okuyucu testleri de değişmeden
+geçiyor. Emülatörde resim görüntüleyici, uyku, JPEG ve PNG kapaklı ana ekranlar bir önceki sürümle
+piksel piksel aynı. Flash x4pro'da 780, x4c'de 848 bayt büyüdü (yöntem başına ayrı döngüler), statik
+RAM değişmedi.
+
+- [ ] Dosyalara Göz At'tan 24 ve 32 bitlik BMP'leri açın: gri tonlar ve titreme deseni eskisi gibi
+  olmalı.
+- [ ] Uyku Ekranı'nı Özel yapıp `/sleep.bmp` (ya da `/sleep` klasörüne) renkli bir BMP koyun; Uyku
+  Ekranı Kapak Filtresi'ni Yok ve Kontrast ile, Uyku Ekranı Kapak Modu'nu Sığdır ve Kırp ile deneyin;
+  Uyku Ekranı'nı Kapak yapıp bir kitaptan uykuya da geçin: resimler eskisi gibi görünmeli.
+- [ ] Daha önce açılmamış JPEG ve PNG kapaklı kitapları açıp Ana Sayfa'ya dönün (küçük resim orada,
+  "Yükleniyor" sırasında oluşur): kapaklar eskisi gibi görünmeli, bekleme belirgin biçimde uzamamalı.

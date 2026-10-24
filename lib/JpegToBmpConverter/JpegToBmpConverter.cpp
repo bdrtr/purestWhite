@@ -232,9 +232,7 @@ struct BmpConvertCtx {
 
   std::unique_ptr<uint8_t[]> bmpRow;
 
-  std::unique_ptr<AtkinsonDitherer> atkinsonDitherer;
-  std::unique_ptr<FloydSteinbergDitherer> fsDitherer;
-  std::unique_ptr<Atkinson1BitDitherer> atkinson1BitDitherer;
+  std::unique_ptr<Ditherer> ditherer;
 
   uint8_t rowsSinceYield;
   uint8_t blocksSinceYield;
@@ -261,30 +259,9 @@ static void writeOutputRow(BmpConvertCtx* ctx, const uint8_t* srcRow, int outY) 
     for (int x = 0; x < ctx->outWidth; x++) {
       ctx->bmpRow[x] = adjustPixel(srcRow[x]);
     }
-  } else if (ctx->oneBit) {
-    for (int x = 0; x < ctx->outWidth; x++) {
-      const uint8_t bit = ctx->atkinson1BitDitherer ? ctx->atkinson1BitDitherer->processPixel(srcRow[x], x)
-                                                    : quantize1bit(srcRow[x], x, outY);
-      ctx->bmpRow[x / 8] |= (bit << (7 - (x % 8)));
-    }
-    if (ctx->atkinson1BitDitherer) ctx->atkinson1BitDitherer->nextRow();
   } else {
-    for (int x = 0; x < ctx->outWidth; x++) {
-      const uint8_t gray = adjustPixel(srcRow[x]);
-      uint8_t twoBit;
-      if (ctx->atkinsonDitherer) {
-        twoBit = ctx->atkinsonDitherer->processPixel(gray, x);
-      } else if (ctx->fsDitherer) {
-        twoBit = ctx->fsDitherer->processPixel(gray, x);
-      } else {
-        twoBit = quantize(gray, x, outY);
-      }
-      ctx->bmpRow[(x * 2) / 8] |= (twoBit << (6 - ((x * 2) % 8)));
-    }
-    if (ctx->atkinsonDitherer)
-      ctx->atkinsonDitherer->nextRow();
-    else if (ctx->fsDitherer)
-      ctx->fsDitherer->nextRow();
+    ctx->ditherer->pixels(srcRow, ctx->outWidth, 0, outY, ctx->bmpRow.get(), ctx->bytesPerRow);
+    ctx->ditherer->nextRow();
   }
 
   ctx->bmpOut->write(ctx->bmpRow.get(), ctx->bytesPerRow);
@@ -382,31 +359,18 @@ static void flushScaledRow(BmpConvertCtx* ctx) {
       const uint8_t gray = (ctx->rowCount[x] > 0) ? (ctx->rowAccum[x] / ctx->rowCount[x]) : 0;
       ctx->bmpRow[x] = adjustPixel(gray);
     }
-  } else if (ctx->oneBit) {
-    for (int x = 0; x < ctx->outWidth; x++) {
-      const uint8_t gray = (ctx->rowCount[x] > 0) ? (ctx->rowAccum[x] / ctx->rowCount[x]) : 0;
-      const uint8_t bit = ctx->atkinson1BitDitherer ? ctx->atkinson1BitDitherer->processPixel(gray, x)
-                                                    : quantize1bit(gray, x, ctx->currentOutY);
-      ctx->bmpRow[x / 8] |= (bit << (7 - (x % 8)));
-    }
-    if (ctx->atkinson1BitDitherer) ctx->atkinson1BitDitherer->nextRow();
   } else {
-    for (int x = 0; x < ctx->outWidth; x++) {
-      const uint8_t gray = adjustPixel((ctx->rowCount[x] > 0) ? (ctx->rowAccum[x] / ctx->rowCount[x]) : 0);
-      uint8_t twoBit;
-      if (ctx->atkinsonDitherer) {
-        twoBit = ctx->atkinsonDitherer->processPixel(gray, x);
-      } else if (ctx->fsDitherer) {
-        twoBit = ctx->fsDitherer->processPixel(gray, x);
-      } else {
-        twoBit = quantize(gray, x, ctx->currentOutY);
+    // The averaged gray, 64 pixels at a time.
+    uint8_t gray[64];
+    for (int x0 = 0; x0 < ctx->outWidth; x0 += 64) {
+      const int count = std::min(64, ctx->outWidth - x0);
+      for (int i = 0; i < count; i++) {
+        const int x = x0 + i;
+        gray[i] = (ctx->rowCount[x] > 0) ? (ctx->rowAccum[x] / ctx->rowCount[x]) : 0;
       }
-      ctx->bmpRow[(x * 2) / 8] |= (twoBit << (6 - ((x * 2) % 8)));
+      ctx->ditherer->pixels(gray, count, x0, ctx->currentOutY, ctx->bmpRow.get(), ctx->bytesPerRow);
     }
-    if (ctx->atkinsonDitherer)
-      ctx->atkinsonDitherer->nextRow();
-    else if (ctx->fsDitherer)
-      ctx->fsDitherer->nextRow();
+    ctx->ditherer->nextRow();
   }
 
   ctx->bmpOut->write(ctx->bmpRow.get(), ctx->bytesPerRow);
@@ -658,26 +622,18 @@ bool JpegToBmpConverter::jpegFileToBmpStreamInternal(HalFile& jpegFile, Print& b
     ctx.nextOutY_srcStart = scaleY_fp;
   }
 
+  uint8_t method = BB_DITHER_THRESHOLD;
   if (oneBit) {
-    ctx.atkinson1BitDitherer = makeUniqueNoThrow<Atkinson1BitDitherer>(outWidth);
-    if (!ctx.atkinson1BitDitherer || !ctx.atkinson1BitDitherer->isValid()) {
-      LOG_ERR("JPG", "OOM: Atkinson1BitDitherer");
-      return false;
-    }
-  } else if (!USE_8BIT_OUTPUT) {
-    if (USE_ATKINSON) {
-      ctx.atkinsonDitherer = makeUniqueNoThrow<AtkinsonDitherer>(outWidth, originalThresholds);
-      if (!ctx.atkinsonDitherer || !ctx.atkinsonDitherer->isValid()) {
-        LOG_ERR("JPG", "OOM: AtkinsonDitherer");
-        return false;
-      }
-    } else if (USE_FLOYD_STEINBERG) {
-      ctx.fsDitherer = makeUniqueNoThrow<FloydSteinbergDitherer>(outWidth, originalThresholds);
-      if (!ctx.fsDitherer || !ctx.fsDitherer->isValid()) {
-        LOG_ERR("JPG", "OOM: FloydSteinbergDitherer");
-        return false;
-      }
-    }
+    method = BB_DITHER_ATKINSON_1BIT;
+  } else if (USE_ATKINSON) {
+    method = BB_DITHER_ATKINSON;
+  } else if (USE_FLOYD_STEINBERG) {
+    method = BB_DITHER_FLOYD_STEINBERG;
+  }
+  ctx.ditherer = makeUniqueNoThrow<Ditherer>(method, outWidth, originalThresholds);
+  if (!ctx.ditherer || !ctx.ditherer->isValid()) {
+    LOG_ERR("JPG", "OOM: ditherer");
+    return false;
   }
 
   status = bb_jpeg_decode(jpeg.get(), 0, bmpDrawCallback, &ctx);

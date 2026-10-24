@@ -44,13 +44,7 @@ static_assert(parseResultsMatch(), "bb_bmp_parse results");
 constexpr bool USE_ATKINSON = true;  // Use Atkinson dithering instead of Floyd-Steinberg
 // ============================================================================
 
-Bitmap::~Bitmap() {
-  delete[] errorCurRow;
-  delete[] errorNextRow;
-
-  delete atkinsonDitherer;
-  delete fsDitherer;
-}
+Bitmap::~Bitmap() = default;
 
 const char* Bitmap::errorToString(BmpReaderError err) {
   switch (err) {
@@ -108,24 +102,17 @@ BmpReaderError Bitmap::parseHeaders() {
   //  - High-color + dithering enabled → error-diffusion dithering (Atkinson or Floyd-Steinberg)
   //  - High-color + dithering disabled → simple quantization (no error diffusion)
   const bool highColor = !bmp.native_palette;
-  if (highColor && dithering) {
-    if (USE_ATKINSON) {
-      atkinsonDitherer = new (std::nothrow) AtkinsonDitherer(bmp.width, originalThresholds);
-      if (!atkinsonDitherer || !atkinsonDitherer->isValid()) {
-        delete atkinsonDitherer;
-        atkinsonDitherer = nullptr;
-        LOG_ERR("BMP", "OOM: Atkinson ditherer or row buffers");
-        return BmpReaderError::OomDitherer;
-      }
-    } else {
-      fsDitherer = new (std::nothrow) FloydSteinbergDitherer(bmp.width, originalThresholds);
-      if (!fsDitherer || !fsDitherer->isValid()) {
-        delete fsDitherer;
-        fsDitherer = nullptr;
-        LOG_ERR("BMP", "OOM: Floyd-Steinberg ditherer or row buffers");
-        return BmpReaderError::OomDitherer;
-      }
-    }
+  uint8_t method = BB_DITHER_THRESHOLD;
+  if (!highColor) {
+    method = BB_DITHER_NATIVE;
+  } else if (dithering) {
+    method = USE_ATKINSON ? BB_DITHER_ATKINSON : BB_DITHER_FLOYD_STEINBERG;
+  }
+  ditherer.emplace(method, bmp.width, originalThresholds);
+  if (!ditherer->isValid()) {
+    ditherer.reset();
+    LOG_ERR("BMP", "OOM: ditherer or row buffers");
+    return BmpReaderError::OomDitherer;
   }
 
   return BmpReaderError::Ok;
@@ -138,41 +125,12 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
 
   prevRowY += 1;
 
-  uint8_t* outPtr = data;
-  uint8_t currentOutByte = 0;
-  int bitShift = 6;
-  int currentX = 0;
-
-  // Helper lambda to pack 2bpp color into the output stream
-  auto packPixel = [&](const uint8_t lum) {
-    uint8_t color;
-    if (atkinsonDitherer) {
-      color = atkinsonDitherer->processPixel(adjustPixel(lum), currentX);
-    } else if (fsDitherer) {
-      color = fsDitherer->processPixel(adjustPixel(lum), currentX);
-    } else {
-      if (bmp.native_palette) {
-        // Palette matches native gray levels: direct mapping (still apply brightness/contrast/gamma)
-        color = static_cast<uint8_t>(adjustPixel(lum) >> 6);
-      } else {
-        // Non-native palette with dithering disabled: simple quantization
-        color = quantize(adjustPixel(lum), currentX, prevRowY);
-      }
-    }
-    currentOutByte |= (color << bitShift);
-    if (bitShift == 0) {
-      *outPtr++ = currentOutByte;
-      currentOutByte = 0;
-      bitShift = 6;
-    } else {
-      bitShift -= 2;
-    }
-    currentX++;
-  };
-
   constexpr int CHUNK = 64;
   uint8_t lum[CHUNK];
   const int width = bmp.width;
+  // Packed 2-bit levels; the unused bits of a last partial byte stay 0.
+  const size_t outLen = width > 0 ? (static_cast<size_t>(width) + 3) / 4 : 0;
+  if (width > 0 && width % 4 != 0) data[outLen - 1] = 0;
   int first = 0;
   // At least one call, so an unparsed bitmap still returns UnsupportedBpp.
   do {
@@ -180,17 +138,10 @@ BmpReaderError Bitmap::readNextRow(uint8_t* data, uint8_t* rowBuffer) const {
     if (!bb_bmp_row_luminance(&bmp, rowBuffer, bmp.row_bytes, first, lum, count)) {
       return BmpReaderError::UnsupportedBpp;
     }
-    for (int i = 0; i < count; i++) packPixel(lum[i]);
+    if (ditherer) ditherer->pixels(lum, count, first, prevRowY, data, outLen);
     first += CHUNK;
   } while (first < width);
-
-  if (atkinsonDitherer)
-    atkinsonDitherer->nextRow();
-  else if (fsDitherer)
-    fsDitherer->nextRow();
-
-  // Flush remaining bits if width is not a multiple of 4
-  if (bitShift != 6) *outPtr = currentOutByte;
+  if (ditherer) ditherer->nextRow();
 
   return BmpReaderError::Ok;
 }
@@ -201,8 +152,7 @@ BmpReaderError Bitmap::rewindToData() const {
   }
 
   // Reset dithering when rewinding
-  if (fsDitherer) fsDitherer->reset();
-  if (atkinsonDitherer) atkinsonDitherer->reset();
+  if (ditherer) ditherer->reset();
 
   return BmpReaderError::Ok;
 }

@@ -172,9 +172,7 @@ struct BmpRowCtx {
   int outHeight;
   int bytesPerRow;
   uint8_t* rowBuffer;
-  AtkinsonDitherer* atkinsonDitherer;
-  FloydSteinbergDitherer* fsDitherer;
-  Atkinson1BitDitherer* atkinson1BitDitherer;
+  Ditherer* ditherer;
   uint32_t* rowAccum;
   uint32_t* rowCount;
   uint32_t scaleX_fp;
@@ -202,34 +200,9 @@ int bmpRowCallback(void* user, const uint8_t* grayRow) {
       for (int x = 0; x < outWidth; x++) {
         rowBuffer[x] = adjustPixel(grayRow[x]);
       }
-    } else if (c.oneBit) {
-      for (int x = 0; x < outWidth; x++) {
-        const uint8_t bit = c.atkinson1BitDitherer ? c.atkinson1BitDitherer->processPixel(grayRow[x], x)
-                                                   : quantize1bit(grayRow[x], x, y);
-        const int byteIndex = x / 8;
-        const int bitOffset = 7 - (x % 8);
-        rowBuffer[byteIndex] |= (bit << bitOffset);
-      }
-      if (c.atkinson1BitDitherer) c.atkinson1BitDitherer->nextRow();
     } else {
-      for (int x = 0; x < outWidth; x++) {
-        const uint8_t gray = adjustPixel(grayRow[x]);
-        uint8_t twoBit;
-        if (c.atkinsonDitherer) {
-          twoBit = c.atkinsonDitherer->processPixel(gray, x);
-        } else if (c.fsDitherer) {
-          twoBit = c.fsDitherer->processPixel(gray, x);
-        } else {
-          twoBit = quantize(gray, x, y);
-        }
-        const int byteIndex = (x * 2) / 8;
-        const int bitOffset = 6 - ((x * 2) % 8);
-        rowBuffer[byteIndex] |= (twoBit << bitOffset);
-      }
-      if (c.atkinsonDitherer)
-        c.atkinsonDitherer->nextRow();
-      else if (c.fsDitherer)
-        c.fsDitherer->nextRow();
+      c.ditherer->pixels(grayRow, outWidth, 0, static_cast<int>(y), rowBuffer, bytesPerRow);
+      c.ditherer->nextRow();
     }
     c.bmpOut->write(rowBuffer, bytesPerRow);
     yieldDuringDecode(c.rowsSinceYield);
@@ -270,35 +243,18 @@ int bmpRowCallback(void* user, const uint8_t* grayRow) {
         const uint8_t gray = (c.rowCount[x] > 0) ? (c.rowAccum[x] / c.rowCount[x]) : 0;
         rowBuffer[x] = adjustPixel(gray);
       }
-    } else if (c.oneBit) {
-      for (int x = 0; x < outWidth; x++) {
-        const uint8_t gray = (c.rowCount[x] > 0) ? (c.rowAccum[x] / c.rowCount[x]) : 0;
-        const uint8_t bit = c.atkinson1BitDitherer ? c.atkinson1BitDitherer->processPixel(gray, x)
-                                                   : quantize1bit(gray, x, c.currentOutY);
-        const int byteIndex = x / 8;
-        const int bitOffset = 7 - (x % 8);
-        rowBuffer[byteIndex] |= (bit << bitOffset);
-      }
-      if (c.atkinson1BitDitherer) c.atkinson1BitDitherer->nextRow();
     } else {
-      for (int x = 0; x < outWidth; x++) {
-        const uint8_t gray = adjustPixel((c.rowCount[x] > 0) ? (c.rowAccum[x] / c.rowCount[x]) : 0);
-        uint8_t twoBit;
-        if (c.atkinsonDitherer) {
-          twoBit = c.atkinsonDitherer->processPixel(gray, x);
-        } else if (c.fsDitherer) {
-          twoBit = c.fsDitherer->processPixel(gray, x);
-        } else {
-          twoBit = quantize(gray, x, c.currentOutY);
+      // The averaged gray, 64 pixels at a time.
+      uint8_t gray[64];
+      for (int x0 = 0; x0 < outWidth; x0 += 64) {
+        const int count = std::min(64, outWidth - x0);
+        for (int i = 0; i < count; i++) {
+          const int x = x0 + i;
+          gray[i] = (c.rowCount[x] > 0) ? (c.rowAccum[x] / c.rowCount[x]) : 0;
         }
-        const int byteIndex = (x * 2) / 8;
-        const int bitOffset = 6 - ((x * 2) % 8);
-        rowBuffer[byteIndex] |= (twoBit << bitOffset);
+        c.ditherer->pixels(gray, count, x0, c.currentOutY, rowBuffer, bytesPerRow);
       }
-      if (c.atkinsonDitherer)
-        c.atkinsonDitherer->nextRow();
-      else if (c.fsDitherer)
-        c.fsDitherer->nextRow();
+      c.ditherer->nextRow();
     }
 
     c.bmpOut->write(rowBuffer, bytesPerRow);
@@ -390,34 +346,19 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(HalFile& pngFile, Print& bmpO
     return false;
   }
 
-  // Create ditherers (same as JpegToBmpConverter)
-  std::unique_ptr<AtkinsonDitherer> atkinsonDitherer;
-  std::unique_ptr<FloydSteinbergDitherer> fsDitherer;
-  std::unique_ptr<Atkinson1BitDitherer> atkinson1BitDitherer;
-
+  // The ditherer (same as JpegToBmpConverter)
+  uint8_t method = BB_DITHER_THRESHOLD;
   if (oneBit) {
-    atkinson1BitDitherer = makeUniqueNoThrow<Atkinson1BitDitherer>(outWidth);
-    if (!atkinson1BitDitherer || !atkinson1BitDitherer->isValid()) {
-      LOG_ERR("PNG", "OOM: Atkinson1BitDitherer or row buffers");
-
-      return false;
-    }
-  } else if (!USE_8BIT_OUTPUT) {
-    if (USE_ATKINSON) {
-      atkinsonDitherer = makeUniqueNoThrow<AtkinsonDitherer>(outWidth, originalThresholds);
-      if (!atkinsonDitherer || !atkinsonDitherer->isValid()) {
-        LOG_ERR("PNG", "OOM: AtkinsonDitherer or row buffers");
-
-        return false;
-      }
-    } else if (USE_FLOYD_STEINBERG) {
-      fsDitherer = makeUniqueNoThrow<FloydSteinbergDitherer>(outWidth, originalThresholds);
-      if (!fsDitherer || !fsDitherer->isValid()) {
-        LOG_ERR("PNG", "OOM: FloydSteinbergDitherer or row buffers");
-
-        return false;
-      }
-    }
+    method = BB_DITHER_ATKINSON_1BIT;
+  } else if (USE_ATKINSON) {
+    method = BB_DITHER_ATKINSON;
+  } else if (USE_FLOYD_STEINBERG) {
+    method = BB_DITHER_FLOYD_STEINBERG;
+  }
+  auto ditherer = makeUniqueNoThrow<Ditherer>(method, outWidth, originalThresholds);
+  if (!ditherer || !ditherer->isValid()) {
+    LOG_ERR("PNG", "OOM: ditherer or row buffers");
+    return false;
   }
 
   // Scaling accumulators
@@ -443,9 +384,7 @@ bool PngToBmpConverter::pngFileToBmpStreamInternal(HalFile& pngFile, Print& bmpO
                 .outHeight = outHeight,
                 .bytesPerRow = bytesPerRow,
                 .rowBuffer = rowBuffer.get(),
-                .atkinsonDitherer = atkinsonDitherer.get(),
-                .fsDitherer = fsDitherer.get(),
-                .atkinson1BitDitherer = atkinson1BitDitherer.get(),
+                .ditherer = ditherer.get(),
                 .rowAccum = rowAccum.get(),
                 .rowCount = rowCount.get(),
                 .scaleX_fp = scaleX_fp,

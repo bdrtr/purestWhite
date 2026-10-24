@@ -4,6 +4,7 @@
 #include <bembeyaz/bmp.h>
 
 #include <cstdint>
+#include <optional>
 
 #include "BitmapHelpers.h"
 
@@ -87,11 +88,7 @@ class Bitmap {
   bool originalThresholds = false;
   bb_bmp bmp{};
 
-  // Dithering state (mutable for const methods)
-  mutable int16_t* errorCurRow = nullptr;
-  mutable int16_t* errorNextRow = nullptr;
-  mutable int prevRowY = -1;  // Track row progression for error propagation
-
-  mutable AtkinsonDitherer* atkinsonDitherer = nullptr;
-  mutable FloydSteinbergDitherer* fsDitherer = nullptr;
+  // How rows become 2-bit levels, chosen by parseHeaders (mutable for const methods).
+  mutable int prevRowY = -1;  // the row last read
+  mutable std::optional<Ditherer> ditherer;
 };
