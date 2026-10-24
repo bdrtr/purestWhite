@@ -159,6 +159,12 @@ size_t bb_html_collapse_space(char* text, size_t len);
 bool bb_html_normalize_xhtml(const char* html, size_t len, bool (*out)(void* context, const char* piece, size_t len),
                              void* context);
 
+// Writes an HTML fragment (len bytes) as plain text into out (out_len bytes; len always suffices)
+// and returns its length: tags dropped, p, h1-h6 and hr ending a paragraph and br, div, li and tr a
+// line (breaks never stacking), tabs and CRs as single spaces, entities decoded, trailing spaces and
+// line ends dropped.
+size_t bb_html_to_plain(const char* html, size_t len, char* out, size_t out_len);
+
 #ifdef __cplusplus
 }
 #endif

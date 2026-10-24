@@ -9,13 +9,14 @@
 //!
 //! [`text`] turns a plain text book into an XHTML body; [`words`] cuts a chapter's text into words;
 //! [`element`] classifies a chapter's elements; [`list`] gives list items their markers; [`xhtml`]
-//! makes a dictionary's HTML definition well-formed XHTML.
+//! makes a dictionary's HTML definition well-formed XHTML, and [`plain`] plain text.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 pub mod element;
 pub mod list;
+pub mod plain;
 pub mod text;
 pub mod words;
 pub mod xhtml;

@@ -6,6 +6,7 @@
 #include <string>
 
 #include "HtmlToPlainText.h"
+#include "OldHtmlToPlainText.h"
 
 namespace {
 
@@ -60,6 +61,91 @@ TEST(HtmlToPlainText, SurvivesMalformedMarkup) {
   EXPECT_EQ(htmlToPlainText("a <b"), "a <b");
   EXPECT_EQ(htmlToPlainText("x < y"), "x < y");
   EXPECT_EQ(htmlToPlainText("<!-- comment -->kept"), "kept");
+}
+
+uint32_t seed;
+uint32_t rnd() {
+  seed ^= seed << 13;
+  seed ^= seed >> 17;
+  seed ^= seed << 5;
+  return seed;
+}
+
+// bembeyaz-html's plain module against the converter it replaced (OldHtmlToPlainText.h): random
+// fragments of tags, entities, breaks and text give the same text, never longer than the HTML.
+TEST(HtmlToPlainText, MatchesTheOldConverter) {
+  static const char* const PIECES[] = {"<",
+                                       ">",
+                                       "</",
+                                       "<!",
+                                       "<?",
+                                       "<p>",
+                                       "</P>",
+                                       "<br>",
+                                       "<BR/>",
+                                       "<div>",
+                                       "<li>",
+                                       "<tr>",
+                                       "<h1>",
+                                       "<H6 x>",
+                                       "<hr>",
+                                       "< p>",
+                                       "</ br>",
+                                       "<b>",
+                                       "<h7>",
+                                       "<p\t>",
+                                       "<\nbr>",
+                                       "</\vbr>",
+                                       "</\fp>",
+                                       "</\rli>",
+                                       "&#00000000000065;",
+                                       "&#000000000000065;",
+                                       "&",
+                                       ";",
+                                       "&amp;",
+                                       "&nbsp;",
+                                       "&Eacute;",
+                                       "&eacute;",
+                                       "&#",
+                                       "&#x",
+                                       "&#X",
+                                       "&#65;",
+                                       "&#x41;",
+                                       "&#x1F600;",
+                                       "&#0;",
+                                       "&#xD800;",
+                                       "&#1114111;",
+                                       "&#1114112;",
+                                       "&#xFFFFFFFFF;",
+                                       "&notanentity;",
+                                       "&abcdefghijklmnopq;",
+                                       " ",
+                                       "  ",
+                                       "\t",
+                                       "\r",
+                                       "\n",
+                                       "\r\n",
+                                       "x",
+                                       "Ab",
+                                       "\xC3\xA9",
+                                       "1",
+                                       "#",
+                                       "/"};
+  constexpr size_t COUNT = sizeof(PIECES) / sizeof(PIECES[0]);
+  seed = 59;
+  unsigned diffs = 0;
+  for (int c = 0; c < 50000; ++c) {
+    std::string html;
+    for (int n = static_cast<int>(rnd() % 60); n > 0; --n) {
+      html += rnd() % 25 == 0 ? std::string(1, static_cast<char>(rnd())) : std::string(PIECES[rnd() % COUNT]);
+    }
+    const std::string a = oldPlain::htmlToPlainText(html);
+    const std::string b = htmlToPlainText(html);
+    if (a != b || a.size() > html.size()) {
+      ADD_FAILURE() << "case " << c << " input '" << html << "' old '" << a << "' new '" << b << "'";
+      if (++diffs == 5) return;
+    }
+  }
 }
 
 }  // namespace

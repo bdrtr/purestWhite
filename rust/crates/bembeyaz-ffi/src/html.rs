@@ -330,3 +330,17 @@ pub unsafe extern "C" fn bb_html_normalize_xhtml(
         out(context, piece.as_ptr(), piece.len())
     })
 }
+
+/// # Safety
+/// `html` is NULL or holds `len` bytes; `out` is NULL or writable for `out_len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_html_to_plain(
+    html: *const u8,
+    len: usize,
+    out: *mut u8,
+    out_len: usize,
+) -> usize {
+    // SAFETY: as documented.
+    let (html, out) = unsafe { (crate::view(html, len), crate::view_mut(out, out_len)) };
+    bembeyaz_html::plain::to_plain(html, out)
+}

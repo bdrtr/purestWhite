@@ -1944,3 +1944,26 @@ Flash x4pro'da 428, x4c'de 432 bayt büyüdü, statik RAM değişmedi.
 - [ ] OPDS kataloğunda HTML açıklamalı bir kitabın Details (Ayrıntılar) ekranını ve oradaki Details
   düğmesiyle açılan tam açıklamayı açın: açıklama eskisi gibi biçimli görünmeli, düz metne
   düşmemeli.
+
+## HTML'in düz metne çevrilmesi Rust'ta ("rust: our own HTML plain text")
+
+Biçimli sayfalara dökülemeyen HTML sözlük tanımları (16 KiB'den uzun ya da biçimli yerleşimi
+başarısız olan) ve Details (Ayrıntılar) açıklamaları düz metin olarak gösteriliyor: etiketler
+atılıyor, `p`, `h1`–`h6` ve `hr` paragraf, `br`, `div`, `li` ve `tr` satır sonu oluyor (üst üste
+binmeden; Details'te satır sonları sonra boşluğa çevriliyor), sekme ve CR tek boşluk, adlı ve
+sayısal varlıklar çözülüyor, sondaki boşluk ve satır sonları atılıyor. Bu dönüşüm artık
+`bembeyaz-html`'in `plain` modülünde. Metin hiç uzamadığı için (her varlık değerinden uzun; her
+satır sonu da yerini aldığı etiketten ya da satır sonundan uzun değil) Rust, C++'ın girdi boyunda
+ayırdığı dizeye yazıyor; eskisi de girdi boyunda yer ayırıyordu. Mevcut 6 test değişmeden geçiyor;
+eski işlev olduğu gibi `test/html_to_plain_text`'e kopyalandı ve 50000 rastgele parçada (etiketler,
+büyük harf ve boşluklu adlar, adlı ve sayısal varlıklar, sınır dışı ve vekil kod noktaları, sekme,
+CR, satır sonu, UTF-8, rastgele bayt) çıktı aynı ve hiçbir zaman girdiden uzun değil. Koda bilerek
+konan 16 hatanın hepsi yakalandı. Emülatörde sözlük açılamadığı için yalnızca okuma senaryosu bir
+önceki sürümle karşılaştırıldı. Flash x4pro'da 384, x4c'de 372 bayt büyüdü, statik RAM değişmedi.
+
+- [ ] HTML tanımlı bir sözlükte çok uzun (16 KiB'den büyük) bir tanımı olan bir sözcüğü arayın:
+  tanım düz metin olarak, eskisi gibi satır ve paragraflara bölünmüş ve varlıkları (ör. `&amp;`,
+  `&#233;`) çözülmüş görünmeli.
+- [ ] OPDS kataloğunda HTML açıklamalı bir kitabın Details (Ayrıntılar) ekranı bellek azken (ör.
+  büyük bir kitap okunurken açılan katalogda) düz metne düşerse açıklama eskisi gibi tek parça,
+  etiketsiz ve varlıkları çözülmüş görünmeli.
