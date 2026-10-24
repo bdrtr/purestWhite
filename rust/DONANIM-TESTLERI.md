@@ -1863,3 +1863,15 @@ satırları da aynı. Flash x4pro'da 100, x4c'de 188 bayt büyüdü, statik RAM 
 - [ ] JPEG ve PNG resimli bir EPUB'ı ilk kez açın: resimler eskisi gibi yerleşmeli (boyutları
   doğru, sayfa sonları eskisi gibi) ve ilk açılış eskisi kadar hızlı olmalı (yoklama başarısız
   olursa resim bütünüyle çıkarılır: doğru ama resim başına saniyeler sürer).
+
+## PNG kapak okuyucusunda bölmesiz örnekler ("png: cover samples without division")
+
+`bembeyaz-png`'nin kapak okuyucusu 1, 2 ve 4 bitlik gri ve paletli satırlardaki örnekleri artık
+bölmeden (bit kaydırarak) okuyor ve griyi 255'i bölen bir çarpanla ölçekliyor; satır filtresi de
+piksel adımına sıfır gelmeyeceği belli olarak hesaplanıyor. Sonuçlar aynı, yalnızca sıfıra bölme
+panik yolları ve bölmeler kalktı: flash x4pro'da 240, x4c'de 244 bayt küçüldü. PNG kapak
+dönüştürücüsünün 841 durumluk özet testi (her renk türü ve bit derinliği) ve crate testleri
+değişmeden geçiyor; emülatörde PNG kitabı piksel piksel aynı.
+
+- [ ] 1, 2 ya da 4 bitlik gri veya paletli PNG kapaklı bir kitabın küçük resmi eskisi gibi
+  görünmeli.

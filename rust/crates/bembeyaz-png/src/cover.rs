@@ -442,11 +442,14 @@ impl Samples<'_> {
             (pixel::GRAYSCALE, true) => convert(src, gray, |&[high, _]| high),
             (pixel::GRAYSCALE, false) if self.bit_depth == 8 => convert(src, gray, |&[v]| v),
             (pixel::GRAYSCALE, false) => {
-                let max = (1u16 << self.bit_depth) - 1;
+                // Times 255 over the largest sample, which divides 255.
+                let step = match self.bit_depth {
+                    1 => 255,
+                    2 => 85,
+                    _ => 17,
+                };
                 for (x, out) in gray.iter_mut().enumerate() {
-                    #[allow(clippy::cast_possible_truncation, reason = "a sample scaled to 255")]
-                    let level = (u16::from(self.sample(src, x)) * 255 / max) as u8;
-                    *out = level;
+                    *out = self.sample(src, x).wrapping_mul(step);
                 }
             }
             (pixel::INDEXED, _) if self.bit_depth == 8 => {
@@ -475,11 +478,14 @@ impl Samples<'_> {
 
     /// Sample `x` of a row packed at 1, 2, 4 or 8 bits, most significant bit first.
     fn sample(&self, src: &[u8], x: usize) -> u8 {
-        let depth = usize::from(self.bit_depth);
-        let per_byte = 8 / depth;
-        let shift = (per_byte - 1 - x % per_byte) * depth;
+        let depth = match self.bit_depth {
+            1 | 2 | 4 => self.bit_depth,
+            _ => 8,
+        };
+        let bit = x.wrapping_mul(usize::from(depth));
+        #[allow(clippy::cast_possible_truncation, reason = "below 8")]
+        let shift = (8 - u32::from(depth)).wrapping_sub((bit & 7) as u32) & 7;
         let mask = u8::try_from((1u16 << depth) - 1).unwrap_or(u8::MAX);
-        src.get(x / per_byte)
-            .map_or(0, |&byte| (byte >> shift) & mask)
+        src.get(bit >> 3).map_or(0, |&byte| (byte >> shift) & mask)
     }
 }

@@ -218,7 +218,7 @@ fn unfilter_into(filter: u8, raw: &[u8], row: &mut [u8], up: &[u8], x0: usize, s
     }
     // Byte by byte up to the first whole pixel that has one to its left, then whole pixels,
     // then what is left.
-    let start = x0.max(step).next_multiple_of(step).min(end);
+    let start = x0.max(step).next_multiple_of(step.max(1)).min(end);
     unfilter_bytes(filter, raw, row, up, x0, x0..start, step);
     let x = match step {
         1 => unfilter_1(filter, raw, row, up, x0, start, end),
