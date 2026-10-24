@@ -210,25 +210,7 @@ int bmpRowCallback(void* user, const uint8_t* grayRow) {
   }
 
   // Area-averaging scaling (same as JpegToBmpConverter)
-  for (int outX = 0; outX < outWidth; outX++) {
-    const int srcXStart = (static_cast<uint32_t>(outX) * c.scaleX_fp) >> 16;
-    const int srcXEnd = (static_cast<uint32_t>(outX + 1) * c.scaleX_fp) >> 16;
-
-    int sum = 0;
-    int count = 0;
-    for (int srcX = srcXStart; srcX < srcXEnd && srcX < static_cast<int>(c.width); srcX++) {
-      sum += grayRow[srcX];
-      count++;
-    }
-
-    if (count == 0 && srcXStart < static_cast<int>(c.width)) {
-      sum = grayRow[srcXStart];
-      count = 1;
-    }
-
-    c.rowAccum[outX] += sum;
-    c.rowCount[outX] += count;
-  }
+  bb_dither_area_add(grayRow, c.width, c.scaleX_fp, c.rowAccum, c.rowCount, static_cast<size_t>(outWidth));
 
   // Check if we've crossed into the next output row(s)
   const uint32_t srcY_fp = static_cast<uint32_t>(y + 1) << 16;
@@ -244,16 +226,7 @@ int bmpRowCallback(void* user, const uint8_t* grayRow) {
         rowBuffer[x] = adjustPixel(gray);
       }
     } else {
-      // The averaged gray, 64 pixels at a time.
-      uint8_t gray[64];
-      for (int x0 = 0; x0 < outWidth; x0 += 64) {
-        const int count = std::min(64, outWidth - x0);
-        for (int i = 0; i < count; i++) {
-          const int x = x0 + i;
-          gray[i] = (c.rowCount[x] > 0) ? (c.rowAccum[x] / c.rowCount[x]) : 0;
-        }
-        c.ditherer->pixels(gray, count, x0, c.currentOutY, rowBuffer, bytesPerRow);
-      }
+      c.ditherer->areaPixels(c.rowAccum, c.rowCount, outWidth, c.currentOutY, rowBuffer, bytesPerRow);
       c.ditherer->nextRow();
     }
 

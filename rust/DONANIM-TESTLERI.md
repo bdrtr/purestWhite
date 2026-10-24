@@ -1819,3 +1819,27 @@ kitabı (her renk türü ve bit derinliği, palet ve renk anahtarı saydamlığ�
   resimler eskisi gibi görünmeli; saydam arka planlar beyaz olmalı.
 - [ ] Saydam uyku kaplaması (`/sleep-overlay.png`, önceki maddedeki gibi): kaplama eskisi gibi
   binmeli.
+
+## Kapak satırlarının ölçeklenmesi Rust'ta ("rust: our own cover scaling")
+
+Kapakların BMP'ye çevrilmesinde (ana ekran küçük resimleri, Uyku Ekranı'nın Kapak modu) satırların
+çıkış genişliğine getirilmesi artık `bembeyaz-dither`'ın `scale` modülünde: JpegToBmpConverter ve
+PngToBmpConverter'daki aynı alan ortalaması döngüsü (her çıkış sütununun kapladığı kaynak
+sütunlarının toplanması) tek bir işlevde, ortalamaların 64 piksellik parçalarla titretilmesi
+`scale` modülünün `area_pixels`'inde (C++'ta `Ditherer::areaPixels` ile çağrılıyor) ve JPEG'in ilerlemeli resimleri büyütürken kullandığı doğrusal satır
+örneklemesi ile iki satırın karıştırılması da orada. Hangi kaynak satırın hangi çıkış satırına
+düştüğü (satır durumu), BMP yazımı ve 8 bitlik çıkış yolu (derleme zamanında kapalı) C++'ta kaldı.
+Okumalar sınır denetimli. Eski döngüler olduğu gibi `test/dither`'a kopyalandı: 4000 rastgele
+durumda (genişlikler, dönüştürücülerin ölçeği ya da taşan rastgele ölçekler, birkaç satırlık
+toplamlar, beş titreme yöntemiyle iki satır, doğrusal ve karıştırılmış satırlar) sonuçlar bayt bayt aynı;
+PNG kapak dönüştürücüsünün 841 durumluk özet testi de değişmeden geçiyor. Koda bilerek konan 13
+hatanın hepsi yakalandı. Emülatörde JPEG ve PNG kapaklı ana ekranlar bir önceki sürümle piksel
+piksel aynı; JPEG küçük resmi 233 yerine 227 ms, PNG küçük resmi 397 yerine 388 ms sürdü. Flash
+x4pro'da 284, x4c'de 316 bayt büyüdü, statik RAM değişmedi.
+
+- [ ] Daha önce açılmamış JPEG ve PNG kapaklı kitapları açıp Ana Sayfa'ya dönün: küçük resimler
+  eskisi gibi görünmeli.
+- [ ] Uyku Ekranı'nı Kapak yapıp bir kitaptan uykuya geçin; Uyku Ekranı Kapak Modu'nu Sığdır ve Kırp
+  ile deneyin: kapak eskisi gibi görünmeli.
+- [ ] İlerlemeli (progressive) JPEG kapaklı bir kitap varsa onun küçük resmi de eskisi gibi
+  yumuşak görünmeli.

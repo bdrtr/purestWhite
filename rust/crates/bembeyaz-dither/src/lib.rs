@@ -1,7 +1,9 @@
 //! Gray levels (0 black to 255 white) to the panel's 2-bit levels (0 black to 3 white) or to 1 bit
 //! (0 black, 1 white), for BMP rows (lib/GfxRenderer's `Bitmap`, the PNG and JPEG cover
 //! converters): by thresholds, or by error diffusion whose rows of carried error the caller owns.
-//! Images as they decode are resampled and dithered by position in [`block_row`] and [`line_row`].
+//! Images as they decode are resampled and dithered by position in [`block_row`] and [`line_row`];
+//! covers are scaled before dithering by [`area_add`] and [`area_pixels`], or [`linear_row`] and
+//! [`blend_rows`].
 //!
 //! Nothing here panics: pixels past the output are dropped, and errors past the error rows are not
 //! carried.
@@ -347,7 +349,9 @@ fn floyd_steinberg(
 }
 
 mod sample;
+mod scale;
 pub use sample::{GrayBlock, Line, Quantize, Scale, block_row, line_row, put_levels};
+pub use scale::{area_add, area_pixels, blend_rows, linear_row};
 
 #[cfg(test)]
 mod tests;

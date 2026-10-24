@@ -266,3 +266,91 @@ pub unsafe extern "C" fn bb_dither_line_row(
         mask,
     );
 }
+
+/// # Safety
+/// `row` is NULL or holds `row_len` bytes; `sums` and `counts` are NULL or hold `width` values each,
+/// used by nothing else during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_dither_area_add(
+    row: *const u8,
+    row_len: usize,
+    scale_x: u32,
+    sums: *mut u32,
+    counts: *mut u32,
+    width: usize,
+) {
+    // SAFETY: as documented.
+    let (row, sums, counts) = unsafe {
+        (
+            crate::view(row, row_len),
+            crate::view_mut(sums, width),
+            crate::view_mut(counts, width),
+        )
+    };
+    bembeyaz_dither::area_add(row, scale_x, sums, counts);
+}
+
+/// # Safety
+/// `d` is NULL or as dither.h describes; `sums` and `counts` are NULL or hold `width` values each;
+/// `out` is NULL or holds `out_len` writable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_dither_area_pixels(
+    d: *mut CDither,
+    sums: *const u32,
+    counts: *const u32,
+    width: usize,
+    y: i32,
+    out: *mut u8,
+    out_len: usize,
+) {
+    // SAFETY: as documented.
+    let Some(mut d) = (unsafe { ditherer(d) }) else {
+        return;
+    };
+    // SAFETY: as documented.
+    let (sums, counts, out) = unsafe {
+        (
+            crate::view(sums, width),
+            crate::view(counts, width),
+            crate::view_mut(out, out_len),
+        )
+    };
+    bembeyaz_dither::area_pixels(&mut d, sums, counts, y, out);
+}
+
+/// # Safety
+/// `row` is NULL or holds `row_len` bytes; `out` is NULL or holds `out_len` writable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_dither_linear_row(
+    row: *const u8,
+    row_len: usize,
+    step: u32,
+    out: *mut u8,
+    out_len: usize,
+) {
+    // SAFETY: as documented.
+    let (row, out) = unsafe { (crate::view(row, row_len), crate::view_mut(out, out_len)) };
+    bembeyaz_dither::linear_row(row, step, out);
+}
+
+/// # Safety
+/// `a` and `b` are NULL or hold `len` bytes; `out` is NULL or holds `len` writable bytes, apart
+/// from both.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_dither_blend_rows(
+    a: *const u8,
+    b: *const u8,
+    fy: u32,
+    out: *mut u8,
+    len: usize,
+) {
+    // SAFETY: as documented.
+    let (a, b, out) = unsafe {
+        (
+            crate::view(a, len),
+            crate::view(b, len),
+            crate::view_mut(out, len),
+        )
+    };
+    bembeyaz_dither::blend_rows(a, b, fy, out);
+}

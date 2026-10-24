@@ -275,33 +275,22 @@ static uint32_t interpolationStep(const int srcSize, const int outSize) {
   return (static_cast<uint32_t>(srcSize - 1) << 16) / static_cast<uint32_t>(outSize - 1);
 }
 
+// bembeyaz-dither's scale.rs (source) samples the columns the same way: change both.
 static uint32_t interpolatedSourceFp(const int outIndex, const int outSize, const int srcSize, const uint32_t step) {
   if (srcSize <= 1 || outSize <= 1) return 0;
   if (outIndex >= outSize - 1) return static_cast<uint32_t>(srcSize - 1) << 16;
   return static_cast<uint32_t>(outIndex) * step;
 }
 
-static void scaleRowLinear(BmpConvertCtx* ctx, const uint8_t* srcRow, uint8_t* dstRow) {
-  for (int outX = 0; outX < ctx->outWidth; outX++) {
-    const uint32_t srcX_fp = interpolatedSourceFp(outX, ctx->outWidth, ctx->srcWidth, ctx->smoothScaleX_fp);
-    const int x0 = srcX_fp >> 16;
-    const int x1 = (x0 + 1 < ctx->srcWidth) ? (x0 + 1) : x0;
-    const uint32_t fx = srcX_fp & (FP_ONE - 1);
-    dstRow[outX] = static_cast<uint8_t>((srcRow[x0] * (FP_ONE - fx) + srcRow[x1] * fx) >> 16);
-  }
-}
-
 static void writeBlendedRow(BmpConvertCtx* ctx, const uint8_t* row0, const uint8_t* row1, const uint32_t fy,
                             const int outY) {
-  const uint32_t invFy = FP_ONE - fy;
-  for (int outX = 0; outX < ctx->outWidth; outX++) {
-    ctx->smoothOutRow[outX] = static_cast<uint8_t>((row0[outX] * invFy + row1[outX] * fy) >> 16);
-  }
+  bb_dither_blend_rows(row0, row1, fy, ctx->smoothOutRow, static_cast<size_t>(ctx->outWidth));
   writeOutputRow(ctx, ctx->smoothOutRow, outY);
 }
 
 static void processSmoothSourceRow(BmpConvertCtx* ctx, const uint8_t* srcRow, const int srcY) {
-  scaleRowLinear(ctx, srcRow, ctx->smoothCurrRow);
+  bb_dither_linear_row(srcRow, static_cast<size_t>(ctx->srcWidth), ctx->smoothScaleX_fp, ctx->smoothCurrRow,
+                       static_cast<size_t>(ctx->outWidth));
 
   if (ctx->smoothPrevY < 0) {
     uint8_t* tmp = ctx->smoothPrevRow;
@@ -360,16 +349,8 @@ static void flushScaledRow(BmpConvertCtx* ctx) {
       ctx->bmpRow[x] = adjustPixel(gray);
     }
   } else {
-    // The averaged gray, 64 pixels at a time.
-    uint8_t gray[64];
-    for (int x0 = 0; x0 < ctx->outWidth; x0 += 64) {
-      const int count = std::min(64, ctx->outWidth - x0);
-      for (int i = 0; i < count; i++) {
-        const int x = x0 + i;
-        gray[i] = (ctx->rowCount[x] > 0) ? (ctx->rowAccum[x] / ctx->rowCount[x]) : 0;
-      }
-      ctx->ditherer->pixels(gray, count, x0, ctx->currentOutY, ctx->bmpRow.get(), ctx->bytesPerRow);
-    }
+    ctx->ditherer->areaPixels(ctx->rowAccum.get(), ctx->rowCount.get(), ctx->outWidth, ctx->currentOutY,
+                              ctx->bmpRow.get(), ctx->bytesPerRow);
     ctx->ditherer->nextRow();
   }
 
@@ -425,22 +406,8 @@ int bmpDrawCallback(void* user, const bb_jpeg_block* block) {
       writeOutputRow(ctx, srcRow, y);
     } else {
       // Fixed-point area averaging on X axis
-      for (int outX = 0; outX < ctx->outWidth; outX++) {
-        const int srcXStart = (static_cast<uint32_t>(outX) * ctx->scaleX_fp) >> 16;
-        const int srcXEnd = (static_cast<uint32_t>(outX + 1) * ctx->scaleX_fp) >> 16;
-        int sum = 0;
-        int count = 0;
-        for (int srcX = srcXStart; srcX < srcXEnd && srcX < ctx->srcWidth; srcX++) {
-          sum += srcRow[srcX];
-          count++;
-        }
-        if (count == 0 && srcXStart < ctx->srcWidth) {
-          sum = srcRow[srcXStart];
-          count = 1;
-        }
-        ctx->rowAccum[outX] += sum;
-        ctx->rowCount[outX] += count;
-      }
+      bb_dither_area_add(srcRow, static_cast<size_t>(ctx->srcWidth), ctx->scaleX_fp, ctx->rowAccum.get(),
+                         ctx->rowCount.get(), static_cast<size_t>(ctx->outWidth));
 
       // Flush output row(s) whose Y boundary we've crossed
       const uint32_t srcY_fp = static_cast<uint32_t>(y + 1) << 16;

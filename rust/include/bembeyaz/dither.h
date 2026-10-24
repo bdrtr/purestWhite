@@ -43,6 +43,23 @@ void bb_dither_next_row(bb_dither* dither);
 // Starts over: no carried error, row 0 again.
 void bb_dither_reset(bb_dither* dither);
 
+// Covers scaled to the output width before dithering, positions in 16.16 fixed point.
+// Adds a source row (row_len bytes) to the area sums and counts of an output row width pixels wide:
+// output column x covers source columns x * scale_x >> 16 up to (x + 1) * scale_x >> 16 (products
+// wrapping at 32 bits), or at least the first of them, kept inside the row.
+void bb_dither_area_add(const uint8_t* row, size_t row_len, uint32_t scale_x, uint32_t* sums, uint32_t* counts,
+                        size_t width);
+// Dithers the area averages (sums over counts, 0 where nothing was counted) of a row width pixels
+// wide as row y into out (out_len bytes), as bb_dither_pixels does from x0 0.
+void bb_dither_area_pixels(bb_dither* dither, const uint32_t* sums, const uint32_t* counts, size_t width, int32_t y,
+                           uint8_t* out, size_t out_len);
+// Writes row (row_len bytes) linearly resampled to out_len pixels into out: pixel x samples x * step,
+// the last pixel the row's last. step is ((row_len - 1) << 16) / (out_len - 1), or reads past the row
+// come out 0.
+void bb_dither_linear_row(const uint8_t* row, size_t row_len, uint32_t step, uint8_t* out, size_t out_len);
+// Writes rows a and b (len bytes each) mixed fy (16.16, below 1) of the way to b into out.
+void bb_dither_blend_rows(const uint8_t* a, const uint8_t* b, uint32_t fy, uint8_t* out, size_t len);
+
 // Images as they decode: blocks or lines of gray resampled to the output size, each pixel turned into
 // a 2-bit level (0 black to 3 white), packed four to a byte, most significant first.
 enum {

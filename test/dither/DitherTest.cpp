@@ -1,12 +1,16 @@
 // bembeyaz-dither (through BitmapHelpers.h's Ditherer) against the C++ ditherers and quantizers it
 // replaced (OldBitmapHelpers.h), row by row as Bitmap and the cover converters drive them: random
-// widths, gray rows and methods, the rows handed over in random pieces.
+// widths, gray rows and methods, the rows handed over in random pieces; and its cover scaling
+// against the converters' loops (OldCoverScaling.h).
 #include <gtest/gtest.h>
 
+#include <algorithm>
 #include <cstdint>
+#include <memory>
 #include <vector>
 
 #include "OldBitmapHelpers.h"
+#include "OldCoverScaling.h"
 #include "lib/GfxRenderer/BitmapHelpers.h"
 
 namespace {
@@ -119,5 +123,70 @@ TEST(Dither, ResetStartsOver) {
     std::vector<uint8_t> expected(2);
     fresh.pixels(gray.data(), 8, 0, 0, expected.data(), expected.size());
     EXPECT_EQ(again, expected) << static_cast<int>(method);
+  }
+}
+
+TEST(Dither, CoverScalingMatchesTheOldLoops) {
+  seed = 41;
+  unsigned diffs = 0;
+  for (int c = 0; c < 4000; ++c) {
+    const int srcW = range(1, 400), outW = range(1, 400);
+    oldCover::BmpConvertCtx o{};
+    o.srcWidth = srcW;
+    o.outWidth = outW;
+    // As the converters compute them, or anything (products wrap).
+    o.scaleX_fp = rnd() % 4 ? (static_cast<uint32_t>(srcW) << 16) / outW : rnd();
+    // interpolationStep's: the linear rows stay inside the source row only with it.
+    o.smoothScaleX_fp = srcW > 1 && outW > 1 ? (static_cast<uint32_t>(srcW - 1) << 16) / (outW - 1) : 0;
+    std::vector<uint8_t> row(srcW), row2(outW);
+    for (auto& v : row) v = static_cast<uint8_t>(rnd());
+    for (auto& v : row2) v = static_cast<uint8_t>(rnd());
+
+    // Area sums over a few rows.
+    o.rowAccum = std::make_unique<uint32_t[]>(outW);
+    o.rowCount = std::make_unique<uint32_t[]>(outW);
+    std::vector<uint32_t> sums(outW), counts(outW);
+    for (int r = range(1, 3); r > 0; --r) {
+      for (auto& v : row) v = static_cast<uint8_t>(rnd());
+      oldCover::areaAdd(&o, row.data());
+      bb_dither_area_add(row.data(), row.size(), o.scaleX_fp, sums.data(), counts.data(), sums.size());
+    }
+    const bool sameSums = std::equal(sums.begin(), sums.end(), o.rowAccum.get()) &&
+                          std::equal(counts.begin(), counts.end(), o.rowCount.get());
+
+    // Two rows of their averages dithered, so that carried errors count too.
+    const uint8_t method = static_cast<uint8_t>(rnd() % 5);
+    Ditherer oldD(method, outW), newD(method, outW);
+    o.ditherer = &oldD;
+    o.bytesPerRow = (outW * (method == BB_DITHER_ATKINSON_1BIT ? 1 : 2) + 31) / 32 * 4;
+    o.bmpRow = std::make_unique<uint8_t[]>(o.bytesPerRow);
+    std::vector<uint8_t> out(o.bytesPerRow);
+    bool sameLevels = true;
+    for (int y = 0; y < 2; ++y) {
+      o.currentOutY = y;
+      std::fill_n(o.bmpRow.get(), o.bytesPerRow, 0);
+      std::fill(out.begin(), out.end(), 0);
+      oldCover::flushPixels(&o);
+      newD.areaPixels(sums.data(), counts.data(), outW, y, out.data(), out.size());
+      newD.nextRow();
+      sameLevels = sameLevels && std::equal(out.begin(), out.end(), o.bmpRow.get());
+    }
+
+    // Linear rows, and two rows blended.
+    std::vector<uint8_t> linA(outW), linB(outW), blendA(outW), blendB(outW);
+    oldCover::scaleRowLinear(&o, row.data(), linA.data());
+    bb_dither_linear_row(row.data(), row.size(), o.smoothScaleX_fp, linB.data(), linB.size());
+    const uint32_t fy = rnd() & 0xFFFF;
+    o.smoothOutRow = blendA.data();
+    oldCover::blendRows(&o, linA.data(), row2.data(), fy);
+    bb_dither_blend_rows(linA.data(), row2.data(), fy, blendB.data(), blendB.size());
+
+    if (!sameSums || !sameLevels || linA != linB || blendA != blendB) {
+      ADD_FAILURE() << "case " << c << " src " << srcW << " out " << outW << " scale " << o.scaleX_fp << " step "
+                    << o.smoothScaleX_fp << " method " << int{method} << (sameSums ? "" : " sums")
+                    << (sameLevels ? "" : " levels") << (linA == linB ? "" : " linear")
+                    << (blendA == blendB ? "" : " blend");
+      if (++diffs == 5) return;
+    }
   }
 }

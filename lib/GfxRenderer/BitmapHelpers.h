@@ -59,6 +59,12 @@ class Ditherer {
     if (count <= 0 || x0 < 0) return;
     bb_dither_pixels(&state, gray, static_cast<size_t>(count), static_cast<size_t>(x0), y, out, outLen);
   }
+  // Writes the levels of a row of area averages (sums over counts, width pixels) as row y.
+  void areaPixels(const uint32_t* sums, const uint32_t* counts, const int width, const int y, uint8_t* out,
+                  const size_t outLen) {
+    if (width <= 0) return;
+    bb_dither_area_pixels(&state, sums, counts, static_cast<size_t>(width), y, out, outLen);
+  }
   void nextRow() { bb_dither_next_row(&state); }
   void reset() { bb_dither_reset(&state); }
 
