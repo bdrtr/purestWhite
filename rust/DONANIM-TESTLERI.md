@@ -2089,3 +2089,23 @@ aynı. Flash x4pro'da 812, x4c'de 648 bayt büyüdü, statik RAM değişmedi.
   kontrolleri açıkken) dipnot eskisi gibi açılmalı; dipnot, taşınan satırın geldiği sayfada
   menüdeki "Bağlantılar ve dipnotlar" listesinde görünmeli, önceki sayfanın listesinde ise yalnızca
   orada da onu gösteren bir bağlantı varsa görünmeli.
+
+## Sürüm 0.0.3 ("release: 0.0.3")
+
+0.0.2'den bu yana: container.xml, BMP, XTC, KOReader konumları, kütüphane (metin, dizin okuma ve
+yazma), TXT/Markdown dönüştürme, SD kart fontları (başlık, kerning, glifler, aralıklar, sayfa
+kümesi, ilerleme genişlikleri), yerleşik sıkıştırılmış fontlar, bölüm dosyası ve sayfaları, kitap
+üst veri önbelleği, alıntı deposu, GfxRenderer'ın çizimleri (temeller, yuvarlak şekiller,
+çokgenler, resimler, glifler, ekran kopyaları), resim hattı (titreme, önbellekteki satırlar, JPEG ve
+PNG örnekleme, kapak ölçekleme, boyut yoklaması), sözlük (dizin, XHTML, düz metin, dictzip) ve
+bölüm ayrıştırıcısının sözcük bölme, stil, yazı boyutu, blok stili, öğe sınıflandırması, sayfa
+taşıma, tablo, liste, çerçeveli kutu, büyük ilk harf, resim boyutu ve taşınan dipnot parçaları
+Rust'ta; birkaç düzeltme (sayfa bağlantılarının boş baytları, kısa SD font glifleri, alttan
+başlayan resimlerin kırpılması, uzun bir öğeden sonraki KOReader konumu) ve alıntı deposunda hız.
+Bütün emülatör senaryoları 0.0.2 ile karşılaştırıldı (sonuçlar `rust/TEST-PLANI-0.0.3.md`'de);
+cihaz denemesi o plana göre yapılır.
+
+- [ ] Hakkında'da Firmware satırı "purestWhite next 0.0.3" olmalı, açılışta altta "0.0.3"; Start
+  Other Firmware önceki yazılımı adıyla ("purestWhite next 0.0.2") göstermeli.
+- [ ] 0.0.3 GitHub'da yayımlandıktan sonra 0.0.2 çalışan bir cihazda Check for Updates 0.0.3'ü
+  önermeli.

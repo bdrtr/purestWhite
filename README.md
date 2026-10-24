@@ -21,7 +21,7 @@ decoding code in Rust.
 | Xteink X4 Pro (ESP32-S3, 8 MB PSRAM, touch) | **purestWhite next** | `pio run -e x4pro` |
 | Xteink X4 Classic (same board, buttons only) | **purestWhite** | `pio run -e x4c` |
 
-Current version: **0.0.2** (based on CrossPoint 1.6.5).
+Current version: **0.0.3** (based on CrossPoint 1.6.5).
 
 ## What is different from CrossPoint
 
@@ -46,7 +46,7 @@ Current version: **0.0.2** (based on CrossPoint 1.6.5).
 > Keep a copy of the firmware you are running. The steps below never overwrite it.
 
 1. Build the firmware (see below).
-2. Copy it to the root of the SD card, for example as `purestWhite-next-0.0.2.bin`.
+2. Copy it to the root of the SD card, for example as `purestWhite-next-0.0.3.bin`.
 3. On the device, open Settings → System → **SD Card Firmware Update** and pick the file.
    This works from stock CrossPoint too.
 4. The device restarts into purestWhite. The firmware you came from stays in the other slot.
