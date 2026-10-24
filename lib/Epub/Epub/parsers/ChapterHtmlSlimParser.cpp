@@ -178,71 +178,59 @@ void ChapterHtmlSlimParser::flushPendingAnchor() {
 }
 
 void ChapterHtmlSlimParser::emitCurrentPage() {
-  // Open boxes are sliced at the page break and continue on the next page.
-  for (BoxScope& box : boxScopes) {
-    emitBoxSegment(box, false);
-    if (box.top >= 0) box.continued = true;
-    box.top = box.bottom = -1;
-  }
+  breakBoxes();
   completePageFn(std::move(currentPage), xpathParagraphIndex, xpathListItemIndex, currentPageVisibleOffset);
   recentLineCount = 0;
   keepWithNextLines = 0;
   paragraphLinesOnPage = 0;
 }
 
-void ChapterHtmlSlimParser::noteContent(const int top, const int bottom) {
-  for (BoxScope& box : boxScopes) {
-    if (box.top < 0) box.top = static_cast<int16_t>(top);
-    box.bottom = static_cast<int16_t>(std::max<int>(box.bottom, bottom));
-  }
+// Open boxes are sliced at the page break and continue on the next page. Out of line, so the
+// segments are off the stack before the page is written.
+[[gnu::noinline]] void ChapterHtmlSlimParser::breakBoxes() {
+  bb_box_segment segments[BB_BOXES_MAX];
+  const size_t count = bb_boxes_break(&boxes, viewportHeight, segments);
+  for (size_t i = 0; i < count; ++i) addBoxSegment(segments[i]);
 }
+
+void ChapterHtmlSlimParser::noteContent(const int top, const int bottom) { bb_boxes_note(&boxes, top, bottom); }
+
+static_assert(sizeof(CssBorderSide) == sizeof(bb_box_side) && offsetof(CssBorderSide, style) == 1 &&
+                  sizeof(bb_box_segment) == 18 && offsetof(bb_box_segment, width) == 4 &&
+                  offsetof(bb_box_segment, sides) == 8 && offsetof(bb_box_segment, shaded) == 16,
+              "bb_box_side and bb_box_segment layout");
 
 void ChapterHtmlSlimParser::openBoxScope(BlockStyle& ownStyle, const CssStyle& cssStyle) {
   const bool shaded = cssStyle.defined.shaded && cssStyle.shaded;
-  if (tableDepth > 0 || boxScopes.size() >= MAX_BOX_SCOPES || (!cssStyle.hasVisibleBorder() && !shaded)) return;
+  if (tableDepth > 0 || bb_boxes_full(&boxes) || (!cssStyle.hasVisibleBorder() && !shaded)) return;
 
   if (partWordBufferIndex > 0) flushPartWordBuffer();
   if (currentTextBlock && !currentTextBlock->isEmpty() && !listItemBulletOnly) {
     startNewTextBlock(blockStyleStack.back().withoutTop().withoutBottom());
   }
 
-  BoxScope box;
-  box.depth = depth;
-  box.shaded = shaded;
-  const CssBorderSide* sides[4] = {&cssStyle.borderTop, &cssStyle.borderRight, &cssStyle.borderBottom,
-                                   &cssStyle.borderLeft};
-  for (size_t i = 0; i < 4; ++i) {
-    if (sides[i]->visible()) box.sides[i] = *sides[i];
-  }
+  const auto side = [](const CssBorderSide& s) { return bb_box_side{s.width, static_cast<uint8_t>(s.style)}; };
+  const bb_box_side sides[4] = {side(cssStyle.borderTop), side(cssStyle.borderRight), side(cssStyle.borderBottom),
+                                side(cssStyle.borderLeft)};
   const BlockStyle& parent = blockStyleStack.back();
-  box.left = static_cast<int16_t>(parent.leftInset() + ownStyle.marginLeft);
-  box.right = static_cast<int16_t>(viewportWidth - parent.rightInset() - ownStyle.marginRight);
-  if (box.right - box.left < 8) return;
-
-  // The border sits between margin and padding, so it joins the padding. Text also
-  // keeps a small gap from the frame even when the book sets no padding.
-  constexpr int16_t MIN_FRAME_GAP = 4;
-  const auto pad = [&](int16_t& padding, const CssBorderSide& side) {
-    if (side.width == 0 && !box.shaded) return;
-    padding = static_cast<int16_t>(std::max(padding, MIN_FRAME_GAP) + side.width);
-  };
-  pad(ownStyle.paddingTop, box.sides[0]);
-  pad(ownStyle.paddingRight, box.sides[1]);
-  pad(ownStyle.paddingBottom, box.sides[2]);
-  pad(ownStyle.paddingLeft, box.sides[3]);
-  box.padTop = ownStyle.paddingTop;
-  box.padBottom = ownStyle.paddingBottom;
-  boxScopes.push_back(box);
+  const auto left = static_cast<int16_t>(parent.leftInset() + ownStyle.marginLeft);
+  const auto right = static_cast<int16_t>(viewportWidth - parent.rightInset() - ownStyle.marginRight);
+  // The border sits between margin and padding, so it joins the padding.
+  int16_t padding[4] = {ownStyle.paddingTop, ownStyle.paddingRight, ownStyle.paddingBottom, ownStyle.paddingLeft};
+  if (!bb_boxes_open(&boxes, depth, sides, shaded, left, right, padding)) return;
+  ownStyle.paddingTop = padding[0];
+  ownStyle.paddingRight = padding[1];
+  ownStyle.paddingBottom = padding[2];
+  ownStyle.paddingLeft = padding[3];
 }
 
 void ChapterHtmlSlimParser::closeBoxScope() {
-  BoxScope box = boxScopes.back();
-  boxScopes.pop_back();
-  if (box.top < 0 && !box.continued) {
-    // An element without content (a rule drawn with borders) gets its own height.
+  // An element without content (a rule drawn with borders) gets its own height.
+  const int height = bb_boxes_empty_height(&boxes);
+  bool placed = false;
+  int top = 0;
+  if (height > 0) {
     // Its spacing still sits on the empty text block; consume it here instead.
-    const int height = box.padTop + box.padBottom;
-    if (height <= 0) return;
     int above = 0;
     int below = 0;
     if (currentTextBlock && currentTextBlock->isEmpty()) {
@@ -256,30 +244,29 @@ void ChapterHtmlSlimParser::closeBoxScope() {
       currentPageNextY = 0;
       currentPageVisibleOffsetSet = false;
     }
+    // The box is still open here: completing the page gives it no segment, as it has no content.
     if (!currentPage->elements.empty() && currentPageNextY + above + height > viewportHeight) {
       completeCurrentPage();
       above = 0;
     }
-    const int top = currentPageNextY + above;
-    box.top = static_cast<int16_t>(top + box.padTop);
-    box.bottom = box.top;
+    top = currentPageNextY + above;
+    placed = true;
     currentPageNextY = static_cast<int16_t>(top + height + below);
-    noteContent(top, top + height);
   }
-  emitBoxSegment(box, true);
+  bb_box_segment segment;
+  const bool drawn = bb_boxes_close(&boxes, placed, top, viewportHeight, &segment);
+  // The boxes around it hold its height too.
+  if (placed) noteContent(top, top + height);
+  if (drawn) addBoxSegment(segment);
 }
 
-void ChapterHtmlSlimParser::emitBoxSegment(const BoxScope& box, const bool closing) {
-  if (box.top < 0 || !currentPage) return;
-  const int top = std::max(0, box.top - box.padTop);
-  const int bottom = std::min<int>(viewportHeight, box.bottom + (closing ? box.padBottom : 0));
-  if (bottom <= top) return;
-  // A page break slices the box: the continuing edges are left open.
-  const CssBorderSide sides[4] = {box.continued ? CssBorderSide{} : box.sides[0], box.sides[1],
-                                  closing ? box.sides[2] : CssBorderSide{}, box.sides[3]};
+void ChapterHtmlSlimParser::addBoxSegment(const bb_box_segment& segment) {
+  if (!currentPage) return;
+  const auto side = [](const bb_box_side& s) { return CssBorderSide{s.width, static_cast<CssBorderStyle>(s.style)}; };
+  const CssBorderSide sides[4] = {side(segment.sides[0]), side(segment.sides[1]), side(segment.sides[2]),
+                                  side(segment.sides[3])};
   auto element =
-      makeUniqueNoThrow<PageBorderBox>(static_cast<uint16_t>(box.right - box.left), static_cast<uint16_t>(bottom - top),
-                                       sides, box.shaded, box.left, static_cast<int16_t>(top));
+      makeUniqueNoThrow<PageBorderBox>(segment.width, segment.height, sides, segment.shaded, segment.x, segment.y);
   if (!element) {
     LOG_ERR("EHP", "OOM: PageBorderBox");
     return;
@@ -2167,7 +2154,7 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
       // Vertical margins and paddings are stripped
       self->startNewTextBlock(self->blockStyleStack.back().withoutTop().withoutBottom());
       self->updateEffectiveInlineStyle();
-      if (!self->boxScopes.empty() && self->boxScopes.back().depth == self->depth) self->closeBoxScope();
+      if (bb_boxes_innermost_is(&self->boxes, self->depth)) self->closeBoxScope();
       // Set after the closing element's own text was laid out above.
       if (breakAfter) self->pendingPageBreak = true;
     }
@@ -2212,8 +2199,7 @@ bool ChapterHtmlSlimParser::beginParse() {
   blockStyleStack.clear();
   blockStyleStack.reserve(8);
   blockStyleStack.push_back(rootBlockStyle);
-  boxScopes.clear();
-  boxScopes.reserve(MAX_BOX_SCOPES);
+  bb_boxes_init(&boxes);
   dropCap = DropCapState{};
 
   listStack.clear();

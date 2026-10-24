@@ -751,6 +751,27 @@ TEST_F(ChapterBlockDecorationTest, ShadedBoxSplitsAcrossPages) {
   EXPECT_GE(elementsWithTag(TAG_PageBorderBox).size(), 2u);
 }
 
+TEST_F(ChapterBlockDecorationTest, PageBreakLeavesTheCutEdgesOpen) {
+  parser.viewportHeight = 100;
+  open("div", "border: 2px solid black");
+  for (int i = 0; i < 12; ++i) {
+    open("p", nullptr);
+    text("line");
+    close("p");
+  }
+  close("div");
+  const auto boxes = elementsWithTag(TAG_PageBorderBox);
+  ASSERT_GE(boxes.size(), 2u);
+  const auto& first = static_cast<const PageBorderBox*>(boxes.front())->getSides();
+  const auto& last = static_cast<const PageBorderBox*>(boxes.back())->getSides();
+  EXPECT_EQ(first[0].width, 2);
+  EXPECT_EQ(first[2].width, 0);
+  EXPECT_EQ(last[0].width, 0);
+  EXPECT_EQ(last[2].width, 2);
+  EXPECT_EQ(first[1].width, 2);
+  EXPECT_EQ(last[3].width, 2);
+}
+
 class ChapterTableBorderTest : public ChapterBlockDecorationTest {
  protected:
   void table(const char** tableAttributes, const char* cellStyle) {

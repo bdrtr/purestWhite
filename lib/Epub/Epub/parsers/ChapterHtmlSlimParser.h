@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <XmlParser.h>
+#include <bembeyaz/boxes.h>
 #include <bembeyaz/carry.h>
 #include <bembeyaz/css.h>
 #include <bembeyaz/html.h>
@@ -119,22 +120,6 @@ class ChapterHtmlSlimParser {
                 "DropCapState layout");
   bb_html_initial_letter* initialLetter() { return reinterpret_cast<bb_html_initial_letter*>(&dropCap); }
 
-  // Open elements with a CSS border or background shade. Each emits a PageBorderBox around
-  // its content on every page it spans.
-  struct BoxScope {
-    int depth = 0;
-    int16_t left = 0;
-    int16_t right = 0;
-    int16_t padTop = 0;  // outer edge to content, border included
-    int16_t padBottom = 0;
-    CssBorderSide sides[4];  // top, right, bottom, left
-    bool shaded = false;
-    int16_t top = -1;  // content extent on the current page
-    int16_t bottom = -1;
-    bool continued = false;  // sliced onto an earlier page
-  };
-  static constexpr size_t MAX_BOX_SCOPES = 8;
-
   // Page-break carry-over: a paragraph's orphan/widow lines and a heading kept with what
   // follows move to the next page instead of being left behind.
   static constexpr size_t MAX_CARRIED_LINES = BB_CARRY_MAX_LINES;
@@ -149,7 +134,9 @@ class ChapterHtmlSlimParser {
   uint8_t carryLimit() const;
   bool canCarry(size_t carry) const;
   void breakPageCarryingLines(size_t carry, size_t paragraphLines, uint32_t visibleOffset);
-  std::vector<BoxScope> boxScopes;
+  // Open elements with a CSS border or background shade. Each emits a PageBorderBox around
+  // its content on every page it spans.
+  bb_boxes boxes{};
   static constexpr size_t MAX_GRID_TABLE_COLUMNS = 4;
   // ponytail: buffer at most 160 tokens / 2 KB per row; larger rows use stacked flow.
   static constexpr size_t MAX_GRID_TABLE_ROW_WORDS = 160;
@@ -240,10 +227,11 @@ class ChapterHtmlSlimParser {
   void flushPendingAnchor();
   void completeCurrentPage();
   void emitCurrentPage();
+  void breakBoxes();
   void noteContent(int top, int bottom);
   void openBoxScope(BlockStyle& ownStyle, const CssStyle& cssStyle);
   void closeBoxScope();
-  void emitBoxSegment(const BoxScope& box, bool closing);
+  void addBoxSegment(const bb_box_segment& segment);
   void armFirstLetterDropCap(const char* tagName, const std::string& classAttr, const char* idAttr);
   void cancelDropCapToWord();
   void layoutCurrentBlock(bool includeLastLine);

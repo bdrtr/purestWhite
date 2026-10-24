@@ -1996,3 +1996,26 @@ mini-fuzz testi var. Flash x4pro'da 528, x4c'de 520 bayt büyüdü, statik RAM d
 
 - [ ] `.dict.dz` sıkıştırılmış bir StarDict sözlüğünde Sözlükte Ara ile birkaç sözcük arayın
   (kısa ve uzun tanımlar, sözlüğün başından ve sonundan sözcükler): tanımlar eskisi gibi gelmeli.
+
+## Çerçeveli kutular Rust'ta ("rust: our own framed boxes")
+
+Bölüm ayrıştırıcısı kenarlıklı ya da gölgeli (açık gri arka planlı) bir öğeyi bir çerçeve kutusuyla
+(`PageBorderBox`) çevreler: kenarlık öğenin iç boşluğuna katılır ve yazı çerçeveden en az 4 piksel
+uzak tutulur; iç içe en çok 8 kutu çerçevelenir, 8 pikselden dar kutu çerçevelenmez. Kutu birden
+çok sayfaya yayılırsa her sayfada kendi parçası çizilir ve sayfa sonunda kesilen kenarlar açık
+kalır; içi boş bir kutu (kenarlıkla çizilen bir çizgi gibi) iç boşluğu kadar yer kaplar. Açık
+kutuların yığını ve bu hesaplar artık `bembeyaz-layout`'un `boxes` modülünde (ABI'si yeni
+`boxes.h`); yığın ayrıştırıcının içindeki 228 baytlık opak depoda duruyor (eskiden heap'te ayrılan
+bir vektördü). `PageBorderBox` nesnelerini kurmak, içi boş kutuyu sayfaya yerleştirmek ve boş
+bloğun boşluklarını ona vermek C++'ta kaldı. Sayfa kırılınca kesilen kenarları sabitleyen yeni bir
+test eklendi; toplam 1064 host testi geçiyor. Bölüm ayrıştırıcısının fark testine gölgeli, çift,
+kesikli, noktalı, tek kenarlı, dar ve kalın iç boşluklu kutular eklendi; 1600 rastgele bölümde eski
+ve yeni sayfalar bayt bayt aynı. Koda bilerek konan 16 hatanın 11'ini bu test, kalan 5'ini crate
+testleri yakaladı. Emülatörde CSS kitabı (çerçeveli ve gölgeli kutular) okuma ve kitap açma
+senaryolarında bir önceki sürümle piksel piksel aynı. Flash x4pro'da 484, x4c'de 416 bayt büyüdü,
+statik RAM değişmedi.
+
+- [ ] Kenarlıklı ya da arka planı gri kutuları olan bir EPUB'da (ör. not ya da alıntı kutuları)
+  kutunun birden çok sayfaya taştığı bir yere gelin: çerçeve her sayfada eskisi gibi çizilmeli,
+  sayfa sonunda kesilen üst ve alt kenarlar açık kalmalı. Kenarlıkla çizilmiş içi boş bir çizgi
+  sayfanın en altına denk gelirse sonraki sayfada eskisi gibi çizilmeli.

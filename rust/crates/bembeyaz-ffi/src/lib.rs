@@ -8,6 +8,7 @@ extern crate alloc;
 mod bidi;
 mod bmp;
 mod book;
+mod boxes;
 mod carry;
 mod clippings;
 mod compressed;
