@@ -8,7 +8,7 @@
 
 extern crate std;
 
-use super::{Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane};
+use super::{Bitmap, Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane};
 use std::vec;
 use std::vec::Vec;
 
@@ -417,7 +417,17 @@ fn glyphs() {
         dy_x: 0,
         dy_y: 1,
     };
-    c.glyph(&ell, 3, 3, &upright, false, Plane::Bw, true);
+    c.glyph(
+        &Bitmap {
+            bits: &ell,
+            width: 3,
+            height: 3,
+            two_bit: false,
+        },
+        &upright,
+        Plane::Bw,
+        true,
+    );
     let rotated = Frame {
         x: 5,
         y: 2,
@@ -426,16 +436,46 @@ fn glyphs() {
         dy_x: 1,
         dy_y: 0,
     };
-    c.glyph(&ell, 3, 3, &rotated, false, Plane::Bw, true);
+    c.glyph(
+        &Bitmap {
+            bits: &ell,
+            width: 3,
+            height: 3,
+            two_bit: false,
+        },
+        &rotated,
+        Plane::Bw,
+        true,
+    );
     // A 2-bit glyph (white, light, dark, black) in each plane (the gray planes only set bits, so
     // nothing shows on white), and clipped at the panel's edge.
     let levels = [0b0001_1011];
     for (y, plane) in [(4, Plane::Bw), (5, Plane::GrayMsb), (6, Plane::GrayLsb)] {
         let at = Frame { y, ..upright };
-        c.glyph(&levels, 4, 1, &at, true, plane, true);
+        c.glyph(
+            &Bitmap {
+                bits: &levels,
+                width: 4,
+                height: 1,
+                two_bit: true,
+            },
+            &at,
+            plane,
+            true,
+        );
     }
     let edge = Frame { x: 14, ..upright };
-    c.glyph(&ell, 3, 3, &edge, false, Plane::Bw, true);
+    c.glyph(
+        &Bitmap {
+            bits: &ell,
+            width: 3,
+            height: 3,
+            two_bit: false,
+        },
+        &edge,
+        Plane::Bw,
+        true,
+    );
     // Frames that are not an orthogonal unit rotation draw nothing.
     for skewed in [
         Frame { dx_y: 1, ..upright },
@@ -452,7 +492,17 @@ fn glyphs() {
             y: 4,
             ..skewed
         };
-        c.glyph(&ell, 3, 3, &at, false, Plane::Bw, true);
+        c.glyph(
+            &Bitmap {
+                bits: &ell,
+                width: 3,
+                height: 3,
+                two_bit: false,
+            },
+            &at,
+            Plane::Bw,
+            true,
+        );
     }
     assert_eq!(
         picture(&buf),
@@ -465,6 +515,52 @@ fn glyphs() {
             "................",
             "................",
             "................",
+        ]
+    );
+}
+
+#[test]
+fn scaled_glyphs() {
+    let mut buf = panel();
+    let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    // A 4x4 1-bit box outline, halved (thin strokes survive) and grown to 6x6.
+    let box_bits = [0b1111_1001, 0b1001_1111];
+    let glyph = Bitmap {
+        bits: &box_bits,
+        width: 4,
+        height: 4,
+        two_bit: false,
+    };
+    assert_eq!(c.reduced_glyph(&glyph, (1, 2), (0, 0), true), 0);
+    assert_eq!(c.resampled_glyph(&glyph, 384, (4, 0)), 0);
+    // A 2x2 2-bit glyph of light gray at 3/4 draws nothing (no majority of black), and off the
+    // right edge counts the pixels lost.
+    let light = Bitmap {
+        bits: &[0b0101_0101],
+        width: 2,
+        height: 2,
+        two_bit: true,
+    };
+    assert_eq!(c.reduced_glyph(&light, (3, 4), (12, 0), true), 0);
+    assert_eq!(c.reduced_glyph(&glyph, (1, 1), (14, 4), true), 6);
+    // Out of range sizes and factors draw nothing.
+    let huge = Bitmap {
+        width: 5000,
+        ..glyph
+    };
+    assert_eq!(c.reduced_glyph(&huge, (1, 2), (0, 0), true), 0);
+    assert_eq!(c.resampled_glyph(&glyph, 0, (0, 0)), 0);
+    assert_eq!(
+        picture(&buf),
+        [
+            "##..######......",
+            "##..######......",
+            "....##...#......",
+            "....##...#......",
+            "....##..##....##",
+            "....######....#.",
+            "..............#.",
+            "..............##",
         ]
     );
 }
@@ -510,7 +606,7 @@ fn mini_fuzz() {
         };
         for _ in 0..8 {
             let v = |next: &mut dyn FnMut(u32) -> u32| pick(140, next) - 50;
-            match next(12) {
+            match next(13) {
                 0 => {
                     c.pixel(v(&mut next), v(&mut next), next(2) == 0);
                 }
@@ -599,16 +695,60 @@ fn mini_fuzz() {
                     let plane =
                         [Plane::Bw, Plane::GrayLsb, Plane::GrayMsb][pick(3, &mut next) as usize];
                     let (w, h) = (pick(30, &mut next) - 2, pick(30, &mut next) - 2);
-                    c.glyph(&bits, w, h, &frame, next(2) == 0, plane, next(2) == 0);
+                    c.glyph(
+                        &Bitmap {
+                            bits: &bits,
+                            width: w,
+                            height: h,
+                            two_bit: next(2) == 0,
+                        },
+                        &frame,
+                        plane,
+                        next(2) == 0,
+                    );
                     // A skewed frame breaks the contract and draws nothing.
                     let skewed = Frame { dx_y: 1, ..frame };
-                    c.glyph(&bits, w, h, &skewed, true, plane, true);
+                    c.glyph(
+                        &Bitmap {
+                            bits: &bits,
+                            width: w,
+                            height: h,
+                            two_bit: true,
+                        },
+                        &skewed,
+                        plane,
+                        true,
+                    );
                     let far = Frame {
                         x: i32::MAX,
                         y: i32::MIN,
                         ..frame
                     };
-                    c.glyph(&bits, w, h, &far, true, plane, true);
+                    c.glyph(
+                        &Bitmap {
+                            bits: &bits,
+                            width: w,
+                            height: h,
+                            two_bit: true,
+                        },
+                        &far,
+                        plane,
+                        true,
+                    );
+                }
+                12 => {
+                    let bits = [0x6Du8; 128];
+                    let glyph = Bitmap {
+                        bits: &bits,
+                        width: pick(40, &mut next) - 4,
+                        height: pick(40, &mut next) - 4,
+                        two_bit: next(2) == 0,
+                    };
+                    let at = (v(&mut next), v(&mut next));
+                    let fraction = (pick(5, &mut next) - 1, pick(5, &mut next) - 1);
+                    c.reduced_glyph(&glyph, fraction, at, next(2) == 0);
+                    c.resampled_glyph(&glyph, pick(2000, &mut next) - 100, at);
+                    c.resampled_glyph(&glyph, i32::MAX, (i32::MAX, i32::MIN));
                 }
                 8 => {
                     // Extreme positions; the work grows with the radius, so that stays small.

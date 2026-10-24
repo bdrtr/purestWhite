@@ -1,6 +1,8 @@
 //! Exports for lib/GfxRenderer (see `rust/include/bembeyaz/gfx.h`).
 
-use bembeyaz_gfx::{Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane};
+use bembeyaz_gfx::{
+    Bitmap, Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane,
+};
 
 /// gfx.h's `bb_gfx_canvas`.
 #[repr(C)]
@@ -440,17 +442,73 @@ pub unsafe extern "C" fn bb_gfx_glyph(
         dy_y: f.dy_y,
     };
     // SAFETY: as documented.
-    let bits = unsafe { crate::view(bits, len) };
+    let glyph = unsafe { bitmap(bits, len, width, height, two_bit) };
     // SAFETY: as documented.
     if let Some(mut c) = unsafe { self::canvas(canvas) } {
-        c.glyph(
-            bits,
-            width,
-            height,
-            &frame,
-            two_bit,
-            plane(plane_value),
-            black,
-        );
+        c.glyph(&glyph, &frame, plane(plane_value), black);
     }
+}
+
+/// The glyph bitmap gfx.h's arguments describe.
+///
+/// # Safety
+/// `bits` is NULL or holds `len` bytes.
+unsafe fn bitmap<'a>(
+    bits: *const u8,
+    len: usize,
+    width: i32,
+    height: i32,
+    two_bit: bool,
+) -> Bitmap<'a> {
+    Bitmap {
+        // SAFETY: as documented.
+        bits: unsafe { crate::view(bits, len) },
+        width,
+        height,
+        two_bit,
+    }
+}
+
+/// # Safety
+/// `canvas` is NULL or as gfx.h describes; `bits` is NULL or holds `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_gfx_reduced_glyph(
+    canvas: *const CCanvas,
+    bits: *const u8,
+    len: usize,
+    width: i32,
+    height: i32,
+    two_bit: bool,
+    num: i32,
+    den: i32,
+    x: i32,
+    y: i32,
+    black: bool,
+) -> u32 {
+    // SAFETY: as documented.
+    let glyph = unsafe { bitmap(bits, len, width, height, two_bit) };
+    // SAFETY: as documented.
+    unsafe { self::canvas(canvas) }.map_or(0, |mut c| {
+        c.reduced_glyph(&glyph, (num, den), (x, y), black)
+    })
+}
+
+/// # Safety
+/// `canvas` is NULL or as gfx.h describes; `bits` is NULL or holds `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_gfx_resampled_glyph(
+    canvas: *const CCanvas,
+    bits: *const u8,
+    len: usize,
+    width: i32,
+    height: i32,
+    two_bit: bool,
+    scale256: i32,
+    x: i32,
+    y: i32,
+) -> u32 {
+    // SAFETY: as documented.
+    let glyph = unsafe { bitmap(bits, len, width, height, two_bit) };
+    // SAFETY: as documented.
+    unsafe { self::canvas(canvas) }.map_or(0, |mut c| c.resampled_glyph(&glyph, scale256, (x, y)))
 }

@@ -457,6 +457,17 @@ static AlignedMemRect screenRectToAlignedMemRect(GfxRenderer::Orientation orient
 
 enum class TextRotation { None, Rotated90CW };
 
+namespace {
+bb_gfx_canvas canvasOf(const GfxRenderer& renderer);
+void logOffPanel(uint32_t pixels);
+
+// Bytes in a packed glyph bitmap: rows back to back, 1 or 2 bits per pixel.
+size_t glyphBytes(const int width, const int height, const bool twoBit) {
+  const size_t bits = static_cast<size_t>(width) * static_cast<size_t>(height) * (twoBit ? 2 : 1);
+  return (bits + 7) / 8;
+}
+}  // namespace
+
 // Shared glyph rendering logic for normal and rotated text.
 // Coordinate mapping and cursor advance direction are selected at compile time via the template parameter.
 // Render a glyph scaled by scaleNum/scaleDen: 1/2 for SUP/SUB, 3/4 for small caps.
@@ -478,6 +489,7 @@ static void renderCharScaled(const GfxRenderer& renderer, GfxRenderer::RenderMod
 
   const EpdFontData* fontData = fontFamily.getData(style);
   if (glyph == &solidFallback) {
+    // The box is as big as bb_gfx_reduced_glyph's drawing (rounded up).
     renderer.fillRect(cursorX + glyph->left * scaleNum / scaleDen, cursorY - glyph->top * scaleNum / scaleDen,
                       (glyph->width * scaleNum + scaleDen - 1) / scaleDen,
                       (glyph->height * scaleNum + scaleDen - 1) / scaleDen, pixelState);
@@ -488,43 +500,13 @@ static void renderCharScaled(const GfxRenderer& renderer, GfxRenderer::RenderMod
 
   const int srcW = glyph->width;
   const int srcH = glyph->height;
-  const int dstW = (srcW * scaleNum + scaleDen - 1) / scaleDen;  // ceil so edge columns aren't clipped
-  const int dstH = (srcH * scaleNum + scaleDen - 1) / scaleDen;
   // Scale the glyph bearing by the same factor so the scaled glyph sits at the correct
   // pixel offset from the (already-shifted) cursor position.
   const int baseX = cursorX + glyph->left * scaleNum / scaleDen;
   const int baseY = cursorY - glyph->top * scaleNum / scaleDen;
-  const bool halving = scaleNum * 2 == scaleDen;
-  const bool is2Bit = fontData->is2Bit;
-
-  // Raw sample value: 1-bit fonts read 0 or 3, 2-bit fonts 0 (white) .. 3 (black).
-  const auto sample = [&](const int pos) -> uint8_t {
-    if (is2Bit) return (bitmap[pos >> 2] >> ((3 - (pos & 3)) * 2)) & 0x3;
-    return ((bitmap[pos >> 3] >> (7 - (pos & 7))) & 1) ? 3 : 0;
-  };
-
-  for (int dstY = 0; dstY < dstH; dstY++) {
-    const int srcY0 = dstY * scaleDen / scaleNum;
-    const int srcY1 = std::min(srcH, std::max(srcY0 + 1, ((dstY + 1) * scaleDen + scaleNum - 1) / scaleNum));
-    for (int dstX = 0; dstX < dstW; dstX++) {
-      const int srcX0 = dstX * scaleDen / scaleNum;
-      const int srcX1 = std::min(srcW, std::max(srcX0 + 1, ((dstX + 1) * scaleDen + scaleNum - 1) / scaleNum));
-      int coverage = 0;
-      uint8_t maxRaw = 0;
-      int samples = 0;
-      for (int y = srcY0; y < srcY1; y++) {
-        for (int x = srcX0; x < srcX1; x++) {
-          const uint8_t raw = sample(y * srcW + x);
-          coverage += raw;
-          maxRaw = std::max(maxRaw, raw);
-          samples++;
-        }
-      }
-      const bool ink = halving ? (is2Bit ? (maxRaw >= 2 || coverage >= 2) : maxRaw != 0)
-                               : samples > 0 && coverage * 2 >= samples * 3;
-      if (ink) renderer.drawPixel(baseX + dstX, baseY + dstY, pixelState);
-    }
-  }
+  const auto c = canvasOf(renderer);
+  logOffPanel(bb_gfx_reduced_glyph(&c, bitmap, glyphBytes(srcW, srcH, fontData->is2Bit), srcW, srcH, fontData->is2Bit,
+                                   scaleNum, scaleDen, baseX, baseY, pixelState));
 }
 
 template <TextRotation rotation = TextRotation::None>
@@ -586,10 +568,6 @@ static void renderCharImpl(const GfxRenderer& renderer, GfxRenderer::RenderMode 
   renderer.drawGlyphBitmap(bitmap, width, height, frame, is2Bit, renderMode, pixelState);
 }
 
-namespace {
-bb_gfx_canvas canvasOf(const GfxRenderer& renderer);
-}  // namespace
-
 // Draw an unscaled glyph placed by a logical frame: as if drawPixel() were called for each ink
 // pixel, with clipping, rotation, the strip band and addressing resolved once per glyph in Rust.
 void GfxRenderer::drawGlyphBitmap(const uint8_t* bitmap, const int width, const int height,
@@ -598,9 +576,9 @@ void GfxRenderer::drawGlyphBitmap(const uint8_t* bitmap, const int width, const 
   if (width <= 0 || height <= 0) return;
   static_assert(sizeof(bb_gfx_frame) == 6 * sizeof(int32_t), "bb_gfx_frame layout");
   const bb_gfx_frame placed{frame.x, frame.y, frame.dxX, frame.dxY, frame.dyX, frame.dyY};
-  const size_t bits = static_cast<size_t>(width) * static_cast<size_t>(height) * (twoBit ? 2 : 1);
   const auto c = canvasOf(*this);
-  bb_gfx_glyph(&c, bitmap, (bits + 7) / 8, width, height, &placed, twoBit, static_cast<uint8_t>(mode), state);
+  bb_gfx_glyph(&c, bitmap, glyphBytes(width, height, twoBit), width, height, &placed, twoBit,
+               static_cast<uint8_t>(mode), state);
 }
 
 // IMPORTANT: This function is in critical rendering path and is called for every pixel. Please keep it as simple and
@@ -1663,36 +1641,11 @@ int GfxRenderer::drawScaledCodepoint(const int fontId, const uint32_t cp, const 
 
   const int srcW = glyph->width;
   const int srcH = glyph->height;
-  const bool is2Bit = fontData->is2Bit;
-  // Raw coverage: 1-bit fonts read 0 or 3, 2-bit fonts 0 (white) .. 3 (black); 0 outside the bitmap.
-  const auto sample = [&](const int sx, const int sy) -> int {
-    if (sx < 0 || sy < 0 || sx >= srcW || sy >= srcH) return 0;
-    const int pos = sy * srcW + sx;
-    if (is2Bit) return (bitmap[pos >> 2] >> ((3 - (pos & 3)) * 2)) & 0x3;
-    return ((bitmap[pos >> 3] >> (7 - (pos & 7))) & 1) ? 3 : 0;
-  };
-
-  const int dstW = (srcW * scale256 + 255) / 256;
-  const int dstH = (srcH * scale256 + 255) / 256;
   const int left = x + glyph->left * scale256 / 256;
   const int top = baselineY - glyph->top * scale256 / 256;
-  // Source position of each destination pixel centre, 16.16 fixed point.
-  const int32_t step = (256 << 16) / scale256;
-  const int32_t origin = step / 2 - (1 << 15);
-  for (int dy = 0; dy < dstH; ++dy) {
-    const int32_t sy = origin + dy * step;
-    const int y0 = sy >> 16;
-    const int fy = (sy >> 8) & 0xFF;
-    for (int dx = 0; dx < dstW; ++dx) {
-      const int32_t sx = origin + dx * step;
-      const int x0 = sx >> 16;
-      const int fx = (sx >> 8) & 0xFF;
-      const int upper = sample(x0, y0) * (256 - fx) + sample(x0 + 1, y0) * fx;
-      const int lower = sample(x0, y0 + 1) * (256 - fx) + sample(x0 + 1, y0 + 1) * fx;
-      // Ink where interpolated coverage reaches half of full black (3).
-      if ((upper * (256 - fy) + lower * fy) * 2 >= 3 * 256 * 256) drawPixel(left + dx, top + dy, true);
-    }
-  }
+  const auto c = canvasOf(*this);
+  logOffPanel(bb_gfx_resampled_glyph(&c, bitmap, glyphBytes(srcW, srcH, fontData->is2Bit), srcW, srcH, fontData->is2Bit,
+                                     scale256, left, top));
   return advance;
 }
 

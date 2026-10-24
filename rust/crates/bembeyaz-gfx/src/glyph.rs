@@ -4,6 +4,15 @@
 
 use super::{Canvas, Orientation, Plane};
 
+/// A packed glyph bitmap: rows back to back, most significant bit first, 1 or 2 bits per pixel.
+#[derive(Clone, Copy)]
+pub struct Bitmap<'a> {
+    pub bits: &'a [u8],
+    pub width: i32,
+    pub height: i32,
+    pub two_bit: bool,
+}
+
 /// Where glyph pixel (0, 0) lands and the step for one move along the glyph's x and y axes, all in
 /// one coordinate space. The axes must be an orthogonal unit rotation: each is +/-1 on exactly one
 /// component, and they differ in which; any other frame draws nothing.
@@ -161,25 +170,20 @@ fn drawn<const LEVELS: u8>(ink: u8) -> bool {
 }
 
 impl Canvas<'_> {
-    /// Draws a packed glyph `width` by `height` pixels whose pixel (0, 0) and axes `frame` places
-    /// in logical coordinates, clipped to the clip, the panel and the strip.
+    /// Draws `glyph`, whose pixel (0, 0) and axes `frame` places in logical coordinates, clipped
+    /// to the clip, the panel and the strip.
     ///
-    /// `bits` holds the rows back to back, most significant bit first, with 1 or 2 bits per
-    /// pixel. 2-bit values are 0 white, 1 light gray, 2 dark gray, 3 black; 1-bit value 1 is ink.
+    /// 2-bit values are 0 white, 1 light gray, 2 dark gray, 3 black; 1-bit value 1 is ink.
     /// In black and white every non-white value is drawn, black or white as `black` says; the
     /// gray planes only set bits (light and dark gray for the MSB plane, dark gray for the LSB
     /// plane). 1-bit glyphs draw their ink as `black` says in every plane.
-    #[allow(clippy::too_many_arguments)]
-    pub fn glyph(
-        &mut self,
-        bits: &[u8],
-        width: i32,
-        height: i32,
-        frame: &Frame,
-        two_bit: bool,
-        plane: Plane,
-        black: bool,
-    ) {
+    pub fn glyph(&mut self, glyph: &Bitmap, frame: &Frame, plane: Plane, black: bool) {
+        let Bitmap {
+            bits,
+            width,
+            height,
+            two_bit,
+        } = *glyph;
         if !orthogonal(frame) {
             return;
         }

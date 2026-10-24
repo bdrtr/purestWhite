@@ -162,6 +162,20 @@ typedef struct {
 void bb_gfx_glyph(const bb_gfx_canvas* canvas, const uint8_t* bits, size_t len, int32_t width, int32_t height,
                   const bb_gfx_frame* frame, bool two_bit, uint8_t plane, bool black);
 
+// A glyph bitmap as bb_gfx_glyph takes it, shrunk by num / den (meant for at most 1) and drawn black or white
+// pixel by pixel with its top left at (x, y): each pixel covers a block of source pixels; at one
+// half any ink there draws (2-bit: dark gray or more, or two light pixels), milder reductions need
+// majority coverage. Returns how many pixels fell off the panel; negative sizes, sizes over 4096 and
+// factors outside 1 to 4096 draw nothing.
+uint32_t bb_gfx_reduced_glyph(const bb_gfx_canvas* canvas, const uint8_t* bits, size_t len, int32_t width,
+                              int32_t height, bool two_bit, int32_t num, int32_t den, int32_t x, int32_t y, bool black);
+// A glyph bitmap scaled by scale256 / 256 and drawn black with its top left at (x, y): each pixel's
+// centre maps back onto the glyph and is inked where the bilinear coverage of its four neighbours
+// reaches half of black. Returns how many pixels fell off the panel; sizes over 4096, or a scale256
+// under 1 or over 4096 (16 times, the most a chapter stores), draw nothing.
+uint32_t bb_gfx_resampled_glyph(const bb_gfx_canvas* canvas, const uint8_t* bits, size_t len, int32_t width,
+                                int32_t height, bool two_bit, int32_t scale256, int32_t x, int32_t y);
+
 #ifdef __cplusplus
 }
 #endif

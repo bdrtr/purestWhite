@@ -323,7 +323,8 @@ mod glyph;
 mod image;
 mod polygon;
 mod round;
-pub use glyph::Frame;
+mod scaled;
+pub use glyph::{Bitmap, Frame};
 pub use image::{Drawn, Picture, Placement, Plane};
 pub use round::Corners;
 

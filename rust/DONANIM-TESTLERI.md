@@ -1621,3 +1621,26 @@ RoundedRaff ve Cover Grid ana ekranları bir önceki sürümle piksel piksel ayn
 - [ ] Dokunmatik olmayan bir cihazda ekran klavyesini açın (ör. bir Wi-Fi şifresi girerken): yan
   düğmelerdeki döndürülmüş ">" ve "<" yazıları eskisi gibi görünmeli. Menüleri ve alttaki düğme
   ipuçlarını da gözden geçirin.
+
+## Ölçeklenmiş glifler Rust'ta ("rust: our own scaled glyphs")
+
+Üst ve alt simgeler (yarı boy) ile küçük büyük harfler (dörtte üç boy) ve büyük ilk harfler (drop
+cap) artık `bembeyaz-gfx`'in `scaled` modülünde çiziliyor. Küçültmede her piksel kapladığı kaynak
+bloğuna bakıyor: yarıya inerken bloktaki herhangi bir mürekkep (2 bitte koyu gri ya da iki açık gri)
+çiziliyor, ince çizgiler kaybolmuyor; dörtte üçte çoğunluk aranıyor, gövdeler kalınlaşmıyor. Büyük
+ilk harfte her pikselin merkezi glife geri eşleniyor ve dört komşunun çift doğrusal kaplaması
+siyahın yarısına ulaşınca çiziliyor. Glifin bulunması, ilerleme genişliği ve konum C++'ta; eskiden
+her piksel için ayrı bir `drawPixel` çağrısı vardı, şimdi glif başına bir Rust çağrısı ve panel
+dışına düşen pikseller için tek bir günlük satırı. Rust 4096 pikselden büyük glifleri ve 16 kattan
+büyük ölçekleri çizmiyor (bölümler en çok 16 kat saklar; bozuk bir bölüm önbelleği eskiden 65 bin
+kata kadar bir döngü başlatabilirdi). `test/gfx_primitives`'in eski kod kopyasına iki eski döngü
+eklendi; 6000 rastgele glifte (1 ve 2 bit, yarı ve dörtte üç boy, 1/256 ile 16 kat arası ölçek —
+bölümler 1 ile 16 kat arasını saklar —, kimi 255 piksellik glifler, dört yönelim, şeritler,
+kırpmalar) iki yol bayt bayt ve panel dışı sayısıyla aynı; koda bilerek konan 12 hatanın hepsi
+yakalandı. Emülatörde CSS kitabının küçük büyük harfli başlığı, üç satırlık büyük ilk harfi ve üst
+simgeli sayfası bir önceki sürümle piksel piksel aynı, çizim süreleri de aynı (siyah-beyaz 10, gri
+düzlemler 69 ve 79 ms). x4pro'da flash 540, x4c'de 424 bayt büyüdü, RAM değişmedi.
+
+- [ ] Üst simgeli dipnot numaraları, alt simgeler, küçük büyük harfli başlıklar ve büyük ilk harfle
+  başlayan paragraflar içeren bir kitabı dört Okuma Yönü'nde, Metin Yumuşatma (AA) kapalı ve açık
+  açın: bunlar eskisi gibi görünmeli.

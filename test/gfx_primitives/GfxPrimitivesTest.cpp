@@ -77,6 +77,10 @@ struct Old {
                   bool whiteAsTransparent = false) const;
   bool drawBitmap1Bit(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight) const;
   void preserveImagePolarity(int x, int y, int width, int height) const;
+  void renderCharScaled(const uint8_t* bitmap, const struct OldGlyphMetrics* glyph, const struct OldFontData* fontData,
+                        int cursorX, int cursorY, bool pixelState, int scaleNum, int scaleDen) const;
+  void drawScaledCodepoint(const uint8_t* bitmap, const struct OldGlyphMetrics* glyph,
+                           const struct OldFontData* fontData, int x, int baselineY, int scale256) const;
   enum RenderMode { BW, GRAYSCALE_LSB, GRAYSCALE_MSB };
   RenderMode renderMode = BW;
   bool absoluteGrayPlanes = false;
@@ -1017,6 +1021,97 @@ void Old::preserveImagePolarity(const int x, const int y, const int width, const
   }
 }
 
+// ---- The scaled glyph loops of renderCharScaled and drawScaledCodepoint at 87894d21, verbatim from
+// the glyph metrics on (glyph lookup and advance stay in C++). ----
+
+struct OldGlyphMetrics {
+  int width, height, left, top;
+};
+struct OldFontData {
+  bool is2Bit;
+};
+
+void Old::renderCharScaled(const uint8_t* bitmap, const OldGlyphMetrics* glyph, const OldFontData* fontData,
+                           const int cursorX, const int cursorY, const bool pixelState, const int scaleNum,
+                           const int scaleDen) const {
+  const Old& renderer = *this;
+  const int srcW = glyph->width;
+  const int srcH = glyph->height;
+  const int dstW = (srcW * scaleNum + scaleDen - 1) / scaleDen;  // ceil so edge columns aren't clipped
+  const int dstH = (srcH * scaleNum + scaleDen - 1) / scaleDen;
+  // Scale the glyph bearing by the same factor so the scaled glyph sits at the correct
+  // pixel offset from the (already-shifted) cursor position.
+  const int baseX = cursorX + glyph->left * scaleNum / scaleDen;
+  const int baseY = cursorY - glyph->top * scaleNum / scaleDen;
+  const bool halving = scaleNum * 2 == scaleDen;
+  const bool is2Bit = fontData->is2Bit;
+
+  // Raw sample value: 1-bit fonts read 0 or 3, 2-bit fonts 0 (white) .. 3 (black).
+  const auto sample = [&](const int pos) -> uint8_t {
+    if (is2Bit) return (bitmap[pos >> 2] >> ((3 - (pos & 3)) * 2)) & 0x3;
+    return ((bitmap[pos >> 3] >> (7 - (pos & 7))) & 1) ? 3 : 0;
+  };
+
+  for (int dstY = 0; dstY < dstH; dstY++) {
+    const int srcY0 = dstY * scaleDen / scaleNum;
+    const int srcY1 = std::min(srcH, std::max(srcY0 + 1, ((dstY + 1) * scaleDen + scaleNum - 1) / scaleNum));
+    for (int dstX = 0; dstX < dstW; dstX++) {
+      const int srcX0 = dstX * scaleDen / scaleNum;
+      const int srcX1 = std::min(srcW, std::max(srcX0 + 1, ((dstX + 1) * scaleDen + scaleNum - 1) / scaleNum));
+      int coverage = 0;
+      uint8_t maxRaw = 0;
+      int samples = 0;
+      for (int y = srcY0; y < srcY1; y++) {
+        for (int x = srcX0; x < srcX1; x++) {
+          const uint8_t raw = sample(y * srcW + x);
+          coverage += raw;
+          maxRaw = std::max(maxRaw, raw);
+          samples++;
+        }
+      }
+      const bool ink = halving ? (is2Bit ? (maxRaw >= 2 || coverage >= 2) : maxRaw != 0)
+                               : samples > 0 && coverage * 2 >= samples * 3;
+      if (ink) renderer.drawPixel(baseX + dstX, baseY + dstY, pixelState);
+    }
+  }
+}
+
+void Old::drawScaledCodepoint(const uint8_t* bitmap, const OldGlyphMetrics* glyph, const OldFontData* fontData,
+                              const int x, const int baselineY, const int scale256) const {
+  const int srcW = glyph->width;
+  const int srcH = glyph->height;
+  const bool is2Bit = fontData->is2Bit;
+  // Raw coverage: 1-bit fonts read 0 or 3, 2-bit fonts 0 (white) .. 3 (black); 0 outside the bitmap.
+  const auto sample = [&](const int sx, const int sy) -> int {
+    if (sx < 0 || sy < 0 || sx >= srcW || sy >= srcH) return 0;
+    const int pos = sy * srcW + sx;
+    if (is2Bit) return (bitmap[pos >> 2] >> ((3 - (pos & 3)) * 2)) & 0x3;
+    return ((bitmap[pos >> 3] >> (7 - (pos & 7))) & 1) ? 3 : 0;
+  };
+
+  const int dstW = (srcW * scale256 + 255) / 256;
+  const int dstH = (srcH * scale256 + 255) / 256;
+  const int left = x + glyph->left * scale256 / 256;
+  const int top = baselineY - glyph->top * scale256 / 256;
+  // Source position of each destination pixel centre, 16.16 fixed point.
+  const int32_t step = (256 << 16) / scale256;
+  const int32_t origin = step / 2 - (1 << 15);
+  for (int dy = 0; dy < dstH; ++dy) {
+    const int32_t sy = origin + dy * step;
+    const int y0 = sy >> 16;
+    const int fy = (sy >> 8) & 0xFF;
+    for (int dx = 0; dx < dstW; ++dx) {
+      const int32_t sx = origin + dx * step;
+      const int x0 = sx >> 16;
+      const int fx = (sx >> 8) & 0xFF;
+      const int upper = sample(x0, y0) * (256 - fx) + sample(x0 + 1, y0) * fx;
+      const int lower = sample(x0, y0 + 1) * (256 - fx) + sample(x0 + 1, y0 + 1) * fx;
+      // Ink where interpolated coverage reaches half of full black (3).
+      if ((upper * (256 - fy) + lower * fy) * 2 >= 3 * 256 * 256) drawPixel(left + dx, top + dy, true);
+    }
+  }
+}
+
 // ---- The comparison. ----
 
 static uint32_t seed;
@@ -1306,11 +1401,90 @@ TEST(GfxPrimitivesTest, PicturesMatchTheOldRenderer) {
       newOk = bb_gfx_draw_picture(&cv, &p, row.data(), row.size(), readRow, &bmp, &drawn);
       if (newOk && inverts) bb_gfx_invert_rect(&cv, x, y, drawn.width, drawn.height);
       // The old code only logged the row it failed on: the one being read.
-      if (!newOk) EXPECT_EQ(drawn.failed_row, bmp.next) << "case " << c;
+      if (!newOk) {
+        EXPECT_EQ(drawn.failed_row, bmp.next) << "case " << c;
+      }
     }
     if (a != b || sa != sb || o.offPanel != newOff || oldOk != newOk) {
       ADD_FAILURE() << "case " << c << " kind " << kind << " orientation " << o.orientation << " strip "
                     << o._stripActive << " mode " << o.renderMode << " ok " << oldOk << "/" << newOk << " off "
+                    << o.offPanel << "/" << newOff;
+      if (++diffs == 5) return;
+    }
+  }
+}
+
+// Shrunk glyphs (superscripts, subscripts, small caps) and grown ones (drop caps).
+TEST(GfxPrimitivesTest, ScaledGlyphsMatchTheOldRenderer) {
+  seed = 13;
+  unsigned diffs = 0;
+  for (int c = 0; c < 6000; ++c) {
+    Old o;
+    o.panelWidthBytes = static_cast<uint16_t>(range(1, 12));
+    o.panelWidth = static_cast<uint16_t>(o.panelWidthBytes * 8 - (rnd() % 3 == 0 ? range(0, 7) : 0));
+    o.panelHeight = static_cast<uint16_t>(range(1, 70));
+    o.orientation = static_cast<Old::Orientation>(rnd() % 4);
+    std::vector<uint8_t> a(o.panelWidthBytes * o.panelHeight), b, sa, sb;
+    for (auto& v : a) v = static_cast<uint8_t>(rnd());
+    b = a;
+    if (rnd() % 3 == 0) {
+      o._stripActive = true;
+      o._stripY0 = range(0, o.panelHeight - 1);
+      o._stripRows = range(1, o.panelHeight - o._stripY0);
+      sa.resize(o.panelWidthBytes * o._stripRows);
+      for (auto& v : sa) v = static_cast<uint8_t>(rnd());
+      sb = sa;
+    }
+    if (rnd() % 2) {
+      o.clipLeft_ = range(-10, 60);
+      o.clipTop_ = range(-10, 60);
+      o.clipRight_ = range(-10, 120);
+      o.clipBottom_ = range(-10, 120);
+    }
+    o.frameBuffer = a.data();
+    o._stripBuf = sa.data();
+    bb_gfx_canvas cv{};
+    cv.buf = o._stripActive ? sb.data() : b.data();
+    cv.rows = o._stripActive ? o._stripRows : o.panelHeight;
+    cv.origin_y = o._stripActive ? o._stripY0 : 0;
+    cv.stride = o.panelWidthBytes;
+    cv.len = static_cast<size_t>(cv.rows) * o.panelWidthBytes;
+    cv.panel_width = o.panelWidth;
+    cv.panel_height = o.panelHeight;
+    cv.clip_left = o.clipLeft_;
+    cv.clip_top = o.clipTop_;
+    cv.clip_right = o.clipRight_;
+    cv.clip_bottom = o.clipBottom_;
+    cv.orientation = static_cast<uint8_t>(o.orientation);
+
+    // Mostly small glyphs; one in 50 up to the largest an EpdGlyph holds.
+    const int side = c % 50 == 0 ? 255 : 30;
+    const OldGlyphMetrics glyph{range(0, side), range(0, side), range(-5, 10), range(-5, 30)};
+    const OldFontData font{rnd() % 4 != 0};
+    std::vector<uint8_t> bitmap((static_cast<size_t>(glyph.width) * glyph.height * (font.is2Bit ? 2 : 1) + 7) / 8);
+    for (auto& v : bitmap) v = static_cast<uint8_t>(rnd() & rnd());
+    const int x = range(-30, 100), y = range(-30, 100);
+    o.offPanel = 0;
+    unsigned newOff = 0;
+    if (rnd() % 2) {
+      // GfxRenderer's 1/2 (superscript, subscript) and 3/4 (small caps).
+      const bool half = rnd() % 2;
+      const int num = half ? 1 : 3, den = half ? 2 : 4;
+      const bool black = rnd() % 2;
+      o.renderCharScaled(bitmap.data(), &glyph, &font, x, y, black, num, den);
+      // GfxRenderer's renderCharScaled.
+      newOff = bb_gfx_reduced_glyph(&cv, bitmap.data(), bitmap.size(), glyph.width, glyph.height, font.is2Bit, num, den,
+                                    x + glyph.left * num / den, y - glyph.top * num / den, black);
+    } else {
+      // Chapters store 256 to 4096; smaller ones still work.
+      const int scale256 = rnd() % 4 == 0 ? range(1, 255) : range(256, glyph.width > 30 ? 600 : 4096);
+      o.drawScaledCodepoint(bitmap.data(), &glyph, &font, x, y, scale256);
+      // GfxRenderer::drawScaledCodepoint.
+      newOff = bb_gfx_resampled_glyph(&cv, bitmap.data(), bitmap.size(), glyph.width, glyph.height, font.is2Bit,
+                                      scale256, x + glyph.left * scale256 / 256, y - glyph.top * scale256 / 256);
+    }
+    if (a != b || sa != sb || o.offPanel != newOff) {
+      ADD_FAILURE() << "case " << c << " orientation " << o.orientation << " strip " << o._stripActive << " off "
                     << o.offPanel << "/" << newOff;
       if (++diffs == 5) return;
     }
