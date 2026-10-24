@@ -176,6 +176,23 @@ uint32_t bb_gfx_reduced_glyph(const bb_gfx_canvas* canvas, const uint8_t* bits, 
 uint32_t bb_gfx_resampled_glyph(const bb_gfx_canvas* canvas, const uint8_t* bits, size_t len, int32_t width,
                                 int32_t height, bool two_bit, int32_t scale256, int32_t x, int32_t y);
 
+// Regions: the whole bytes of the rows that a logical rectangle (x, y, w, h) covers on the panel,
+// kept on the panel (the clip does not apply). aligned snaps the panel x range out to multiples of
+// 8 pixels first and leaves out a last partial byte the panel's width cuts off (the panel's window
+// alignment); otherwise every byte the kept range touches counts. Copies are the rows one after
+// another.
+//
+// The bytes a copy of the region takes; 0 when it is empty or off the panel.
+size_t bb_gfx_region_size(const bb_gfx_canvas* canvas, int32_t x, int32_t y, int32_t w, int32_t h, bool aligned);
+// Copies the region into out; returns the bytes copied, 0 (copying nothing) when the region is
+// empty, off the panel, not all in the canvas's rows, or larger than capacity.
+size_t bb_gfx_read_region(const bb_gfx_canvas* canvas, int32_t x, int32_t y, int32_t w, int32_t h, bool aligned,
+                          uint8_t* out, size_t capacity);
+// Copies src (len bytes) into the region; false, copying nothing, when the region is empty, off the
+// panel, not all in the canvas's rows, or larger than len.
+bool bb_gfx_write_region(const bb_gfx_canvas* canvas, int32_t x, int32_t y, int32_t w, int32_t h, bool aligned,
+                         const uint8_t* src, size_t len);
+
 #ifdef __cplusplus
 }
 #endif

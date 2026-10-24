@@ -8,7 +8,10 @@
 
 extern crate std;
 
-use super::{Bitmap, Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane};
+use super::{
+    Bitmap, Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane, Region,
+    Widen,
+};
 use std::vec;
 use std::vec::Vec;
 
@@ -565,6 +568,55 @@ fn scaled_glyphs() {
     );
 }
 
+#[test]
+fn regions() {
+    let mut buf = panel();
+    let mut c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    c.fill_rect(3, 1, 6, 3, Fill::Black);
+    // Pixels 3..9 touch bytes 0 and 1; aligned, the same two bytes.
+    let touched = c.region(3, 1, 6, 3, Widen::Touched);
+    assert_eq!(
+        touched,
+        Some(Region {
+            byte_x: 0,
+            y: 1,
+            bytes: 2,
+            rows: 3
+        })
+    );
+    assert_eq!(c.region(3, 1, 6, 3, Widen::Aligned), touched);
+    let region = touched.unwrap_or(Region {
+        byte_x: 0,
+        y: 0,
+        bytes: 0,
+        rows: 0,
+    });
+    let mut copy = [0u8; 6];
+    assert!(!c.read_region(&region, &mut copy[..5]));
+    assert!(c.read_region(&region, &mut copy));
+    assert_eq!(copy, [0xE0, 0x7F, 0xE0, 0x7F, 0xE0, 0x7F]);
+    // Back in two rows lower.
+    let lower = Region { y: 4, ..region };
+    assert!(c.write_region(&lower, &copy));
+    assert_eq!(picture(&buf)[5], "...######.......");
+    // Off the panel, empty, or not all in the rows held: nothing.
+    let c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    assert_eq!(c.region(16, 0, 4, 4, Widen::Touched), None);
+    assert_eq!(c.region(0, 0, 0, 4, Widen::Aligned), None);
+    let mut strip = vec![0u8; 2 * 2];
+    let c = Canvas {
+        origin_y: 2,
+        rows: 2,
+        ..canvas(&mut strip, Orientation::LandscapeCounterClockwise)
+    };
+    assert!(!c.read_region(&region, &mut copy));
+    let empty = Canvas {
+        buf: &mut [],
+        ..canvas(&mut [], Orientation::LandscapeCounterClockwise)
+    };
+    assert!(!empty.read_region(&region, &mut copy));
+}
+
 /// Random canvases, strips, clips and shapes, including extreme fill rectangles: nothing panics.
 #[test]
 fn mini_fuzz() {
@@ -606,7 +658,7 @@ fn mini_fuzz() {
         };
         for _ in 0..8 {
             let v = |next: &mut dyn FnMut(u32) -> u32| pick(140, next) - 50;
-            match next(13) {
+            match next(14) {
                 0 => {
                     c.pixel(v(&mut next), v(&mut next), next(2) == 0);
                 }
@@ -749,6 +801,34 @@ fn mini_fuzz() {
                     c.reduced_glyph(&glyph, fraction, at, next(2) == 0);
                     c.resampled_glyph(&glyph, pick(2000, &mut next) - 100, at);
                     c.resampled_glyph(&glyph, i32::MAX, (i32::MAX, i32::MIN));
+                }
+                13 => {
+                    let widen = if next(2) == 0 {
+                        Widen::Aligned
+                    } else {
+                        Widen::Touched
+                    };
+                    let (x, y, w, h) = (v(&mut next), v(&mut next), v(&mut next), v(&mut next));
+                    let mut copy = vec![0u8; pick(300, &mut next) as usize];
+                    for r in [
+                        c.region(x, y, w, h, widen),
+                        c.region(i32::MIN, i32::MAX, i32::MAX, i32::MAX, widen),
+                        c.region(i32::MAX, i32::MIN, i32::MAX, 1, widen),
+                    ]
+                    .into_iter()
+                    .flatten()
+                    {
+                        let _ = c.read_region(&r, &mut copy);
+                        let _ = c.write_region(&r, &copy);
+                    }
+                    let wild = Region {
+                        byte_x: usize::MAX,
+                        y: usize::MAX,
+                        bytes: usize::MAX,
+                        rows: usize::MAX,
+                    };
+                    let _ = c.read_region(&wild, &mut copy);
+                    let _ = c.write_region(&wild, &copy);
                 }
                 8 => {
                     // Extreme positions; the work grows with the radius, so that stays small.

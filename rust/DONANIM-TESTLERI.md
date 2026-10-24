@@ -1644,3 +1644,28 @@ düzlemler 69 ve 79 ms). x4pro'da flash 540, x4c'de 424 bayt büyüdü, RAM değ
 - [ ] Üst simgeli dipnot numaraları, alt simgeler, küçük büyük harfli başlıklar ve büyük ilk harfle
   başlayan paragraflar içeren bir kitabı dört Okuma Yönü'nde, Metin Yumuşatma (AA) kapalı ve açık
   açın: bunlar eskisi gibi görünmeli.
+
+## Ekran bölgesi kopyaları Rust'ta ("rust: our own screen region copies")
+
+Ekranın bir parçasını yeniden çizmeden saklayıp geri koyan beş GfxRenderer işlevi
+(`readFramebufferRegion`/`writeFramebufferRegion`: okuyucuda dipnot seçerken vurgunun altı;
+`getRegionByteSize`/`copyRegionToBuffer`/`copyBufferToRegion`: Lyra, Klasik ve RoundedRaff ana
+ekranlarının kapak tamponu, Cover Grid'in kapak önbelleği ve Uyku Ekranı "Transparent" iken uykuya
+geçerken çıkan açılır pencerenin arka planı) artık `bembeyaz-gfx`'in `region` modülünde: mantıksal
+dikdörtgenin panelde kapladığı baytlar (8 piksele hizalı ya da dokunulan baytlar) bulunuyor, satırlar
+tampona kopyalanıp geri yazılıyor. Bilerek değişen tek şey: çerçeve tamponu yokken (bir derlemeye
+ödünçken) `readFramebufferRegion`/`writeFramebufferRegion` eskisi gibi çökmek yerine hiçbir şey
+yapmıyor. `test/gfx_primitives`'in eski kod kopyasına eski beş işlev eklendi; 20000 rastgele
+dikdörtgende (8'in katı olmayan panel genişlikleri, dört yönelim, kısa tamponlar) boyutlar, kopyalar ve
+geri yazılan ekran bayt bayt aynı. Emülatörde kapaklı Lyra, RoundedRaff ve Cover Grid ana ekranları,
+uyku, kütüphane, okuma ve ayarlar bir önceki sürümle piksel piksel aynı. Flash x4pro'da 340, x4c'de 276
+bayt büyüdü, RAM değişmedi.
+
+- [ ] Kapaklı bir kitapla Lyra, Klasik ve RoundedRaff ana ekranlarında seçimi kapak ile menü arasında
+  birkaç kez gezdirin: kapak her seferinde eksiksiz geri gelmeli. Cover Grid temasında (PSRAM'li
+  cihazda) kapaklar arasında ve sekmeler arasında gezinin: önbellekten gelen kapaklar eksiksiz olmalı.
+- [ ] En az iki dipnotu olan bir sayfada okuyucu menüsünden "Bağlantılar ve dipnotlar"ı açıp
+  dipnotlar arasında ok ya da yan düğmelerle gezinin: vurgu taşınınca eski yerinde iz kalmamalı.
+- [ ] Uyku Ekranı'nı Transparent yapıp kartın köküne bir kaplama resmi (`/sleep-overlay.bmp` ya da
+  `.png`) koyun; okurken (bir de döndürülmüş bir Okuma Yönü'nde) ve ana ekrandayken uykuya geçin:
+  kaplamanın altında "Uyku moduna geçiliyor" penceresinden iz kalmamalı.

@@ -1,7 +1,7 @@
 //! Exports for lib/GfxRenderer (see `rust/include/bembeyaz/gfx.h`).
 
 use bembeyaz_gfx::{
-    Bitmap, Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane,
+    Bitmap, Canvas, Clip, Corners, Fill, Frame, Orientation, Picture, Placement, Plane, Widen,
 };
 
 /// gfx.h's `bb_gfx_canvas`.
@@ -511,4 +511,83 @@ pub unsafe extern "C" fn bb_gfx_resampled_glyph(
     let glyph = unsafe { bitmap(bits, len, width, height, two_bit) };
     // SAFETY: as documented.
     unsafe { self::canvas(canvas) }.map_or(0, |mut c| c.resampled_glyph(&glyph, scale256, (x, y)))
+}
+
+fn widen(aligned: bool) -> Widen {
+    if aligned {
+        Widen::Aligned
+    } else {
+        Widen::Touched
+    }
+}
+
+/// # Safety
+/// `canvas` is NULL or as gfx.h describes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_gfx_region_size(
+    canvas: *const CCanvas,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    aligned: bool,
+) -> usize {
+    // SAFETY: as documented.
+    unsafe { self::canvas(canvas) }
+        .and_then(|c| c.region(x, y, w, h, widen(aligned)))
+        .map_or(0, |r| r.size())
+}
+
+/// # Safety
+/// `canvas` is NULL or as gfx.h describes; `out` is NULL or holds `capacity` writable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_gfx_read_region(
+    canvas: *const CCanvas,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    aligned: bool,
+    out: *mut u8,
+    capacity: usize,
+) -> usize {
+    // SAFETY: as documented.
+    let Some(c) = (unsafe { self::canvas(canvas) }) else {
+        return 0;
+    };
+    let Some(region) = c.region(x, y, w, h, widen(aligned)) else {
+        return 0;
+    };
+    // SAFETY: as documented.
+    let out = unsafe { crate::view_mut(out, capacity) };
+    if c.read_region(&region, out) {
+        region.size()
+    } else {
+        0
+    }
+}
+
+/// # Safety
+/// `canvas` is NULL or as gfx.h describes; `src` is NULL or holds `len` bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_gfx_write_region(
+    canvas: *const CCanvas,
+    x: i32,
+    y: i32,
+    w: i32,
+    h: i32,
+    aligned: bool,
+    src: *const u8,
+    len: usize,
+) -> bool {
+    // SAFETY: as documented.
+    let Some(mut c) = (unsafe { self::canvas(canvas) }) else {
+        return false;
+    };
+    let Some(region) = c.region(x, y, w, h, widen(aligned)) else {
+        return false;
+    };
+    // SAFETY: as documented.
+    let src = unsafe { crate::view(src, len) };
+    c.write_region(&region, src)
 }

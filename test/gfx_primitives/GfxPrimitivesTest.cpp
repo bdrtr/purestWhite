@@ -1,5 +1,6 @@
 // bembeyaz-gfx against the drawing code GfxRenderer had before it (lib/GfxRenderer/GfxRenderer.cpp
-// at 87481ce5, fillPolygon at 90f34acc and the pictures at 6603fc10, copied below as Old): random panels, orientations,
+// at 87481ce5, fillPolygon at 90f34acc, the pictures at 6603fc10 and the regions at 5acdce99,
+// copied below as Old): random panels, orientations,
 // strips, clips and shapes must give the same pixels, and the same count of pixels off the panel.
 #include <BitmapHelpers.h>
 #include <Memory.h>
@@ -77,6 +78,11 @@ struct Old {
                   bool whiteAsTransparent = false) const;
   bool drawBitmap1Bit(const Bitmap& bitmap, int x, int y, int maxWidth, int maxHeight) const;
   void preserveImagePolarity(int x, int y, int width, int height) const;
+  size_t readFramebufferRegion(int x, int y, int w, int h, uint8_t* dst, size_t dstCapacity) const;
+  void writeFramebufferRegion(int x, int y, int w, int h, const uint8_t* src);
+  size_t getRegionByteSize(int lx, int ly, int lw, int lh) const;
+  bool copyRegionToBuffer(int lx, int ly, int lw, int lh, uint8_t* buf, size_t bufSize) const;
+  bool copyBufferToRegion(int lx, int ly, int lw, int lh, const uint8_t* buf, size_t bufSize) const;
   void renderCharScaled(const uint8_t* bitmap, const struct OldGlyphMetrics* glyph, const struct OldFontData* fontData,
                         int cursorX, int cursorY, bool pixelState, int scaleNum, int scaleDen) const;
   void drawScaledCodepoint(const uint8_t* bitmap, const struct OldGlyphMetrics* glyph,
@@ -1112,6 +1118,179 @@ void Old::drawScaledCodepoint(const uint8_t* bitmap, const OldGlyphMetrics* glyp
   }
 }
 
+// ---- The region copies at 5acdce99. ----
+
+// Output of screenRectToAlignedMemRect: a rectangle in panel-memory
+// coordinates whose x and width are guaranteed to be multiples of 8 (the
+// SDK's EInkDisplay::displayWindow alignment requirement). `valid == false`
+// means the input was empty or fully outside the panel.
+struct AlignedMemRect {
+  uint16_t x = 0;
+  uint16_t y = 0;
+  uint16_t w = 0;
+  uint16_t h = 0;
+  bool valid = false;
+};
+
+// Translate a screen-coordinate rectangle (the coordinate system used by
+// fillRect / drawText / the rest of the renderer's public API) into a
+// panel-memory rectangle suitable for direct framebuffer indexing. Rotates
+// the rectangle's two opposite corners with rotateCoordinates(), takes the
+// bounding box (which naturally swaps width/height in Portrait /
+// PortraitInverted), then snaps the x extent outward to multiples of 8 and
+// clamps to panel bounds. Precondition: panel dims are multiples of 8 (true
+// for the 800x480 panel), so clamping cannot re-break alignment.
+static AlignedMemRect screenRectToAlignedMemRect(Old::Orientation orientation, int sx, int sy, int sw, int sh,
+                                                 uint16_t panelWidth, uint16_t panelHeight) {
+  AlignedMemRect out;
+  if (sw <= 0 || sh <= 0) return out;
+
+  int x0, y0, x1, y1;
+  rotateCoordinates(orientation, sx, sy, &x0, &y0, panelWidth, panelHeight);
+  rotateCoordinates(orientation, sx + sw - 1, sy + sh - 1, &x1, &y1, panelWidth, panelHeight);
+
+  const int memXLo = std::min(x0, x1);
+  const int memYLo = std::min(y0, y1);
+  const int memXHi = std::max(x0, x1) + 1;  // exclusive upper bound
+  const int memYHi = std::max(y0, y1) + 1;
+
+  // Snap x outward to multiples of 8.
+  int alignedXLo = memXLo & ~0x7;        // round down
+  int alignedXHi = (memXHi + 7) & ~0x7;  // round up
+
+  if (alignedXLo < 0) alignedXLo = 0;
+  if (alignedXHi > panelWidth) alignedXHi = panelWidth;
+  int clampedYLo = memYLo;
+  int clampedYHi = memYHi;
+  if (clampedYLo < 0) clampedYLo = 0;
+  if (clampedYHi > panelHeight) clampedYHi = panelHeight;
+
+  if (alignedXHi <= alignedXLo || clampedYHi <= clampedYLo) return out;
+
+  out.x = static_cast<uint16_t>(alignedXLo);
+  out.y = static_cast<uint16_t>(clampedYLo);
+  out.w = static_cast<uint16_t>(alignedXHi - alignedXLo);
+  out.h = static_cast<uint16_t>(clampedYHi - clampedYLo);
+  out.valid = true;
+  return out;
+}
+
+size_t Old::readFramebufferRegion(int x, int y, int w, int h, uint8_t* dst, size_t dstCapacity) const {
+  if (dst == nullptr || w <= 0 || h <= 0) return 0;
+
+  const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, w, h, panelWidth, panelHeight);
+  if (!mem.valid) return 0;
+
+  const size_t rowBytes = mem.w / 8;  // exact: mem.w is a multiple of 8
+  const size_t needed = rowBytes * mem.h;
+  if (needed > dstCapacity) return 0;
+
+  for (uint16_t row = 0; row < mem.h; ++row) {
+    const uint8_t* srcRow = frameBuffer + (static_cast<uint32_t>(mem.y + row) * panelWidthBytes) + (mem.x / 8);
+    uint8_t* dstRow = dst + (static_cast<size_t>(row) * rowBytes);
+    memcpy(dstRow, srcRow, rowBytes);
+  }
+  return needed;
+}
+
+void Old::writeFramebufferRegion(int x, int y, int w, int h, const uint8_t* src) {
+  if (src == nullptr || w <= 0 || h <= 0) return;
+
+  const AlignedMemRect mem = screenRectToAlignedMemRect(orientation, x, y, w, h, panelWidth, panelHeight);
+  if (!mem.valid) return;
+
+  const size_t rowBytes = mem.w / 8;  // exact: mem.w is a multiple of 8
+
+  for (uint16_t row = 0; row < mem.h; ++row) {
+    const uint8_t* srcRow = src + (static_cast<size_t>(row) * rowBytes);
+    uint8_t* dstRow = frameBuffer + (static_cast<uint32_t>(mem.y + row) * panelWidthBytes) + (mem.x / 8);
+    memcpy(dstRow, srcRow, rowBytes);
+  }
+}
+
+// Translate a logical rect through rotateCoordinates and take the bounding
+// box of its four corners on the physical panel. Output coords are inclusive
+// and clamped. Returns false if the rect ends up fully off-panel.
+static bool logicalRectToPhysicalBounds(Old::Orientation orientation, int lx, int ly, int lw, int lh,
+                                        uint16_t panelWidth, uint16_t panelHeight, int* outX0, int* outY0, int* outX1,
+                                        int* outY1) {
+  if (lw <= 0 || lh <= 0) return false;
+  int minX = INT32_MAX;
+  int minY = INT32_MAX;
+  int maxX = INT32_MIN;
+  int maxY = INT32_MIN;
+  const int corners[4][2] = {{lx, ly}, {lx + lw - 1, ly}, {lx, ly + lh - 1}, {lx + lw - 1, ly + lh - 1}};
+  for (auto& c : corners) {
+    int phyX;
+    int phyY;
+    rotateCoordinates(orientation, c[0], c[1], &phyX, &phyY, panelWidth, panelHeight);
+    if (phyX < minX) minX = phyX;
+    if (phyY < minY) minY = phyY;
+    if (phyX > maxX) maxX = phyX;
+    if (phyY > maxY) maxY = phyY;
+  }
+  if (minX < 0) minX = 0;
+  if (minY < 0) minY = 0;
+  if (maxX >= panelWidth) maxX = panelWidth - 1;
+  if (maxY >= panelHeight) maxY = panelHeight - 1;
+  if (minX > maxX || minY > maxY) return false;
+  *outX0 = minX;
+  *outY0 = minY;
+  *outX1 = maxX;
+  *outY1 = maxY;
+  return true;
+}
+
+size_t Old::getRegionByteSize(int lx, int ly, int lw, int lh) const {
+  int x0, y0, x1, y1;
+  if (!logicalRectToPhysicalBounds(orientation, lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1)) {
+    return 0;
+  }
+  // x bounds are in pixels; widen to byte boundaries on either side so per-row
+  // memcpy stays byte-aligned even when the logical rect doesn't.
+  const int byteX0 = x0 / 8;
+  const int byteX1 = x1 / 8;
+  const int bytesPerRow = byteX1 - byteX0 + 1;
+  const int rowCount = y1 - y0 + 1;
+  return static_cast<size_t>(bytesPerRow) * static_cast<size_t>(rowCount);
+}
+
+bool Old::copyRegionToBuffer(int lx, int ly, int lw, int lh, uint8_t* buf, size_t bufSize) const {
+  int x0, y0, x1, y1;
+  if (!logicalRectToPhysicalBounds(orientation, lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1)) {
+    return false;
+  }
+  const int byteX0 = x0 / 8;
+  const int byteX1 = x1 / 8;
+  const int bytesPerRow = byteX1 - byteX0 + 1;
+  const int rowCount = y1 - y0 + 1;
+  const size_t needed = static_cast<size_t>(bytesPerRow) * static_cast<size_t>(rowCount);
+  if (bufSize < needed || !frameBuffer || !buf) return false;
+  for (int row = 0; row < rowCount; row++) {
+    const uint8_t* src = frameBuffer + (y0 + row) * panelWidthBytes + byteX0;
+    memcpy(buf + row * bytesPerRow, src, bytesPerRow);
+  }
+  return true;
+}
+
+bool Old::copyBufferToRegion(int lx, int ly, int lw, int lh, const uint8_t* buf, size_t bufSize) const {
+  int x0, y0, x1, y1;
+  if (!logicalRectToPhysicalBounds(orientation, lx, ly, lw, lh, panelWidth, panelHeight, &x0, &y0, &x1, &y1)) {
+    return false;
+  }
+  const int byteX0 = x0 / 8;
+  const int byteX1 = x1 / 8;
+  const int bytesPerRow = byteX1 - byteX0 + 1;
+  const int rowCount = y1 - y0 + 1;
+  const size_t needed = static_cast<size_t>(bytesPerRow) * static_cast<size_t>(rowCount);
+  if (bufSize < needed || !frameBuffer || !buf) return false;
+  for (int row = 0; row < rowCount; row++) {
+    uint8_t* dst = frameBuffer + (y0 + row) * panelWidthBytes + byteX0;
+    memcpy(dst, buf + row * bytesPerRow, bytesPerRow);
+  }
+  return true;
+}
+
 // ---- The comparison. ----
 
 static uint32_t seed;
@@ -1486,6 +1665,62 @@ TEST(GfxPrimitivesTest, ScaledGlyphsMatchTheOldRenderer) {
     if (a != b || sa != sb || o.offPanel != newOff) {
       ADD_FAILURE() << "case " << c << " orientation " << o.orientation << " strip " << o._stripActive << " off "
                     << o.offPanel << "/" << newOff;
+      if (++diffs == 5) return;
+    }
+  }
+}
+
+// Region copies: the 8-pixel aligned pair and the touched-bytes trio, out and back in.
+TEST(GfxPrimitivesTest, RegionsMatchTheOldRenderer) {
+  seed = 17;
+  unsigned diffs = 0;
+  for (int c = 0; c < 20000; ++c) {
+    Old o;
+    o.panelWidthBytes = static_cast<uint16_t>(range(1, 12));
+    o.panelWidth = static_cast<uint16_t>(o.panelWidthBytes * 8 - (rnd() % 3 == 0 ? range(0, 7) : 0));
+    o.panelHeight = static_cast<uint16_t>(range(1, 70));
+    o.orientation = static_cast<Old::Orientation>(rnd() % 4);
+    std::vector<uint8_t> a(o.panelWidthBytes * o.panelHeight), b;
+    for (auto& v : a) v = static_cast<uint8_t>(rnd());
+    b = a;
+    o.frameBuffer = a.data();
+    bb_gfx_canvas cv{};
+    cv.buf = b.data();
+    cv.len = b.size();
+    cv.rows = o.panelHeight;
+    cv.stride = o.panelWidthBytes;
+    cv.panel_width = o.panelWidth;
+    cv.panel_height = o.panelHeight;
+    cv.orientation = static_cast<uint8_t>(o.orientation);
+    const int x = range(-30, 110), y = range(-30, 110), w = range(-3, 120), h = range(-3, 120);
+    const bool aligned = rnd() % 2;
+    const size_t capacity = rnd() % 4 == 0 ? static_cast<size_t>(range(0, 200)) : 2000;
+    std::vector<uint8_t> outA(2000, 0x5A), outB(2000, 0x5A);
+    std::vector<uint8_t> src(2000);
+    for (auto& v : src) v = static_cast<uint8_t>(rnd());
+    size_t oldSize = 0, newSize = 0, oldRead = 0, newRead = 0;
+    bool oldWrote = true, newWrote = true;
+    if (aligned) {
+      oldRead = o.readFramebufferRegion(x, y, w, h, outA.data(), capacity);
+      newRead = bb_gfx_read_region(&cv, x, y, w, h, true, outB.data(), capacity);
+      oldSize = newSize = 0;
+      // The old write trusts src to hold the region (as GfxRenderer::writeFramebufferRegion does).
+      o.writeFramebufferRegion(x, y, w, h, src.data());
+      newWrote = bb_gfx_write_region(&cv, x, y, w, h, true, src.data(), bb_gfx_region_size(&cv, x, y, w, h, true));
+      oldWrote = newWrote;
+    } else {
+      oldSize = o.getRegionByteSize(x, y, w, h);
+      newSize = bb_gfx_region_size(&cv, x, y, w, h, false);
+      oldRead = o.copyRegionToBuffer(x, y, w, h, outA.data(), capacity) ? 1 : 0;
+      newRead = bb_gfx_read_region(&cv, x, y, w, h, false, outB.data(), capacity) > 0 ? 1 : 0;
+      const size_t srcLen = rnd() % 4 == 0 ? static_cast<size_t>(range(0, 200)) : src.size();
+      oldWrote = o.copyBufferToRegion(x, y, w, h, src.data(), srcLen);
+      newWrote = bb_gfx_write_region(&cv, x, y, w, h, false, src.data(), srcLen);
+    }
+    if (a != b || outA != outB || oldSize != newSize || oldRead != newRead || oldWrote != newWrote) {
+      ADD_FAILURE() << "case " << c << " aligned " << aligned << " orientation " << o.orientation << " size " << oldSize
+                    << "/" << newSize << " read " << oldRead << "/" << newRead << " wrote " << oldWrote << "/"
+                    << newWrote;
       if (++diffs == 5) return;
     }
   }
