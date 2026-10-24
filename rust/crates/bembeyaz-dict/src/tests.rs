@@ -3,6 +3,7 @@
 extern crate std;
 
 use super::*;
+use crate::dictzip;
 use std::string::String;
 use std::vec::Vec;
 
@@ -257,5 +258,98 @@ fn stem_variants_never_repeat() {
             assert!(!variants.contains(&t), "{word:?}");
             variants.push(t);
         });
+    }
+}
+
+/// A dictzip file in memory.
+struct Zip(Vec<u8>, u32);
+
+impl dictzip::File for Zip {
+    fn read_exact(&mut self, buf: &mut [u8]) -> bool {
+        let at = self.1 as usize;
+        let Some(src) = self.0.get(at..at + buf.len()) else {
+            return false;
+        };
+        buf.copy_from_slice(src);
+        self.1 += buf.len() as u32;
+        true
+    }
+
+    fn seek(&mut self, pos: u32) -> bool {
+        let ok = pos as usize <= self.0.len();
+        if ok {
+            self.1 = pos;
+        }
+        ok
+    }
+
+    fn position(&self) -> u32 {
+        self.1
+    }
+
+    fn size(&self) -> u32 {
+        self.0.len() as u32
+    }
+}
+
+/// Truncated and damaged dictzip headers, then plans for random ranges: nothing panics, and a
+/// plan's slices stay inside the text.
+#[test]
+fn dictzip_mini_fuzz() {
+    // gzip header with FEXTRA and FNAME, an RA table of three chunks of 100, a name, data, ISIZE.
+    let mut base = std::vec![0x1f, 0x8b, 8, 0x0C, 0, 0, 0, 0, 0, 3];
+    base.extend_from_slice(&16u16.to_le_bytes());
+    base.extend_from_slice(b"RA");
+    base.extend_from_slice(&12u16.to_le_bytes());
+    for v in [1u16, 100, 3, 40, 50, 60] {
+        base.extend_from_slice(&v.to_le_bytes());
+    }
+    base.extend_from_slice(b"x\0");
+    base.extend(std::iter::repeat_n(0xAA, 150));
+    base.extend_from_slice(&[0, 0, 0, 0]);
+    base.extend_from_slice(&250u32.to_le_bytes());
+    let mut seed = 0x0BAD_5EEDu32;
+    let mut next = move || {
+        seed ^= seed << 13;
+        seed ^= seed >> 17;
+        seed ^= seed << 5;
+        seed
+    };
+    let mut table = std::vec![0u32; 8200];
+    for round in 0..3000 {
+        let mut bytes = base.clone();
+        if round > 0 {
+            for _ in 0..=(next() % 3) {
+                let at = next() as usize % bytes.len();
+                bytes[at] = next() as u8;
+            }
+            if next() % 4 == 0 {
+                bytes.truncate(next() as usize % bytes.len());
+            }
+        }
+        let mut file = Zip(bytes, 0);
+        let mut len = 0;
+        let parsed = dictzip::parse(&mut file, |n| {
+            len = n;
+            table.get_mut(..n)
+        });
+        if round == 0 {
+            assert_eq!(parsed.map(|h| (h.data_offset, h.total_size)), Ok((30, 250)));
+        }
+        let Ok(header) = parsed else {
+            continue;
+        };
+        for _ in 0..8 {
+            let (offset, size) = (next() % 300, next() % 300);
+            let mut taken = 0;
+            let result = dictzip::slices(&header, &table[..len], offset, size, |s| {
+                assert!(s.skip < u32::from(header.chunk_length));
+                taken += s.take;
+                Ok(())
+            });
+            if result.is_ok() {
+                assert_eq!(taken, size);
+            }
+        }
     }
 }

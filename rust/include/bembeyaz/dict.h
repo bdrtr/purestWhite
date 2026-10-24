@@ -87,6 +87,43 @@ void bb_dict_stem_variants(const char* word, size_t len,
                            void (*variant)(void* context, size_t stem, const char* ending, size_t ending_len),
                            void* context);
 
+// Dictzip (.dict.dz) files: the gzip header's RA chunk table, and which chunks a range of the
+// text needs. Results:
+enum {
+  BB_DICTZIP_OK = 0,
+  BB_DICTZIP_READ = 1,     // a read or seek failed, the file ended, or the range is outside the text
+  BB_DICTZIP_CORRUPT = 2,  // not dictzip, or a table that does not add up
+  BB_DICTZIP_MEMORY = 3,   // no room for the chunk table
+};
+
+// A file read in order: read fills len bytes (returning how many, negative on failure), seek and
+// position as HalFile's; size is its size.
+typedef struct {
+  int32_t (*read)(void* file, uint8_t* buf, size_t len);
+  bool (*seek)(void* file, uint32_t pos);
+  uint32_t (*position)(void* file);
+  uint32_t size;
+  void* file;
+} bb_dictzip_file;
+
+typedef struct {
+  uint32_t data_offset;  // where the first chunk starts
+  uint32_t total_size;   // the text's size (ISIZE)
+  uint16_t chunk_length;
+} bb_dictzip_header;
+
+// Reads the header from the file's start, asking table for room for chunk_count + 1 offsets (NULL:
+// no memory) and filling it with each chunk's compressed offset from the first.
+uint8_t bb_dictzip_parse(const bb_dictzip_file* file, uint32_t* (*table)(void* context, size_t len), void* context,
+                         bb_dictzip_header* out);
+// Hands slice, in order, each chunk slice that size bytes of the text from offset need: the chunk's
+// compressed bytes (offset from the file's start, size), inflated, skipping skip and taking take.
+// slice returns a BB_DICTZIP_* result; a failure stops it and is returned.
+uint8_t bb_dictzip_slices(const bb_dictzip_header* header, const uint32_t* table, size_t len, uint32_t offset,
+                          uint32_t size,
+                          uint8_t (*slice)(void* context, uint32_t offset, uint32_t size, uint32_t skip, uint32_t take),
+                          void* context);
+
 #ifdef __cplusplus
 }
 #endif

@@ -3,25 +3,56 @@
 #include <Arduino.h>  // ESP.getMaxAllocHeap for the pre-reserve heap guard
 #include <InflateStream.h>
 #include <Memory.h>
+#include <bembeyaz/dict.h>
 
 #include <cstddef>
 
 namespace DictZip {
 namespace {
 
-// Caps the chunk table at 32KB of heap (8192 * 4 bytes); at the typical ~58KB
-// chunk length that still allows ~460MB of uncompressed dictionary data.
-constexpr uint16_t MAX_CHUNK_COUNT = 8192;
-
 // Slack required above the chunk table before reserving it, so a table that
-// would only just fit is refused rather than left to abort inside reserve().
+// would only just fit is refused rather than left to abort inside resize().
+// (bembeyaz-dict caps the table at 8192 chunks: 32KB.)
 constexpr size_t CHUNK_TABLE_HEAP_HEADROOM_BYTES = 1024;
 
-bool readLe16(HalFile& file, uint16_t* out) {
-  uint8_t raw[2];
-  if (file.read(raw, 2) != 2) return false;
-  *out = static_cast<uint16_t>(raw[0] | (static_cast<uint16_t>(raw[1]) << 8));
-  return true;
+// dict.h's layouts, which bembeyaz-ffi's dict.rs checks too.
+static_assert(sizeof(bb_dictzip_file) == 5 * sizeof(void*) && offsetof(bb_dictzip_file, size) == 3 * sizeof(void*),
+              "bb_dictzip_file layout");
+static_assert(sizeof(bb_dictzip_header) == 12 && offsetof(bb_dictzip_header, chunk_length) == 8,
+              "bb_dictzip_header layout");
+
+// The file as bembeyaz-dict reads it (dict.h).
+bb_dictzip_file zipFileOf(HalFile& file) {
+  return {[](void* f, uint8_t* buf, const size_t len) -> int32_t { return static_cast<HalFile*>(f)->read(buf, len); },
+          [](void* f, const uint32_t pos) { return static_cast<HalFile*>(f)->seekSet(pos); },
+          [](void* f) { return static_cast<uint32_t>(static_cast<HalFile*>(f)->position()); },
+          static_cast<uint32_t>(file.fileSize()), &file};
+}
+
+ExtractError errorOf(const uint8_t result) {
+  switch (result) {
+    case BB_DICTZIP_OK:
+      return ExtractError::None;
+    case BB_DICTZIP_READ:
+      return ExtractError::ReadError;
+    case BB_DICTZIP_MEMORY:
+      return ExtractError::LowMemory;
+    default:
+      return ExtractError::Decompress;
+  }
+}
+
+uint8_t resultOf(const ExtractError error) {
+  switch (error) {
+    case ExtractError::None:
+      return BB_DICTZIP_OK;
+    case ExtractError::ReadError:
+      return BB_DICTZIP_READ;
+    case ExtractError::LowMemory:
+      return BB_DICTZIP_MEMORY;
+    default:
+      return BB_DICTZIP_CORRUPT;
+  }
 }
 
 // Compressed input for one chunk, pulled from the file on demand instead of
@@ -118,9 +149,9 @@ bool extractChunkSlice(HalFile& file, uint32_t compressedOffset, uint32_t compre
 }  // namespace
 
 bool parse(HalFile& file, Info* info, ExtractError* outError) {
-  // Classify each failure: a header/table read that comes up short is a
-  // ReadError (IO / truncated file); a value that doesn't make sense as dictzip
-  // is a Decompress (malformed/unsupported .dz).
+  // bembeyaz-dict classifies each failure: a header/table read that comes up
+  // short is a ReadError (IO / truncated file); a value that doesn't make sense
+  // as dictzip is a Decompress (malformed/unsupported .dz).
   const auto fail = [outError](ExtractError e) {
     if (outError) *outError = e;
     return false;
@@ -129,98 +160,27 @@ bool parse(HalFile& file, Info* info, ExtractError* outError) {
   if (!info) return fail(ExtractError::Decompress);
   *info = {};
 
-  uint8_t header[10];
-  if (file.read(header, sizeof(header)) != static_cast<int>(sizeof(header))) return fail(ExtractError::ReadError);
-  if (header[0] != 0x1f || header[1] != 0x8b || header[2] != 8) return fail(ExtractError::Decompress);
-
-  const uint8_t flags = header[3];
-  if ((flags & 0x04) == 0) return fail(ExtractError::Decompress);  // dictzip requires FEXTRA
-
-  uint16_t xlen = 0;
-  if (!readLe16(file, &xlen)) return fail(ExtractError::ReadError);
-
-  uint32_t extraRead = 0;
-  bool foundRa = false;
-  while (extraRead + 4 <= xlen) {
-    uint8_t subHeader[4];
-    if (file.read(subHeader, sizeof(subHeader)) != static_cast<int>(sizeof(subHeader)))
-      return fail(ExtractError::ReadError);
-    extraRead += 4;
-    const uint16_t subLen = static_cast<uint16_t>(subHeader[2] | (static_cast<uint16_t>(subHeader[3]) << 8));
-    if (extraRead + subLen > xlen) return fail(ExtractError::Decompress);
-
-    if (subHeader[0] == 'R' && subHeader[1] == 'A') {
-      // Reject a second RA table rather than break: breaking would leave
-      // extraRead < xlen and trip the check below for valid files carrying other
-      // FEXTRA subfields after the RA one. Re-entering would push_back past the
-      // reserve() below, and that growth aborts under -fno-exceptions.
-      if (foundRa) return fail(ExtractError::Decompress);
-      if (subLen < 6) return fail(ExtractError::Decompress);
-
-      uint16_t version = 0;
-      uint16_t chunkLen = 0;
-      uint16_t chunkCount = 0;
-      if (!readLe16(file, &version) || !readLe16(file, &chunkLen) || !readLe16(file, &chunkCount))
-        return fail(ExtractError::ReadError);
-      extraRead += 6;
-      if (version != 1 || chunkLen == 0 || chunkCount == 0 || chunkCount > MAX_CHUNK_COUNT)
-        return fail(ExtractError::Decompress);
-      if (subLen != static_cast<uint16_t>(6 + chunkCount * 2)) return fail(ExtractError::Decompress);
-
-      info->chunkLength = chunkLen;
-      // vector reserve() aborts under -fno-exceptions if it can't allocate;
-      // refuse up front (like Dictionary::readDefinition's guard) so a fragmented
-      // heap surfaces LowMemory instead of crashing. chunkCount <= MAX_CHUNK_COUNT
-      // caps this at ~32KB.
-      const size_t chunkTableBytes = (static_cast<size_t>(chunkCount) + 1) * sizeof(uint32_t);
-      if (ESP.getMaxAllocHeap() < chunkTableBytes + CHUNK_TABLE_HEAP_HEADROOM_BYTES)
-        return fail(ExtractError::LowMemory);
-      info->chunkOffsets.reserve(static_cast<size_t>(chunkCount) + 1);
-      info->chunkOffsets.push_back(0);
-      uint32_t cumulative = 0;
-      for (uint16_t i = 0; i < chunkCount; i++) {
-        uint16_t compLen = 0;
-        if (!readLe16(file, &compLen)) return fail(ExtractError::ReadError);
-        extraRead += 2;
-        cumulative += compLen;
-        info->chunkOffsets.push_back(cumulative);
-      }
-      foundRa = true;
-    } else {
-      if (!file.seekSet(file.position() + subLen)) return fail(ExtractError::ReadError);
-      extraRead += subLen;
-    }
+  const bb_dictzip_file zip = zipFileOf(file);
+  bb_dictzip_header header{};
+  const uint8_t result = bb_dictzip_parse(
+      &zip,
+      [](void* context, const size_t len) -> uint32_t* {
+        // vector growth aborts under -fno-exceptions if it can't allocate;
+        // refuse up front (like Dictionary::readDefinition's guard) so a
+        // fragmented heap surfaces LowMemory instead of crashing.
+        if (ESP.getMaxAllocHeap() < len * sizeof(uint32_t) + CHUNK_TABLE_HEAP_HEADROOM_BYTES) return nullptr;
+        auto& offsets = static_cast<Info*>(context)->chunkOffsets;
+        offsets.resize(len);
+        return offsets.data();
+      },
+      info, &header);
+  if (result != BB_DICTZIP_OK) {
+    *info = {};  // nothing partial, and the table's memory back
+    return fail(errorOf(result));
   }
-  if (extraRead != xlen || !foundRa) return fail(ExtractError::Decompress);
-
-  if (flags & 0x08) {  // FNAME
-    int b;
-    do {
-      b = file.read();
-      if (b < 0) return fail(ExtractError::ReadError);
-    } while (b != 0);
-  }
-  if (flags & 0x10) {  // FCOMMENT
-    int b;
-    do {
-      b = file.read();
-      if (b < 0) return fail(ExtractError::ReadError);
-    } while (b != 0);
-  }
-  if (flags & 0x02) {  // FHCRC
-    uint8_t crc[2];
-    if (file.read(crc, 2) != 2) return fail(ExtractError::ReadError);
-  }
-
-  info->dataOffset = static_cast<uint32_t>(file.position());
-  const uint32_t fileSize = static_cast<uint32_t>(file.fileSize());
-  if (fileSize < 4) return fail(ExtractError::Decompress);
-  if (!file.seekSet(fileSize - 4)) return fail(ExtractError::ReadError);
-  uint8_t isizeRaw[4];
-  if (file.read(isizeRaw, 4) != 4) return fail(ExtractError::ReadError);
-  info->totalSize = static_cast<uint32_t>(isizeRaw[0]) | (static_cast<uint32_t>(isizeRaw[1]) << 8) |
-                    (static_cast<uint32_t>(isizeRaw[2]) << 16) | (static_cast<uint32_t>(isizeRaw[3]) << 24);
-  if (info->totalSize == 0) return fail(ExtractError::Decompress);
+  info->dataOffset = header.data_offset;
+  info->totalSize = header.total_size;
+  info->chunkLength = header.chunk_length;
   info->valid = true;
   return true;
 }
@@ -241,37 +201,25 @@ bool extractEntry(const char* path, uint32_t offset, uint32_t size, HalFile& out
   // a malformed/unsupported .dz is Decompress.
   if (!parse(file, &info, outError)) return false;
 
-  // Reject ranges outside the uncompressed data (offset/size come from the
-  // untrusted .idx). Subtraction form avoids uint32 overflow in offset + size
-  // and guarantees localOffset < chunkOutSize in the loop below.
-  if (offset > info.totalSize || size > info.totalSize - offset) return fail(ExtractError::ReadError);
-
-  const uint32_t startChunk = offset / info.chunkLength;
-  const uint32_t endChunk = (offset + size - 1) / info.chunkLength;
-  if (endChunk + 1 >= info.chunkOffsets.size()) return fail(ExtractError::ReadError);
-
-  uint32_t remaining = size;
-  const uint32_t lastChunk = static_cast<uint32_t>(info.chunkOffsets.size() - 2);
-  for (uint32_t chunk = startChunk; chunk <= endChunk; chunk++) {
-    uint32_t chunkOutSize = info.chunkLength;
-    if (chunk == lastChunk) chunkOutSize = info.totalSize - chunk * info.chunkLength;
-    if (chunkOutSize == 0 || chunkOutSize > info.chunkLength) chunkOutSize = info.chunkLength;
-
-    const uint32_t localOffset = (chunk == startChunk) ? (offset % info.chunkLength) : 0;
-    const uint32_t available = chunkOutSize - localOffset;
-    const uint32_t take = remaining < available ? remaining : available;
-
-    const uint32_t compOffset = info.dataOffset + info.chunkOffsets[chunk];
-    const uint32_t compSize = info.chunkOffsets[chunk + 1] - info.chunkOffsets[chunk];
-    if (!extractChunkSlice(file, compOffset, compSize, localOffset, take, outFile, outError)) return false;
-
-    remaining -= take;
-    if (remaining == 0) break;
-  }
-
-  // Should be exhausted given the bounds check + chunk math above; if not, the
-  // chunk table is inconsistent with the requested range — treat as corrupt.
-  if (remaining != 0) return fail(ExtractError::Decompress);
+  // The chunks the range needs (offset/size come from the untrusted .idx, so a
+  // range outside the text is a ReadError and a table that cannot cover it a
+  // Decompress), each inflated in turn.
+  struct Context {
+    HalFile& file;
+    HalFile& outFile;
+    ExtractError error;
+  } context{file, outFile, ExtractError::None};
+  const bb_dictzip_header header{info.dataOffset, info.totalSize, info.chunkLength};
+  const uint8_t result = bb_dictzip_slices(
+      &header, info.chunkOffsets.data(), info.chunkOffsets.size(), offset, size,
+      [](void* c, const uint32_t compOffset, const uint32_t compSize, const uint32_t skip, const uint32_t take) {
+        auto& [file, outFile, error] = *static_cast<Context*>(c);
+        return extractChunkSlice(file, compOffset, compSize, skip, take, outFile, &error) ? uint8_t{BB_DICTZIP_OK}
+                                                                                          : resultOf(error);
+      },
+      &context);
+  // A slice's own cause comes back through its result.
+  if (result != BB_DICTZIP_OK) return fail(errorOf(result));
   return true;
 }
 

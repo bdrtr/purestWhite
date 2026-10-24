@@ -1,8 +1,9 @@
 //! `StarDict` dictionaries (src/util/Dictionary): the `.ifo` facts the reader needs, the sampled-offset
 //! sidecars (`.qidx` over `.idx`, `.sidx` over `.syn`: the byte offset of every 256th entry) and
 //! their scan, the lookups that bisect a sidecar and scan at most 256 entries from there, and the
-//! cleaning and English stem variants of a looked-up word. Files are read through [`Source`];
-//! opening them, memory and the definitions themselves are the caller's.
+//! cleaning and English stem variants of a looked-up word; and [`dictzip`] files' chunk tables.
+//! Files are read through [`Source`]; opening them, memory and the definitions themselves are the
+//! caller's.
 //!
 //! Nothing here panics.
 #![no_std]
@@ -11,6 +12,8 @@
 #![forbid(unsafe_code)]
 
 use core::cmp::Ordering;
+
+pub mod dictzip;
 
 /// Entries between two samples of a sidecar.
 pub const SAMPLE_INTERVAL: u32 = 256;

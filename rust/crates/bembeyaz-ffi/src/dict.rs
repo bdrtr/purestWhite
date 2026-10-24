@@ -312,3 +312,138 @@ pub unsafe extern "C" fn bb_dict_stem_variants(
         unsafe { variant(context, v.stem, v.ending.as_ptr(), v.ending.len()) };
     });
 }
+
+use bembeyaz_dict::dictzip::{self, Fail as ZipFail, Slice};
+
+/// dict.h's `bb_dictzip_file`.
+#[repr(C)]
+pub struct CZipFile {
+    read: Option<unsafe extern "C" fn(file: *mut c_void, buf: *mut u8, len: usize) -> i32>,
+    seek: Option<unsafe extern "C" fn(file: *mut c_void, pos: u32) -> bool>,
+    position: Option<unsafe extern "C" fn(file: *mut c_void) -> u32>,
+    size: u32,
+    file: *mut c_void,
+}
+
+impl dictzip::File for &CZipFile {
+    fn read_exact(&mut self, buf: &mut [u8]) -> bool {
+        let Some(read) = self.read else {
+            return false;
+        };
+        // SAFETY: dict.h's contract for `read` and `file`; `buf` is writable for its length.
+        let n = unsafe { read(self.file, buf.as_mut_ptr(), buf.len()) };
+        usize::try_from(n).is_ok_and(|n| n == buf.len())
+    }
+
+    fn seek(&mut self, pos: u32) -> bool {
+        // SAFETY: dict.h's contract for `seek` and `file`.
+        self.seek
+            .is_some_and(|seek| unsafe { seek(self.file, pos) })
+    }
+
+    fn position(&self) -> u32 {
+        // SAFETY: dict.h's contract for `position` and `file`.
+        self.position
+            .map_or(0, |position| unsafe { position(self.file) })
+    }
+
+    fn size(&self) -> u32 {
+        self.size
+    }
+}
+
+/// dict.h's `bb_dictzip_header`.
+#[repr(C)]
+pub struct CZipHeader {
+    data_offset: u32,
+    total_size: u32,
+    chunk_length: u16,
+}
+
+const _: () = assert!(size_of::<CZipHeader>() == 12 && size_of::<CZipFile>() == 5 * P);
+
+/// dict.h's BB_DICTZIP_* results.
+fn code(result: Result<(), ZipFail>) -> u8 {
+    match result {
+        Ok(()) => 0,
+        Err(ZipFail::Read) => 1,
+        Err(ZipFail::Corrupt) => 2,
+        Err(ZipFail::Memory) => 3,
+    }
+}
+
+/// # Safety
+/// `file` is valid as dict.h describes, read from the file's start; `table` is callable with
+/// `context` and returns NULL or room for the offsets it was asked for, used by nothing else until
+/// this returns; `out` is writable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_dictzip_parse(
+    file: *const CZipFile,
+    table: Option<unsafe extern "C" fn(context: *mut c_void, len: usize) -> *mut u32>,
+    context: *mut c_void,
+    out: *mut CZipHeader,
+) -> u8 {
+    // SAFETY: as documented.
+    let (Some(mut f), Some(table)) = (unsafe { file.as_ref() }, table) else {
+        return code(Err(ZipFail::Read));
+    };
+    let result = dictzip::parse(&mut f, |len| {
+        // SAFETY: as documented.
+        let at = unsafe { table(context, len) };
+        // SAFETY: as documented: NULL or `len` writable offsets.
+        (!at.is_null()).then(|| unsafe { core::slice::from_raw_parts_mut(at, len) })
+    });
+    if let Ok(h) = result {
+        // SAFETY: as documented.
+        unsafe {
+            out.write(CZipHeader {
+                data_offset: h.data_offset,
+                total_size: h.total_size,
+                chunk_length: h.chunk_length,
+            });
+        }
+    }
+    code(result.map(|_| ()))
+}
+
+/// # Safety
+/// `header` is valid; `table` is NULL or holds `len` offsets; `slice` is callable with `context`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_dictzip_slices(
+    header: *const CZipHeader,
+    table: *const u32,
+    len: usize,
+    offset: u32,
+    size: u32,
+    slice: Option<
+        unsafe extern "C" fn(
+            context: *mut c_void,
+            offset: u32,
+            size: u32,
+            skip: u32,
+            take: u32,
+        ) -> u8,
+    >,
+    context: *mut c_void,
+) -> u8 {
+    // SAFETY: as documented.
+    let (Some(h), Some(slice)) = (unsafe { header.as_ref() }, slice) else {
+        return code(Err(ZipFail::Read));
+    };
+    let header = dictzip::Header {
+        data_offset: h.data_offset,
+        total_size: h.total_size,
+        chunk_length: h.chunk_length,
+    };
+    // SAFETY: as documented.
+    let table = unsafe { crate::view(table, len) };
+    code(dictzip::slices(&header, table, offset, size, |s: Slice| {
+        // SAFETY: as documented.
+        match unsafe { slice(context, s.offset, s.size, s.skip, s.take) } {
+            0 => Ok(()),
+            1 => Err(ZipFail::Read),
+            3 => Err(ZipFail::Memory),
+            _ => Err(ZipFail::Corrupt),
+        }
+    }))
+}

@@ -1967,3 +1967,25 @@ konan 16 hatanın hepsi yakalandı. Emülatörde sözlük açılamadığı için
 - [ ] OPDS kataloğunda HTML açıklamalı bir kitabın Details (Ayrıntılar) ekranı bellek azken (ör.
   büyük bir kitap okunurken açılan katalogda) düz metne düşerse açıklama eskisi gibi tek parça,
   etiketsiz ve varlıkları çözülmüş görünmeli.
+
+## Dictzip başlığı ve parça planı Rust'ta ("rust: our own dictzip tables")
+
+`.dict.dz` sözlüklerinde (dictzip: bağımsız sıkıştırılmış parçalar) gzip başlığının ve `RA` parça
+tablosunun okunması (FEXTRA alanları, sürüm, parça boyu ve sayısı, en çok 8192 parça, alan
+uzunluklarının tutması, ad, açıklama ve başlık CRC'si, sondaki ISIZE) ile bir tanımın hangi
+parçalardan, her birinin ne kadarı atlanıp ne kadarı alınarak okunacağı artık `bembeyaz-dict`'in
+`dictzip` modülünde. Parça tablosunun belleği ve öncesindeki yığın denetimi, parçaların açılması
+(InflateStream) ve dosya C++'ta. Mevcut 8 DictZip testi gerçek bir sözlük dosyasıyla değişmeden
+geçiyor; eski başlık okuyucusu olduğu gibi, parça döngüsü yalnızca parçanın açılması bir geri
+çağrıya çevrilerek `test/dict_zip`'e kopyalandı ve 20000
+rastgele başlıkta (bozuk sihirli bayt, eksik FEXTRA, başka alanlar, iki `RA`, yanlış sürüm, sıfır ya
+da 8192'yi aşan parça sayısı, tutmayan uzunluklar, ad, açıklama, CRC, sıfır ISIZE, kesik dosya,
+okuma hatası, parça tablosuna yetmeyen bellek) sonuç, hata türü ve tablo aynı; geçerli başlıklarda
+70 binden fazla aralığın parça planı (atlanan ve alınan bayt, kimi zaman bir parçanın açılması
+başarısız olarak) da aynı. Koda bilerek konan 24 hatanın 19'u yakalandı; kalan 5'i sonucu
+değiştirmiyor (ulaşılamayan ya da gereksiz dallar). Emülatörde sözlük açılamadığı için yalnızca okuma senaryosu bir
+önceki sürümle karşılaştırıldı. Ayrıştırma başarısız olursa yarım parça tablosu artık hemen bırakılıyor. Crate'in dictzip için de
+mini-fuzz testi var. Flash x4pro'da 528, x4c'de 520 bayt büyüdü, statik RAM değişmedi.
+
+- [ ] `.dict.dz` sıkıştırılmış bir StarDict sözlüğünde Sözlükte Ara ile birkaç sözcük arayın
+  (kısa ve uzun tanımlar, sözlüğün başından ve sonundan sözcükler): tanımlar eskisi gibi gelmeli.
