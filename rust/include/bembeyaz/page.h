@@ -138,6 +138,16 @@ bool bb_page_write_border_box(const bb_section_sink* sink, uint32_t* at, int16_t
 bool bb_page_write_notes(const bb_section_sink* sink, uint32_t* at, const bb_page_footnote* footnotes,
                          size_t footnote_count, const bb_page_link* links, size_t link_count);
 
+// When a chapter's page break moves its last lines (from top down) to the next page: moves the
+// links that reach below top to the end of links, both groups in order, and returns how many stay.
+size_t bb_page_split_links(bb_page_link* links, size_t count, int16_t top);
+// Then hands moved, in order, each of the page's notes that a carried link refers to (by href),
+// and keeps at the front, in order, the notes that a staying link refers to or no carried one
+// does; returns how many stay.
+size_t bb_page_split_footnotes(bb_page_footnote* notes, size_t count, const bb_page_link* staying,
+                               size_t staying_count, const bb_page_link* carried, size_t carried_count,
+                               void (*moved)(void* context, const bb_page_footnote* note), void* context);
+
 #ifdef __cplusplus
 }
 #endif

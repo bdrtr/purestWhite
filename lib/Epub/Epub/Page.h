@@ -162,6 +162,11 @@ class Page {
     return true;
   }
 
+  // A page break moves this page's last lines, from top down, to the top of next: moves there the
+  // links that reach below top, shifted up by top, and gives next the footnotes they refer to,
+  // dropping from this page those that no remaining link refers to.
+  void moveNotesBelow(int16_t top, Page& next);
+
   void render(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) const;
   void renderImages(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) const;
   void renderWithImagePlaceholders(GfxRenderer& renderer, int fontId, int xOffset, int yOffset) const;

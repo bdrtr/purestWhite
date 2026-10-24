@@ -2065,3 +2065,27 @@ statik RAM değişmedi.
 - [ ] Resimlerine CSS ile genişlik ya da yükseklik veren bir EPUB'da (ör. `width: 50%` ya da
   `height: 10em`) resimli sayfalara bakın: resimler eskisi gibi büyüklükte ve oranları bozulmadan
   görünmeli, sayfadan taşmamalı.
+
+## Sayfa sonunda taşınan bağlantılar ve dipnotlar Rust'ta ("rust: our own carried links and footnotes")
+
+Bölüm ayrıştırıcısı bir sayfayı kırarken son satırlarından bazılarını sonraki sayfaya taşıdığında
+(paragrafın yalnız kalan satırları, başlıklar) o satırlardaki bağlantılar da taşınır: taşınan
+satırların üstünün altına uzanan bağlantılar sonraki sayfaya geçer, gösterdikleri dipnotlar da
+sonraki sayfanın dipnotları olur; bir dipnotu sayfada kalan bir bağlantı da gösteriyorsa dipnot iki
+sayfada da yer alır. Bu ayırma artık `bembeyaz-section`'ın yeni `notes` modülünde (ABI'si
+`page.h`'ta); bağlantılar ve dipnotlar sırasını korur ve ayırma yerinde, ek bellek ayırmadan
+yapılır. Taşınan bağlantıları yeni sayfaya kaydırarak eklemek `Page::moveNotesBelow`'da (eskiden
+taşınan bağlantılar için ayrılan ara liste artık yok), satırları taşımak ayrıştırıcıda, C++'ta
+kaldı. Toplam
+1067 host testi geçiyor. Bölüm ayrıştırıcısının fark testi (iç bağlantılar dipnot üretir) 10 000
+rastgele bölümde eski ve yeni sayfaları bayt bayt aynı buldu. Koda bilerek konan 10 hatanın 7'sini
+bu test, 2'sini crate testleri yakaladı (birine test eklendi: bağlantılar sayfaya yukarıdan aşağı
+eklendiği için taşınanlar zaten sonda durur ve fark testi sıra bozulmasını göremez); kalanı sonucu
+değiştirmiyor. Emülatörde dipnotlu CSS kitabı ve heceleme kitabı bir önceki sürümle piksel piksel
+aynı. Flash x4pro'da 812, x4c'de 648 bayt büyüdü, statik RAM değişmedi.
+
+- [ ] Dipnotlu bir kitapta, dipnot bağlantısı olan bir satırın sayfa sonunda sonraki sayfaya
+  taşındığı bir yere gelin (ör. paragrafın son satırı): bağlantıya dokununca (Dokunmatik okuyucu
+  kontrolleri açıkken) dipnot eskisi gibi açılmalı; dipnot, taşınan satırın geldiği sayfada
+  menüdeki "Bağlantılar ve dipnotlar" listesinde görünmeli, önceki sayfanın listesinde ise yalnızca
+  orada da onu gösteren bir bağlantı varsa görünmeli.

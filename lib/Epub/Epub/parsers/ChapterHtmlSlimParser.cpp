@@ -2337,7 +2337,6 @@ void ChapterHtmlSlimParser::breakPageCarryingLines(const size_t carry, const siz
   }
   std::unique_ptr<PageElement> carried[MAX_CARRIED_LINES];
   uint32_t carriedOffsets[MAX_CARRIED_LINES] = {};
-  std::vector<PageLink> carriedLinks;
   int16_t carriedTop = 0;
   const int16_t carriedBottom = currentPageNextY;
   for (size_t i = 0; i < carry; ++i) {
@@ -2347,29 +2346,7 @@ void ChapterHtmlSlimParser::breakPageCarryingLines(const size_t carry, const siz
   }
   if (carry > 0) {
     carriedTop = carried[0]->yPos;
-    auto& links = currentPage->links;
-    for (auto it = links.begin(); it != links.end();) {
-      if (it->y + it->height > carriedTop) {
-        if (carriedLinks.empty()) carriedLinks.reserve(links.size());
-        carriedLinks.push_back(*it);
-        it = links.erase(it);
-      } else {
-        ++it;
-      }
-    }
-    auto& footnotes = currentPage->footnotes;
-    for (auto it = footnotes.begin(); it != footnotes.end();) {
-      const auto refersToNote = [&it](const PageLink& link) { return strcmp(link.href, it->href) == 0; };
-      if (std::any_of(carriedLinks.begin(), carriedLinks.end(), refersToNote)) {
-        if (nextPage->footnotes.empty()) nextPage->footnotes.reserve(footnotes.size());
-        nextPage->addFootnote(it->number, it->href);
-        if (std::none_of(links.begin(), links.end(), refersToNote)) {
-          it = footnotes.erase(it);
-          continue;
-        }
-      }
-      ++it;
-    }
+    currentPage->moveNotesBelow(carriedTop, *nextPage);
   }
 
   setCurrentPageVisibleOffset(visibleOffset);
@@ -2388,9 +2365,6 @@ void ChapterHtmlSlimParser::breakPageCarryingLines(const size_t carry, const siz
   if (carry > 0) {
     currentPageNextY = static_cast<int16_t>(carriedBottom - carriedTop);
     noteContent(0, currentPageNextY);
-  }
-  for (const PageLink& link : carriedLinks) {
-    currentPage->addLink(link.href, link.x, static_cast<int16_t>(link.y - carriedTop), link.width, link.height);
   }
   paragraphLinesOnPage = static_cast<uint8_t>(paragraphLines);
 }

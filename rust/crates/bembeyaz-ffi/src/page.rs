@@ -422,3 +422,44 @@ pub unsafe extern "C" fn bb_page_write_notes(
     // SAFETY: as documented.
     unsafe { write_with(sink, at, |s, a| page::write_notes(s, a, footnotes, links)) }
 }
+
+/// # Safety
+/// `links` is NULL or holds `count` links, used by nothing else during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_page_split_links(links: *mut Link, count: usize, top: i16) -> usize {
+    // SAFETY: as documented.
+    bembeyaz_section::notes::split_links(unsafe { crate::view_mut(links, count) }, top)
+}
+
+type FootnoteSink = unsafe extern "C" fn(*mut c_void, *const Footnote);
+
+/// # Safety
+/// `notes` is NULL or holds `count` footnotes, used by nothing else during the call; `staying`
+/// and `carried` are NULL or hold their counts of links; `moved` takes the footnote it is handed
+/// for the call only.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_page_split_footnotes(
+    notes: *mut Footnote,
+    count: usize,
+    staying: *const Link,
+    staying_count: usize,
+    carried: *const Link,
+    carried_count: usize,
+    moved: Option<FootnoteSink>,
+    context: *mut c_void,
+) -> usize {
+    // SAFETY: as documented.
+    let (notes, staying, carried) = unsafe {
+        (
+            crate::view_mut(notes, count),
+            view(staying, staying_count),
+            view(carried, carried_count),
+        )
+    };
+    bembeyaz_section::notes::split_footnotes(notes, staying, carried, |note| {
+        if let Some(moved) = moved {
+            // SAFETY: as documented.
+            unsafe { moved(context, note) };
+        }
+    })
+}

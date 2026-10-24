@@ -256,6 +256,30 @@ bb_page_builder pageBuilder(PageBuilder& page) {
 }
 }  // namespace
 
+void Page::moveNotesBelow(const int16_t top, Page& next) {
+  auto* const all = reinterpret_cast<bb_page_link*>(links.data());
+  const size_t staying = bb_page_split_links(all, links.size(), top);
+  struct Target {
+    Page& page;
+    size_t room;
+  } target{next, footnotes.size()};
+  const size_t kept = bb_page_split_footnotes(
+      reinterpret_cast<bb_page_footnote*>(footnotes.data()), footnotes.size(), all, staying, all + staying,
+      links.size() - staying,
+      [](void* context, const bb_page_footnote* note) {
+        auto& t = *static_cast<Target*>(context);
+        if (t.page.footnotes.empty()) t.page.footnotes.reserve(t.room);
+        t.page.addFootnote(note->number, note->href);
+      },
+      &target);
+  footnotes.resize(kept);
+  for (size_t i = staying; i < links.size(); ++i) {
+    const PageLink& link = links[i];
+    next.addLink(link.href, link.x, static_cast<int16_t>(link.y - top), link.width, link.height);
+  }
+  links.resize(staying);
+}
+
 bool Page::serialize(HalFile& file) const {
   const bb_section_sink sink = file_io::sinkOf(file);
   auto at = static_cast<uint32_t>(file.position());
