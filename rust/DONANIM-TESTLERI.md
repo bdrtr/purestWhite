@@ -2320,6 +2320,10 @@ bozar.
   "esp-rtos: basladi", saat (UTC, doğru olmalı), pil yüzdesi (başlıktakine yakın),
   "zamanlayici: 10 s = saat 10 s" (9–11 s olağan) ve "bitti" bekleniyor; "PANIK"
   ya da eksik satırlar nerede durduğunu gösterir.
+- İlk iki denemede rapor gelmedi, büyük olasılıkla şundan: imaj sistem sıfırlamasıyla bitiyordu, bu sıfırlama GPIO1'i
+  bıraktı ve pildeki cihaz kapandı (güç kesilince RTC'deki rapor da silinir). İmajlar artık GPIO1'i
+  pin tutmayla (pad hold) sıfırlamadan geçirir; bekçi de RTC bölgesine dokunmayan sıfırlamayı
+  kullanır.
 - [ ] Deneme sırasında cihazı kapatmayın: rapor RTC belleğinde bekler ve güç kesilince silinir.
   Ana ekran gelene kadar (en çok 60 saniye) dokunmadan bekleyin.
 - [ ] Her denemeden önce eski `purestwhite-bare-metal.txt`'yi silin. Dosya oluşmadıysa imaj

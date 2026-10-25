@@ -6,8 +6,9 @@
 use esp_bootloader_esp_idf::partitions::{
     FlashStorage, PARTITION_TABLE_MAX_LEN, PartitionEntry, read_partition_table,
 };
-use esp_hal::peripherals::{CPU_CTRL, FLASH, RTC_TIMER};
-use esp_hal::rtc_cntl::{Rtc, RwdtStage};
+use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::peripherals::{CPU_CTRL, FLASH, GPIO1, RTC_TIMER};
+use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
 use esp_hal::system::{Cpu, CpuControl};
 use esp_hal::time::Duration;
 
@@ -18,15 +19,28 @@ const REPORT_ADDR: usize = 0x5000_1F00;
 const REPORT_MAGIC: u32 = 0x5057_4254; // "PWBT"
 const REPORT_TEXT: usize = 248;
 
-/// Arms the RTC watchdog to reset the whole system in 60 s, before anything that could hang: the
-/// device has no reset button, its power button is read by the firmware.
+/// Arms the RTC watchdog to reset the chip in 60 s, before anything that could hang: the device
+/// has no reset button, its power button is read by the firmware. The reset spares the RTC
+/// domain, so the report and the power latch's pad hold (see `hold_power_latch`) survive it.
 #[must_use = "keep the RTC driver for the rest of the run"]
 pub fn arm_watchdog(rtc_timer: RTC_TIMER<'_>) -> Rtc<'_> {
     let mut rtc = Rtc::new(rtc_timer);
     rtc.rwdt
         .set_timeout(RwdtStage::Stage0, Duration::from_secs(60));
     rtc.rwdt.enable();
+    rtc.rwdt
+        .set_stage_action(RwdtStage::Stage0, RwdtStageAction::ResetCore);
     rtc
+}
+
+/// Raises the X4 Pro's power latch (GPIO1) and holds its pad: on battery the device turns off as
+/// soon as the latch floats, and a system reset releases every pin it does not hold. The C++
+/// firmware releases the hold at boot (`BoardConfig::holdPowerRails`).
+#[must_use = "keep the pin for the rest of the run"]
+pub fn hold_power_latch(pin: GPIO1<'_>) -> Output<'_> {
+    let mut latch = Output::new(pin, Level::High, OutputConfig::default());
+    latch.set_pad_hold(true);
+    latch
 }
 
 // An otadata entry, as ESP-IDF's bootloader reads it: the highest sequence number among the two

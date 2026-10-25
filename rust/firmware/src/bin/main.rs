@@ -20,7 +20,7 @@ use esp_hal::i2c::master::{Config as I2cConfig, I2c, SoftwareTimeout};
 use esp_hal::time::{Duration, Rate};
 use esp_hal::timer::systimer::SystemTimer;
 use log::info;
-use purestwhite_firmware::{Report, arm_watchdog, hand_back};
+use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
 
 extern crate alloc;
 
@@ -53,9 +53,7 @@ async fn main(spawner: Spawner) -> ! {
     let _ = spawner;
     let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
     let _rtc = arm_watchdog(peripherals.RTC_TIMER);
-    // The board's power latch, which the C++ firmware raises first thing: on battery the device
-    // turns off while it floats.
-    let _latch = Output::new(peripherals.GPIO1, Level::High, OutputConfig::default());
+    let _latch = hold_power_latch(peripherals.GPIO1);
     // A report at once, so a panic from here on is not added to an older one.
     let mut report = Report::default();
     let _ = writeln!(report, "purestWhite bare-metal deneme");

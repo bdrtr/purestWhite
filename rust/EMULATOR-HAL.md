@@ -92,3 +92,6 @@ birimi alanına (0x6002_9xxx) kayar, kesme girişleri yazmaç pencerelerini SDMM
 (denenen sürümler: esp-hal 1.2.2, esp-rtos 0.4.0); esp-rtos'un S3'te kullandığı CPU-içi Software0
 kesmesinin (1. seviye) emülasyonundaki bir eksiklik olabilir. Embassy kullanan her şey bu düzelene
 kadar yalnızca cihazda denenebilir.
+
+eink-qemu'nun RTC_CNTL modelinde RTC bekçisi (RWDT) ve güç mandalı yok: bekçinin sıfırlaması da,
+pildeyken GPIO1 boşa düşünce cihazın kapanması da emülatörde görülmez, yalnızca cihazda.
