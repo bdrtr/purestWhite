@@ -2,6 +2,7 @@
 
 #include <HalStorage.h>
 #include <XmlParser.h>
+#include <bembeyaz/chapter.h>
 #include <bembeyaz/css.h>
 #include <bembeyaz/html.h>
 #include <bembeyaz/pager.h>
@@ -12,10 +13,11 @@
 #include <cstddef>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
-#include "Epub/FootnoteEntry.h"
 #include "Epub/ParsedText.h"
 #include "Epub/blocks/ImageBlock.h"
 #include "Epub/blocks/TextBlock.h"
@@ -169,9 +171,10 @@ class ChapterHtmlSlimParser {
   std::vector<ListContext> listStack;
 
   // Anchor-to-page mapping: tracks which page each HTML id attribute lands on
-  std::vector<std::pair<std::string, uint16_t>> anchorData;
-  std::string pendingAnchorId;          // deferred until after previous text block is flushed
-  std::vector<std::string> tocAnchors;  // the list of anchors that are TOC chapter boundaries
+  // Which page each element id lands on, and the note references waiting for their page
+  // (bembeyaz-chapter's).
+  bb_anchors anchors{};
+  bb_footnotes notes{};
   uint16_t xpathParagraphIndex = 0;
   uint16_t xpathListItemIndex = 0;
   // Canonical reading-position counter: zero-based Unicode codepoints in visible
@@ -188,9 +191,6 @@ class ChapterHtmlSlimParser {
   bool insideFootnoteLink = false;
   int footnoteLinkDepth = -1;
   uint8_t currentFootnoteLinkId = 0;
-  FootnoteEntry currentFootnote = {};
-  int currentFootnoteLinkTextLen = 0;
-  std::vector<std::pair<int, FootnoteEntry>> pendingFootnotes;  // <wordIndex, entry>
   int wordsExtractedInBlock = 0;
   // Latched when a ParsedText could not be created (OOM). Together with
   // ParsedText::hadDroppedWords() this turns layout OOM into ParseStatus::Error
@@ -212,6 +212,7 @@ class ChapterHtmlSlimParser {
   void updateEffectiveInlineStyle();
   void startNewTextBlock(const BlockStyle& blockStyle, bool paragraphEnd = true);
   void flushPendingAnchor();
+  void addFootnotesToPage(int32_t words);
   void completeCurrentPage();
   void openBoxScope(BlockStyle& ownStyle, const CssStyle& cssStyle);
   void closeBoxScope();
@@ -277,10 +278,16 @@ class ChapterHtmlSlimParser {
         embeddedStyle(embeddedStyle),
         imageRendering(imageRendering),
         contentBase(contentBase),
-        imageBasePath(imageBasePath),
-        tocAnchors(std::move(tocAnchors)) {
+        imageBasePath(imageBasePath) {
     bb_pager_init(&pager, viewportHeight);
+    bb_anchors_init(&anchors);
+    bb_footnotes_init(&notes);
+    for (const auto& anchor : tocAnchors) {
+      if (!bb_anchors_add_toc(&anchors, anchor.data(), anchor.size())) layoutOom = true;
+    }
   }
+  ChapterHtmlSlimParser(const ChapterHtmlSlimParser&) = delete;
+  ChapterHtmlSlimParser& operator=(const ChapterHtmlSlimParser&) = delete;
 
   ~ChapterHtmlSlimParser();
   void setTextSpacing(const int8_t character, const uint8_t wordPercent) {
@@ -304,7 +311,10 @@ class ChapterHtmlSlimParser {
   void abortParse();   // tear down without flushing (error / abandon)
 
   void addLineToPage(std::unique_ptr<TextBlock> line, uint32_t visibleOffset);
-  const std::vector<std::pair<std::string, uint16_t>>& getAnchors() const { return anchorData; }
+  // The anchors placed so far, in order: the i-th's id and page.
+  size_t anchorCount() const { return bb_anchors_len(&anchors); }
+  std::string_view anchorAt(size_t i, uint16_t& page) const;
+  std::optional<uint16_t> findAnchor(std::string_view name) const;
 
   // Byte progress of the in-flight parse, used to estimate a still-building section's total page
   // count (a giant single-spine book never fully lays out, so its real count is unknown). Valid

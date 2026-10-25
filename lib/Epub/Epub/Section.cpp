@@ -56,13 +56,10 @@ static_assert(sizeof(bb_section_spec) == 24 && offsetof(bb_section_spec, word_sp
                   offsetof(bb_section_loaded, version) == 12 && sizeof(bb_section_watermark) == 8,
               "bb_section layout");
 
-using Anchors = std::remove_reference_t<decltype(std::declval<const ChapterHtmlSlimParser&>().getAnchors())>;
-
 const char* anchorAt(void* context, const size_t i, size_t* len, uint16_t* page) {
-  const auto& anchor = (*static_cast<const Anchors*>(context))[i];
-  *len = anchor.first.size();
-  *page = anchor.second;
-  return anchor.first.data();
+  const std::string_view anchor = static_cast<const ChapterHtmlSlimParser*>(context)->anchorAt(i, *page);
+  *len = anchor.size();
+  return anchor.data();
 }
 
 // Runs a bembeyaz-section lookup on the committed file.
@@ -423,10 +420,7 @@ bool Section::hasHtmlCache() const {
 
 std::optional<uint16_t> Section::findAnchorDuringBuild(const std::string_view anchor) const {
   if (!build_ || !build_->parser) return std::nullopt;
-  for (const auto& [key, page] : build_->parser->getAnchors()) {
-    if (key == anchor) return page;
-  }
-  return std::nullopt;
+  return build_->parser->findAnchor(anchor);
 }
 
 std::optional<uint16_t> Section::findAnchor(const std::string& anchor) const {
@@ -472,7 +466,10 @@ int Section::getTocIndexForPage(const int page) const {
   };
   const auto resolveBatch = [&]() {
     if (build_ && build_->parser) {
-      for (const auto& [anchor, anchorPage] : build_->parser->getAnchors()) {
+      const ChapterHtmlSlimParser& parser = *build_->parser;
+      for (size_t i = 0; i < parser.anchorCount(); ++i) {
+        uint16_t anchorPage = 0;
+        const std::string_view anchor = parser.anchorAt(i, anchorPage);
         considerAnchor(anchor, anchorPage, false);
       }
     }
@@ -563,12 +560,12 @@ bool Section::commitBuildFile(const bool asPartial, const uint32_t bytesConsumed
     return false;
   };
 
-  const Anchors& anchors = build_->parser->getAnchors();
+  const ChapterHtmlSlimParser& parser = *build_->parser;
   const bb_section_sink sink = file_io::sinkOf(file);
   const bb_section_watermark watermark{bytesConsumed, totalBytes};
   const int result = bb_section_commit(
-      &sink, static_cast<uint32_t>(file.position()), build_->lut.data(), build_->lut.size(), anchors.size(), anchorAt,
-      const_cast<void*>(static_cast<const void*>(&anchors)), asPartial ? &watermark : nullptr);
+      &sink, static_cast<uint32_t>(file.position()), build_->lut.data(), build_->lut.size(), parser.anchorCount(),
+      anchorAt, const_cast<void*>(static_cast<const void*>(&parser)), asPartial ? &watermark : nullptr);
   if (result == BB_SECTION_MISSING_PAGE) {
     LOG_ERR("SCT", "Failed to write LUT due to invalid page positions");
     return failCommit();

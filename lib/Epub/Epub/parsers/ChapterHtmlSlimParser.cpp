@@ -39,13 +39,6 @@ constexpr size_t TEXT_BLOCK_SOFT_FLUSH_WORDS = 750;
 // page at font size 14
 constexpr size_t TEXT_BLOCK_SOFT_FLUSH_WORDS_WITH_CSS = 320;
 
-// Hard cap on the number of anchor IDs recorded per chapter. Legitimate navigation
-// anchors (TOC entries, footnotes, cross-references) rarely exceed a few hundred per
-// chapter. A runaway count usually means a converter injected machine-generated IDs on
-// every text fragment (e.g. Kobo KePub spans). The cap prevents unbounded heap growth
-// on resource-constrained devices (~380KB heap). TOC anchors bypass this cap.
-constexpr size_t MAX_ANCHORS_PER_CHAPTER = 1024;
-
 // Reuse serializable PageLine/PageHorizontalRule elements for a small grid.
 constexpr int16_t TABLE_CELL_HORIZONTAL_PADDING = 4;
 constexpr uint8_t TABLE_ROW_SEPARATOR_THICKNESS = 1;
@@ -161,20 +154,20 @@ void ChapterHtmlSlimParser::updateEffectiveInlineStyle() {
   }
 }
 
+// The previous block is on its pages: the waiting id lands on the current page (a new one when a
+// table-of-contents chapter starts there).
 void ChapterHtmlSlimParser::flushPendingAnchor() {
-  if (pendingAnchorId.empty()) return;
+  const bb_pages pages = pageCallbacks();
+  if (!bb_anchors_place_pending(&anchors, &pager, &pages)) layoutOom = true;
+}
 
-  // If the pending anchor is a TOC chapter boundary, force a page break after the previous
-  // block is flushed so the chapter starts on a fresh page.
-  if (std::find(tocAnchors.begin(), tocAnchors.end(), pendingAnchorId) != tocAnchors.end()) {
-    if (bb_pager_has_content(&pager)) {
-      completeCurrentPage();
-    }
-  }
-
-  // Record deferred anchor after previous block is flushed (and any TOC page break)
-  anchorData.push_back({std::move(pendingAnchorId), bb_pager_completed(&pager)});
-  pendingAnchorId.clear();
+// Each page gets the note references shown on it.
+void ChapterHtmlSlimParser::addFootnotesToPage(const int32_t words) {
+  if (!currentPage) return;
+  bb_footnotes_take(
+      &notes, words,
+      [](void* page, const char* number, const char* href) { static_cast<Page*>(page)->addFootnote(number, href); },
+      currentPage.get());
 }
 
 // The pager places content; the pages and their elements are made here. A page or box that cannot
@@ -235,6 +228,8 @@ bb_pages ChapterHtmlSlimParser::pageCallbacks() {
   };
 }
 
+static_assert(FOOTNOTE_NUMBER_LEN == BB_FOOTNOTE_NUMBER_LEN && FOOTNOTE_HREF_LEN == BB_FOOTNOTE_HREF_LEN,
+              "bembeyaz-chapter keeps what FootnoteEntry holds");
 static_assert(sizeof(bb_pager_line) == 3 && offsetof(bb_pager_line, drop_cap) == 1 &&
                   offsetof(bb_pager_line, last_line) == 2,
               "bb_pager_line layout");
@@ -471,8 +466,8 @@ void ChapterHtmlSlimParser::flushPartWordBuffer() {
 
   uint8_t linkId = 0;
   if (insideFootnoteLink) {
-    if (!currentTextBlock->linkTargetMatches(currentFootnoteLinkId, currentFootnote.href)) {
-      currentFootnoteLinkId = currentTextBlock->addLinkTarget(currentFootnote.href);
+    if (!currentTextBlock->linkTargetMatches(currentFootnoteLinkId, bb_footnotes_href(&notes))) {
+      currentFootnoteLinkId = currentTextBlock->addLinkTarget(bb_footnotes_href(&notes));
     }
     linkId = currentFootnoteLinkId;
   }
@@ -599,10 +594,7 @@ void ChapterHtmlSlimParser::emitHorizontalRule(const BlockStyle& blockStyle) {
   currentPage->elements.push_back(std::move(pageRule));
   bb_pager_rule_added(&pager, ruleThickness, bottomSpacing, visibleTextOffset);
 
-  if (!pendingAnchorId.empty()) {
-    anchorData.push_back({std::move(pendingAnchorId), bb_pager_completed(&pager)});
-    pendingAnchorId.clear();
-  }
+  if (!bb_anchors_record_pending(&anchors, bb_pager_completed(&pager))) layoutOom = true;
 }
 
 void ChapterHtmlSlimParser::fallbackTableRowToStacked() {
@@ -933,28 +925,15 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
       } else if (strcmp(atts[i], "style") == 0) {
         styleAttr = atts[i + 1];
       } else if (strcmp(atts[i], "id") == 0) {
-        // Defer both anchor recording and TOC page breaks until startNewTextBlock,
-        // after the previous block is flushed to pages via makePages().
-        //
-        // Skip IDs on non-navigable inline elements (e.g. <span>): these are never
-        // link targets in epub content, but reading-system converters can inject tens
-        // of thousands of them per chapter, exhausting the heap. TOC anchors are
-        // always recorded regardless of element type, since they drive page breaks.
-        const char* idValue = atts[i + 1];
-        idAttr = idValue;
-        const bool isTocAnchor =
-            std::find(self->tocAnchors.begin(), self->tocAnchors.end(), idValue) != self->tocAnchors.end();
-        if (isTocAnchor ||
-            (!isNonNavigableInlineElement(element) && self->anchorData.size() < MAX_ANCHORS_PER_CHAPTER)) {
-          // Flush a displaced anchor before overwriting. Consecutive non-block elements
-          // (e.g. <aside id="fn1">text</aside><aside id="fn2">) with no intervening block
-          // never trigger startNewTextBlock, so fn1 gets silently overwritten. That leaves
-          // fn1 missing from the anchor map -> getPageForAnchor returns nullopt -> reader
-          // lands at page 0 (section start) instead of the footnote.
-          if (!self->pendingAnchorId.empty()) {
-            self->flushPendingAnchor();
-          }
-          self->pendingAnchorId = idValue;
+        // The id waits until the previous block is on its pages (startNewTextBlock). A displaced
+        // one is placed first: consecutive <aside id="fn1">…</aside><aside id="fn2"> have no
+        // block between them. Ids on spans are never link targets, and converters put one on
+        // every span, so those are dropped unless the table of contents names them.
+        idAttr = atts[i + 1];
+        const bb_pages pages = self->pageCallbacks();
+        if (!bb_anchors_open(&self->anchors, &self->pager, &pages, idAttr, strlen(idAttr),
+                             !isNonNavigableInlineElement(element))) {
+          self->layoutOom = true;
         }
       } else if (strcmp(atts[i], "dir") == 0) {
         dirAttr = atts[i + 1];
@@ -1455,10 +1434,9 @@ void ChapterHtmlSlimParser::startElement(void* userData, const char* name, const
       self->insideFootnoteLink = true;
       self->footnoteLinkDepth = self->depth;
       self->currentFootnoteLinkId = self->currentTextBlock ? self->currentTextBlock->addLinkTarget(href) : 0;
-      self->currentFootnote.href[0] = '\0';
-      if (self->currentFootnoteLinkId != 0) strcpy(self->currentFootnote.href, href);
-      self->currentFootnote.number[0] = '\0';
-      self->currentFootnoteLinkTextLen = 0;
+      // The block keeps the target only when it fits.
+      const char* target = self->currentFootnoteLinkId != 0 ? href : "";
+      if (!bb_footnotes_open(&self->notes, target, strlen(target))) self->layoutOom = true;
 
       // Apply underline style to visually indicate the link.
       bb_css_entry_kind kind{};
@@ -1716,32 +1694,9 @@ void ChapterHtmlSlimParser::characterData(void* userData, const char* s, const i
     self->wordsExtractedInBlock = 0;
   }
 
-  // Collect footnote link display text (for the number label)
-  // Skip whitespace and brackets to normalize noterefs like "[1]" → "1"
+  // A note reference's text is its number ("[1]" is 1).
   if (self->insideFootnoteLink) {
-    int start = 0;
-    int end = len - 1;
-
-    // Example input and output texts:
-    // "     [  12  ]   " => "12"
-    // "   turn to 256  " => "turn to 256"
-
-    // Ignore leading whitespaces and left square brackets
-    while (start < len && (isWhitespace(s[start]) || (s[start] == '['))) {
-      ++start;
-    }
-
-    // Ignore trailing whitespaces and right square brackets
-    while (end >= start && (isWhitespace(s[end]) || (s[end] == ']'))) {
-      --end;
-    }
-
-    // Extract footnote link text
-    for (int i = start; (self->currentFootnoteLinkTextLen < sizeof(self->currentFootnote.number) - 1) && (i <= end);
-         ++i) {
-      self->currentFootnote.number[self->currentFootnoteLinkTextLen++] = s[i];
-    }
-    self->currentFootnote.number[self->currentFootnoteLinkTextLen] = '\0';
+    bb_footnotes_text(&self->notes, s, static_cast<size_t>(std::max(len, 0)));
   }
 
   if (self->inlineSize.valid && !self->inlineSize.open &&
@@ -1910,16 +1865,9 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
 
   // Closing a footnote link — create entry from collected text and href
   if (self->insideFootnoteLink && self->depth == self->footnoteLinkDepth) {
-    if (self->currentFootnote.number[0] != '\0' && self->currentFootnote.href[0] != '\0') {
-      FootnoteEntry entry;
-      strncpy(entry.number, self->currentFootnote.number, sizeof(entry.number) - 1);
-      entry.number[sizeof(entry.number) - 1] = '\0';
-      strncpy(entry.href, self->currentFootnote.href, sizeof(entry.href) - 1);
-      entry.href[sizeof(entry.href) - 1] = '\0';
-      int wordIndex =
-          self->wordsExtractedInBlock + (self->currentTextBlock ? static_cast<int>(self->currentTextBlock->size()) : 0);
-      self->pendingFootnotes.push_back({wordIndex, entry});
-    }
+    const int wordIndex =
+        self->wordsExtractedInBlock + (self->currentTextBlock ? static_cast<int>(self->currentTextBlock->size()) : 0);
+    if (!bb_footnotes_close(&self->notes, wordIndex)) self->layoutOom = true;
     self->insideFootnoteLink = false;
     self->currentFootnoteLinkId = 0;
   }
@@ -2032,7 +1980,23 @@ void ChapterHtmlSlimParser::endElement(void* userData, const char* name) {
   }
 }
 
-ChapterHtmlSlimParser::~ChapterHtmlSlimParser() { abortParse(); }
+ChapterHtmlSlimParser::~ChapterHtmlSlimParser() {
+  abortParse();
+  bb_anchors_free(&anchors);
+  bb_footnotes_free(&notes);
+}
+
+std::string_view ChapterHtmlSlimParser::anchorAt(const size_t i, uint16_t& page) const {
+  size_t len = 0;
+  const char* name = bb_anchors_get(&anchors, i, &len, &page);
+  return name ? std::string_view(name, len) : std::string_view();
+}
+
+std::optional<uint16_t> ChapterHtmlSlimParser::findAnchor(const std::string_view name) const {
+  uint16_t page = 0;
+  if (!bb_anchors_find(&anchors, name.data(), name.size(), &page)) return std::nullopt;
+  return page;
+}
 
 bool ChapterHtmlSlimParser::beginParse() {
   htmlEnded_ = false;
@@ -2158,9 +2122,9 @@ bool ChapterHtmlSlimParser::finishParse() {
       LOG_ERR("EHP", "Text layout dropped content (OOM); failing section build");
       return false;
     }
-    if (!pendingAnchorId.empty()) {
-      anchorData.push_back({std::move(pendingAnchorId), bb_pager_completed(&pager)});
-      pendingAnchorId.clear();
+    if (!bb_anchors_record_pending(&anchors, bb_pager_completed(&pager))) {
+      LOG_ERR("EHP", "OOM: anchor");
+      return false;
     }
     const bb_pages pages = pageCallbacks();
     bb_pager_finish(&pager, &pages, visibleTextOffset);
@@ -2226,12 +2190,7 @@ void ChapterHtmlSlimParser::addLineToPage(std::unique_ptr<TextBlock> line, const
 
   // Track cumulative words to assign footnotes to the page containing their anchor
   wordsExtractedInBlock += line->wordCount();
-  auto footnoteIt = pendingFootnotes.begin();
-  while (footnoteIt != pendingFootnotes.end() && footnoteIt->first <= wordsExtractedInBlock) {
-    currentPage->addFootnote(footnoteIt->second.number, footnoteIt->second.href);
-    ++footnoteIt;
-  }
-  pendingFootnotes.erase(pendingFootnotes.begin(), footnoteIt);
+  addFootnotesToPage(wordsExtractedInBlock);
 
   // Apply horizontal left inset (margin + padding) as x position offset
   const int16_t xOffset = line->getBlockStyle().leftInset();
@@ -2291,12 +2250,7 @@ void ChapterHtmlSlimParser::makePages(const bool includeLastLine, const bool par
     // Fallback: transfer any remaining pending footnotes to current page.
     // Normally addLineToPage handles this via word-index tracking, but this catches
     // edge cases where a footnote's word index equals the exact block size.
-    if (!pendingFootnotes.empty() && currentPage) {
-      for (const auto& [idx, fn] : pendingFootnotes) {
-        currentPage->addFootnote(fn.number, fn.href);
-      }
-      pendingFootnotes.clear();
-    }
+    addFootnotesToPage(INT32_MAX);
 
     if (!paragraphEnd) return;
 

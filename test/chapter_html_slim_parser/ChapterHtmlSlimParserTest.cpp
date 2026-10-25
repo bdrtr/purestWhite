@@ -348,9 +348,16 @@ TEST_P(ChapterHtmlSlimParserTest, KeepsCssVerticalAlignAndInternalLinkMetadata) 
       std::string(verticalAlign).find("super") != std::string::npos ? EpdFontFamily::SUP : EpdFontFamily::SUB;
   EXPECT_NE(static_cast<uint8_t>(style) & static_cast<uint8_t>(expectedStyle), 0u);
 
-  ASSERT_EQ(parser.pendingFootnotes.size(), 1u);
-  const FootnoteEntry& footnote = parser.pendingFootnotes.front().second;
-  EXPECT_STREQ(footnote.href, expectedHref);
+  std::vector<std::pair<std::string, std::string>> waiting;
+  bb_footnotes_take(
+      &parser.notes, INT32_MAX,
+      [](void* out, const char* number, const char* href) {
+        static_cast<std::vector<std::pair<std::string, std::string>>*>(out)->emplace_back(number, href);
+      },
+      &waiting);
+  ASSERT_EQ(waiting.size(), 1u);
+  EXPECT_EQ(waiting[0].first, "1");
+  EXPECT_EQ(waiting[0].second, expectedHref);
   EXPECT_TRUE(parser.currentTextBlock->linkTargetMatches(linkId, expectedHref));
   const auto laidOut = layOut(*parser.currentTextBlock);
   ASSERT_EQ(laidOut.links.size(), 1u);
@@ -2577,7 +2584,10 @@ TEST_F(ChapterBlockDecorationTest, SpanIdsAreNotAnchorsButOtherElementIdsAre) {
   text("end");
   close("p");
   std::vector<std::string> ids;
-  for (const auto& anchor : parser.getAnchors()) ids.push_back(anchor.first);
+  for (size_t i = 0; i < parser.anchorCount(); ++i) {
+    uint16_t page = 0;
+    ids.emplace_back(parser.anchorAt(i, page));
+  }
   EXPECT_EQ(ids, (std::vector<std::string>{"p", "SPAN", "a"}));
 }
 

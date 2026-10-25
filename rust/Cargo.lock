@@ -36,6 +36,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "bembeyaz-chapter"
+version = "0.1.0"
+dependencies = [
+ "bembeyaz-layout",
+]
+
+[[package]]
 name = "bembeyaz-clippings"
 version = "0.1.0"
 dependencies = [
@@ -61,6 +68,7 @@ dependencies = [
  "bembeyaz-bidi",
  "bembeyaz-bmp",
  "bembeyaz-book",
+ "bembeyaz-chapter",
  "bembeyaz-clippings",
  "bembeyaz-css",
  "bembeyaz-dict",

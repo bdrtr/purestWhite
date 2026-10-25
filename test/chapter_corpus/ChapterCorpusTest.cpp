@@ -527,8 +527,9 @@ class ChapterCorpus {
     const bool parsed = parser.parseAndBuildPages();
     hash.u32(parsed);
     failures += parsed ? 0 : 1;
-    for (const auto& [id, page] : parser.getAnchors()) {
-      hash.str(id);
+    for (size_t i = 0; i < parser.anchorCount(); ++i) {
+      uint16_t page = 0;
+      hash.str(std::string(parser.anchorAt(i, page)));
       hash.u32(page);
     }
     return hash.value;

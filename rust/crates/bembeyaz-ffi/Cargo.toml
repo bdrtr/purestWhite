@@ -30,6 +30,7 @@ bembeyaz-io = { path = "../bembeyaz-io" }
 bembeyaz-jpeg = { path = "../bembeyaz-jpeg" }
 bembeyaz-json = { path = "../bembeyaz-json" }
 bembeyaz-kosync = { path = "../bembeyaz-kosync" }
+bembeyaz-chapter = { path = "../bembeyaz-chapter" }
 bembeyaz-layout = { path = "../bembeyaz-layout" }
 bembeyaz-library = { path = "../bembeyaz-library" }
 bembeyaz-opf = { path = "../bembeyaz-opf" }

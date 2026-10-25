@@ -2159,3 +2159,17 @@ Bellek yetmezliğinde artık sayfa ya da kutu kurulamazsa bölüm derlemesi okun
 - [ ] Bir bölümün ortasındayken kitabı kapatıp açın: aynı sayfaya dönmeli (sayfaların görünür
   konumları); içindekilerden bir bölüme ve bir dipnota atlayın (çapalar).
 - [ ] Seri porttan `Page render` sürelerini 0.0.3'le karşılaştırın; fark gürültü düzeyinde olmalı.
+
+## Çapalar ve dipnotlar Rust'ta ("rust: our own chapter anchors and note references")
+
+Bölümdeki kimliklerin düştüğü sayfalar ve dipnot göndermeleri (numara, hedef, gösterildiği satırın
+sayfası) yeni `bembeyaz-chapter` crate'inde. Adlar tek bir tamponda: çapa başına eskiden 28 bayt
+(`std::string` ve sayfa) artı 15 karakterden uzun adlarda ayrı bir blok, bekleyen dipnot başına 292
+bayt gidiyordu; açık bağlantının 288 baytlık kaydı da ayrıştırıcıdan kalktı.
+`test/chapter_corpus`'un 1600 bölümü (içindekiler çapaları, dipnot bağlantıları dahil) baytı
+baytına aynı; Rust koduna konan 4 hatanın 4'ünü yakaladı. Flash x4pro'da 936, x4c'de 876 bayt büyüdü.
+
+- [ ] Dipnotlu bir kitapta (ör. Standard Ebooks'tan biri) dipnot numarasına dokunup dipnota gidin
+  ve geri dönün; sayfanın dipnot listesi doğru numaraları göstermeli.
+- [ ] İçindekilerden bir bölümün ortasındaki bir alt başlığa atlayın: doğru sayfa açılmalı;
+  içindekilerin başlattığı bölümler yeni sayfada başlamalı.
