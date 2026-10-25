@@ -2320,6 +2320,8 @@ bozar.
   "esp-rtos: basladi", saat (UTC, doğru olmalı), pil yüzdesi (başlıktakine yakın),
   "zamanlayici: 10 s = saat 10 s" (9–11 s olağan) ve "bitti" bekleniyor; "PANIK"
   ya da eksik satırlar nerede durduğunu gösterir.
+- [ ] Deneme sırasında cihazı kapatmayın: rapor RTC belleğinde bekler ve güç kesilince silinir.
+  Ana ekran gelene kadar (en çok 60 saniye) dokunmadan bekleyin.
 - [ ] Her denemeden önce eski `purestwhite-bare-metal.txt`'yi silin. Dosya oluşmadıysa imaj
   açılmamış ya da raporu bırakamadan sıfırlanmış demektir; bana haber verin.
 - [ ] Bir adım cihazı geri getirmezse: en çok 60 saniye bekleyin (bekçi sıfırlar). Cihaz C++

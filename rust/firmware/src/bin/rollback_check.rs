@@ -8,6 +8,7 @@
 
 use core::fmt::Write as _;
 use esp_backtrace as _;
+use esp_hal::gpio::{Level, Output, OutputConfig};
 use purestwhite_firmware::{Report, arm_watchdog, hand_back};
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -28,6 +29,9 @@ pub fn custom_halt() -> ! {
 fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
     let _rtc = arm_watchdog(peripherals.RTC_TIMER);
+    // The board's power latch, which the C++ firmware raises first thing: on battery the device
+    // turns off while it floats, and the report in RTC memory with it.
+    let _latch = Output::new(peripherals.GPIO1, Level::High, OutputConfig::default());
     // A report at once, so a panic from here on is not added to an older one.
     let mut report = Report::default();
     let _ = writeln!(report, "purestWhite bare-metal geri donus denemesi");
