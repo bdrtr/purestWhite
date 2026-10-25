@@ -7,6 +7,7 @@
 #include "Logging.h"
 #include "esp_debug_helpers.h"
 #include "esp_memory_utils.h"
+#include "esp_ota_ops.h"
 #include "esp_private/esp_cpu_internal.h"
 #include "esp_private/esp_system_attr.h"
 #include "esp_private/panic_internal.h"
@@ -227,6 +228,26 @@ void saveBareMetalReport() {
     report[0] = 0;
   } else {
     LOG_ERR("SYS", "Could not write %s", REPORT_PATH);
+  }
+}
+
+void saveBootloaderRollback() {
+  // Hidden, so it does not show up among the books.
+  constexpr const char* PATH = "/.crosspoint/onyukleyici.txt";
+  const esp_partition_t* running = esp_ota_get_running_partition();
+  esp_ota_img_states_t state;
+  if (running == nullptr || esp_ota_get_state_partition(running, &state) != ESP_OK) {
+    LOG_INF("SYS", "Bootloader rollback: unknown (no otadata entry for this image)");
+    return;
+  }
+  const char* verdict = state == ESP_OTA_IMG_VALID ? "VAR" : state == ESP_OTA_IMG_NEW ? "YOK" : "BILINMIYOR";
+  char text[96];
+  snprintf(text, sizeof(text), "onyukleyici geri alma: %s (yuva %s, durum %u)\n", verdict, running->label,
+           static_cast<unsigned>(state));
+  LOG_INF("SYS", "%s", text);
+  if (Storage.exists(PATH)) return;
+  if (!Storage.ensureDirectoryExists("/.crosspoint") || !Storage.writeFile(PATH, String(text))) {
+    LOG_ERR("SYS", "Could not write %s", PATH);
   }
 }
 

@@ -20,6 +20,13 @@ void clearPanic();
 // report to /purestwhite-bare-metal.txt and the log; call after the SD card is up.
 void saveBareMetalReport();
 
+// Whether the bootloader rolls back an image that never confirms itself, which decides whether a
+// bare-metal test in the other slot is safe without USB. Read from this image's otadata state: the
+// SD updater writes NEW, a bootloader with rollback turns it into PENDING_VERIFY and Arduino then
+// into VALID; without rollback it stays NEW. Writes /.crosspoint/onyukleyici.txt
+// when missing.
+void saveBootloaderRollback();
+
 std::string getPanicInfo(bool full = false);
 bool isRebootFromPanic();
 }  // namespace HalSystem

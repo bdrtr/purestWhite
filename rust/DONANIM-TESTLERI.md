@@ -2297,7 +2297,18 @@ yazılır ve oradaki önceki firmware'in üstüne yazar (Ayarlar'daki "Diğer ya
 önceki sürümü değil deneme imajını açar). Dosyalar `~/Documents/bembeyaz/firmware-arsiv/`'de
 (sağlama toplamları yanlarında).
 
-- [ ] Bu C++ firmware'i (`purestWhite-next-bare-metal-rapor.bin`) her zamanki gibi SD ile kurun.
+**USB'de veri aktarımı yok, yani cihazı USB'den kurtarmak mümkün değil.** Bare-metal imajlar yalnızca
+önyükleyici geri alıyorsa denenir. Geri alan bir önyükleyici, kendini onaylamayan bir imajdan
+sonraki ilk sıfırlamada önceki firmware'e kendisi döner; imaj hiç çalışmasa bile. Geri almayan bir
+önyükleyicide dönüşü yalnızca bare-metal imajın kendisi yapabilir; bir hata cihazı kalıcı olarak
+bozar.
+
+- [ ] Kartta `.crosspoint/onyukleyici.txt` varsa silin (gizli klasör). Bu C++ firmware'i
+  (`purestWhite-next-bare-metal-rapor.bin`) her zamanki gibi SD ile kurun. Açılınca kartı
+  bilgisayarda açıp `.crosspoint/onyukleyici.txt`'yi okuyun ve bana iletin. Bu adımın riski her
+  zamanki SD güncellemesiyle aynıdır. "onyukleyici geri alma: VAR" yazıyorsa aşağıdaki adımlara
+  geçilebilir; "YOK" ya da "BILINMIYOR" yazıyorsa ya da dosya yoksa **durun, bare-metal imajları
+  denemeyin**.
 - [ ] `purestwhite-baremetal-geri-donus.bin`'i kartın köküne koyun; Ayarlar → System (bu başlığın
   Türkçesi yok) → SD Karttan Firmware Güncelleme → dosyayı seçin → Onayla. Cihaz yeniden başlamalı,
   birkaç saniye içinde C++ firmware'e dönmeli. `purestwhite-bare-metal.txt`'yi kartı bilgisayara
@@ -2313,5 +2324,5 @@ yazılır ve oradaki önceki firmware'in üstüne yazar (Ayarlar'daki "Diğer ya
   açılmamış ya da raporu bırakamadan sıfırlanmış demektir; bana haber verin.
 - [ ] Bir adım cihazı geri getirmezse: en çok 60 saniye bekleyin (bekçi sıfırlar). Cihaz C++
   firmware'e hiç dönmüyorsa Aşağı+Güç kurtarma kipi de açılmaz (o kip C++ firmware'in içinde) ve
-  Güç düğmesi de bir şey yapmaz (firmware'in okuduğu bir giriş); o zaman yalnızca USB ile yükleme
-  kurtarır, durup bana haber verin.
+  Güç düğmesi de bir şey yapmaz (firmware'in okuduğu bir giriş); USB'den de kurtarılamaz; durup
+  bana haber verin.
