@@ -1,6 +1,7 @@
 add_executable(ChapterCorpusTest
   ChapterCorpusTest.cpp
   CorpusLinkStubs.cpp
+  ${REPO_ROOT}/lib/FsHelpers/FsHelpers.cpp
   ${REPO_ROOT}/lib/Epub/Epub/converters/ImageToFramebufferDecoder.cpp
   ${REPO_ROOT}/lib/Epub/Epub/Page.cpp
   ${REPO_ROOT}/lib/Epub/Epub/blocks/TextBlock.cpp
@@ -17,6 +18,9 @@ add_executable(ChapterCorpusTest
 
 target_include_directories(ChapterCorpusTest PRIVATE
   ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+  # The real path helpers, as the firmware resolves image paths; the shared stubs' are no-ops.
+  ${REPO_ROOT}/lib/FsHelpers
+  ${REPO_ROOT}/test/fs_helpers/stubs
   ${REPO_ROOT}/test/chapter_html_slim_parser/stubs
   ${REPO_ROOT}/lib
   ${REPO_ROOT}/lib/Epub

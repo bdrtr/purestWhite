@@ -437,6 +437,22 @@ struct Case {
 // the header probe cannot size falls back to its alt text, as with no decoder.
 constexpr const char* IMAGE_CACHE = "/nonexistent-chapter-corpus/img";
 
+// The page in words, for CHAPTER_CORPUS_CASE: diff two trees' output to find the first change.
+void dumpPage(const Page& page, const uint16_t paragraph, const uint16_t listItem, const uint32_t offset) {
+  std::printf("PAGE p=%u li=%u off=%u\n", paragraph, listItem, offset);
+  for (const auto& element : page.elements) {
+    std::printf("  tag=%d x=%d y=%d", element->getTag(), element->xPos, element->yPos);
+    if (element->getTag() == TAG_PageLine) {
+      const auto& block = *static_cast<const PageLine&>(*element).getBlock();
+      for (uint16_t i = 0; i < block.wordCount(); ++i) std::printf(" [%s@%d]", block.wordText(i), block.wordXpos(i));
+    }
+    std::printf("\n");
+  }
+  for (const auto& note : page.footnotes) std::printf("  note %s %s\n", note.number, note.href);
+  for (const auto& link : page.links)
+    std::printf("  link %s %d,%d %dx%d\n", link.href, link.x, link.y, link.width, link.height);
+}
+
 class ChapterCorpus {
  public:
   ChapterCorpus() {
@@ -518,6 +534,7 @@ class ChapterCorpus {
             hash.u32(page->serialize(file));
           }
           hash.str(read(pagePath));
+          if (keep) dumpPage(*page, paragraph, listItem, offset);
         },
         rng.chance(80), "OEBPS/", IMAGE_CACHE, static_cast<uint8_t>(rng.range(0, 2)), tocAnchors,
         rng.chance(50) ? std::function<void()>([&hash] { hash.u32(0xB0B); }) : nullptr, useCss ? &cssParser : nullptr);
@@ -561,12 +578,12 @@ class ChapterCorpus {
 constexpr size_t GROUPS = 16;
 constexpr size_t CASES_PER_GROUP = 100;
 
-// Recorded at 7ef6b849, before the parser's move to Rust.
+// Recorded at 3e3f88e2, before the parser's flow moved to Rust.
 constexpr uint64_t EXPECTED[GROUPS] = {
-    0x21be3fb9d57dbbbbULL, 0x875c50e9aeaec213ULL, 0xa13036053d9cd5acULL, 0xa1d5744d1bccf3d9ULL,
-    0x048bd64309ad9947ULL, 0x3176954714aabdebULL, 0xb396cb7578ca4efcULL, 0x8dd9a7aca9b4a118ULL,
-    0xc328dfaa6f4b5295ULL, 0x36e18dba07ca260aULL, 0x69fd4c610b24d04bULL, 0xd783e8494b8ce8c2ULL,
-    0x378e346bad8371beULL, 0x97fc417fc59fc093ULL, 0x46e39e0016cb6678ULL, 0xe2e976872b582a33ULL,
+    0x4c75fc5f254a6a9fULL, 0x5aaa1426d6a03855ULL, 0x0c0d1529a08b38f2ULL, 0x7a5f506b54282db2ULL,
+    0x99368716e448facbULL, 0x5491533fff0e4c98ULL, 0xedbe14ad09c818c1ULL, 0x84bd64f9d60b1f00ULL,
+    0x351297423168bc7aULL, 0xea286f95bc287cc4ULL, 0xa09f1528cda70e9cULL, 0x4a82c407514b2726ULL,
+    0x37b9377a570fe3b1ULL, 0x90d1415a9e666ad9ULL, 0x52f3c70739ade832ULL, 0xa641a491737d93bfULL,
 };
 
 TEST(ChapterCorpus, PagesMatchTheRecordedParser) {
