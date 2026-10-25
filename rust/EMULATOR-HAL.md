@@ -21,7 +21,7 @@ eklenecek bir model bizim sürücümüzü değil, X4 Pro'nun donanımını takli
 | `HalPowerManager`: uyku | Derin uyku, ext0/ext1 düğme ile uyanma, RTC belleği | Var: derin ve hafif uyku, zamanlayıcı ve pin uyanması, RTC belleği korunur | `sleep` | Yok. Uyanma gecikmesi ve akım cihazda |
 | `HalPowerManager`: pil | CW2017 yakıt göstergesi (I2C 0x63) | Var: yüzde ve gerilim, `hmp:qom-set` ile çalışırken değişir | Durum çubuğu | Yok |
 | `HalPowerManager`: şarj | STAT GPIO21 (yüksek = şarj oluyor) | **Yok**: pin hep 1 okunur ("şarjda") | Yok | Şarj durumu değişmiyor; şarjda/değil ayrımı denenemiyor |
-| `HalClock` | BM8563 RTC (I2C 0x51) | Var: ana makinenin saati ya da `--rtc` | Hepsi (`--rtc` sabit) | Yok |
+| `HalClock` | BM8563 RTC (I2C 0x51) | Var: ana makinenin saati ya da `--rtc` (varsayılan 2026-01-01 09:00) | `clock` (başlık ve durum çubuğu saati); hepsi `--rtc` sabit | Yok |
 | `HalFrontlight` | LEDC PWM, soğuk GPIO8 (kanal 4), sıcak GPIO9 (kanal 5) | **Yok** (üst projede "open") | Yok | Parlaklık ve renk sıcaklığının görev oranı okunamıyor |
 | `HalHaptics` | Motor yok (yalnızca Metalio'da) | Gerekmez | — | HAL'in boş yolu ana makine testiyle |
 | `HalTiltSensor` | IMU yok (`ImuType::None`) | Gerekmez | — | HAL'in boş yolu ana makine testiyle |
@@ -63,7 +63,7 @@ HAL'i taşıma sırasına göre (önce emülatörde tam görülenler):
 
 1. **eink-qemu'yu 0.9.2'ye yükseltmek ✅**: 23 senaryo iki yapıda da geçiyor ve ekranları aynı;
    yeniden başlatan akış `emu/restart.txt` ile senaryoya girdi.
-2. **Saf parçalar** (`HalClock`, `HalMemory`, `HalSystem`): emülatör yeterli.
+2. **Saf parçalar** (`HalClock` ✅ `purestwhite-rtc`, `HalMemory`, `HalSystem`): emülatör yeterli.
 3. **`HalStorage`**: emülatör mutlu yolu tam gösterir; hata yolları ana makine testleriyle
    (sahte dosya sistemi), çünkü emülatörde kart hatası üretmek QEMU'nun SD modelini değiştirmeyi
    gerektirir.

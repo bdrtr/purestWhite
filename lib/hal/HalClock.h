@@ -1,14 +1,17 @@
 #pragma once
 
 #include <Arduino.h>
-#include <Rtc.h>
+
+class TwoWire;
 
 class HalClock;
 extern HalClock halClock;  // Singleton
 
 class HalClock {
   bool _available = false;
-  mutable Rtc _sdkRtc;
+  // The board's BM8563 (rust/crates/purestwhite-rtc) and the bus it is on.
+  TwoWire* _wire = nullptr;
+  uint8_t _rtcAddr = 0;
   // The RTC keeps UTC; local time comes from newlib's localtime_r under the
   // POSIX TZ rule set via setTimezone(), so zones with DST are correct
   // year-round. Cached as a UTC epoch to keep the RTC bus quiet.

@@ -42,3 +42,5 @@ bembeyaz-utf8 = { path = "../bembeyaz-utf8" }
 bembeyaz-xtc = { path = "../bembeyaz-xtc" }
 bembeyaz-xml = { path = "../bembeyaz-xml" }
 bembeyaz-zip = { path = "../bembeyaz-zip" }
+purestwhite-i2c = { path = "../purestwhite-i2c" }
+purestwhite-rtc = { path = "../purestwhite-rtc" }

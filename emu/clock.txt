@@ -1,0 +1,14 @@
+# The real-time clock on screen, with the card from emu/books/clock (clock in the header and the
+# status bar): Home at the emulator's 09:00, then, a minute later, a book's status bar at 09:01.
+#   python3 emu/make_css_epub.py emu/books/css
+#   mkdir -p emu/books/clock/card/.crosspoint
+#   echo '{"clockShowHeader": 1, "statusBarClock": 1}' > emu/books/clock/card/.crosspoint/settings.json
+#   emu/compare.sh emu/clock.txt x4pro emu/books/css/css-test.epub emu/books/clock/card/.crosspoint=/
+ready
+shot:home
+wait:65
+touch:240,348
+wait-screen
+touch:240,138
+wait-log:Page render
+shot:page1

@@ -1,32 +1,38 @@
 #include "HalClock.h"
 
+#include <BoardConfig.h>
 #include <Logging.h>
 #include <WiFi.h>
 #include <esp_sntp.h>
+#include <purestwhite/rtc.h>
+#include <soc/soc_caps.h>
 #include <time.h>
+
+#include "WireBus.h"
+
+static_assert(sizeof(pw_rtc_time) == 8 && alignof(pw_rtc_time) == 2, "pw_rtc_time layout");
 
 HalClock halClock;  // Singleton instance
 
 void HalClock::begin() {
-  _available = _sdkRtc.begin();
-  LOG_INF("CLK", _available ? "SDK RTC found" : "RTC not found");
+  _available = false;
+#if FREEINK_CAP_RTC
+  // Both targets carry a BM8563 (PCF8563-compatible); other clocks are not driven.
+  const auto& s = BoardConfig::ACTIVE.sensors;
+  if (s.rtcType == BoardConfig::RtcType::Pcf8563 && s.rtcAddr != 0 && s.i2cSda >= 0 && s.i2cScl >= 0 && s.i2cHz != 0) {
+#if SOC_I2C_NUM > 1
+    _wire = s.i2cBus == 1 ? &Wire1 : &Wire;
+#else
+    _wire = &Wire;
+#endif
+    _wire->begin(s.i2cSda, s.i2cScl, s.i2cHz);
+    _rtcAddr = s.rtcAddr;
+    const pw_i2c bus = wireBus(*_wire);
+    _available = pw_rtc_begin(&bus, _rtcAddr);
+  }
+#endif
+  LOG_INF("CLK", _available ? "RTC found" : "RTC not found");
 }
-
-namespace {
-// UTC calendar date -> Unix epoch, no timezone involvement (newlib has no
-// timegm). Days-from-civil per Howard Hinnant's algorithm.
-time_t epochFromUtc(const Rtc::DateTime& dt) {
-  int y = dt.year;
-  const int m = dt.month;
-  y -= m <= 2;
-  const int era = (y >= 0 ? y : y - 399) / 400;
-  const unsigned yoe = static_cast<unsigned>(y - era * 400);
-  const unsigned doy = (153u * static_cast<unsigned>(m + (m > 2 ? -3 : 9)) + 2u) / 5u + dt.day - 1u;
-  const unsigned doe = yoe * 365u + yoe / 4u - yoe / 100u + doy;
-  const long days = static_cast<long>(era) * 146097L + static_cast<long>(doe) - 719468L;
-  return static_cast<time_t>(days) * 86400 + dt.hour * 3600L + dt.minute * 60L + dt.second;
-}
-}  // namespace
 
 void HalClock::setTimezone(const char* posixTz) {
   setenv("TZ", posixTz && posixTz[0] != '\0' ? posixTz : "UTC0", 1);
@@ -39,9 +45,10 @@ bool HalClock::localTime(struct tm& out) const {
 
   const unsigned long now = millis();
   if (_lastPollMs == 0 || (now - _lastPollMs) >= CLOCK_POLL_MS) {
-    Rtc::DateTime dt;
-    if (_sdkRtc.now(dt)) {
-      _cachedUtc = epochFromUtc(dt);
+    const pw_i2c bus = wireBus(*_wire);
+    pw_rtc_time dt;
+    if (pw_rtc_now(&bus, _rtcAddr, &dt)) {
+      _cachedUtc = static_cast<time_t>(pw_rtc_epoch(&dt));
       _hasCachedTime = true;
     } else if (!_hasCachedTime) {
       return false;
@@ -100,7 +107,7 @@ bool HalClock::syncFromNTP() {
       struct tm timeinfo;
       gmtime_r(&now, &timeinfo);
 
-      Rtc::DateTime dt;
+      pw_rtc_time dt;
       dt.year = static_cast<uint16_t>(timeinfo.tm_year + 1900);
       dt.month = static_cast<uint8_t>(timeinfo.tm_mon + 1);
       dt.day = static_cast<uint8_t>(timeinfo.tm_mday);
@@ -108,9 +115,10 @@ bool HalClock::syncFromNTP() {
       dt.minute = static_cast<uint8_t>(timeinfo.tm_min);
       dt.second = static_cast<uint8_t>(timeinfo.tm_sec);
       dt.weekday = static_cast<uint8_t>(timeinfo.tm_wday);
-      const bool ok = _sdkRtc.set(dt);
+      const pw_i2c bus = wireBus(*_wire);
+      const bool ok = pw_rtc_set(&bus, _rtcAddr, &dt);
       if (ok) {
-        _cachedUtc = epochFromUtc(dt);
+        _cachedUtc = static_cast<time_t>(pw_rtc_epoch(&dt));
         _hasCachedTime = true;
         _lastPollMs = 0;
         LOG_INF("CLK", "RTC set to %04u-%02u-%02u %02u:%02u:%02u UTC", dt.year, dt.month, dt.day, dt.hour, dt.minute,

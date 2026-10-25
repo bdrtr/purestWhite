@@ -2206,3 +2206,33 @@ hatası artık derlemeyi durdurur (eskiden geçersiz bir uzunlukla ayrıştırı
   Ayrıntılar ekranını açın: metin biçimli sayfalarda görünmeli.
 - [ ] Seri porttan bölüm derleme ve `Page render` sürelerini 0.0.3'le karşılaştırın; fark gürültü
   düzeyinde olmalı.
+
+## Gerçek zamanlı saat Rust'ta ("rust: our own real-time clock driver")
+
+HAL taşımasının ilk dilimi. `HalClock` saati artık SDK'nın `Rtc` sürücüsüyle değil, yeni
+`purestwhite-rtc` crate'iyle okuyup yazıyor (BM8563 / PCF8563: bulunması, BCD saat, gerilim düşük
+bayrağı, yüzyıl biti, UTC'den Unix zamanına çevrim). Veriyolu dokunma ve pil göstergesiyle
+paylaşıldığı için Arduino `Wire` üzerinde, SDK'nın yaptığı aktarımların aynısıyla kaldı. Yerel saat,
+saat dilimi ve NTP değişmedi. `test/rtc_pcf8563` iki sürücüyü SDK'nın kayıt tutan `Wire` taklidinde
+karşılaştırıyor (bulma ve yeniden deneme, 20 000 okuma, 20 000 yazma, 200 000 zaman çevrimi; hepsi
+aynı, Rust'a konan 5 hatanın 5'ini yakaladı). Emülatörde `emu/clock.txt` başlıkta 09:00'ı, bir dakika
+sonra durum çubuğunda 09:01'i gösteriyor; ekranlar önceki commit'le aynı. Flash x4pro'da 1,3 KB,
+x4c'de 1,4 KB küçüldü (SDK'nın öteki saat yongalarının kodu artık bağlanmıyor). Açılış günlüğünde
+"SDK RTC found" yerine "RTC found" yazıyor.
+
+Adımlar X4 Pro ve X4 Classic için aynı; Türkçe arayüzde bazı etiketler İngilizce kalır ("System",
+"Show in Header", "Time Zone").
+
+- [ ] Açılış günlüğünde `[CLK] RTC found` ve doğru tarihli `RTC clock read:` satırları görünmeli.
+  Ayarlar → System altında "Saat" girdisi görünmeli: yalnızca saat yongası bulununca eklenir.
+- [ ] Ayarlar → System → Saat → "Show in Header"ı ve Ayarlar → Okuyucu → Durum Çubuğunu Özelleştir →
+  Saat'i açın: başlıktaki ve kitabın durum çubuğundaki saat doğru olmalı ve ilerlemeli.
+- [ ] Ayarlar → System → Saat → "Saati şimdi eşitle" (Wi-Fi kapalıysa ağ seçimi açılır; ekrandan
+  çıkınca cihaz sessizce yeniden başlar): saat doğru olmalı; cihazı kapatıp açınca da doğru kalmalı
+  (saat yongaya yazıldı).
+- [ ] Saat dilimini ("Time Zone") değiştirin: gösterilen saat hemen yeni dilime geçmeli.
+- [ ] Alıntı alın: kartın kökündeki `My Clippings.txt` dosyasının son "Added on" satırı bugünün
+  tarihi ve saati olmalı.
+- [ ] Saat durum çubuğunda açıkken bir süre dokunarak sayfa çevirin: saat güncellenmeye devam
+  etmeli, seri portta `i2cWriteReadNonStop returned Error` ya da "Unfinished Repeated Start" satırı
+  olmamalı (saat, dokunma ve pil göstergesi aynı veriyolunda).
