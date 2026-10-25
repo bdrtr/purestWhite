@@ -88,10 +88,6 @@ void releaseRequestArguments(WebServer* server) {
   static_cast<CrossPointHttpServer*>(server)->releaseRequestArguments();
 }
 
-// Folders/files to hide from the web interface file browser
-// Note: Items starting with "." are automatically hidden
-constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
-
 constexpr uint16_t UDP_PORTS[] = {54982, 48123, 39001, 44044, 59678};
 constexpr uint16_t LOCAL_UDP_PORT = 8134;
 
@@ -112,35 +108,9 @@ String wsLastCompleteName;
 size_t wsLastCompleteSize = 0;
 unsigned long wsLastCompleteAt = 0;
 
-String normalizeWebPath(const String& inputPath) {
-  if (inputPath.isEmpty() || inputPath == "/") {
-    return "/";
-  }
-  std::string normalized = FsHelpers::normalisePath(inputPath.c_str());
-  String result = normalized.c_str();
-  if (result.isEmpty()) {
-    return "/";
-  }
-  if (!result.startsWith("/")) {
-    result = "/" + result;
-  }
-  if (result.length() > 1 && result.endsWith("/")) {
-    result = result.substring(0, result.length() - 1);
-  }
-  return result;
-}
+String normalizeWebPath(const String& inputPath) { return FsHelpers::webPath(inputPath.c_str()).c_str(); }
 
-bool isProtectedItemName(const String& name) {
-  if (name.startsWith(".")) {
-    return true;
-  }
-  for (const auto* item : HIDDEN_ITEMS) {
-    if (name.equals(item)) {
-      return true;
-    }
-  }
-  return false;
-}
+bool isProtectedItemName(const String& name) { return protectedpaths::isHiddenName(name.c_str(), name.length()); }
 
 }  // namespace
 
@@ -612,12 +582,7 @@ void CrossPointWebServer::scanFiles(const char* path, const std::function<void(F
 
     // Check against explicitly hidden items list
     if (!shouldHide) {
-      for (const auto* item : HIDDEN_ITEMS) {
-        if (fileName.equals(item)) {
-          shouldHide = true;
-          break;
-        }
-      }
+      shouldHide = protectedpaths::isSystemName(fileName.c_str(), fileName.length());
     }
 
     if (!shouldHide) {
@@ -738,11 +703,9 @@ void CrossPointWebServer::handleDownload() const {
     server->send(403, "text/plain", "Cannot access system files");
     return;
   }
-  for (const auto* item : HIDDEN_ITEMS) {
-    if (itemName.equals(item)) {
-      server->send(403, "text/plain", "Cannot access protected items");
-      return;
-    }
+  if (protectedpaths::isSystemName(itemName.c_str(), itemName.length())) {
+    server->send(403, "text/plain", "Cannot access protected items");
+    return;
   }
 
   if (!Storage.exists(itemPath.c_str())) {
@@ -1285,14 +1248,7 @@ void CrossPointWebServer::handleDelete() const {
     }
 
     // Check against explicitly protected items
-    bool isProtected = false;
-    for (const auto* item : HIDDEN_ITEMS) {
-      if (itemName.equals(item)) {
-        isProtected = true;
-        break;
-      }
-    }
-    if (isProtected) {
+    if (protectedpaths::isSystemName(itemName.c_str(), itemName.length())) {
       failedItems += itemPath + " (protected file); ";
       allSuccess = false;
       continue;

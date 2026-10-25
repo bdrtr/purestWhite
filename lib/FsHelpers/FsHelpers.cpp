@@ -23,6 +23,24 @@ std::string normalisePath(const std::string& path) {
   return normalised;
 }
 
+std::string webPath(const char* path) {
+  const size_t len = strlen(path);
+  std::string web;
+  web.reserve(len + 1);  // the leading '/' needs a byte of room
+  web.assign(path, len);
+  web.push_back('\0');
+  web.resize(bb_path_web(web.data(), len));
+  return web;
+}
+
+bool urlPathStart(const char* url, size_t& start) { return bb_path_url_path_start(url, strlen(url), &start); }
+
+std::string encodeUrlPath(const std::string_view path) {
+  std::string encoded(path.size() * 3, '\0');
+  encoded.resize(bb_path_encode(path.data(), path.size(), encoded.data()));
+  return encoded;
+}
+
 bool naturalLess(const std::string& str1, const std::string& str2) {
   // Naive natural sort: numeric-aware, case-insensitive
   const char* s1 = str1.c_str();

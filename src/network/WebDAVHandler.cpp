@@ -5,12 +5,11 @@
 #include <Logging.h>
 
 #include "ClippingStore.h"
+#include "ProtectedPaths.h"
 #include "util/BookCacheUtils.h"
 #include "util/TaskWatchdog.h"
 
 namespace {
-constexpr const char* HIDDEN_ITEMS[] = {"System Volume Information", "XTCache"};
-
 // RFC 1123 date format helper: "Sun, 06 Nov 1994 08:49:37 GMT"
 // ESP32 doesn't have real-time clock set by default, so we use a fixed epoch date
 // as a fallback. The date is not critical for WebDAV Class 1 operations.
@@ -229,17 +228,7 @@ void WebDAVHandler::handlePropfind(WebServer& s) {
       String fileName(name);
 
       // Skip hidden/protected items
-      bool shouldHide = fileName.startsWith(".");
-      if (!shouldHide) {
-        for (const auto* item : HIDDEN_ITEMS) {
-          if (fileName.equals(item)) {
-            shouldHide = true;
-            break;
-          }
-        }
-      }
-
-      if (!shouldHide) {
+      if (!protectedpaths::isHiddenName(fileName.c_str(), fileName.length())) {
         String childPath = path;
         if (!childPath.endsWith("/")) childPath += "/";
         childPath += fileName;
@@ -700,22 +689,7 @@ void WebDAVHandler::handleUnlock(WebServer& s) {
 // ── Utility functions ────────────────────────────────────────────────────────
 
 String WebDAVHandler::getRequestPath(WebServer& s) const {
-  String uri = s.uri();
-  String decoded = WebServer::urlDecode(uri);
-
-  // Normalize using FsHelpers
-  std::string normalized = FsHelpers::normalisePath(decoded.c_str());
-  String result = normalized.c_str();
-
-  if (result.isEmpty()) return "/";
-  if (!result.startsWith("/")) result = "/" + result;
-
-  // Remove trailing slash unless root
-  if (result.length() > 1 && result.endsWith("/")) {
-    result = result.substring(0, result.length() - 1);
-  }
-
-  return result;
+  return FsHelpers::webPath(WebServer::urlDecode(s.uri()).c_str()).c_str();
 }
 
 String WebDAVHandler::getDestinationPath(WebServer& s) const {
@@ -723,83 +697,18 @@ String WebDAVHandler::getDestinationPath(WebServer& s) const {
   if (dest.isEmpty()) return "";
 
   // Extract path from full URL: http://host/path -> /path
-  // Find the third slash (after http://)
-  int schemeEnd = dest.indexOf("://");
-  if (schemeEnd >= 0) {
-    int pathStart = dest.indexOf('/', schemeEnd + 3);
-    if (pathStart >= 0) {
-      dest = dest.substring(pathStart);
-    } else {
-      dest = "/";
-    }
-  }
-
-  String decoded = WebServer::urlDecode(dest);
-  std::string normalized = FsHelpers::normalisePath(decoded.c_str());
-  String result = normalized.c_str();
-
-  if (result.isEmpty()) return "/";
-  if (!result.startsWith("/")) result = "/" + result;
-
-  // Remove trailing slash unless root
-  if (result.length() > 1 && result.endsWith("/")) {
-    result = result.substring(0, result.length() - 1);
-  }
-
-  return result;
+  size_t pathStart = 0;
+  dest = FsHelpers::urlPathStart(dest.c_str(), pathStart) ? dest.substring(pathStart) : String("/");
+  return FsHelpers::webPath(WebServer::urlDecode(dest).c_str()).c_str();
 }
 
 void WebDAVHandler::urlEncodePath(const String& path, String& out) const {
-  out = "";
-  for (unsigned int i = 0; i < path.length(); i++) {
-    char c = path.charAt(i);
-    if (c == '/') {
-      out += '/';
-    } else if (c == ' ') {
-      out += "%20";
-    } else if (c == '%') {
-      out += "%25";
-    } else if (c == '#') {
-      out += "%23";
-    } else if (c == '?') {
-      out += "%3F";
-    } else if (c == '&') {
-      out += "%26";
-    } else if ((uint8_t)c > 127) {
-      // Encode non-ASCII bytes
-      char hex[4];
-      snprintf(hex, sizeof(hex), "%%%02X", (uint8_t)c);
-      out += hex;
-    } else {
-      out += c;
-    }
-  }
+  out = FsHelpers::encodeUrlPath(std::string_view{path.c_str(), path.length()}).c_str();
 }
 
 bool WebDAVHandler::isProtectedPath(const String& path) const {
-  // Check every segment of the path, not just the last one.
-  // This prevents access to e.g. /.hidden/somefile or /System Volume Information/foo
-  int start = 0;
-  while (start < (int)path.length()) {
-    if (path.charAt(start) == '/') {
-      start++;
-      continue;
-    }
-    int end = path.indexOf('/', start);
-    if (end == -1) end = path.length();
-
-    String segment = path.substring(start, end);
-
-    if (segment.startsWith(".")) return true;
-
-    for (const auto* item : HIDDEN_ITEMS) {
-      if (segment.equals(item)) return true;
-    }
-
-    start = end + 1;
-  }
-
-  return false;
+  // Every component, not just the last: /.hidden/somefile and /System Volume Information/foo too.
+  return protectedpaths::hasHiddenComponent(path.c_str(), path.length());
 }
 
 int WebDAVHandler::getDepth(WebServer& s) const {

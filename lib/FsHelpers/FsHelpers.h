@@ -14,6 +14,18 @@ std::string decodeUriEscapes(const std::string& path);
 // no leading or trailing '/'; "." stays.
 std::string normalisePath(const std::string& path);
 
+// rust/crates/bembeyaz-path: the absolute path a web request names, from path up to its NUL:
+// normalised as above, with a leading '/' and no trailing one ("/" for the root).
+std::string webPath(const char* path);
+
+// rust/crates/bembeyaz-path: where the path starts in a request URL ("http://host/path"), searched
+// up to the NUL; false when it names a host and no path. A value without "://" starts at 0.
+bool urlPathStart(const char* url, size_t& start);
+
+// rust/crates/bembeyaz-path: path as a URL path, with a space, '%', '#', '?', '&' and non-ASCII
+// bytes as upper-case %XX.
+std::string encodeUrlPath(std::string_view path);
+
 // Numeric-aware, case-insensitive comparison ("2" < "10"). Returns true when str1 orders
 // before str2. Same ordering sortFileList applies within the file/directory groups.
 bool naturalLess(const std::string& str1, const std::string& str2);

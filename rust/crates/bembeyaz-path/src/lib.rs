@@ -1,9 +1,14 @@
 //! Paths inside an EPUB, as lib/FsHelpers resolved them: `%XX` escapes decoded, then `..`
 //! components applied and empty ones dropped. Both work in place on bytes; a path is not
 //! necessarily UTF-8.
+//!
+//! [`web`] keeps the card's system folders and credential stores out of reach of paths that arrive
+//! over the network, and turns a request's path into the one the handlers open.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
+
+pub mod web;
 
 fn hex_value(b: u8) -> Option<u8> {
     match b {

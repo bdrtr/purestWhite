@@ -2109,3 +2109,35 @@ cihaz denemesi o plana göre yapılır.
   Other Firmware önceki yazılımı adıyla ("purestWhite next 0.0.2") göstermeli.
 - [ ] 0.0.3 GitHub'da yayımlandıktan sonra 0.0.2 çalışan bir cihazda Check for Updates 0.0.3'ü
   önermeli.
+
+## Web yolları Rust'ta ("rust: our own web path checks")
+
+Web dosya yöneticisi, WebDAV ve eklenti uç noktaları gelen yolları şöyle denetler: kimlik bilgisi
+dosyalarına (`/.crosspoint/wifi.json`, `opds.json`, `koreader.json` ve bunlarla başlayan geçici ve
+yedek dosyalar) hiçbir yazımla ulaşılamaz (`//`, `/./`, `..`, büyük/küçük harf, SdFat'ın kırptığı
+baştaki boşluklar ve sondaki nokta ve boşluklar, ilk iki bileşende `CROSSP~1` gibi 8.3 kısa adlar);
+nokta ile başlayan adlar ile `System Volume Information` ve `XTCache` değiştirilemez ve silinemez
+(listede nokta ile başlayanlar yalnızca Gizli Dosyaları Göster açıkken görünür, sistem adları hiç
+görünmez); isteğin yolu mutlak yola çevrilir (`..` uygulanır, başta tek `/`, sonda yok);
+WebDAV'ın `Destination` başlığından yol kısmı alınır; yollar URL'de kodlanır (boşluk, `%`, `#`,
+`?`, `&` ve ASCII dışı baytlar `%XX`). Bunlar artık `bembeyaz-path`'in yeni `web` modülünde;
+web sunucusunda ve WebDAV'da ayrı ayrı tutulan gizli ad listesi tek yerde. Arduino'nun
+`urlDecode`'u ve istekleri işlemek C++'ta kaldı. Eski kod `test/web_paths/OldWebPaths.h`'e olduğu
+gibi kopyalandı ve 300 000 rastgele yol ve URL'de (eğik çizgiler, `.` ve `..`, kimlik bilgisi ve
+sistem adları, boşluk ve noktalı adlar, kısa adlar, `%` kaçışları, şemalar, ASCII dışı baytlar)
+bütün denetimlerin sonucu aynı; crate'in mini-fuzz testi de var. Adlar eskisi gibi ilk NUL'e kadar
+karşılaştırılır: istekte `%00` ile gelen `XTCache%00x` adı da korunur (incelemede bulundu, ilk
+taslakta açıktı; test artık ham NUL baytı da üretiyor). NUL'lü yolda gizli bileşen denetimi NUL'den
+sonrasını da bölerek arar, yani eskisinden yalnızca daha katı; URL kodlaması da NUL'de biter (eski kod
+NUL'ü ve ardını kopyalıyordu). İkisinde de istekten gelen yollar zaten ilk NUL'de kesilmiş olur. Flash x4pro'da 640, x4c'de 688 bayt
+büyüdü, statik RAM değişmedi.
+
+- [ ] Wi-Fi'ye bağlanıp tarayıcıda `http://purestwhite.local` dosya yöneticisini açın: kartın
+  kökünde `System Volume Information` ve `XTCache` hiç, `.crosspoint` Gizli Dosyaları Göster
+  kapalıyken listelenmemeli; boşluklu ve Türkçe harfli adlı bir klasöre dosya
+  yükleyip indirin, yeniden adlandırın ve silin. `curl -X POST -d 'path=/&name=XTCache%00'
+  http://purestwhite.local/mkdir` 403 dönmeli ve kökte `XTCache` klasörü oluşmamalı.
+- [ ] Bir WebDAV istemcisiyle (ör. Linux'ta Dosyalar → `davs://` yerine `dav://purestwhite.local`,
+  ya da `cadaver`) bağlanın: klasörler listelenmeli, boşluklu ve Türkçe harfli adlı bir dosya
+  yüklenip taşınabilmeli ve kopyalanabilmeli; `.crosspoint` ve içindekiler görünmemeli ve
+  değiştirilememeli.
