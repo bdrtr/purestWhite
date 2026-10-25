@@ -136,6 +136,7 @@ add_subdirectory(plugin_picker_layout)
 add_subdirectory(protected_paths)
 add_subdirectory(web_paths)
 add_subdirectory(rtc_pcf8563)
+add_subdirectory(cw2017_gauge)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME TrustedTimeTimezone COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_trusted_time.py)

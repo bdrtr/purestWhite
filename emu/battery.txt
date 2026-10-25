@@ -1,0 +1,18 @@
+# The fuel gauge on screen: Home at the emulator's 80%, then, with the gauge set to 42% and later
+# to 100%, Home again after a trip to the file list (the header redraws on the way back).
+ready
+shot:home
+hmp:qom-set /machine/cw2017 soc 42
+wait:3
+touch:240,348
+wait-screen
+press:home
+wait-screen
+shot:home-42
+hmp:qom-set /machine/cw2017 soc 100
+wait:3
+touch:240,348
+wait-screen
+press:home
+wait-screen
+shot:home-100

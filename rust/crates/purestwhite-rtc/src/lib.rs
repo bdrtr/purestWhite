@@ -1,6 +1,6 @@
 //! The X4 Pro's and X4 Classic's real-time clock: a BM8563, register-compatible with the NXP
 //! PCF8563, on the I2C bus it shares with the touch controller and the fuel gauge. It keeps UTC
-//! in BCD; the bus is the caller's ([`Bus`]).
+//! in BCD. The bus and the delay are embedded-hal's, the caller's: other drivers share the bus.
 //!
 //! Nothing here panics.
 #![no_std]
@@ -8,7 +8,8 @@
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 
-pub use purestwhite_i2c::Bus;
+use embedded_hal::delay::DelayNs;
+use embedded_hal::i2c::I2c;
 
 #[cfg(test)]
 mod tests;
@@ -53,25 +54,26 @@ fn to_bcd(v: u8) -> u8 {
 }
 
 /// Whether the clock at `addr` answers; turns its CLKOUT output off.
-pub fn begin(bus: &mut impl Bus, addr: u8) -> bool {
+pub fn begin(bus: &mut impl I2c, delay: &mut impl DelayNs, addr: u8) -> bool {
     for _ in 0..PROBE_TRIES {
         let mut status = [0];
-        if bus.write_read(addr, &[CONTROL_STATUS1], &mut status) {
+        if bus
+            .write_read(addr, &[CONTROL_STATUS1], &mut status)
+            .is_ok()
+        {
             // Best effort: the clock works with CLKOUT on.
-            bus.write(addr, &[CLKOUT, CLKOUT_DISABLED]);
+            let _ = bus.write(addr, &[CLKOUT, CLKOUT_DISABLED]);
             return true;
         }
-        bus.pause_ms(PROBE_PAUSE_MS);
+        delay.delay_ms(PROBE_PAUSE_MS);
     }
     false
 }
 
 /// The time; `None` when the read fails or the oscillator stopped (the time is then unreliable).
-pub fn now(bus: &mut impl Bus, addr: u8) -> Option<DateTime> {
+pub fn now(bus: &mut impl I2c, addr: u8) -> Option<DateTime> {
     let mut raw = [0; 7];
-    if !bus.write_read(addr, &[TIME], &mut raw) {
-        return None;
-    }
+    bus.write_read(addr, &[TIME], &mut raw).ok()?;
     let [second, minute, hour, day, weekday, month, year] = raw;
     if second & VOLTAGE_LOW != 0 {
         return None;
@@ -90,7 +92,7 @@ pub fn now(bus: &mut impl Bus, addr: u8) -> Option<DateTime> {
 
 /// Sets the time, which also clears the voltage-low flag; false when the write fails.
 #[allow(clippy::cast_possible_truncation)]
-pub fn set(bus: &mut impl Bus, addr: u8, time: &DateTime) -> bool {
+pub fn set(bus: &mut impl I2c, addr: u8, time: &DateTime) -> bool {
     let century = if time.year < 2000 { CENTURY } else { 0 };
     bus.write(
         addr,
@@ -105,6 +107,7 @@ pub fn set(bus: &mut impl Bus, addr: u8, time: &DateTime) -> bool {
             to_bcd((time.year % 100) as u8),
         ],
     )
+    .is_ok()
 }
 
 /// The Unix time of a UTC calendar time (Howard Hinnant's days from civil). Fields out of range

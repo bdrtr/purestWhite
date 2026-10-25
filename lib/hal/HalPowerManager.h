@@ -5,8 +5,10 @@
 #include <InputManager.h>
 #include <Logging.h>
 #include <freertos/semphr.h>
+#include <purestwhite/gauge.h>
 
 #include <cassert>
+#include <mutex>
 
 #include "HalGPIO.h"
 
@@ -19,6 +21,11 @@ class HalPowerManager {
 
   mutable int _batteryCachedPercent = 0;         // Last read battery percentage (0-100)
   mutable unsigned long _batteryLastPollMs = 0;  // Timestamp of last battery read in milliseconds
+  // The board's CW2017 fuel gauge (rust/crates/purestwhite-gauge), between readings. The render
+  // and main tasks both read the battery; the lock keeps one reading at a time.
+  mutable pw_cw2017 _gauge = {};
+  mutable std::mutex _batteryLock;
+  bool readGaugePercent(const BatteryMonitor& battery, uint16_t& percent) const;
 
   enum LockMode { None, NormalSpeed };
   LockMode currentLockMode = None;

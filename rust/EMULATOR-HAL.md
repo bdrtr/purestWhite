@@ -19,7 +19,7 @@ eklenecek bir model bizim sürücümüzü değil, X4 Pro'nun donanımını takli
 | `HalGPIO`: dokunma | GT911 (I2C 0x5D, INT GPIO10, güç GPIO2), kapasitif Home | Var (`touch`, `swipe`, `press:home`); çoklu dokunma yok | `ble-settings`, `settings`, `library` | Yok (çoklu dokunma kullanılmıyor) |
 | `HalStorage` | SDMMC 1 bit, GPIO5 güç | Var: FAT32 kart, okuma ve yazma; hız X3'te ölçülmüş | Kitap ve kart kopyalayan her senaryo | Kart hatası (okuma hatası, çıkarılan kart, bozuk FAT) üretilemiyor |
 | `HalPowerManager`: uyku | Derin uyku, ext0/ext1 düğme ile uyanma, RTC belleği | Var: derin ve hafif uyku, zamanlayıcı ve pin uyanması, RTC belleği korunur | `sleep` | Yok. Uyanma gecikmesi ve akım cihazda |
-| `HalPowerManager`: pil | CW2017 yakıt göstergesi (I2C 0x63) | Var: yüzde ve gerilim, `hmp:qom-set` ile çalışırken değişir | Durum çubuğu | Yok |
+| `HalPowerManager`: pil | CW2017 yakıt göstergesi (I2C 0x63) | Var: yüzde ve gerilim, `hmp:qom-set /machine/cw2017 soc N` ile çalışırken değişir | `battery` (%80 → %42 → %100) | Yok |
 | `HalPowerManager`: şarj | STAT GPIO21 (yüksek = şarj oluyor) | **Yok**: pin hep 1 okunur ("şarjda") | Yok | Şarj durumu değişmiyor; şarjda/değil ayrımı denenemiyor |
 | `HalClock` | BM8563 RTC (I2C 0x51) | Var: ana makinenin saati ya da `--rtc` (varsayılan 2026-01-01 09:00) | `clock` (başlık ve durum çubuğu saati); hepsi `--rtc` sabit | Yok |
 | `HalFrontlight` | LEDC PWM, soğuk GPIO8 (kanal 4), sıcak GPIO9 (kanal 5) | **Yok** (üst projede "open") | Yok | Parlaklık ve renk sıcaklığının görev oranı okunamıyor |
@@ -63,13 +63,15 @@ HAL'i taşıma sırasına göre (önce emülatörde tam görülenler):
 
 1. **eink-qemu'yu 0.9.2'ye yükseltmek ✅**: 23 senaryo iki yapıda da geçiyor ve ekranları aynı;
    yeniden başlatan akış `emu/restart.txt` ile senaryoya girdi.
-2. **Saf parçalar** (`HalClock` ✅ `purestwhite-rtc`, `HalMemory`, `HalSystem`): emülatör yeterli.
+2. **Saf parçalar** (`HalClock` ✅ `purestwhite-rtc`): emülatör yeterli. `HalMemory` (ESP-IDF'in
+   yığın işlevleri) ve `HalSystem` (IRAM'deki panik yakalayıcı) taşınmaz: bare-metal firmware'de
+   yerlerini esp-hal'in ayırıcısı ve hata izleme araçları alır.
 3. **`HalStorage`**: emülatör mutlu yolu tam gösterir; hata yolları ana makine testleriyle
    (sahte dosya sistemi), çünkü emülatörde kart hatası üretmek QEMU'nun SD modelini değiştirmeyi
    gerektirir.
 4. **`HalGPIO`** (düğmeler, dokunma) ve **`HalDisplay`**: emülatör tam.
-5. **`HalPowerManager`**: uyku ve pil emülatörde; şarj pini için emülatöre bir model eklemek
-   gerekir (küçük: GPIO21'i dışarıdan sürülebilir yapmak).
+5. **`HalPowerManager`**: uyku ve pil emülatörde (pil göstergesi ✅ `purestwhite-gauge`); şarj pini
+   için emülatöre bir model eklemek gerekir (küçük: GPIO21'i dışarıdan sürülebilir yapmak).
 6. **`HalFrontlight`**: emülatöre LEDC modeli eklemek gerekir (orta büyüklükte: iki kanalın görev
    oranını okunur bir özellik olarak vermek), yoksa yalnızca cihazda.
 7. **Wi-Fi ve BLE** (SDK'nın parçaları): Wi-Fi için sahte erişim noktasıyla web senaryoları

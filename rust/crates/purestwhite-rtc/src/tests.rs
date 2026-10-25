@@ -1,4 +1,20 @@
 use super::*;
+use embedded_hal::i2c::{ErrorKind, ErrorType, Operation};
+
+/// The time paused.
+#[derive(Default)]
+struct Clock {
+    paused_ms: u32,
+}
+
+impl DelayNs for Clock {
+    fn delay_ns(&mut self, ns: u32) {
+        self.paused_ms += ns / 1_000_000;
+    }
+    fn delay_ms(&mut self, ms: u32) {
+        self.paused_ms += ms;
+    }
+}
 
 /// A clock's registers, and what was done on the bus.
 #[derive(Default)]
@@ -9,7 +25,6 @@ struct FakeBus {
     transfers: usize,
     written: [Option<(u8, [u8; 8], usize)>; 4],
     writes: usize,
-    paused_ms: u32,
 }
 
 impl FakeBus {
@@ -19,8 +34,23 @@ impl FakeBus {
     }
 }
 
-impl Bus for FakeBus {
-    fn write(&mut self, addr: u8, bytes: &[u8]) -> bool {
+impl ErrorType for FakeBus {
+    type Error = ErrorKind;
+}
+
+impl I2c for FakeBus {
+    fn transaction(&mut self, addr: u8, ops: &mut [Operation<'_>]) -> Result<(), ErrorKind> {
+        let ok = match ops {
+            [Operation::Write(bytes)] => self.write_bytes(addr, bytes),
+            [Operation::Write(out), Operation::Read(buf)] => self.write_read_bytes(out, buf),
+            _ => false,
+        };
+        if ok { Ok(()) } else { Err(ErrorKind::Other) }
+    }
+}
+
+impl FakeBus {
+    fn write_bytes(&mut self, addr: u8, bytes: &[u8]) -> bool {
         if self.failing() {
             return false;
         }
@@ -33,7 +63,7 @@ impl Bus for FakeBus {
         true
     }
 
-    fn write_read(&mut self, _addr: u8, out: &[u8], buf: &mut [u8]) -> bool {
+    fn write_read_bytes(&mut self, out: &[u8], buf: &mut [u8]) -> bool {
         if self.failing() {
             return false;
         }
@@ -45,10 +75,6 @@ impl Bus for FakeBus {
             *b = self.regs.get(usize::from(reg) + i).copied().unwrap_or(0);
         }
         true
-    }
-
-    fn pause_ms(&mut self, ms: u32) {
-        self.paused_ms += ms;
     }
 }
 
@@ -65,12 +91,13 @@ fn bcd_round_trips_two_digits() {
 #[test]
 fn begin_turns_clkout_off() {
     let mut bus = FakeBus::default();
-    assert!(begin(&mut bus, 0x51));
+    let mut clock = Clock::default();
+    assert!(begin(&mut bus, &mut clock, 0x51));
     assert_eq!(
         bus.written[0],
         Some((0x51, [CLKOUT, 0, 0, 0, 0, 0, 0, 0], 2))
     );
-    assert_eq!(bus.paused_ms, 0);
+    assert_eq!(clock.paused_ms, 0);
 }
 
 #[test]
@@ -79,14 +106,16 @@ fn begin_retries_a_failed_probe() {
         fail: &[1, 2],
         ..FakeBus::default()
     };
-    assert!(begin(&mut bus, 0x51));
-    assert_eq!(bus.paused_ms, 20);
+    let mut clock = Clock::default();
+    assert!(begin(&mut bus, &mut clock, 0x51));
+    assert_eq!(clock.paused_ms, 20);
     let mut absent = FakeBus {
         fail: &[1, 2, 3],
         ..FakeBus::default()
     };
-    assert!(!begin(&mut absent, 0x51));
-    assert_eq!(absent.paused_ms, 30);
+    let mut clock = Clock::default();
+    assert!(!begin(&mut absent, &mut clock, 0x51));
+    assert_eq!(clock.paused_ms, 30);
     assert_eq!(absent.writes, 0);
 }
 

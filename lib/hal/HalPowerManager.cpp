@@ -10,6 +10,9 @@
 #include <cassert>
 
 #include "HalGPIO.h"
+#include "WireBus.h"
+
+static_assert(sizeof(pw_cw2017) == 8 && alignof(pw_cw2017) == 4, "pw_cw2017 layout");
 
 #if FREEINK_DEVICE_EEGO_A4
 #include <HalFrontlight.h>
@@ -151,7 +154,25 @@ void HalPowerManager::startDeepSleep(HalGPIO& gpio) const {
   freeink::PowerManager::deepSleepUntilPowerButton();
 }
 
+// Both targets carry a CW2017, which purestwhite-gauge drives; other gauges stay the SDK's.
+// Nothing else may read a CW2017 through BatteryMonitor's percentage or status calls: the SDK
+// keeps its own state for the gauge and would reset it too.
+bool HalPowerManager::readGaugePercent(const BatteryMonitor& battery, uint16_t& percent) const {
+#if FREEINK_BATTERY_I2C_GAUGE
+  const auto& g = BoardConfig::ACTIVE.batteryGauge;
+  if (g.gaugeType == BoardConfig::GaugeType::Cw2017) {
+    const pw_i2c bus = wireBus(startedWire(g.i2cBus, g.i2cSda, g.i2cScl, g.i2cHz));
+    uint8_t soc = 0;
+    if (!pw_cw2017_soc(&_gauge, &bus, g.gaugeAddr, static_cast<uint32_t>(millis()), &soc)) return false;
+    percent = soc;
+    return true;
+  }
+#endif
+  return battery.readPercentageChecked(percent);
+}
+
 uint16_t HalPowerManager::getBatteryPercentage() const {
+  const std::lock_guard<std::mutex> lock(_batteryLock);
   static const BatteryMonitor battery;
   if (BoardConfig::ACTIVE.batteryGauge.gaugeAddr != 0) {
     const unsigned long now = millis();
@@ -161,7 +182,7 @@ uint16_t HalPowerManager::getBatteryPercentage() const {
 
     _batteryLastPollMs = now;
     uint16_t percent = 0;
-    if (!battery.readPercentageChecked(percent)) {
+    if (!readGaugePercent(battery, percent)) {
       return _batteryCachedPercent;
     }
     _batteryCachedPercent = percent;

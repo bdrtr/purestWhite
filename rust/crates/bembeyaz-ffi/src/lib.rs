@@ -20,6 +20,7 @@ mod device;
 mod dict;
 mod dither;
 mod expat;
+mod gauge;
 mod gfx;
 mod html;
 mod hyphenation;

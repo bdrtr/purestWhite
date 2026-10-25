@@ -5,7 +5,6 @@
 #include <WiFi.h>
 #include <esp_sntp.h>
 #include <purestwhite/rtc.h>
-#include <soc/soc_caps.h>
 #include <time.h>
 
 #include "WireBus.h"
@@ -20,12 +19,7 @@ void HalClock::begin() {
   // Both targets carry a BM8563 (PCF8563-compatible); other clocks are not driven.
   const auto& s = BoardConfig::ACTIVE.sensors;
   if (s.rtcType == BoardConfig::RtcType::Pcf8563 && s.rtcAddr != 0 && s.i2cSda >= 0 && s.i2cScl >= 0 && s.i2cHz != 0) {
-#if SOC_I2C_NUM > 1
-    _wire = s.i2cBus == 1 ? &Wire1 : &Wire;
-#else
-    _wire = &Wire;
-#endif
-    _wire->begin(s.i2cSda, s.i2cScl, s.i2cHz);
+    _wire = &startedWire(s.i2cBus, s.i2cSda, s.i2cScl, s.i2cHz);
     _rtcAddr = s.rtcAddr;
     const pw_i2c bus = wireBus(*_wire);
     _available = pw_rtc_begin(&bus, _rtcAddr);

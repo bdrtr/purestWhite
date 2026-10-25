@@ -6,4 +6,4 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-purestwhite-i2c = { path = "../purestwhite-i2c" }
+embedded-hal = "=1.0.0"

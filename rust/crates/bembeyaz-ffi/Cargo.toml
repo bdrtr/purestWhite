@@ -42,5 +42,7 @@ bembeyaz-utf8 = { path = "../bembeyaz-utf8" }
 bembeyaz-xtc = { path = "../bembeyaz-xtc" }
 bembeyaz-xml = { path = "../bembeyaz-xml" }
 bembeyaz-zip = { path = "../bembeyaz-zip" }
-purestwhite-i2c = { path = "../purestwhite-i2c" }
+purestwhite-gauge = { path = "../purestwhite-gauge" }
+embedded-hal = "=1.0.0"
+embedded-hal-async = "=1.0.0"
 purestwhite-rtc = { path = "../purestwhite-rtc" }

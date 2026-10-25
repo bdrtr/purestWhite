@@ -2236,3 +2236,36 @@ Adımlar X4 Pro ve X4 Classic için aynı; Türkçe arayüzde bazı etiketler İ
 - [ ] Saat durum çubuğunda açıkken bir süre dokunarak sayfa çevirin: saat güncellenmeye devam
   etmeli, seri portta `i2cWriteReadNonStop returned Error` ya da "Unfinished Repeated Start" satırı
   olmamalı (saat, dokunma ve pil göstergesi aynı veriyolunda).
+
+## Pil göstergesi Rust'ta ("rust: our own fuel gauge driver")
+
+HAL'in ikinci dilimi. `HalPowerManager` pil yüzdesini artık SDK'nın `BatteryMonitor`'ı yerine yeni
+`purestwhite-gauge` crate'iyle okuyor (CW2017: ilk okumada 80 baytlık pil profilinin denetlenmesi
+ve gerekirse yüklenmesi, yumuşak sıfırlama, hesaplama motorunun hazır olmasını bekleme, uykuda ya
+da yeniden başlamış bulunan göstergenin bir sonraki okumada toparlanması, başarısız ilk okumadan
+sonra bir saniye bekleme). Sürücüler artık embedded-hal'in trait'leriyle yazılıyor: saat `I2c` ve
+`DelayNs`, pil göstergesi (ilk okuması 4 saniyeye kadar bekleyebildiği için)
+embedded-hal-async'inkilerle; ikisi bare-metal firmware'de esp-hal üstünde değişmeden çalışacak.
+Pil okuması artık bir kilitle tek seferde bir görevden yapılıyor (çizim görevi ve ana görev ikisi
+de okuyor). Şarj durumu (GPIO21) değişmedi. `test/cw2017_gauge` iki sürücüyü 30 000 okumalık tek
+bir oturumda, aynı hataları ve bozulmaları (uyku, yeniden başlama, kaybolan profil, geçersiz yüzde,
+tam dolu) gören ikiz taklit yongalarla karşılaştırıyor: her okumanın sonucu, yazmaları, işlem
+sayısı ve beklemesi aynı; Rust'a konan 9 hatanın 9'unu yakaladı. Emülatörde `emu/battery.txt`
+yüzdeyi %80'den %42'ye ve %100'e çevirip başlıkta gösteriyor; ekranlar önceki commit'le aynı. Flash
+x4pro'da ve x4c'de 2,3 KB büyüdü (async sürücünün durum makinesi 1,9 KB); SDK'nın CW2017 yolu öteki
+kartlar için yedek olarak bağlı kaldığı için küçülme yok. Saat de yeni köprüden geçiyor: önceki
+bölümün saat adımları bunu da sınar.
+
+Adımlar X4 Pro ve X4 Classic için aynı; iki kart da SDK'nın X4 Pro hücresi için kaydettiği profili
+alır (eskisi gibi), X4 Classic'teki yüzdeyi bir kez özgün yazılımla karşılaştırmak iyi olur.
+Göstergenin uykudan toparlanması ve profilin yeniden yüklenmesi kullanıcı tarafından tetiklenemez
+(pil tamamen bitmedikçe ya da sökülmedikçe); onlar `test/cw2017_gauge` ve emülatörle sınanıyor.
+
+- [ ] Açılıştan sonra başlıktaki pil yüzdesi gerçekçi olmalı (%0 değil). Gösterge yeniden
+  başlatılırsa ilk ekran 4 saniyeye kadar gecikebilir; ekran gelince düğmeler hemen yanıt vermeli.
+- [ ] Bir süre okuyun: yüzde yavaşça düşmeli; şarja takınca yükselmeli, şarj simgesi de çıkmalı.
+- [ ] Cihazı derin uykudan uyandırın (uyanmak bir yeniden açılıştır: ilk okuma profili denetler,
+  profil zaten doğruysa hiçbir şey yazmaz): yüzde hemen doğru görünmeli.
+- [ ] Ayarlar → Ekran → Pil Yüzdesini Gizle → "Asla" seçiliyken okuyucunun durum çubuğunda yüzde
+  görünmeli; dokunarak sayfa çevirirken seri portta `i2cWriteReadNonStop returned Error` satırı
+  olmamalı (pil göstergesi, saat ve dokunma aynı veriyolunda).

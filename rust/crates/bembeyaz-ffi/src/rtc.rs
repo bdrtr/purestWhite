@@ -1,6 +1,6 @@
 //! Exports for lib/hal's HalClock (see `rust/include/purestwhite/rtc.h`).
 
-use crate::i2c::{CBus, Callbacks};
+use crate::i2c::{Bus, CBus, Delay};
 use purestwhite_rtc::DateTime;
 
 /// `pw_rtc_time`.
@@ -38,7 +38,8 @@ impl From<&CTime> for DateTime {
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pw_rtc_begin(bus: *const CBus, addr: u8) -> bool {
     // SAFETY: as documented.
-    unsafe { bus.as_ref() }.is_some_and(|b| purestwhite_rtc::begin(&mut Callbacks(b), addr))
+    unsafe { bus.as_ref() }
+        .is_some_and(|b| purestwhite_rtc::begin(&mut Bus(b), &mut Delay(b), addr))
 }
 
 /// # Safety
@@ -50,7 +51,7 @@ pub unsafe extern "C" fn pw_rtc_now(bus: *const CBus, addr: u8, out: *mut CTime)
     let (Some(b), Some(out)) = (unsafe { bus.as_ref() }, unsafe { out.as_mut() }) else {
         return false;
     };
-    let Some(t) = purestwhite_rtc::now(&mut Callbacks(b), addr) else {
+    let Some(t) = purestwhite_rtc::now(&mut Bus(b), addr) else {
         return false;
     };
     *out = CTime {
@@ -73,7 +74,7 @@ pub unsafe extern "C" fn pw_rtc_set(bus: *const CBus, addr: u8, time: *const CTi
     let (Some(b), Some(t)) = (unsafe { bus.as_ref() }, unsafe { time.as_ref() }) else {
         return false;
     };
-    purestwhite_rtc::set(&mut Callbacks(b), addr, &t.into())
+    purestwhite_rtc::set(&mut Bus(b), addr, &t.into())
 }
 
 /// # Safety
