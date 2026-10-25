@@ -7,6 +7,7 @@
 //                            changed case.
 //   CHAPTER_CORPUS_CASE=n    runs case n alone and writes its chapter and stylesheet to the temp
 //                            directory.
+#include <Epub.h>
 #include <Epub/Page.h>
 #include <Epub/hyphenation/Hyphenator.h>
 #include <GfxRenderer.h>
@@ -18,6 +19,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -189,6 +191,8 @@ const char* const DECLARATIONS[] = {"font-size: 1.4em",
                                     "color: red",
                                     "line-height: 2",
                                     "padding-left: 300px",
+                                    "height: 90%",
+                                    "height: 100%; margin-top: 2em",
                                     "margin-left: 70%; margin-right: 50%"};
 
 class Generator {
@@ -232,7 +236,9 @@ class Generator {
     std::string out;
     if (rng_.chance(50)) out += "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n";
     if (rng_.chance(30)) out += "<!DOCTYPE html>\n";
-    out += "<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\">";
+    out +=
+        "<html xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:epub=\"http://www.idpf.org/2007/ops\" "
+        "xmlns:xlink=\"http://www.w3.org/1999/xlink\">";
     out += "<head><title>" + text(2) + "</title>";
     if (rng_.chance(30)) out += "<style>p { color: blue }</style>";
     out += "</head>";
@@ -302,8 +308,8 @@ class Generator {
       } else if (kind == 25) {
         out += rng_.chance(50) ? "<br/>" : "<br></br>";
       } else if (kind == 26) {
-        out += "<img src=\"images/i" + std::to_string(rng_.range(0, 3)) + ".jpg\"" +
-               (rng_.chance(50) ? " alt=\"" + text(3) + "\"" : "") + attributes() + "/>";
+        out +=
+            "<img src=\"" + image() + "\"" + (rng_.chance(50) ? " alt=\"" + text(3) + "\"" : "") + attributes() + "/>";
       } else if (kind == 27) {
         out += "<!-- " + text(2) + " -->";
       } else if (kind == 28) {
@@ -316,6 +322,13 @@ class Generator {
       }
     }
     return out;
+  }
+
+  // Names the corpus's Epub stub serves (some with a fragment or an escape), and one it does not.
+  std::string image() {
+    const char* const images[] = {"images/i0.jpg", "images/i1.jpg",  "images/i2.jpg",   "images/i3.jpg",
+                                  "images/c.png",  "images/c.png#x", "images/i%30.jpg", "images/c.gif"};
+    return rng_.pick(images);
   }
 
   std::string link() {
@@ -393,7 +406,14 @@ class Generator {
     if (kind == 30) return "<div role=\"doc-pagebreak\" id=\"page" + std::to_string(rng_.range(0, 99)) + "\"/>";
     if (kind == 31) return "<p" + attributes() + "></p>";
     if (kind == 32) return "<p>" + std::string(rng_.range(1, 3), ' ') + "</p>";
-    if (kind == 33) return "<div" + attributes() + "><img src=\"images/c.png\"" + attributes() + "/></div>";
+    if (kind == 33) {
+      std::string out = "<div" + attributes() + ">";
+      for (int i = 0, n = rng_.range(1, 3); i < n; ++i) {
+        out += rng_.chance(80) ? "<img src=\"" + image() + "\"" + attributes() + "/>"
+                               : "<svg><image xlink:href=\"" + image() + "\"/></svg>";
+      }
+      return out + (rng_.chance(30) ? text(4) : "") + "</div>";
+    }
     if (kind == 34) {
       // A one-letter opening span: the drop cap shapes the parser looks for.
       return std::string("<p") + attributes() + "><span style=\"" +
@@ -412,6 +432,10 @@ struct Case {
   std::string css;
   uint64_t hash = 0;
 };
+
+// Pages hold cached image paths, so this one is fixed; nothing can be written there, so an image
+// the header probe cannot size falls back to its alt text, as with no decoder.
+constexpr const char* IMAGE_CACHE = "/nonexistent-chapter-corpus/img";
 
 class ChapterCorpus {
  public:
@@ -480,7 +504,7 @@ class ChapterCorpus {
     const float compressions[] = {0.85f, 1.0f, 1.0f, 1.2f};
     Hash hash;
     ChapterHtmlSlimParser parser(
-        nullptr, chapterPath, renderer, fontId, rng.pick(compressions), rng.chance(50),
+        std::make_shared<Epub>(), chapterPath, renderer, fontId, rng.pick(compressions), rng.chance(50),
         static_cast<uint8_t>(rng.range(0, 4)), static_cast<uint16_t>(rng.range(120, 481)),
         static_cast<uint16_t>(rng.range(150, 800)), rng.chance(50), rng.chance(15),
         [&](std::unique_ptr<Page> page, const uint16_t paragraph, const uint16_t listItem, const uint32_t offset) {
@@ -495,8 +519,8 @@ class ChapterCorpus {
           }
           hash.str(read(pagePath));
         },
-        rng.chance(80), "OEBPS/", dir_ + "/img", static_cast<uint8_t>(rng.range(0, 2)), tocAnchors, nullptr,
-        useCss ? &cssParser : nullptr);
+        rng.chance(80), "OEBPS/", IMAGE_CACHE, static_cast<uint8_t>(rng.range(0, 2)), tocAnchors,
+        rng.chance(50) ? std::function<void()>([&hash] { hash.u32(0xB0B); }) : nullptr, useCss ? &cssParser : nullptr);
     parser.setTextSpacing(static_cast<int8_t>(rng.range(-2, 3)), static_cast<uint8_t>(rng.range(50, 150)));
     parser.setParagraphIndentSpaces(static_cast<uint8_t>(rng.range(0, 4)));
 
@@ -538,10 +562,10 @@ constexpr size_t CASES_PER_GROUP = 100;
 
 // Recorded at 7ef6b849, before the parser's move to Rust.
 constexpr uint64_t EXPECTED[GROUPS] = {
-    0x8205fb334a41a0d5ULL, 0x57ae2805707093c9ULL, 0xb7639da9ff5f378cULL, 0xc56590f1fe3c13b4ULL,
-    0x545281d36deb73edULL, 0xb8392615fb5b36e4ULL, 0x956f3c908271e888ULL, 0x60991813662b753eULL,
-    0x3ec4fc7ba7e7a27fULL, 0x2f3cadcf2f2db191ULL, 0x294fc2fb62190ccaULL, 0x20ac3494bace571bULL,
-    0x9ef750989bc161b2ULL, 0x04df233ccca57dd9ULL, 0xc76618820206bc0fULL, 0xc4202ccccc48bf0dULL,
+    0x21be3fb9d57dbbbbULL, 0x875c50e9aeaec213ULL, 0xa13036053d9cd5acULL, 0xa1d5744d1bccf3d9ULL,
+    0x048bd64309ad9947ULL, 0x3176954714aabdebULL, 0xb396cb7578ca4efcULL, 0x8dd9a7aca9b4a118ULL,
+    0xc328dfaa6f4b5295ULL, 0x36e18dba07ca260aULL, 0x69fd4c610b24d04bULL, 0xd783e8494b8ce8c2ULL,
+    0x378e346bad8371beULL, 0x97fc417fc59fc093ULL, 0x46e39e0016cb6678ULL, 0xe2e976872b582a33ULL,
 };
 
 TEST(ChapterCorpus, PagesMatchTheRecordedParser) {

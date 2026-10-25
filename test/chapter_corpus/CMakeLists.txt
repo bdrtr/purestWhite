@@ -1,6 +1,7 @@
 add_executable(ChapterCorpusTest
   ChapterCorpusTest.cpp
-  ${REPO_ROOT}/test/chapter_html_slim_parser/ParserLinkStubs.cpp
+  CorpusLinkStubs.cpp
+  ${REPO_ROOT}/lib/Epub/Epub/converters/ImageToFramebufferDecoder.cpp
   ${REPO_ROOT}/lib/Epub/Epub/Page.cpp
   ${REPO_ROOT}/lib/Epub/Epub/blocks/TextBlock.cpp
   ${REPO_ROOT}/lib/MiniBidi/BidiUtils.cpp
@@ -15,6 +16,7 @@ add_executable(ChapterCorpusTest
 )
 
 target_include_directories(ChapterCorpusTest PRIVATE
+  ${CMAKE_CURRENT_SOURCE_DIR}/stubs
   ${REPO_ROOT}/test/chapter_html_slim_parser/stubs
   ${REPO_ROOT}/lib
   ${REPO_ROOT}/lib/Epub

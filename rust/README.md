@@ -148,7 +148,8 @@ birikir; her commit kendi maddesini ekler.
   Ayrıştırıcının iç yapısına bağlı olmadığı için taşımanın her diliminde değişmeden geçmelidir.
   Bir özet tutmazsa `CHAPTER_CORPUS_DUMP=1` vaka başına özet basar (iki ağacın çıktısı
   karşılaştırılarak ilk farklı vaka bulunur), `CHAPTER_CORPUS_CASE=n` o vakanın bölümünü yazar.
-  Resimler henüz kapsanmıyor (host'ta görüntü çözücüsü yok).
+  Resimlerin boyutu, külliyatın `Epub` stub'ının verdiği PNG ve JPEG başlıklarından okunur; kod
+  çözücü yok, başlığı okunamayan resim alternatif metnine düşer.
 - **Rust tarafı birebir çeviri değildir.** Crate'ler dilim, iterator, `Option` ve
   `Result` kullanır; NUL ile biten string, -1 gibi özel değerler ve sessiz hata yoktur.
   Sınırın C biçimini (C string, `int` dönüş kodları) FFI katmanı ve shim taşır. Dört istisna var:
