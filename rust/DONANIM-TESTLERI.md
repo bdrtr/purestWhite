@@ -2303,19 +2303,23 @@ sonraki ilk sıfırlamada önceki firmware'e kendisi döner; imaj hiç çalışm
 önyükleyicide dönüşü yalnızca bare-metal imajın kendisi yapabilir; bir hata cihazı kalıcı olarak
 bozar.
 
-- [ ] Kartta `.crosspoint/onyukleyici.txt` varsa silin (gizli klasör). Bu C++ firmware'i
+- [x] Kartta `.crosspoint/onyukleyici.txt` varsa silin (gizli klasör). Bu C++ firmware'i
   (`purestWhite-next-bare-metal-rapor.bin`) her zamanki gibi SD ile kurun. Açılınca kartı
   bilgisayarda açıp `.crosspoint/onyukleyici.txt`'yi okuyun ve bana iletin. Bu adımın riski her
   zamanki SD güncellemesiyle aynıdır. "onyukleyici geri alma: VAR" yazıyorsa aşağıdaki adımlara
   geçilebilir; "YOK" ya da "BILINMIYOR" yazıyorsa ya da dosya yoksa **durun, bare-metal imajları
   denemeyin**.
-- [ ] `purestwhite-baremetal-geri-donus.bin`'i kartın köküne koyun; Ayarlar → System (bu başlığın
+- [x] `purestwhite-baremetal-geri-donus.bin`'i kartın köküne koyun; Ayarlar → System (bu başlığın
   Türkçesi yok) → SD Karttan Firmware Güncelleme → dosyayı seçin → Onayla. Cihaz yeniden başlamalı,
   birkaç saniye içinde C++ firmware'e dönmeli. `purestwhite-bare-metal.txt`'yi kartı bilgisayara
   takıp okuyun (cihazdaki okuyucu aynı boydaki eski bir raporu önbellekten gösterebilir): "geri
   donus denemesi", "sonraki acilis: C++ yazilimi", "onyukleyici durumu: N" ve "bitti" yazmalı. N'yi
   bana iletin (1: önyükleyici kendisi de geri alıyor, 0: almıyor; "kayit yok" ya da başka bir
   sayı da bilgi verir). Cihazı bir kez daha kapatıp açın: C++ firmware açılmalı.
+  - Sonuç (2026-10-26, cihaz): önyükleyici yoklaması "VAR (yuva app1, durum 2)". Geri dönüş
+    denemesi de64e334 öncesi iki kez raporsuz bitti (cihaz kapandı, yukarıdaki nota bakın);
+    de64e334 ile: "sonraki acilis: C++ yazilimi", "onyukleyici durumu: 1", "bitti", cihaz
+    kendiliğinden C++'a döndü. Raporlar `firmware-arsiv/cihaz-raporlari/`'nda.
 - [ ] Aynısını `purestwhite-baremetal-deneme.bin` ile yapın. Dosyanın tamamını bana iletin:
   "esp-rtos: basladi", saat (UTC, doğru olmalı), pil yüzdesi (başlıktakine yakın),
   "zamanlayici: 10 s = saat 10 s" (9–11 s olağan) ve "bitti" bekleniyor; "PANIK"
