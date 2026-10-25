@@ -1,0 +1,16 @@
+# Home -> File Transfer -> Create Hotspot, then back: leaving a Wi-Fi session reboots the device
+# (silentRestart, a software CPU reset) to free the heap, and it comes back on Home.
+# Needs eink-qemu 0.9.1 or newer: 0.7.0 loops in the ROM after a software reset on the X4 Pro.
+ready
+touch:240,490
+wait-screen
+shot:file-transfer
+touch:240,295
+wait:10
+shot:hotspot
+touch:34,63
+timeout:60
+wait-log:Silent restart
+wait-log:Entering activity: Home
+wait-quiet:3
+shot:home-after-restart

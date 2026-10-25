@@ -10,7 +10,7 @@ root="$(dirname "$here")"
 scenario="${1:-$here/reading.txt}"
 env="${2:-x4pro}"
 shift $(($# < 2 ? $# : 2))
-qemu="${EINK_QEMU:-$root/../tools/eink-qemu-0.7.0/qemu/bin/eink-qemu}"
+qemu="${EINK_QEMU:-$root/../tools/eink-qemu-0.9.2/qemu/bin/eink-qemu}"
 base="${BASE:-$root/../crosspoint-base}/.pio/build/$env"
 
 books=("$@")
@@ -25,7 +25,9 @@ puts=()
 for book in "${books[@]}"; do puts+=(--put "$book"); done
 
 status=0
-"$qemu" compare "$base" "$root/.pio/build/$env" "${puts[@]}" --out "$out" --script "$scenario" >"$out.jsonl" || status=$?
+# Idle time paced as on the device: with 0.9's default (off) guest time jumps ahead while the
+# harness waits, and a swipe is then too slow for the firmware to take as one.
+"$qemu" compare "$base" "$root/.pio/build/$env" "${puts[@]}" --sleep on --out "$out" --script "$scenario" >"$out.jsonl" || status=$?
 sed -n '1,/^<details>/p' "$out/compare.md"
 echo "Report: $out/report.html"
 exit $status

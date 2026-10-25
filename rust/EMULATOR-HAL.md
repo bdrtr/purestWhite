@@ -32,14 +32,18 @@ eklenecek bir model bizim sürücümüzü değil, X4 Pro'nun donanımını takli
 
 ## Bilinen emülatör sınırları ve sürüm
 
-Elimizdeki 0.7.0; son sürüm 0.9.2 (2026-10-25). Aradaki sürümler HAL işi için önemli:
+`emu/compare.sh` 0.9.2'yi kullanır (`../tools/eink-qemu-0.9.2`; 0.7.0 yanında duruyor).
+Aradaki sürümler HAL işi için önemli:
 
 - **0.9.1**: X4 Pro'da OTA yuvası değiştikten sonraki yeniden başlatma aynı oturumda açılıyor
   (yalnızca CPU'yu sıfırlayan yeniden başlatmalar diğer çekirdeği ve paylaşılan çevre birimlerini
   koruyor). 0.7.0'da `ESP.restart` her zaman takılıyordu; güncelleme ve "Diğer yazılımı başlat"
-  akışları emülatörde denenemiyordu. Genel `ESP.restart`'ın da düzelip düzelmediği yükseltmeden
-  sonra denenmeli.
-- **0.9.0**: betikli koşularda `--sleep off` varsayılan; zamanlayıcı uyanmalarında düzeltmeler.
+  akışları emülatörde denenemiyordu. Denendi: Wi-Fi oturumundan çıkıştaki `silentRestart`
+  (`RTC_SW_CPU_RST`) 0.7.0'da ROM'da döngüye giriyor, 0.9.2'de Home'a açılıyor
+  (`emu/restart.txt`).
+- **0.9.0**: betikli koşularda `--sleep off` varsayılan: konuk boştayken saati bir sonraki
+  zamanlayıcıya atlar. Bu kipte `swipe` konuk zamanında uzar ve ürün yazılımı onu kaydırma saymaz
+  (sayfa çevrilmez); `compare.sh` bu yüzden `--sleep on` geçer.
 - **0.8.0**: Wi-Fi'de NAT ve köprü arasında açık seçim.
 
 ## Her zaman cihazda
@@ -57,8 +61,8 @@ testi olarak girerler:
 
 HAL'i taşıma sırasına göre (önce emülatörde tam görülenler):
 
-1. **eink-qemu'yu 0.9.2'ye yükseltmek**: kendi değişikliğimiz yok, yalnızca karşılaştırma tabanı
-   yeniden alınır. Yeniden başlatan akışlar senaryoya girer.
+1. **eink-qemu'yu 0.9.2'ye yükseltmek ✅**: 23 senaryo iki yapıda da geçiyor ve ekranları aynı;
+   yeniden başlatan akış `emu/restart.txt` ile senaryoya girdi.
 2. **Saf parçalar** (`HalClock`, `HalMemory`, `HalSystem`): emülatör yeterli.
 3. **`HalStorage`**: emülatör mutlu yolu tam gösterir; hata yolları ana makine testleriyle
    (sahte dosya sistemi), çünkü emülatörde kart hatası üretmek QEMU'nun SD modelini değiştirmeyi
