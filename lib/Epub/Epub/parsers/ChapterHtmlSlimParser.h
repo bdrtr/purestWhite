@@ -2,10 +2,9 @@
 
 #include <HalStorage.h>
 #include <XmlParser.h>
-#include <bembeyaz/boxes.h>
-#include <bembeyaz/carry.h>
 #include <bembeyaz/css.h>
 #include <bembeyaz/html.h>
+#include <bembeyaz/pager.h>
 #include <bembeyaz/table.h>
 
 #include <array>
@@ -51,8 +50,12 @@ class ChapterHtmlSlimParser {
   int rubyStartWordIndex = -1;
   bool collectingRubyText = false;
   std::string rubyTextBuffer;
+  // The page being filled, and the next one a page break set aside with the lines it carries.
   std::unique_ptr<Page> currentPage = nullptr;
-  int16_t currentPageNextY = 0;
+  std::unique_ptr<Page> nextPage = nullptr;
+  // Where content goes on the pages: bembeyaz-layout's pager. It counts the elements put on
+  // currentPage, so every push is reported to it.
+  bb_pager pager{};
   int fontId;
   float lineCompression;
   bool extraParagraphSpacing;
@@ -120,23 +123,10 @@ class ChapterHtmlSlimParser {
                 "DropCapState layout");
   bb_html_initial_letter* initialLetter() { return reinterpret_cast<bb_html_initial_letter*>(&dropCap); }
 
-  // Page-break carry-over: a paragraph's orphan/widow lines and a heading kept with what
-  // follows move to the next page instead of being left behind.
-  static constexpr size_t MAX_CARRIED_LINES = BB_CARRY_MAX_LINES;
+  // The paragraph being laid out, whose lone lines a page break carries along.
   const ParsedText* layoutParagraph = nullptr;
   bool layoutParagraphHasDropCap = false;
-  uint8_t paragraphLinesOnPage = 0;
-  uint8_t keepWithNextLines = 0;                       // trailing heading lines on this page
-  uint32_t recentLineOffsets[MAX_CARRIED_LINES] = {};  // visible offsets of this page's last lines, newest last
-  uint8_t recentLineCount = 0;
-  size_t linesToCarry(size_t& paragraphLines) const;
-  size_t keepWithNextCarry() const;
-  uint8_t carryLimit() const;
-  bool canCarry(size_t carry) const;
-  void breakPageCarryingLines(size_t carry, size_t paragraphLines, uint32_t visibleOffset);
-  // Open elements with a CSS border or background shade. Each emits a PageBorderBox around
-  // its content on every page it spans.
-  bb_boxes boxes{};
+  bb_pages pageCallbacks();
   static constexpr size_t MAX_GRID_TABLE_COLUMNS = 4;
   // ponytail: buffer at most 160 tokens / 2 KB per row; larger rows use stacked flow.
   static constexpr size_t MAX_GRID_TABLE_ROW_WORDS = 160;
@@ -179,7 +169,6 @@ class ChapterHtmlSlimParser {
   std::vector<ListContext> listStack;
 
   // Anchor-to-page mapping: tracks which page each HTML id attribute lands on
-  int completedPageCount = 0;
   std::vector<std::pair<std::string, uint16_t>> anchorData;
   std::string pendingAnchorId;          // deferred until after previous text block is flushed
   std::vector<std::string> tocAnchors;  // the list of anchors that are TOC chapter boundaries
@@ -190,8 +179,6 @@ class ChapterHtmlSlimParser {
   // records the first source character it renders.
   uint32_t visibleTextOffset = 0;
   uint32_t partWordVisibleOffset = 0;
-  uint32_t currentPageVisibleOffset = 0;
-  bool currentPageVisibleOffsetSet = false;
   bool insideBody = false;
   bool htmlEnded_ = false;
   bool syntheticCharacterData = false;
@@ -226,12 +213,8 @@ class ChapterHtmlSlimParser {
   void startNewTextBlock(const BlockStyle& blockStyle, bool paragraphEnd = true);
   void flushPendingAnchor();
   void completeCurrentPage();
-  void emitCurrentPage();
-  void breakBoxes();
-  void noteContent(int top, int bottom);
   void openBoxScope(BlockStyle& ownStyle, const CssStyle& cssStyle);
   void closeBoxScope();
-  void addBoxSegment(const bb_box_segment& segment);
   void armFirstLetterDropCap(const char* tagName, const std::string& classAttr, const char* idAttr);
   void cancelDropCapToWord();
   void layoutCurrentBlock(bool includeLastLine);
@@ -249,7 +232,6 @@ class ChapterHtmlSlimParser {
   void closeTableCell();
   void finishTableRow();
   void addTableRowSeparator();
-  void setCurrentPageVisibleOffset(uint32_t offset);
   void makePages(bool includeLastLine = true, bool paragraphEnd = true);
   // headingLevel: 1 to 6 for h1 to h6, else 0.
   void applyBlockFontScale(BlockStyle& blockStyle, const CssStyle& cssStyle, uint8_t headingLevel) const;
@@ -296,7 +278,9 @@ class ChapterHtmlSlimParser {
         imageRendering(imageRendering),
         contentBase(contentBase),
         imageBasePath(imageBasePath),
-        tocAnchors(std::move(tocAnchors)) {}
+        tocAnchors(std::move(tocAnchors)) {
+    bb_pager_init(&pager, viewportHeight);
+  }
 
   ~ChapterHtmlSlimParser();
   void setTextSpacing(const int8_t character, const uint8_t wordPercent) {

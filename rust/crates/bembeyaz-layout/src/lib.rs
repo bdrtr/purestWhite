@@ -11,7 +11,7 @@
 //!
 //! [`table`] plans the column widths of the chapter parser's grid tables; [`carry`] picks the lines
 //! its page breaks move; [`boxes`] frames its bordered and shaded elements; [`drop_cap`] places its
-//! drop caps.
+//! drop caps; [`pager`] places all of it on the chapter's pages.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -23,6 +23,7 @@ pub mod carry;
 pub mod drop_cap;
 mod layout;
 mod offsets;
+pub mod pager;
 mod store;
 pub mod table;
 mod text;

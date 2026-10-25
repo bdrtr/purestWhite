@@ -202,6 +202,7 @@ TEST_F(ChapterHtmlSlimParserTest, RubySurvivesPartialParagraphExtraction) {
 TEST_F(ChapterHtmlSlimParserTest, UnequalTableCellsAndRubySurvivePageBreaks) {
   parser.viewportWidth = 240;
   parser.viewportHeight = 32;
+  bb_pager_init(&parser.pager, parser.viewportHeight);
   parser.tableRowCells.reserve(2);
   std::multiset<std::string> expected;
   for (int column = 0; column < 2; ++column) {
@@ -519,9 +520,13 @@ class ChapterBlockDecorationTest : public ChapterHtmlSlimParserTest {
     for (int i = 0; i < count; ++i) result += "word ";
     return result;
   }
+  // Takes the current page too: later content starts a fresh pager on a new page.
   std::vector<const PageElement*> elementsWithTag(PageElementTag tag) {
     std::vector<const PageElement*> found;
-    if (parser.currentPage) pages.push_back(std::move(parser.currentPage));
+    if (parser.currentPage) {
+      pages.push_back(std::move(parser.currentPage));
+      bb_pager_init(&parser.pager, parser.viewportHeight);
+    }
     for (const auto& page : pages) {
       for (const auto& element : page->elements) {
         if (element->getTag() == tag) found.push_back(element.get());
@@ -536,13 +541,13 @@ TEST_F(ChapterBlockDecorationTest, RepeatedSectionBreaksEachAddOneLine) {
     open("p", "margin-top: 1px");
     text("Before");
     close("p");
-    const int before = parser.currentPageNextY;
+    const int before = bb_pager_y(&parser.pager);
     for (int i = 0; i < breaks; ++i) {
       const char* attrs[] = {"class", "section-br", "style", "display: block", nullptr};
       ChapterHtmlSlimParser::startElement(&parser, "br", attrs);
       close("br");
     }
-    EXPECT_EQ(parser.currentPageNextY - before, breaks * renderer.getLineHeight(0));
+    EXPECT_EQ(bb_pager_y(&parser.pager) - before, breaks * renderer.getLineHeight(0));
     open("p", "margin-top: 1px");
     text("After");
     close("p");
@@ -577,10 +582,10 @@ TEST_F(ChapterBlockDecorationTest, BreakAfterHeadingAddsOneLine) {
   open("h2", nullptr);
   text("Heading");
   close("h2");
-  const int before = parser.currentPageNextY;
+  const int before = bb_pager_y(&parser.pager);
   open("br", nullptr);
   close("br");
-  EXPECT_EQ(parser.currentPageNextY - before, renderer.getLineHeight(0));
+  EXPECT_EQ(bb_pager_y(&parser.pager) - before, renderer.getLineHeight(0));
 }
 
 TEST_F(ChapterBlockDecorationTest, PreWrapPreservesSpacesAndLineBreaksAcrossCallbacks) {
@@ -761,6 +766,7 @@ TEST_F(ChapterBlockDecorationTest, EmptyBorderedBlockDrawsARule) {
 
 TEST_F(ChapterBlockDecorationTest, ShadedBoxSplitsAcrossPages) {
   parser.viewportHeight = 100;
+  bb_pager_init(&parser.pager, parser.viewportHeight);
   open("div", "background-color: #ddd");
   for (int i = 0; i < 12; ++i) {
     open("p", nullptr);
@@ -774,6 +780,7 @@ TEST_F(ChapterBlockDecorationTest, ShadedBoxSplitsAcrossPages) {
 
 TEST_F(ChapterBlockDecorationTest, PageBreakLeavesTheCutEdgesOpen) {
   parser.viewportHeight = 100;
+  bb_pager_init(&parser.pager, parser.viewportHeight);
   open("div", "border: 2px solid black");
   for (int i = 0; i < 12; ++i) {
     open("p", nullptr);
@@ -1108,7 +1115,7 @@ TEST_F(ChapterTableBorderTest, CssCellPaddingInsetsContentAndReservesRowHeight) 
   close("td");
   close("tr");
   close("table");
-  const int rowBottom = parser.currentPageNextY;
+  const int rowBottom = bb_pager_y(&parser.pager);
   const auto lines = elementsWithTag(TAG_PageLine);
   ASSERT_EQ(lines.size(), 2u);
   EXPECT_EQ(lines[0]->xPos, 11);
@@ -1122,6 +1129,7 @@ TEST_F(ChapterTableBorderTest, CssCellPaddingInsetsContentAndReservesRowHeight) 
 
 TEST_F(ChapterTableBorderTest, PaddedRowsBreakBeforeTheBottomPaddingOverflows) {
   parser.viewportHeight = 48;
+  bb_pager_init(&parser.pager, parser.viewportHeight);
   table(nullptr, "padding: 8px");
   table(nullptr, "padding: 8px");
   const auto lines = elementsWithTag(TAG_PageLine);
@@ -1145,7 +1153,7 @@ TEST_F(ChapterTableBorderTest, StackedCellPaddingSurroundsChildParagraphs) {
   close("tr");
   close("table");
   EXPECT_EQ(parser.blockStyleStack.size(), initialDepth);
-  const int rowBottom = parser.currentPageNextY;
+  const int rowBottom = bb_pager_y(&parser.pager);
   open("p", nullptr);
   text("Outside");
   close("p");
@@ -1160,6 +1168,7 @@ TEST_F(ChapterTableBorderTest, StackedCellPaddingSurroundsChildParagraphs) {
 TEST_F(ChapterTableBorderTest, LongTwoColumnFixtureKeepsColumnsAcrossPages) {
   parser.viewportWidth = 480;
   parser.viewportHeight = 64;
+  bb_pager_init(&parser.pager, parser.viewportHeight);
   const char* cells[] = {
       "This is one very long sentence. It is part of the first cell of this table. It is quite nice.",
       "This is the second cell. It will probably overflow into the next page. Lorem ipsum dolor sit amet, consetetur "
@@ -1234,6 +1243,7 @@ class ChapterWidowOrphanTest : public ChapterBlockDecorationTest {
   void SetUp() override {
     ChapterBlockDecorationTest::SetUp();
     parser.viewportHeight = 5 * 16;  // five fixture lines per page
+    bb_pager_init(&parser.pager, parser.viewportHeight);
   }
   void paragraph(int wordCount) {
     open("p", nullptr);
@@ -1310,19 +1320,17 @@ TEST_F(ChapterWidowOrphanTest, CarriedReferenceKeepsItsFootnote) {
     SCOPED_TRACE(repeated);
     pages.clear();
     parser.currentPage.reset();
+    bb_pager_init(&parser.pager, parser.viewportHeight);
     paragraph(1);
     paragraph(1);
-    parser.currentPageNextY = 32;
-    parser.recentLineCount = 2;
-    parser.recentLineOffsets[0] = 0;
-    parser.recentLineOffsets[1] = 10;
+    ASSERT_EQ(bb_pager_y(&parser.pager), 32);
     parser.currentPage->addFootnote("1", "#note");
     parser.currentPage->addFootnote("2", "#other");
     parser.currentPage->addLink("#note", 0, 16, 8, 16);
     parser.currentPage->addLink("#other", 8, 0, 8, 16);
     if (repeated) parser.currentPage->addLink("#note", 0, 0, 8, 16);
-    ASSERT_TRUE(parser.canCarry(1));
-    parser.breakPageCarryingLines(1, 1, 20);
+    const bb_pages callbacks = parser.pageCallbacks();
+    ASSERT_TRUE(bb_pager_break_carrying(&parser.pager, &callbacks, 1, 1, 20));
     ASSERT_EQ(pages.size(), 1u);
     ASSERT_EQ(parser.currentPage->footnotes.size(), 1u);
     EXPECT_STREQ(parser.currentPage->footnotes[0].href, "#note");
@@ -1413,6 +1421,7 @@ TEST_F(ChapterInlineSizeTest, EnlargedGridCellsReserveTheirHeightAcrossPages) {
   renderer.fontLineHeights[NOTOSANS_16_FONT_ID] = 32;
   renderer.fontAscenders[NOTOSANS_16_FONT_ID] = 24;
   parser.viewportHeight = 80;
+  bb_pager_init(&parser.pager, parser.viewportHeight);
   open("table", nullptr);
   for (const bool inlineSize : {false, true}) {
     open("tr", nullptr);
@@ -2447,66 +2456,6 @@ TEST_F(ChapterInlineStyleTest, StyleTagNamesMatchExactly) {
                                       "B:0", "Strong:0", "EM:0", "U:0", "DEL:0", "bold:0", "italic:0"}));
 }
 
-TEST_F(ChapterWidowOrphanTest, OnlyTrailingTextLinesCanMoveAndNeverAWholePage) {
-  parser.viewportHeight = 10 * 16;
-  for (int i = 0; i < 3; ++i) paragraph(1);
-  ASSERT_EQ(parser.recentLineCount, 3u);
-  EXPECT_TRUE(parser.canCarry(0));
-  EXPECT_TRUE(parser.canCarry(2));
-  EXPECT_FALSE(parser.canCarry(3));
-  EXPECT_FALSE(parser.canCarry(4));
-  parser.recentLineCount = 1;
-  EXPECT_TRUE(parser.canCarry(1));
-  EXPECT_FALSE(parser.canCarry(2));
-  parser.recentLineCount = 3;
-  parser.keepWithNextLines = 2;
-  EXPECT_EQ(parser.keepWithNextCarry(), 2u);
-  parser.keepWithNextLines = 3;
-  EXPECT_EQ(parser.keepWithNextCarry(), 0u);
-  for (int i = 0; i < 5; ++i) paragraph(1);
-  ASSERT_EQ(parser.recentLineCount, 6u);  // the most it remembers
-  EXPECT_TRUE(parser.canCarry(6));
-  EXPECT_FALSE(parser.canCarry(7));
-  open("hr", nullptr);
-  close("hr");
-  EXPECT_FALSE(parser.canCarry(1));
-  parser.currentPage.reset();
-  EXPECT_FALSE(parser.canCarry(1));
-  EXPECT_TRUE(parser.canCarry(0));
-}
-
-TEST_F(ChapterWidowOrphanTest, CarryKeepsParagraphEndsAndHeadingsTogether) {
-  parser.viewportHeight = 10 * 16;
-  for (int i = 0; i < 4; ++i) paragraph(1);
-  ASSERT_EQ(parser.recentLineCount, 4u);
-  auto text = std::make_unique<ParsedText>(false, false, BlockStyle(), 0);
-  ASSERT_NE(text, nullptr);
-  const auto carry = [&](ParsedText* paragraph, const bool dropCap, const uint8_t lines, const int after,
-                         const uint8_t keep) {
-    if (paragraph) paragraph->linesAfterCurrent = after;
-    parser.layoutParagraph = paragraph;
-    parser.layoutParagraphHasDropCap = dropCap;
-    parser.paragraphLinesOnPage = lines;
-    parser.keepWithNextLines = keep;
-    size_t paragraphLines = 99;
-    const size_t moved = parser.linesToCarry(paragraphLines);
-    return std::to_string(moved) + "/" + std::to_string(paragraphLines);
-  };
-  EXPECT_EQ(carry(text.get(), false, 1, 5, 0), "1/1");  // a lone first line
-  EXPECT_EQ(carry(text.get(), false, 2, 0, 0), "2/2");  // the last line takes the other along
-  EXPECT_EQ(carry(text.get(), false, 3, 0, 0), "1/1");
-  EXPECT_EQ(carry(text.get(), false, 3, 1, 0), "0/0");
-  EXPECT_EQ(carry(text.get(), false, 0, 0, 0), "0/0");
-  EXPECT_EQ(carry(text.get(), true, 1, 0, 0), "0/0");   // a drop cap's lines stay
-  EXPECT_EQ(carry(text.get(), false, 1, 5, 2), "3/1");  // the heading above comes along
-  EXPECT_EQ(carry(text.get(), false, 2, 0, 2), "2/2");  // not the whole page: the heading stays
-  EXPECT_EQ(carry(text.get(), false, 3, 0, 2), "1/1");  // only a paragraph's start brings its heading
-  EXPECT_EQ(carry(nullptr, false, 0, 0, 2), "2/0");
-  EXPECT_EQ(carry(nullptr, false, 0, 0, 4), "0/0");
-  EXPECT_EQ(carry(nullptr, false, 3, 0, 1), "0/0");
-  parser.layoutParagraph = nullptr;
-}
-
 // A grid row's geometry: each cell line's word and x, and each cell frame's x and width.
 class ChapterTableRowTest : public ChapterBlockDecorationTest {
  protected:
@@ -2552,6 +2501,7 @@ TEST_F(ChapterTableRowTest, FramesOverlapAndStopAtTheRightEdge) {
             (std::vector<std::string>{"c0@4", "c1@164", "c2@324", "box@0+161", "box@160+161", "box@320+160"}));
   pages.clear();
   parser.currentPage.reset();
+  bb_pager_init(&parser.pager, parser.viewportHeight);
   EXPECT_EQ(row(481, nullptr, {nullptr, nullptr, nullptr}, attributes),
             (std::vector<std::string>{"c0@4", "c1@164", "c2@324", "box@0+161", "box@160+161", "box@320+161"}));
 }
@@ -2565,6 +2515,7 @@ TEST_F(ChapterTableRowTest, PaddingWiderThanItsColumnStacks) {
   EXPECT_EQ(row(480, nullptr, {"padding: 0 120px 0 120px", nullptr}), (std::vector<std::string>{"c0@120", "c1@4"}));
   pages.clear();
   parser.currentPage.reset();
+  bb_pager_init(&parser.pager, parser.viewportHeight);
   EXPECT_EQ(row(480, nullptr, {"padding: 0 119px 0 120px", nullptr}), (std::vector<std::string>{"c0@120", "c1@244"}));
 }
 
@@ -2578,6 +2529,7 @@ TEST_F(ChapterBlockDecorationTest, NamedTagsMatchExactly) {
   const auto run = [&](const char* list, const char* item, const char* rule, const char* breakTag, const char* raise) {
     pages.clear();
     parser.currentPage.reset();
+    bb_pager_init(&parser.pager, parser.viewportHeight);
     open("p", nullptr);
     text("before");
     close("p");

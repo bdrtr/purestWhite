@@ -2141,3 +2141,21 @@ büyüdü, statik RAM değişmedi.
   ya da `cadaver`) bağlanın: klasörler listelenmeli, boşluklu ve Türkçe harfli adlı bir dosya
   yüklenip taşınabilmeli ve kopyalanabilmeli; `.crosspoint` ve içindekiler görünmemeli ve
   değiştirilememeli.
+
+## Sayfalayıcı Rust'ta ("rust: our own chapter pager")
+
+Bölüm ayrıştırıcısının sayfa imleci (bir sonraki boş satır, sayfa kırılınca sonraki sayfaya
+taşınan yalnız kalmış satırlar ve başlıklar, her sayfanın ilk görünür karakteri, çerçeveli
+kutular, yatay çizgi, tablo satırı ayırıcısı, büyük ilk harf ve resimlerin yeri) `bembeyaz-layout`'un
+yeni `pager` modülünde. Sayfa nesneleri C++'ta kaldı. `test/chapter_corpus`'un 1600 bölümünün her
+sayfası baytı baytına aynı; emülatörde bölüm senaryolarının ekranları önceki commit'le aynı.
+Bellek yetmezliğinde artık sayfa ya da kutu kurulamazsa bölüm derlemesi okunur bir hatayla duruyor
+(eskiden `new Page()` çöküyordu ya da öğe sessizce düşüyordu). Flash x4pro'da 2,4 KB büyüdü
+(geçici FFI girişleri; ayrıştırıcının akışı Rust'a geçince kalkacak), statik RAM değişmedi.
+
+- [ ] Uzun bir romanı ve resimli, tablolu bir kitabı açıp birkaç bölüm boyunca sayfa çevirin:
+  paragrafın ilk ya da son satırı sayfada yalnız kalmamalı, başlık sayfanın dibinde kalmamalı,
+  çerçeveli kutular sayfa kırılınca açık kenarla sürmeli, resimler sayfadan taşmamalı.
+- [ ] Bir bölümün ortasındayken kitabı kapatıp açın: aynı sayfaya dönmeli (sayfaların görünür
+  konumları); içindekilerden bir bölüme ve bir dipnota atlayın (çapalar).
+- [ ] Seri porttan `Page render` sürelerini 0.0.3'le karşılaştırın; fark gürültü düzeyinde olmalı.
