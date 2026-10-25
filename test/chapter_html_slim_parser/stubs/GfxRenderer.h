@@ -25,7 +25,13 @@ class GfxRenderer {
     explicit FrameBufferLoan(GfxRenderer&) {}
     void end() {}
   };
-  // Fixture metrics: every glyph is 8 px wide, a space is 4 px, kerning is zero.
+  // Fixture metrics: every glyph is 8 px wide, a space is 4 px, kerning is zero. With glyphSpread
+  // set, glyph and space widths vary with the codepoint and the font instead.
+  int glyphSpread = 0;
+  int glyphWidth(int fontId, uint32_t cp) const {
+    return glyphSpread == 0 ? 8 : 4 + static_cast<int>((cp * 2654435761u) >> 27) % glyphSpread + fontId % 3;
+  }
+  int spaceWidth(int fontId) const { return glyphSpread == 0 ? 4 : 2 + fontId % 4; }
   static int trackingBetween(uint32_t left, uint32_t right, int8_t tracking) {
     return left == 0 || left == ' ' || right == ' ' ? 0 : tracking;
   }
@@ -40,12 +46,12 @@ class GfxRenderer {
   void fillRect(int, int, int, int, bool = true) const { boxPaints += 'b'; }
   void fillRectDither(int, int, int, int, Color) const { boxPaints += 's'; }
   // Fixture glyphs: 8 px advance, capitals 10 px tall.
-  int drawScaledCodepoint(int, uint32_t, EpdFontFamily::Style, int, int, int scale256) const {
-    return 8 * scale256 / 256;
+  int drawScaledCodepoint(int fontId, uint32_t cp, EpdFontFamily::Style, int, int, int scale256) const {
+    return glyphWidth(fontId, cp) * scale256 / 256;
   }
-  bool getCodepointMetrics(int, uint32_t, EpdFontFamily::Style, int32_t& advanceFP, int& top) const {
-    advanceFP = 8 << 4;
-    top = 10;
+  bool getCodepointMetrics(int fontId, uint32_t cp, EpdFontFamily::Style, int32_t& advanceFP, int& top) const {
+    advanceFP = glyphWidth(fontId, cp) << 4;
+    top = glyphSpread == 0 ? 10 : 7 + static_cast<int>(cp % 6);
     return true;
   }
   void drawText(int, int, int, const char*, bool, EpdFontFamily::Style,
@@ -75,7 +81,7 @@ class GfxRenderer {
     const auto found = fontAscenders.find(fontId);
     return found == fontAscenders.end() ? 12 : found->second;
   }
-  int getSpaceWidth(int, EpdFontFamily::Style) const { return 4; }
+  int getSpaceWidth(int fontId, EpdFontFamily::Style) const { return spaceWidth(fontId); }
   bool sdFont = false;
   mutable size_t coldMeasurements = 0;
   mutable std::set<std::tuple<int, uint8_t, uint32_t>> preparedAdvances;
@@ -88,7 +94,7 @@ class GfxRenderer {
       if (utf8IsCombiningMark(cp)) continue;
       const uint32_t measured = (style & EpdFontFamily::SMALL_CAPS) ? utf8SmallCapsUpper(cp) : cp;
       if (sdFont && !preparedAdvances.count({fontId, static_cast<uint8_t>(style) & 3, measured})) ++coldMeasurements;
-      width += 8 + trackingBetween(previous, cp, tracking);
+      width += glyphWidth(fontId, cp) + trackingBetween(previous, cp, tracking);
       previous = cp;
     }
     return width;
@@ -96,7 +102,7 @@ class GfxRenderer {
   int getKerning(int, uint32_t left, uint32_t right, EpdFontFamily::Style, int8_t tracking = 0) const {
     return trackingBetween(left, right, tracking);
   }
-  int getSpaceAdvance(int, uint32_t, uint32_t, EpdFontFamily::Style) const { return 4; }
+  int getSpaceAdvance(int fontId, uint32_t, uint32_t, EpdFontFamily::Style) const { return spaceWidth(fontId); }
   bool isSdCardFont(int) const { return sdFont; }
   void ensureSdCardFontReady(int fontId, const char* text, uint8_t mask, bool includeSmallCaps = false) const {
     const auto* cursor = reinterpret_cast<const uint8_t*>(text);

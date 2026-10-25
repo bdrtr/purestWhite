@@ -142,6 +142,13 @@ birikir; her commit kendi maddesini ekler.
   de zamanla kendi ürettiğimiz fixture'larla değiştirilir.
 - **Taşıma önce eski davranışı korur.** Eski koda karşı yazılmış oracle testleri
   değişmeden geçer; standarttan sapmalar sonra, her biri kendi commit'inde düzeltilir.
+  Bölüm ayrıştırıcısının oracle'ı `test/chapter_corpus`: 1600 rastgele bölüm ve stil dosyası
+  `parseAndBuildPages`'ten geçer, her sayfanın baytları, sayfa geri çağrısının argümanları ve
+  çapalar taşıma başlamadan önceki ayrıştırıcıya karşı kaydedilmiş özetlerle karşılaştırılır.
+  Ayrıştırıcının iç yapısına bağlı olmadığı için taşımanın her diliminde değişmeden geçmelidir.
+  Bir özet tutmazsa `CHAPTER_CORPUS_DUMP=1` vaka başına özet basar (iki ağacın çıktısı
+  karşılaştırılarak ilk farklı vaka bulunur), `CHAPTER_CORPUS_CASE=n` o vakanın bölümünü yazar.
+  Resimler henüz kapsanmıyor (host'ta görüntü çözücüsü yok).
 - **Rust tarafı birebir çeviri değildir.** Crate'ler dilim, iterator, `Option` ve
   `Result` kullanır; NUL ile biten string, -1 gibi özel değerler ve sessiz hata yoktur.
   Sınırın C biçimini (C string, `int` dönüş kodları) FFI katmanı ve shim taşır. Dört istisna var:
