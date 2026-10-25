@@ -79,3 +79,16 @@ HAL'i taşıma sırasına göre (önce emülatörde tam görülenler):
 
 Şarj pini ve LEDC için emülatöre ekleme, eink-qemu'nun kaynağından kendi yapımızı derlemeyi (ya da
 üst projeye katkı vermeyi) gerektirir. Bu, sahibinin kararıdır.
+
+## Bare-metal firmware (2. aşama)
+
+`rust/firmware`'in imajları eink-qemu'da C++ derlemesinin önyükleyicisi ve bölüm tablosuyla açılır;
+`esp_hal::init`, en yüksek saat hızı, `esp-alloc`, flash okuma ve yazma (`esp-storage`) çalışır.
+`emu/baremetal-handback.txt` SD güncellemesiyle ikinci yuvaya geçişi ve C++ firmware'e dönüşü baştan
+sona sınar; `emu/baremetal-handback-slot1.txt` aynısını C++ firmware ota_1'deyken. **esp-rtos ise
+eink-qemu 0.9.2'de çalışmaz**: `esp_rtos::start`'taki ilk görev değişiminde yığın işaretçisi çevre
+birimi alanına (0x6002_9xxx) kayar, kesme girişleri yazmaç pencerelerini SDMMC ve DS kayıtlarının
+üstüne döker ve QEMU çöker (sinyal 11). Zamanlayıcı olarak TIMG0 yerine SYSTIMER verilince de aynı
+(denenen sürümler: esp-hal 1.2.2, esp-rtos 0.4.0); esp-rtos'un S3'te kullandığı CPU-içi Software0
+kesmesinin (1. seviye) emülasyonundaki bir eksiklik olabilir. Embassy kullanan her şey bu düzelene
+kadar yalnızca cihazda denenebilir.

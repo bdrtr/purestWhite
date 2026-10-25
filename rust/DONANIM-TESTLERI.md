@@ -2269,3 +2269,49 @@ Göstergenin uykudan toparlanması ve profilin yeniden yüklenmesi kullanıcı t
 - [ ] Ayarlar → Ekran → Pil Yüzdesini Gizle → "Asla" seçiliyken okuyucunun durum çubuğunda yüzde
   görünmeli; dokunarak sayfa çevirirken seri portta `i2cWriteReadNonStop returned Error` satırı
   olmamalı (pil göstergesi, saat ve dokunma aynı veriyolunda).
+
+## Bare-metal ilk deneme ("rust: a bare-metal smoke test for the second OTA slot")
+
+Planın 2. aşamasının ilk adımı: `rust/firmware`, esp-hal ve Embassy üstünde ayrı bir bare-metal
+firmware. Şimdilik bir duman testi: ikinci OTA yuvasında bir kez açılır, ilk iş sonraki açılışı
+C++ firmware'e geri verir (otadata), sonra esp-rtos ve Embassy'yi başlatır, saat ve pil
+sürücülerimizi (`purestwhite-rtc`, `purestwhite-gauge`) esp-hal'in gerçek I2C'si üzerinde
+değiştirmeden çalıştırır, Embassy zamanlayıcısını saat yongasıyla karşılaştırır, sonucu RTC yavaş
+belleğine bırakıp sıfırlanır. C++ firmware açılışta bu raporu kartın köküne
+`purestwhite-bare-metal.txt` olarak yazar (`HalSystem::saveBareMetalReport`). Ekrana hiçbir şey
+çizmez: cihaz SD güncellemesinden sonra eski ekranla durur (geri dönüş denemesinde birkaç saniye,
+duman testinde 30 saniyeye kadar), sonra C++ firmware yeniden açılır.
+
+Güvenlik: 60 saniyelik RTC bekçisi en başta kurulur ve her takılmayı sıfırlar; ardından sonraki
+açılış C++ firmware'e, yani imajın açıldığı yuvanın (MMU'dan okunur) ötekine verilir (önyükleyicinin
+geri alma ayarına güvenilmez; C++ firmware ota_0'da da ota_1'de de olabilir); ikinci çekirdek park
+edilir; panik rapora "PANIK" yazar ve hemen sıfırlar. Rapor her aşamadan sonra yeniden kaydedilir,
+yarıda kalan bir çalışma nereye kadar geldiğini söyler. Emülatörde (`emu/baremetal-handback.txt`) SD
+güncellemesi → bare-metal açılış → C++'a dönüş → rapor → bir sıfırlama daha, baştan sona geçiyor,
+C++ firmware ota_1'deyken de (`emu/baremetal-handback-slot1.txt`); planlı bir panik de C++'a
+dönüyor. esp-rtos ise eink-qemu 0.9.2'de ilk görev değişiminde emülatörü çökertiyor (bkz.
+`EMULATOR-HAL.md`), duman testinin kendisi bu yüzden yalnızca cihazda denenebilir.
+
+Önce C++ firmware'in bu sürümü kurulu olmalı (raporu o yazar); deneme imajları onun öteki yuvasına
+yazılır ve oradaki önceki firmware'in üstüne yazar (Ayarlar'daki "Diğer yazılımla başlat" artık
+önceki sürümü değil deneme imajını açar). Dosyalar `~/Documents/bembeyaz/firmware-arsiv/`'de
+(sağlama toplamları yanlarında).
+
+- [ ] Bu C++ firmware'i (`purestWhite-next-bare-metal-rapor.bin`) her zamanki gibi SD ile kurun.
+- [ ] `purestwhite-baremetal-geri-donus.bin`'i kartın köküne koyun; Ayarlar → System (bu başlığın
+  Türkçesi yok) → SD Karttan Firmware Güncelleme → dosyayı seçin → Onayla. Cihaz yeniden başlamalı,
+  birkaç saniye içinde C++ firmware'e dönmeli. `purestwhite-bare-metal.txt`'yi kartı bilgisayara
+  takıp okuyun (cihazdaki okuyucu aynı boydaki eski bir raporu önbellekten gösterebilir): "geri
+  donus denemesi", "sonraki acilis: C++ yazilimi", "onyukleyici durumu: N" ve "bitti" yazmalı. N'yi
+  bana iletin (1: önyükleyici kendisi de geri alıyor, 0: almıyor; "kayit yok" ya da başka bir
+  sayı da bilgi verir). Cihazı bir kez daha kapatıp açın: C++ firmware açılmalı.
+- [ ] Aynısını `purestwhite-baremetal-deneme.bin` ile yapın. Dosyanın tamamını bana iletin:
+  "esp-rtos: basladi", saat (UTC, doğru olmalı), pil yüzdesi (başlıktakine yakın),
+  "zamanlayici: 10 s = saat 10 s" (9–11 s olağan) ve "bitti" bekleniyor; "PANIK"
+  ya da eksik satırlar nerede durduğunu gösterir.
+- [ ] Her denemeden önce eski `purestwhite-bare-metal.txt`'yi silin. Dosya oluşmadıysa imaj
+  açılmamış ya da raporu bırakamadan sıfırlanmış demektir; bana haber verin.
+- [ ] Bir adım cihazı geri getirmezse: en çok 60 saniye bekleyin (bekçi sıfırlar). Cihaz C++
+  firmware'e hiç dönmüyorsa Aşağı+Güç kurtarma kipi de açılmaz (o kip C++ firmware'in içinde) ve
+  Güç düğmesi de bir şey yapmaz (firmware'in okuduğu bir giriş); o zaman yalnızca USB ile yükleme
+  kurtarır, durup bana haber verin.

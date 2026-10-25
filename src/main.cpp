@@ -556,6 +556,7 @@ void setup() {
   }
 
   HalSystem::checkPanic();
+  HalSystem::saveBareMetalReport();
 
   APP_STATE.loadFromFile();
   const bool isSleepWake = wakeupReason == HalGPIO::WakeupReason::PowerButton;

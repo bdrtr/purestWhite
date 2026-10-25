@@ -1,0 +1,176 @@
+//! Smoke test of the bare-metal firmware, for the second OTA slot: starts esp-rtos and Embassy,
+//! runs our clock and fuel gauge drivers (purestwhite-rtc, purestwhite-gauge) on esp-hal's I2C,
+//! times Embassy's timers against the clock chip, then leaves a text report in RTC slow memory and
+//! resets.
+//!
+//! First it arms the RTC watchdog and hands the next boot back to the C++ firmware (see
+//! `hand_back`), which then saves the report to the SD card. The report is saved after every
+//! stage, and a panic adds a line to it and resets.
+#![no_std]
+#![warn(clippy::pedantic)]
+#![no_main]
+
+use core::fmt::Write as _;
+use embassy_executor::Spawner;
+use embassy_time::{Delay, Instant, Timer};
+use esp_backtrace as _;
+use esp_hal::clock::CpuClock;
+use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::i2c::master::{Config as I2cConfig, I2c, SoftwareTimeout};
+use esp_hal::time::{Duration, Rate};
+use esp_hal::timer::systimer::SystemTimer;
+use log::info;
+use purestwhite_firmware::{Report, arm_watchdog, hand_back};
+
+extern crate alloc;
+
+esp_bootloader_esp_idf::esp_app_desc!();
+
+/// After a panic: note it in the report and reset, so the next boot is the C++ firmware instead
+/// of the device hanging (esp-backtrace's default).
+#[allow(
+    clippy::no_mangle_with_rust_abi,
+    reason = "esp-backtrace declares it extern \"Rust\""
+)]
+#[unsafe(no_mangle)]
+pub fn custom_halt() -> ! {
+    Report::append_saved("PANIK\n");
+    esp_hal::system::software_reset()
+}
+
+const RTC_ADDR: u8 = 0x51;
+const GAUGE_ADDR: u8 = 0x63;
+
+/// Seconds since midnight from the clock chip, `None` when it cannot be read.
+fn clock_seconds<B: embedded_hal::i2c::I2c>(bus: &mut B) -> Option<u32> {
+    purestwhite_rtc::now(bus, RTC_ADDR)
+        .map(|t| u32::from(t.hour) * 3600 + u32::from(t.minute) * 60 + u32::from(t.second))
+}
+
+#[esp_rtos::main]
+async fn main(spawner: Spawner) -> ! {
+    // Nothing to spawn yet; everything runs in main.
+    let _ = spawner;
+    let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
+    let _rtc = arm_watchdog(peripherals.RTC_TIMER);
+    // The board's power latch, which the C++ firmware raises first thing: on battery the device
+    // turns off while it floats.
+    let _latch = Output::new(peripherals.GPIO1, Level::High, OutputConfig::default());
+    // A report at once, so a panic from here on is not added to an older one.
+    let mut report = Report::default();
+    let _ = writeln!(report, "purestWhite bare-metal deneme");
+    report.save();
+    let handed_back = hand_back(peripherals.FLASH, peripherals.CPU_CTRL);
+    esp_println::logger::init_logger_from_env();
+
+    match handed_back {
+        Ok(found) => {
+            let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
+            if let Some(state) = found.booted_state {
+                let _ = writeln!(report, "onyukleyici durumu: {state}");
+            }
+        }
+        Err(e) => {
+            let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
+        }
+    }
+    report.save();
+
+    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
+    let systimer = SystemTimer::new(peripherals.SYSTIMER);
+    esp_rtos::start(systimer.alarm0, peripherals.FROM_CPU_INTR0);
+    let _ = writeln!(report, "esp-rtos: basladi");
+    report.save();
+    info!("esp-rtos started");
+
+    // The touch controller's active-low supply: the C++ firmware powers it before using the
+    // shared bus, so the bus is driven the same way here.
+    let _touch = Output::new(peripherals.GPIO2, Level::Low, OutputConfig::default());
+    Timer::after_millis(50).await;
+
+    let i2c = I2c::new(
+        peripherals.I2C0,
+        // A stuck bus fails a transfer instead of waiting for the watchdog.
+        I2cConfig::default()
+            .with_frequency(Rate::from_khz(400))
+            .with_software_timeout(SoftwareTimeout::Transaction(Duration::from_millis(50))),
+    )
+    .map(|i2c| {
+        i2c.with_sda(peripherals.GPIO39)
+            .with_scl(peripherals.GPIO38)
+            .into_async()
+    });
+    let mut bus = i2c.ok();
+    if bus.is_none() {
+        let _ = writeln!(report, "i2c: kurulamadi");
+    }
+
+    if let Some(bus) = bus.as_mut() {
+        let mut delay = Delay;
+        if purestwhite_rtc::begin(bus, &mut delay, RTC_ADDR) {
+            match purestwhite_rtc::now(bus, RTC_ADDR) {
+                Some(t) => {
+                    let _ = writeln!(
+                        report,
+                        "saat: {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+                        t.year, t.month, t.day, t.hour, t.minute, t.second
+                    );
+                }
+                None => {
+                    let _ = writeln!(report, "saat: bulundu, okunamadi");
+                }
+            }
+        } else {
+            let _ = writeln!(report, "saat: bulunamadi");
+        }
+        report.save();
+
+        let mut gauge = purestwhite_gauge::Cw2017::new();
+        let mut soc = None;
+        // The first reading may need a restart of the gauge; a failed one retries after 1 s.
+        for attempt in 0..3 {
+            if attempt > 0 {
+                Timer::after_millis(1100).await;
+            }
+            #[allow(clippy::cast_possible_truncation)]
+            let now = Instant::now().as_millis() as u32;
+            soc = gauge.soc(bus, &mut delay, GAUGE_ADDR, now).await;
+            if soc.is_some() {
+                break;
+            }
+        }
+        match soc {
+            Some(soc) => {
+                let _ = writeln!(report, "pil: %{soc}");
+            }
+            None => {
+                let _ = writeln!(report, "pil: okunamadi");
+            }
+        }
+        report.save();
+    }
+
+    // Embassy's timer against the clock chip: 10 s of timer should be 10 s of clock, give or take
+    // the one-second resolution.
+    let clock_start = bus.as_mut().and_then(clock_seconds);
+    Timer::after_millis(10_000).await;
+    let clock_end = bus.as_mut().and_then(clock_seconds);
+    match (clock_start, clock_end) {
+        (Some(a), Some(b)) => {
+            let _ = writeln!(
+                report,
+                "zamanlayici: 10 s = saat {} s",
+                b.wrapping_sub(a).wrapping_add(86_400) % 86_400
+            );
+        }
+        _ => {
+            let _ = writeln!(report, "zamanlayici: saat yok");
+        }
+    }
+    let _ = writeln!(report, "bitti");
+
+    info!("{}", report.as_str());
+    report.save();
+    Timer::after_millis(100).await;
+    esp_hal::system::software_reset()
+}

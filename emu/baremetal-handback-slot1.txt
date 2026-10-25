@@ -1,0 +1,40 @@
+# As baremetal-handback.txt, with this firmware in the second OTA slot: it first installs itself
+# over SD Card Firmware Update (app0 -> app1), then rollback-check goes into app0. The bare-metal
+# image must hand the next boot back to app1, not to itself.
+#   cp .pio/build/x4pro/firmware.bin build/baremetal/a-cpp.bin
+#   cp build/baremetal/rollback-check.bin build/baremetal/b-rollback.bin
+#   emu/compare.sh emu/baremetal-handback-slot1.txt x4pro build/baremetal/a-cpp.bin build/baremetal/b-rollback.bin
+# (The base side fails at the report wait, as in baremetal-handback.txt.)
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+touch:240,472
+timeout:240
+ready:240
+wait-quiet:5
+shot:in-app1
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+shot:picker
+touch:240,194
+wait-quiet:3
+shot:confirm
+touch:240,472
+timeout:180
+wait-log:sonraki acilis: C\+\+ yazilimi
+wait-log:Bare-metal report
+wait-quiet:5
+shot:back-home
+reset
+ready:120
+shot:after-reset

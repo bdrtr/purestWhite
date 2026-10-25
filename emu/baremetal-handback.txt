@@ -1,0 +1,27 @@
+# The bare-metal smoke test's way there and back: Settings > System > SD Card Firmware Update
+# flashes rust/firmware's rollback-check image into the other OTA slot and restarts into it; it
+# hands the next boot back to this firmware, leaves a report in RTC slow memory and resets; this
+# firmware saves the report to /purestwhite-bare-metal.txt. A reset at the end must land here again.
+#   cd rust/firmware; cargo build --release; cd ../..
+#   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/rollback-check build/baremetal/rollback-check.bin
+#   emu/compare.sh emu/baremetal-handback.txt x4pro build/baremetal/rollback-check.bin
+# (Against a base without HalSystem::saveBareMetalReport the base side fails at the report wait.)
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+shot:confirm
+touch:240,472
+timeout:180
+wait-log:sonraki acilis: C\+\+ yazilimi
+wait-log:Bare-metal report
+wait-quiet:5
+shot:back-home
+reset
+ready:120
+shot:after-reset

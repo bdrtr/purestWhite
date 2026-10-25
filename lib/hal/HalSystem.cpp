@@ -86,6 +86,9 @@ void IRAM_ATTR __wrap_panic_print_backtrace(const void* frame, int core) {
 }
 }
 
+// The end of this firmware's RTC slow memory, from the linker script.
+extern "C" char _rtc_force_slow_end;
+
 namespace HalSystem {
 
 void begin() {
@@ -191,6 +194,39 @@ std::string getPanicInfo(bool full) {
     }
 
     return info;
+  }
+}
+
+void saveBareMetalReport() {
+  // As rust/firmware/src/lib.rs writes it: magic, length, then the text, in the last 256 bytes of
+  // RTC slow memory, past everything this firmware keeps there.
+  constexpr uintptr_t REPORT_ADDR = 0x50001F00;
+  constexpr uint32_t REPORT_MAGIC = 0x50574254;  // "PWBT"
+  constexpr uint32_t REPORT_TEXT = 248;
+  constexpr const char* REPORT_PATH = "/purestwhite-bare-metal.txt";
+  if (reinterpret_cast<uintptr_t>(&_rtc_force_slow_end) > REPORT_ADDR) {
+    LOG_ERR("SYS", "RTC data overlaps the bare-metal report");
+    return;
+  }
+
+  auto* report = reinterpret_cast<volatile uint32_t*>(REPORT_ADDR);
+  if (report[0] != REPORT_MAGIC) return;
+  const uint32_t len = report[1];
+  if (len > REPORT_TEXT) {
+    report[0] = 0;
+    LOG_ERR("SYS", "Bare-metal report too long: %u", static_cast<unsigned>(len));
+    return;
+  }
+  char text[REPORT_TEXT + 1];
+  const auto* bytes = reinterpret_cast<const volatile char*>(report + 2);
+  for (uint32_t i = 0; i < len; ++i) text[i] = bytes[i];
+  text[len] = '\0';
+  LOG_INF("SYS", "Bare-metal report:\n%s", text);
+  // Kept for the next boot until it is on the card.
+  if (Storage.writeFile(REPORT_PATH, String(text))) {
+    report[0] = 0;
+  } else {
+    LOG_ERR("SYS", "Could not write %s", REPORT_PATH);
   }
 }
 
