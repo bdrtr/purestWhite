@@ -6,9 +6,8 @@ pub const MAX_MARKER: usize = 12;
 /// The UTF-8 bullet (U+2022) of unordered items, and of items outside any list.
 const BULLET: [u8; 3] = [0xE2, 0x80, 0xA2];
 
-/// An open list (html.h's `bb_html_list`).
+/// An open list.
 #[derive(Clone, Copy, Debug, Default)]
-#[repr(C)]
 pub struct List {
     pub ordered: bool,
     /// `list-style-type: none`.

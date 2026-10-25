@@ -1,16 +1,10 @@
 #pragma once
 
 #include <HalStorage.h>
-#include <XmlParser.h>
-#include <bembeyaz/chapter.h>
-#include <bembeyaz/css.h>
-#include <bembeyaz/html.h>
-#include <bembeyaz/pager.h>
-#include <bembeyaz/table.h>
+#include <bembeyaz/chapter_parser.h>
 
-#include <array>
-#include <climits>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -18,283 +12,78 @@
 #include <string_view>
 #include <vector>
 
-#include "Epub/ParsedText.h"
-#include "Epub/blocks/ImageBlock.h"
 #include "Epub/blocks/TextBlock.h"
 #include "Epub/css/CssParser.h"
-#include "Epub/css/CssStyle.h"
 
 class Page;
 class GfxRenderer;
 class Epub;
 
-#define MAX_WORD_SIZE BB_HTML_MAX_WORD
-
+// Lays a chapter's XHTML out onto pages: rust/crates/bembeyaz-chapter reads it and decides the
+// layout; this class keeps the chapter's file, the pages, their elements and the laid-out lines.
 class ChapterHtmlSlimParser {
   std::shared_ptr<Epub> epub;
   const std::string& filepath;
   GfxRenderer& renderer;
   std::function<void(std::unique_ptr<Page>, uint16_t, uint16_t, uint32_t)> completePageFn;
-  std::function<void()> popupFn;  // Popup callback
-  bool imagePopupFired = false;   // popupFn fired for the first image probe (single-shot)
-  int depth = 0;
-  int skipUntilDepth = INT_MAX;
-  int boldUntilDepth = INT_MAX;
-  int italicUntilDepth = INT_MAX;
-  // buffer for building up words from characters, will auto break if longer than this
-  // leave one char at end for null pointer
-  char partWordBuffer[MAX_WORD_SIZE + 1] = {};
-  int partWordBufferIndex = 0;
-  bool nextWordContinues = false;  // true when next flushed word attaches to previous (inline element boundary)
-  std::unique_ptr<ParsedText> currentTextBlock = nullptr;
-  // Ruby text state
-  bool inRuby = false;
-  int rubyStartWordIndex = -1;
-  bool collectingRubyText = false;
-  std::string rubyTextBuffer;
-  // The page being filled, and the next one a page break set aside with the lines it carries.
-  std::unique_ptr<Page> currentPage = nullptr;
-  std::unique_ptr<Page> nextPage = nullptr;
-  // Where content goes on the pages: bembeyaz-layout's pager. It counts the elements put on
-  // currentPage, so every push is reported to it.
-  bb_pager pager{};
-  int fontId;
-  float lineCompression;
-  bool extraParagraphSpacing;
-  uint8_t paragraphIndentSpaces = 2;
-  int8_t characterSpacing = 0;
-  uint8_t wordSpacingPercent = 100;
-  uint8_t paragraphAlignment;
-  uint16_t viewportWidth;
-  uint16_t viewportHeight;
-  bool hyphenationEnabled;
-  bool focusReadingEnabled;
+  std::function<void()> popupFn;
+  bool imagePopupFired = false;  // popupFn fired for the first unsized image (single-shot)
   const CssParser* cssParser;
-  bool embeddedStyle;
-  uint8_t imageRendering;
-  std::string contentBase;
   std::string imageBasePath;
   int imageCounter = 0;
+  bb_chapter_settings settings{};
+  bb_chapter* chapter = nullptr;
 
-  // One open element's inline style (bembeyaz-css's inline module builds and folds them).
-  using StyleStackEntry = bb_css_inline_entry;
-  static_assert(sizeof(bb_css_inline_entry) == 32 && offsetof(bb_css_inline_entry, font_scale) == 28 &&
-                    sizeof(bb_css_effective) == 13 && sizeof(bb_css_entry_kind) == 12 &&
-                    offsetof(bb_css_entry_kind, scale) == 8,
-                "css.h's inline style layouts, as bembeyaz-ffi asserts them");
-  std::vector<StyleStackEntry> inlineStyleStack;
-  std::vector<BlockStyle> blockStyleStack;  // accumulated block styles from open ancestor elements
-  CssStyle currentCssStyle;
-  // Open elements by depth, for descendant/child CSS selectors. Deeper elements
-  // resolve without ancestors, so contextual rules simply don't match there.
-  static constexpr size_t MAX_CSS_ANCESTORS = 16;
-  std::array<CssAncestor, MAX_CSS_ANCESTORS> cssAncestors{};
-  bool effectiveBold = false;
-  bool effectiveItalic = false;
-  CssTextDecoration effectiveTextDecoration = CssTextDecoration::None;
-  bool effectiveDirectionDefined = false;
-  CssTextDirection effectiveDirection = CssTextDirection::Ltr;
-  bool effectiveTextAlignDefined = false;
-  CssTextAlign effectiveTextAlign = CssTextAlign::Left;
-  bool effectiveSup = false;
-  bool effectiveSub = false;
-  bool effectiveSmallCaps = false;
-  bool effectivePreserveWhitespace = false;
-  bool pendingPageBreak = false;  // set when a page-break-after element closes
-
-  // Initial letter captured from a ::first-letter block or a leading float/initial-letter span,
-  // drawn as a PageDropCap when its block is laid out.
-  static constexpr size_t MAX_DROP_CAP_BYTES = BB_HTML_MAX_INITIAL_BYTES;
-  struct DropCapState {
-    char text[MAX_DROP_CAP_BYTES + 1] = {};
-    uint8_t length = 0;
-    uint8_t codepoints = 0;
-    uint8_t lines = 0;  // text lines the letter spans
-    bool bold = false;
-    bool firstLetterPending = false;  // capture the current block's first letter
-    int32_t spanDepth = -1;           // capturing the text of the span at this depth
-  } dropCap;
-  // bembeyaz-html's words module captures the letter through this layout.
-  static_assert(sizeof(DropCapState) == sizeof(bb_html_initial_letter) &&
-                    offsetof(DropCapState, length) == offsetof(bb_html_initial_letter, len) &&
-                    offsetof(DropCapState, codepoints) == offsetof(bb_html_initial_letter, codepoints) &&
-                    offsetof(DropCapState, lines) == offsetof(bb_html_initial_letter, lines) &&
-                    offsetof(DropCapState, bold) == offsetof(bb_html_initial_letter, bold) &&
-                    offsetof(DropCapState, firstLetterPending) == offsetof(bb_html_initial_letter, pending) &&
-                    offsetof(DropCapState, spanDepth) == offsetof(bb_html_initial_letter, span_depth),
-                "DropCapState layout");
-  bb_html_initial_letter* initialLetter() { return reinterpret_cast<bb_html_initial_letter*>(&dropCap); }
-
-  // The paragraph being laid out, whose lone lines a page break carries along.
-  const ParsedText* layoutParagraph = nullptr;
-  bool layoutParagraphHasDropCap = false;
-  bb_pages pageCallbacks();
-  static constexpr size_t MAX_GRID_TABLE_COLUMNS = 4;
-  // ponytail: buffer at most 160 tokens / 2 KB per row; larger rows use stacked flow.
-  static constexpr size_t MAX_GRID_TABLE_ROW_WORDS = 160;
-  static constexpr size_t MAX_GRID_TABLE_ROW_BYTES = 2048;
-  int tableDepth = 0;
-  bool insideTableCell = false;
-  bool tableRowStacked = false;
-  bool tableRowRtl = false;
-  uint16_t tableRowsSpannedRemaining = 0;
-  size_t tableRowTextBytes = 0;
-  std::vector<std::unique_ptr<ParsedText>> tableRowCells;
-  std::array<std::vector<std::unique_ptr<TextBlock>>, MAX_GRID_TABLE_COLUMNS> tableCellLines;
-  std::vector<uint32_t> tableLineVisibleOffsets;
-  bool listItemBulletOnly = false;  // true when currentTextBlock has only the <li> bullet
-  CssBorderSide tableBorder;        // grid lines for the current table; invisible when unbordered
-  // Column widths planned from a pre-scan of the table's markup; 0 columns = equal widths.
-  std::array<uint16_t, MAX_GRID_TABLE_COLUMNS> tableColumnWidths{};
-  uint8_t tableColumnCount = 0;
-  using TableColumnMeasure = bb_table_measure;
-
-  // A font-size span that opens a block and holds all of its text sizes the whole block,
-  // e.g. <p><span class="big">Chapter One</span></p>. Text after the span cancels it.
-  struct InlineSizeState {
-    float scale = 1.0f;
-    int depth = -1;  // outermost sizing span
-    bool valid = false;
-    bool open = false;
-  } inlineSize;
-
-  // Tracks the innermost open <ul>/<ol> so <li> knows whether to number itself,
-  // bullet itself, or (list-style-type: none) emit no marker at all. Pushed on
-  // <ul>/<ol> open, popped on close, so nested lists restart their own counter
-  // without disturbing the parent list's.
-  struct ListContext {
-    bb_html_list list{};  // <ol> or <ul>, list-style-type: none, and the last item's number
-    int depth = 0;        // parser depth at open time; matches the depth seen in endElement
-                          // for the same tag, so a hidden nested list's close can't pop
-                          // an outer list's context
+  // The page being filled, and the next one a page break set aside with the lines it carries.
+  std::unique_ptr<Page> currentPage;
+  std::unique_ptr<Page> nextPage;
+  // Laid-out lines kept until they are placed, by handle; a placed or dropped one is NULL.
+  struct KeptLine {
+    std::unique_ptr<TextBlock> line;
+    int baseHeight = 0;
+    int rubyShift = 0;
   };
-  std::vector<ListContext> listStack;
+  std::vector<KeptLine> lines;
+  std::vector<uint32_t> freeLines;
+  // The image last sized, for push_image.
+  std::string imagePath;
+  std::string imageSource;
 
-  // Anchor-to-page mapping: tracks which page each HTML id attribute lands on
-  // Which page each element id lands on, and the note references waiting for their page
-  // (bembeyaz-chapter's).
-  bb_anchors anchors{};
-  bb_footnotes notes{};
-  uint16_t xpathParagraphIndex = 0;
-  uint16_t xpathListItemIndex = 0;
-  // Canonical reading-position counter: zero-based Unicode codepoints in visible
-  // <body> text. Token offsets flow through line breaking so every completed page
-  // records the first source character it renders.
-  uint32_t visibleTextOffset = 0;
-  uint32_t partWordVisibleOffset = 0;
-  bool insideBody = false;
-  bool htmlEnded_ = false;
-  bool syntheticCharacterData = false;
-  uint16_t nonVisibleTextDepth = 0;
-
-  // Footnote link tracking
-  bool insideFootnoteLink = false;
-  int footnoteLinkDepth = -1;
-  uint8_t currentFootnoteLinkId = 0;
-  int wordsExtractedInBlock = 0;
-  // Latched when a ParsedText could not be created (OOM). Together with
-  // ParsedText::hadDroppedWords() this turns layout OOM into ParseStatus::Error
-  // so the section build fails readably instead of emitting pages with holes.
-  bool layoutOom = false;
-
-  // Resumable parse state. The one-shot parseAndBuildPages() drives these
-  // internally; the incremental section builder drives them across render ticks
-  // so a large single chapter can yield between pages instead of blocking the UI
-  // until the whole thing is laid out. parseFile_ and the XML parser stay alive
-  // for the lifetime of the parse so it can be paused and resumed at buffer
-  // boundaries.
-  XmlParser xmlParser_;
   HalFile parseFile_;
-  static constexpr size_t PARSE_BUFFER_SIZE = 1024;
-  char parseBuffer_[PARSE_BUFFER_SIZE];
-  uint32_t parseStartTime_ = 0;
+  HalFile tableFile_;
+  bool parsing_ = false;
 
-  void updateEffectiveInlineStyle();
-  void startNewTextBlock(const BlockStyle& blockStyle, bool paragraphEnd = true);
-  void flushPendingAnchor();
-  void addFootnotesToPage(int32_t words);
-  void completeCurrentPage();
-  void openBoxScope(BlockStyle& ownStyle, const CssStyle& cssStyle);
-  void closeBoxScope();
-  void armFirstLetterDropCap(const char* tagName, const std::string& classAttr, const char* idAttr);
-  void cancelDropCapToWord();
-  void layoutCurrentBlock(bool includeLastLine);
-  void layoutDropCapLines(int layoutFontId, uint16_t effectiveWidth,
-                          const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& emitLine,
-                          bool includeLastLine);
-  static uint8_t dropCapLines(const CssStyle& style);
-  bool measureTableColumns(HalFile& file, TableColumnMeasure& out) const;
-  void planTableColumns(const TableColumnMeasure& measure);
-  void applyPendingPageBreak();
-  void pushBlockStyle(const BlockStyle& accumulated);
-  void flushPartWordBuffer();
-  void breakTextLine(const BlockStyle& style);
-  void fallbackTableRowToStacked();
-  void closeTableCell();
-  void finishTableRow();
-  void addTableRowSeparator();
-  void makePages(bool includeLastLine = true, bool paragraphEnd = true);
-  // headingLevel: 1 to 6 for h1 to h6, else 0.
-  void applyBlockFontScale(BlockStyle& blockStyle, const CssStyle& cssStyle, uint8_t headingLevel) const;
-  int fontIdForScale(float scale) const;
-  int prepareBlockFont(ParsedText& text, float scale);
-  static EpdFontFamily::Style fontStyleForTextDecoration(CssTextDecoration decoration);
-  bool makeInlineEntry(const bb_css_entry_kind& kind, const CssStyle& cssStyle, StyleStackEntry& entry) const;
-  void pushInlineEntry(const StyleStackEntry& entry);
-  void pushBlockTextStyleEntry(const CssStyle& cssStyle);
-  void pushDecorationStyleEntry(CssTextDecoration defaultDecoration, const CssStyle& cssStyle);
-  void emitHorizontalRule(const BlockStyle& blockStyle);
-  // XML callbacks
-  static void startElement(void* userData, const char* name, const char** atts);
-  static void characterData(void* userData, const char* s, int len);
-  static void skippedEntity(void* userData, const char* name);
-  static void endElement(void* userData, const char* name);
+  bb_chapter_host host();
+
+  // For the host tests, which reach them with `#define private public`: the document's events one
+  // at a time, and the page being filled.
+  void startElement(const char* name, const char** atts);
+  void characterData(const char* text, size_t len);
+  void endElement(const char* name);
+  const bb_pager* pager() const { return bb_chapter_pager(chapter); }
+  Page* page() const { return currentPage.get(); }
+  // Takes the page being filled away; the next content starts a new one.
+  std::unique_ptr<Page> takePage() {
+    bb_chapter_restart_pages(chapter);
+    nextPage.reset();
+    return std::move(currentPage);
+  }
 
  public:
   explicit ChapterHtmlSlimParser(
-      std::shared_ptr<Epub> epub, const std::string& filepath, GfxRenderer& renderer, const int fontId,
-      const float lineCompression, const bool extraParagraphSpacing, const uint8_t paragraphAlignment,
-      const uint16_t viewportWidth, const uint16_t viewportHeight, const bool hyphenationEnabled,
-      const bool focusReadingEnabled,
+      std::shared_ptr<Epub> epub, const std::string& filepath, GfxRenderer& renderer, int fontId, float lineCompression,
+      bool extraParagraphSpacing, uint8_t paragraphAlignment, uint16_t viewportWidth, uint16_t viewportHeight,
+      bool hyphenationEnabled, bool focusReadingEnabled,
       const std::function<void(std::unique_ptr<Page>, uint16_t, uint16_t, uint32_t)>& completePageFn,
-      const bool embeddedStyle, const std::string& contentBase, const std::string& imageBasePath,
-      const uint8_t imageRendering = 0, std::vector<std::string> tocAnchors = {},
-      const std::function<void()>& popupFn = nullptr, const CssParser* cssParser = nullptr)
-
-      : epub(epub),
-        filepath(filepath),
-        renderer(renderer),
-        fontId(fontId),
-        lineCompression(lineCompression),
-        extraParagraphSpacing(extraParagraphSpacing),
-        paragraphAlignment(paragraphAlignment),
-        viewportWidth(viewportWidth),
-        viewportHeight(viewportHeight),
-        hyphenationEnabled(hyphenationEnabled),
-        focusReadingEnabled(focusReadingEnabled),
-        completePageFn(completePageFn),
-        popupFn(popupFn),
-        cssParser(cssParser),
-        embeddedStyle(embeddedStyle),
-        imageRendering(imageRendering),
-        contentBase(contentBase),
-        imageBasePath(imageBasePath) {
-    bb_pager_init(&pager, viewportHeight);
-    bb_anchors_init(&anchors);
-    bb_footnotes_init(&notes);
-    for (const auto& anchor : tocAnchors) {
-      if (!bb_anchors_add_toc(&anchors, anchor.data(), anchor.size())) layoutOom = true;
-    }
-  }
+      bool embeddedStyle, const std::string& contentBase, const std::string& imageBasePath, uint8_t imageRendering = 0,
+      std::vector<std::string> tocAnchors = {}, const std::function<void()>& popupFn = nullptr,
+      const CssParser* cssParser = nullptr);
+  ~ChapterHtmlSlimParser();
   ChapterHtmlSlimParser(const ChapterHtmlSlimParser&) = delete;
   ChapterHtmlSlimParser& operator=(const ChapterHtmlSlimParser&) = delete;
 
-  ~ChapterHtmlSlimParser();
-  void setTextSpacing(const int8_t character, const uint8_t wordPercent) {
-    characterSpacing = character;
-    wordSpacingPercent = wordPercent;
-  }
-  void setParagraphIndentSpaces(const uint8_t spaces) { paragraphIndentSpaces = spaces; }
+  void setTextSpacing(int8_t character, uint8_t wordPercent);
+  void setParagraphIndentSpaces(uint8_t spaces);
 
   // One-shot parse: builds every page before returning (begin + step* + finish).
   bool parseAndBuildPages();
@@ -310,9 +99,8 @@ class ChapterHtmlSlimParser {
   bool finishParse();  // flush the trailing page and tear down; returns true
   void abortParse();   // tear down without flushing (error / abandon)
 
-  void addLineToPage(std::unique_ptr<TextBlock> line, uint32_t visibleOffset);
   // The anchors placed so far, in order: the i-th's id and page.
-  size_t anchorCount() const { return bb_anchors_len(&anchors); }
+  size_t anchorCount() const;
   std::string_view anchorAt(size_t i, uint16_t& page) const;
   std::optional<uint16_t> findAnchor(std::string_view name) const;
 

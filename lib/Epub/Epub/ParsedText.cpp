@@ -73,13 +73,9 @@ uint8_t ParsedText::sizeSlotFor(const float scale) {
   return nearest;
 }
 
-// Builds the line's TextBlock and hands it on; false drops the line (out of memory).
-bool ParsedText::emitLine(void* context, const bb_line* line) {
-  const auto& layout = *static_cast<LayoutContext*>(context);
-  ParsedText& self = *layout.text;
-  self.blockStyle.isRtl = line->is_rtl;
-
-  const size_t count = line->count;
+std::unique_ptr<TextBlock> ParsedText::makeLine(const bb_line& line, const BlockStyle& block,
+                                                const char* const* targets) {
+  const size_t count = line.count;
   std::vector<std::string> words;
   std::vector<EpdFontFamily::Style> styles;
   std::vector<std::string> ruby;
@@ -89,51 +85,56 @@ bool ParsedText::emitLine(void* context, const bb_line* line) {
   ruby.reserve(count);
   ranges.reserve(count);
   for (size_t i = 0; i < count; ++i) {
-    words.emplace_back(line->text + line->word_starts[i]);
-    styles.push_back(styleOf(line->styles[i]));
-    ruby.emplace_back(line->ruby_text + line->ruby_starts[i]);
-    ranges.push_back({line->ranges[2 * i], line->ranges[2 * i + 1]});
+    words.emplace_back(line.text + line.word_starts[i]);
+    styles.push_back(styleOf(line.styles[i]));
+    ruby.emplace_back(line.ruby_text + line.ruby_starts[i]);
+    ranges.push_back({line.ranges[2 * i], line.ranges[2 * i + 1]});
   }
-  const std::vector<int16_t> xpos(line->xpos, line->xpos + count);
+  const std::vector<int16_t> xpos(line.xpos, line.xpos + count);
   std::vector<uint8_t> focus;
   std::vector<uint16_t> suffixX;
-  if (line->focus) {
-    focus.assign(line->focus, line->focus + count);
-    suffixX.assign(line->suffix_x, line->suffix_x + count);
+  if (line.focus) {
+    focus.assign(line.focus, line.focus + count);
+    suffixX.assign(line.suffix_x, line.suffix_x + count);
   }
-  std::vector<TextBlock::LinkSpan> links(line->link_count);
-  for (size_t i = 0; i < line->link_count; ++i) {
-    const bb_link_span& source = line->links[i];
+  std::vector<TextBlock::LinkSpan> links(line.link_count);
+  for (size_t i = 0; i < line.link_count; ++i) {
+    const bb_link_span& source = line.links[i];
     auto& span = links[i];
-    strncpy(span.href, self.linkTargets[source.link - 1].c_str(), sizeof(span.href) - 1);
+    strncpy(span.href, targets[i], sizeof(span.href) - 1);
     span.href[sizeof(span.href) - 1] = '\0';
     span.x = source.x;
     span.width = source.width;
     span.topLift = source.top_lift;
   }
 
-  auto block = makeUniqueNoThrow<TextBlock>(words, xpos, styles, focus, suffixX, self.blockStyle, std::move(ruby),
-                                            std::move(links), ranges, line->paragraph_start);
+  auto text = makeUniqueNoThrow<TextBlock>(words, xpos, styles, focus, suffixX, block, std::move(ruby),
+                                           std::move(links), ranges, line.paragraph_start);
   int32_t fonts[TextBlock::MAX_WORD_FONTS];
-  std::copy(line->word_fonts, line->word_fonts + TextBlock::MAX_WORD_FONTS, fonts);
-  if (!block || !block->valid() || (line->word_slots && !block->setWordFonts(line->word_slots, fonts))) {
+  std::copy(line.word_fonts, line.word_fonts + TextBlock::MAX_WORD_FONTS, fonts);
+  if (!text || !text->valid() || (line.word_slots && !text->setWordFonts(line.word_slots, fonts))) {
     LOG_ERR("PTX", "Dropping line: TextBlock or arena allocation failed");
-    return false;
+    return nullptr;
   }
+  return text;
+}
+
+// Builds the line's TextBlock and hands it on; false drops the line (out of memory).
+bool ParsedText::emitLine(void* context, const bb_line* line) {
+  const auto& layout = *static_cast<LayoutContext*>(context);
+  ParsedText& self = *layout.text;
+  self.blockStyle.isRtl = line->is_rtl;
+  std::vector<const char*> targets(line->link_count);
+  for (size_t i = 0; i < line->link_count; ++i) targets[i] = self.linkTargets[line->links[i].link - 1].c_str();
+  auto block = makeLine(*line, self.blockStyle, targets.data());
+  if (!block) return false;
   self.linesAfterCurrent = line->lines_after;
   (*layout.processLine)(std::move(block), line->visible_offset);
   return true;
 }
 
-void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
-                                       const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& processLine,
-                                       const bool includeLastLine, const int8_t characterSpacing,
-                                       const uint8_t wordSpacingPercent, const size_t maxLines) {
-  if (isEmpty()) return;
-  // Stamped here rather than at construction: the parser replaces blockStyle as CSS resolves.
-  blockStyle.characterSpacing = characterSpacing;
-
-  const bb_metrics metrics = {
+bb_metrics ParsedText::metricsOf(const GfxRenderer& renderer) {
+  return {
       const_cast<GfxRenderer*>(&renderer),
       [](void* c, const int font, const char* text, const uint8_t style, const int8_t spacing) {
         return rendererOf(c).getTextAdvanceX(font, text, styleOf(style), spacing);
@@ -151,6 +152,17 @@ void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fo
         rendererOf(c).ensureSdCardFontReady(font, segments, lens, count, space, hyphen, mask, smallCaps);
       },
   };
+}
+
+void ParsedText::layoutAndExtractLines(const GfxRenderer& renderer, const int fontId, const uint16_t viewportWidth,
+                                       const std::function<void(std::unique_ptr<TextBlock>, uint32_t)>& processLine,
+                                       const bool includeLastLine, const int8_t characterSpacing,
+                                       const uint8_t wordSpacingPercent, const size_t maxLines) {
+  if (isEmpty()) return;
+  // Stamped here rather than at construction: the caller may replace blockStyle after.
+  blockStyle.characterSpacing = characterSpacing;
+
+  const bb_metrics metrics = metricsOf(renderer);
   bb_block_style style = {static_cast<uint8_t>(blockStyle.alignment),
                           blockStyle.textAlignDefined,
                           blockStyle.directionDefined,

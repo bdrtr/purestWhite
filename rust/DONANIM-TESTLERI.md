@@ -2173,3 +2173,36 @@ baytına aynı; Rust koduna konan 4 hatanın 4'ünü yakaladı. Flash x4pro'da 9
   ve geri dönün; sayfanın dipnot listesi doğru numaraları göstermeli.
 - [ ] İçindekilerden bir bölümün ortasındaki bir alt başlığa atlayın: doğru sayfa açılmalı;
   içindekilerin başlattığı bölümler yeni sayfada başlamalı.
+
+## Bölüm ayrıştırıcısı Rust'ta ("rust: our own chapter parser")
+
+ChapterHtmlSlimParser'ın akışının tamamı (XHTML olayları, blok ve satır içi stiller, paragrafların
+kurulması ve satırlara kırılması, büyük ilk harf, listeler, tablolar, resimler, çerçeveli kutular,
+yatay çizgiler, çapalar, dipnotlar ve sayfalara yerleşim) `bembeyaz-chapter`'da. C++'ta yalnızca
+dosya okuma, sayfa ve öğe nesneleri (`Page`, `TextBlock`, `PageImage`...), resim boyutunun okunması
+ve yazı tipi ölçüleri kaldı; Rust bunları `bb_chapter_host` geri çağrılarıyla ister. Sözlük
+tanımları ve Ayrıntılar ekranındaki HTML açıklamalar da aynı ayrıştırıcıdan geçer.
+`test/chapter_corpus`'un 1600 bölümü (resimler, tablolar, dipnotlar dahil) baytı baytına aynı;
+Rust koduna konan 6 hatanın 6'sını yakaladı. Emülatörde 16 senaryonun ekranları önceki commit'le
+aynı. Flash x4pro'da 8,0 KB, x4c'de 7,8 KB büyüdü (yeni Rust kodu, silinen C++ ve FFI
+girişlerinden daha büyük), statik RAM değişmedi. Bölüm açılırken derleme 16 KB'lık çizim
+görevinde, okurken arka planda süren derleme 8 KB'lık döngü görevinde (`loop()`) çalışır; en
+derin çağrı zinciri (metin → tablo hücresi → satır kırma) dökümden hesaplandığında eskisinden
+yaklaşık 0,45 KB derin (3,15 KB'a karşı 2,7 KB). Paragraf ve XML
+ayrıştırıcısı heap'te tutulur (eskiden de paragraf `unique_ptr` ile heap'teydi). SD okuma
+hatası artık derlemeyi durdurur (eskiden geçersiz bir uzunlukla ayrıştırıcıya gidiyordu).
+
+- [ ] Birkaç farklı kitabı (uzun roman, resimli, tablolu, dipnotlu, sağdan sola, heceli, büyük
+  ilk harfli) açıp birkaç bölüm boyunca sayfa çevirin; görünüm 0.0.3'le aynı olmalı.
+- [ ] Ayarlardan yazı boyutunu, satır aralığını, hizalamayı, paragraf boşluğunu ve girintisini,
+  harf ve sözcük aralığını, resim ayarını (resim / alternatif metin / hiçbiri) ve "Kitabın
+  Stili"ni değiştirip bir bölümü yeniden açın: sayfalar yeni ayarla kurulmalı.
+- [ ] Çok büyük tek bölümlü bir kitabı açın (bölüm arka planda derlenir): ilk sayfalar hemen
+  gelmeli, ilerledikçe sayfa sayısı tahmini düzelmeli, okurken çökme olmamalı.
+- [ ] Tablosu çok olan büyük bir bölümü (ör. bir sözlük ya da istatistik kitabı) SD kart fontuyla
+  açın ve arka plan derlemesi yeniden başlayana dek (derlenmiş sayfaların sonuna yaklaşınca)
+  okuyun: derleme yığın taşması ("Stack canary" / "stack overflow") olmadan bitmeli.
+- [ ] Sözlükte bir sözcük arayın (HTML tanımlı bir sözlükle) ve HTML açıklamalı bir kitabın
+  Ayrıntılar ekranını açın: metin biçimli sayfalarda görünmeli.
+- [ ] Seri porttan bölüm derleme ve `Page render` sürelerini 0.0.3'le karşılaştırın; fark gürültü
+  düzeyinde olmalı.

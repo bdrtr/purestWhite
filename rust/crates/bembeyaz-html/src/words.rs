@@ -19,9 +19,8 @@ pub const MAX_INITIAL_BYTES: usize = 12;
 /// Codepoints an initial letter holds.
 const MAX_INITIAL_CODEPOINTS: u8 = 3;
 
-/// The initial letter being captured (`bb_html_initial_letter`). `lines` and `bold` are the
+/// The initial letter being captured. `lines` and `bold` are the
 /// parser's, kept as they are until a capture is given up.
-#[repr(C)]
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct InitialLetter {
     /// The captured text, ending in a zero.
@@ -78,7 +77,7 @@ pub trait Words {
 }
 
 /// How [`scan`] reads a piece of text.
-#[allow(clippy::struct_excessive_bools, reason = "the C ABI's flags")]
+#[allow(clippy::struct_excessive_bools, reason = "independent flags")]
 #[derive(Clone, Copy, Default)]
 pub struct Piece {
     /// The text is visible: its codepoints count as offsets from `start`.

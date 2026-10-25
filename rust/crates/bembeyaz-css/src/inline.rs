@@ -7,11 +7,10 @@ use crate::{
     VerticalAlign,
 };
 
-/// One open element's inline style (`bb_css_inline_entry`): each value applies only with its
+/// One open element's inline style: each value applies only with its
 /// `has_` flag.
-#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-#[allow(clippy::struct_excessive_bools, reason = "the C ABI's flags")]
+#[allow(clippy::struct_excessive_bools, reason = "independent flags")]
 pub struct Entry {
     /// The element's depth, matched when it closes.
     pub depth: i32,
@@ -322,10 +321,9 @@ pub fn entry(kind: Kind, css: &Style, depth: i32) -> Option<Entry> {
     Some(e)
 }
 
-/// The style words are set in (`bb_css_effective`), and the paragraph's direction.
-#[repr(C)]
+/// The style words are set in, and the paragraph's direction.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[allow(clippy::struct_excessive_bools, reason = "the C ABI's flags")]
+#[allow(clippy::struct_excessive_bools, reason = "independent flags")]
 pub struct Effective {
     pub bold: bool,
     pub italic: bool,

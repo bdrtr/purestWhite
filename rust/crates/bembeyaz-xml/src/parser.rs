@@ -44,6 +44,13 @@ impl<'a> Attributes<'a> {
         Str(rest.get(..len).unwrap_or_default())
     }
 
+    /// The names and values, in order, for as long as the tag's strings live.
+    pub fn entries(self) -> impl Iterator<Item = (Str<'a>, Str<'a>)> + 'a {
+        self.spans
+            .iter()
+            .map(move |&[name, value]| (self.at(name), self.at(value)))
+    }
+
     pub fn iter(&self) -> impl Iterator<Item = (Str<'a>, Str<'a>)> + '_ {
         self.spans
             .iter()

@@ -6,4 +6,10 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+bembeyaz-css = { path = "../bembeyaz-css" }
+bembeyaz-html = { path = "../bembeyaz-html" }
+bembeyaz-hyphenation = { path = "../bembeyaz-hyphenation" }
 bembeyaz-layout = { path = "../bembeyaz-layout" }
+bembeyaz-path = { path = "../bembeyaz-path" }
+bembeyaz-utf8 = { path = "../bembeyaz-utf8" }
+bembeyaz-xml = { path = "../bembeyaz-xml" }

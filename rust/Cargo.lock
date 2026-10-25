@@ -39,7 +39,13 @@ dependencies = [
 name = "bembeyaz-chapter"
 version = "0.1.0"
 dependencies = [
+ "bembeyaz-css",
+ "bembeyaz-html",
+ "bembeyaz-hyphenation",
  "bembeyaz-layout",
+ "bembeyaz-path",
+ "bembeyaz-utf8",
+ "bembeyaz-xml",
 ]
 
 [[package]]

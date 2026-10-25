@@ -1,6 +1,6 @@
 // C ABI of rust/crates/bembeyaz-ffi/src/html.rs (rust/crates/bembeyaz-html).
-// Use lib/Epub/Epub/htmlEntities.h and lib/Txt/TxtToHtml.h instead (ChapterHtmlSlimParser calls
-// bb_html_scan_words, bb_html_element, bb_html_table_span and bb_html_internal_link directly).
+// Use lib/Epub/Epub/htmlEntities.h and lib/Txt/TxtToHtml.h instead (the chapter parser's host tests
+// call bb_html_element, bb_html_table_span, bb_html_internal_link and bb_html_collapse_space directly).
 #pragma once
 
 #include <stdbool.h>
@@ -28,62 +28,6 @@ void bb_text_html_init(bb_text_html* state);
 // dropped from the first non-empty one), handing the XHTML to out in pieces valid only during the call.
 void bb_text_html_feed(bb_text_html* state, const uint8_t* text, size_t len,
                        void (*out)(void* context, const uint8_t* data, size_t len), void* context);
-
-// Bytes a chapter parser's word buffer holds before a word is cut (buf has room for one more, the
-// NUL).
-#define BB_HTML_MAX_WORD 200
-// Bytes an initial letter holds (text has room for one more, the NUL); at most three codepoints.
-#define BB_HTML_MAX_INITIAL_BYTES 12
-
-// The initial letter (drop cap) being captured. A drop-cap span (span_depth >= 0) takes all of its
-// text, a ::first-letter rule (pending) the block's leading punctuation and first letter; a letter
-// that grows too long, or a span's letter that meets whitespace, goes back into the word and the
-// whole state is reset (span_depth -1). lines and bold are the parser's.
-typedef struct {
-  char text[BB_HTML_MAX_INITIAL_BYTES + 1];
-  uint8_t len;
-  uint8_t codepoints;
-  uint8_t lines;
-  bool bold;
-  bool pending;
-  int32_t span_depth;
-} bb_html_initial_letter;
-
-// The chapter parser's word buffer and what it does with words. bb_html_scan_words reads and
-// writes buf, *len, *offset and *continues between callbacks, which may change them too:
-// flush hands the buffered word (from *offset, attached when *continues) to the paragraph, empties
-// the buffer and clears *continues; suppress_indent drops the paragraph's first-line indent;
-// line_break ends a preserved line, false when no paragraph is left; initial is the initial letter
-// being captured, which bb_html_scan_words reads and writes too; block_empty tells whether the
-// paragraph has no word yet.
-typedef struct {
-  char* buf;
-  int* len;
-  uint32_t* offset;
-  bool* continues;
-  void* context;
-  void (*flush)(void* context);
-  void (*suppress_indent)(void* context);
-  bool (*line_break)(void* context);
-  bb_html_initial_letter* initial;
-  bool (*block_empty)(void* context);
-} bb_html_words;
-
-enum {
-  BB_HTML_WORDS_DONE = 0,
-  // A line break left no paragraph.
-  BB_HTML_WORDS_STOPPED = 1,
-};
-
-// Cuts len bytes of a chapter's text into words: whitespace ends a word; a no-break space (U+00A0,
-// U+202F) is a space word attached to both neighbours; a BOM is dropped; a full buffer is cut on a
-// codepoint boundary and the rest attaches. preserve (white-space: pre) keeps each space as a word,
-// a tab as four and a newline as a line break. counted: the text is visible, its codepoints
-// numbered from start. A pending initial letter (words->initial) takes its text before the words
-// do. footnote_link: the text is a footnote link's, which never starts a ::first-letter letter.
-// Returns a BB_HTML_WORDS_ code.
-int bb_html_scan_words(const char* text, size_t len, bool counted, uint32_t start, bool preserve, bool footnote_link,
-                       const bb_html_words* words);
 
 // An element's kind, from bb_html_element: the heading level (1 to 6 for h1 to h6, else 0),
 // flags and a name. Names match exactly and case-sensitively, except that BB_HTML_HIDDEN takes
@@ -134,20 +78,6 @@ uint16_t bb_html_table_span(const char* value, size_t len);
 // https://, mailto:, ftp://, tel: or javascript: (case-sensitive).
 bool bb_html_internal_link(const char* href, size_t len);
 
-// The most bytes a list marker takes: a sign, ten digits and a dot.
-#define BB_HTML_MAX_MARKER 12
-
-// An open list.
-typedef struct {
-  bool ordered;
-  bool unmarked;    // list-style-type: none
-  int32_t counter;  // the number of the last item, when ordered
-} bb_html_list;
-
-// Writes the marker of an item of list (NULL outside any list) to out (room for
-// BB_HTML_MAX_MARKER bytes; no NUL) and returns its length: nothing when unmarked, a bullet
-// (U+2022) when unordered, else the list's next number and a dot.
-size_t bb_html_list_marker(bb_html_list* list, char* out);
 // Trims the len bytes of text of ASCII whitespace and collapses each run inside it to one space,
 // in place; returns the new length.
 size_t bb_html_collapse_space(char* text, size_t len);

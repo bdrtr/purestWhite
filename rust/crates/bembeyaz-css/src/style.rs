@@ -97,7 +97,8 @@ pub struct Length {
 
 impl Length {
     /// In pixels: ems and rems of `em`, points, or a percentage of `width`.
-    pub(crate) fn pixels(self, em: f32, width: f32) -> f32 {
+    #[must_use]
+    pub fn pixels(self, em: f32, width: f32) -> f32 {
         match self.unit {
             Unit::Em | Unit::Rem => self.value * em,
             Unit::Points => self.value * 1.33,
@@ -292,7 +293,7 @@ impl Style {
     }
 
     /// Takes every property `over` defines. Keep in step with `CssStyle::applyOver`, which the
-    /// C++ callers still use.
+    /// CSS host tests use.
     pub fn apply(&mut self, over: &Style) {
         let has = |bits| over.defined.has(bits);
         if has(Defined::TEXT_ALIGN) {

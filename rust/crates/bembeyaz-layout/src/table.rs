@@ -21,8 +21,7 @@ const READ_BYTES: usize = 96;
 const WORD_BYTES: usize = 40;
 const TAG_BYTES: usize = 48;
 
-/// What the scan found per column, in the caller's width units. `bb_table_measure` in C.
-#[repr(C)]
+/// What the scan found per column, in the caller's width units.
 #[derive(Clone, Copy, Default, PartialEq, Eq, Debug)]
 pub struct Measure {
     /// The longest word.
@@ -358,7 +357,6 @@ pub fn plan_columns(measure: &Measure, available: i32, padding: i32) -> Option<[
 
 /// A grid row's cell: the padding its block style gives it.
 #[derive(Clone, Copy, Debug, Default)]
-#[repr(C)]
 pub struct Cell {
     pub padding_top: i16,
     pub padding_bottom: i16,
@@ -368,7 +366,6 @@ pub struct Cell {
 
 /// Where a grid row's cells go, in logical column order.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(C)]
 pub struct Row {
     pub width: [u16; MAX_COLUMNS],
     /// The left edge, kept to 16 bits as page positions are.

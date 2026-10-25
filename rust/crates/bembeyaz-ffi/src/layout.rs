@@ -157,6 +157,32 @@ pub struct CLine {
 const _: () = assert!(MAX_WORD_FONTS == 3 && MAX_SIZE_SLOTS == 4);
 const _: () = assert!(size_of::<LinkSpan>() == 8 && core::mem::offset_of!(LinkSpan, x) == 2);
 
+/// `l` as a `bb_line`, pointing into its buffers.
+pub(crate) fn c_line(l: &Line<'_>) -> CLine {
+    CLine {
+        text: l.text.as_ptr().cast(),
+        word_starts: l.word_starts.as_ptr(),
+        count: l.word_starts.len(),
+        xpos: l.xpos.as_ptr(),
+        styles: l.styles.as_ptr(),
+        focus: or_null(l.focus),
+        suffix_x: or_null(l.suffix_x),
+        ruby_text: l.ruby_text.as_ptr().cast(),
+        ruby_starts: l.ruby_starts.as_ptr(),
+        links: or_null(l.links),
+        link_count: l.links.len(),
+        ranges: l.ranges.as_ptr().cast(),
+        paragraph_start: l.paragraph_start,
+        word_slots: or_null(l.word_slots),
+        word_fonts: l.word_fonts,
+        visible_offset: l.visible_offset,
+        lines_after: l
+            .lines_after
+            .map_or(-1, |n| i32::try_from(n).unwrap_or(i32::MAX)),
+        is_rtl: l.is_rtl,
+    }
+}
+
 fn or_null<T>(values: &[T]) -> *const T {
     if values.is_empty() {
         ptr::null()
@@ -375,28 +401,7 @@ pub unsafe extern "C" fn bb_paragraph_layout(
         link_count: params.link_count,
     };
     let mut emit = |l: &Line<'_>| {
-        let c_line = CLine {
-            text: l.text.as_ptr().cast(),
-            word_starts: l.word_starts.as_ptr(),
-            count: l.word_starts.len(),
-            xpos: l.xpos.as_ptr(),
-            styles: l.styles.as_ptr(),
-            focus: or_null(l.focus),
-            suffix_x: or_null(l.suffix_x),
-            ruby_text: l.ruby_text.as_ptr().cast(),
-            ruby_starts: l.ruby_starts.as_ptr(),
-            links: or_null(l.links),
-            link_count: l.links.len(),
-            ranges: l.ranges.as_ptr().cast(),
-            paragraph_start: l.paragraph_start,
-            word_slots: or_null(l.word_slots),
-            word_fonts: l.word_fonts,
-            visible_offset: l.visible_offset,
-            lines_after: l
-                .lines_after
-                .map_or(-1, |n| i32::try_from(n).unwrap_or(i32::MAX)),
-            is_rtl: l.is_rtl,
-        };
+        let c_line = c_line(l);
         // SAFETY: the caller's callback; the line's buffers stay valid for the call.
         unsafe { line(context, &raw const c_line) }
     };

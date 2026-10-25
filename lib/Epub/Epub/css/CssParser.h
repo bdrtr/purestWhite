@@ -90,6 +90,9 @@ class CssParser {
                                       std::string_view idAttr = {}, const CssAncestor* ancestors = nullptr,
                                       size_t ancestorCount = 0, bool firstLetter = false) const;
 
+  /** The stored rules, for the chapter parser (rust/crates/bembeyaz-chapter). */
+  [[nodiscard]] const bb_css_rules* rules() const { return &rules_; }
+
   /** True when any ::first-letter rule is stored, so callers can skip that lookup. */
   [[nodiscard]] bool hasFirstLetterRules() const { return bb_css_rules_has_first_letter(&rules_); }
 

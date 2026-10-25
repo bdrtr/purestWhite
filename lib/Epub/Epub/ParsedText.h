@@ -21,8 +21,8 @@ class ParsedText {
   BlockStyle blockStyle;
   std::vector<std::string> linkTargets;
   // Words sized by an inline font-size span: a slot per word into sizeSlotScales (absolute
-  // multiples of the reader's body size). Slot 0 follows the block's own size; the parser
-  // resolves each slot's font before layout.
+  // multiples of the reader's body size). Slot 0 follows the block's own size; the caller
+  // sets each slot's font before layout.
   static constexpr uint8_t MAX_SIZE_SLOTS = TextBlock::MAX_WORD_FONTS + 1;
   float sizeSlotScales[MAX_SIZE_SLOTS] = {1.0f};
   int32_t sizeSlotFontIds[MAX_SIZE_SLOTS] = {};
@@ -78,6 +78,11 @@ class ParsedText {
   uint8_t sizeSlotsInUse() const { return sizeSlotCount; }
   float sizeSlotScale(uint8_t slot) const { return sizeSlotScales[slot]; }
   void setSizeSlotFontId(uint8_t slot, int32_t fontId) { sizeSlotFontIds[slot] = fontId; }
+  // The renderer's glyph metrics as layout reads them.
+  static bb_metrics metricsOf(const GfxRenderer& renderer);
+  // A laid-out line as a TextBlock styled block; targets holds each link span's target. NULL when
+  // out of memory.
+  static std::unique_ptr<TextBlock> makeLine(const bb_line& line, const BlockStyle& block, const char* const* targets);
   // Lays the words out and drops the ones used. processLine may call linesAfterCurrentLine() and
   // nothing else of this paragraph: the layout is still running.
   void layoutAndExtractLines(const GfxRenderer& renderer, int fontId, uint16_t viewportWidth,

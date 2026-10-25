@@ -20,8 +20,7 @@ pub struct Body {
     pub width: u16,
 }
 
-/// Where a drop cap goes. `bb_drop_cap` in C.
-#[repr(C)]
+/// Where a drop cap goes.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct DropCap {
     /// The letter's enlargement, in 256ths (1 to 16 times).
