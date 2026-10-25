@@ -41,10 +41,20 @@ pub fn custom_halt() -> ! {
 const RTC_ADDR: u8 = 0x51;
 const GAUGE_ADDR: u8 = 0x63;
 
-/// Seconds since midnight from the clock chip, `None` when it cannot be read.
+/// The clock chip's raw seconds, minutes and hours registers, which `purestwhite_rtc::now` does
+/// not give when the oscillator-stopped flag is set; `None` when the read fails.
+fn clock_raw<B: embedded_hal::i2c::I2c>(bus: &mut B) -> Option<[u8; 3]> {
+    let mut raw = [0; 3];
+    bus.write_read(RTC_ADDR, &[0x02], &mut raw)
+        .ok()
+        .map(|()| raw)
+}
+
+/// Seconds since midnight from the clock chip's registers, whether or not its time was ever set:
+/// the oscillator runs either way once powered.
 fn clock_seconds<B: embedded_hal::i2c::I2c>(bus: &mut B) -> Option<u32> {
-    purestwhite_rtc::now(bus, RTC_ADDR)
-        .map(|t| u32::from(t.hour) * 3600 + u32::from(t.minute) * 60 + u32::from(t.second))
+    let bcd = |v: u8| u32::from(v >> 4) * 10 + u32::from(v & 0x0F);
+    clock_raw(bus).map(|[s, m, h]| bcd(h & 0x3F) * 3600 + bcd(m & 0x7F) * 60 + bcd(s & 0x7F))
 }
 
 #[esp_rtos::main]
@@ -115,7 +125,18 @@ async fn main(spawner: Spawner) -> ! {
                     );
                 }
                 None => {
-                    let _ = writeln!(report, "saat: bulundu, okunamadi");
+                    // Why: the read failed, or the chip says its time is not reliable.
+                    match clock_raw(bus) {
+                        Some([seconds, ..]) if seconds & 0x80 != 0 => {
+                            let _ = writeln!(report, "saat: ayarlanmamis (VL biti)");
+                        }
+                        Some(_) => {
+                            let _ = writeln!(report, "saat: okundu, gecersiz");
+                        }
+                        None => {
+                            let _ = writeln!(report, "saat: okuma hatasi");
+                        }
+                    }
                 }
             }
         } else {

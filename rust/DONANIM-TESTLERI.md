@@ -2328,6 +2328,10 @@ bozar.
   bıraktı ve pildeki cihaz kapandı (güç kesilince RTC'deki rapor da silinir). İmajlar artık GPIO1'i
   pin tutmayla (pad hold) sıfırlamadan geçirir; bekçi de RTC bölgesine dokunmayan sıfırlamayı
   kullanır.
+  - Sonuç (2026-10-26, cihaz, ilk deneme): "esp-rtos: basladi", "pil: %81", "bitti"; saat
+    "bulundu, okunamadi", zamanlayıcı "saat yok". Saat sürücüsü VL bayrağında C++'taki gibi
+    zaman vermez; cihazın saati muhtemelen hiç ayarlanmadı (karttaki dosyalar 2026-01-01
+    tarihli). Rapor artık nedeni ayırır ve zamanlayıcıyı ham saniyelerle ölçer.
 - [ ] Deneme sırasında cihazı kapatmayın: rapor RTC belleğinde bekler ve güç kesilince silinir.
   Ana ekran gelene kadar (en çok 60 saniye) dokunmadan bekleyin.
 - [ ] Her denemeden önce eski `purestwhite-bare-metal.txt`'yi silin. Dosya oluşmadıysa imaj
