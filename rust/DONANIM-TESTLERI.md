@@ -2343,3 +2343,24 @@ bozar.
   firmware'e hiç dönmüyorsa Aşağı+Güç kurtarma kipi de açılmaz (o kip C++ firmware'in içinde) ve
   Güç düğmesi de bir şey yapmaz (firmware'in okuduğu bir giriş); USB'den de kurtarılamaz; durup
   bana haber verin.
+
+## Bare-metal dokunma ("rust: our own GT911 touch driver, in the bare-metal firmware")
+
+`purestwhite-gt911`, X4 Pro'nun GT911 dokunmatik yongasının sürücüsü; şimdilik yalnızca bare-metal
+deneme imajında çalışır (C++ firmware'de dokunma SDK'nın InputManager'ında kalır). İmaj, saat ve
+pilden sonra yongayı resetler, adresini bulur ve yaklaşık 15 saniye boyunca her 20 ms'de bir okur:
+güncelleme bittikten 2–5 saniye sonra başlar. Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır;
+önyükleyici geri alma VAR olmalı. Bu denemede ekrana dokunmak serbesttir.
+
+- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-deneme.bin`'i (bu
+  commit'teki imaj; arşivdeki sağlama toplamıyla) koyun; Ayarlar → System → SD Karttan Firmware
+  Güncelleme → dosyayı seçin → Onayla. "Güncelleme tamamlandı" yazısı çıkınca 3 saniye bekleyip şu
+  sırayla dokunun: önce 5 saniye boyunca ekranın sol üst köşesine birkaç kez (cihazı okurken
+  tuttuğunuz gibi; pencerenin başlangıcı pil okumasına göre kayabilir), sonra Home tuşuna iki kez,
+  sonra iki parmakla birkaç kez, en son sağ alt köşeye parmağınızı koyup ana ekran gelene kadar
+  orada tutun.
+- [ ] Raporda "dokunma: 0x5d" (ya da 0x14) ve "kare N cok K ilk X,Y son X,Y home H hata E"
+  bekleniyor: N sıfırdan büyük, K en az 2, H en az 1, E 0 ya da çok küçük. "ilk" sol üst, "son"
+  sağ alt köşe olmalı; iki noktanın X'leri ve Y'leri birbirinden belirgin farklı olmalı (değerleri
+  bana iletin, eksen yönünü doğrular). "zaman: 15 s = saat N s" satırında N 14–16 olağan. Satır
+  sonunda `~` varsa rapor sığmamış demektir.

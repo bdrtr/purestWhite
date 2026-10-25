@@ -36,6 +36,7 @@ embedded-hal = "=1.0.0"
 log = "=0.4.34"
 
 purestwhite-gauge = { path = "../crates/purestwhite-gauge" }
+purestwhite-gt911 = { path = "../crates/purestwhite-gt911" }
 purestwhite-rtc = { path = "../crates/purestwhite-rtc" }
 
 [profile.dev]

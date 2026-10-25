@@ -43,6 +43,7 @@ bembeyaz-xtc = { path = "../bembeyaz-xtc" }
 bembeyaz-xml = { path = "../bembeyaz-xml" }
 bembeyaz-zip = { path = "../bembeyaz-zip" }
 purestwhite-gauge = { path = "../purestwhite-gauge" }
+purestwhite-gt911 = { path = "../purestwhite-gt911" }
 embedded-hal = "=1.0.0"
 embedded-hal-async = "=1.0.0"
 purestwhite-rtc = { path = "../purestwhite-rtc" }

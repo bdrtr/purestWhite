@@ -22,6 +22,7 @@ mod dither;
 mod expat;
 mod gauge;
 mod gfx;
+mod gt911;
 mod html;
 mod hyphenation;
 mod i2c;

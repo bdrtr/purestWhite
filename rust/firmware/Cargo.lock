@@ -1344,6 +1344,7 @@ dependencies = [
  "esp-rtos",
  "log",
  "purestwhite-gauge",
+ "purestwhite-gt911",
  "purestwhite-rtc",
 ]
 
@@ -1352,6 +1353,13 @@ name = "purestwhite-gauge"
 version = "0.1.0"
 dependencies = [
  "embedded-hal 1.0.0",
+ "embedded-hal-async",
+]
+
+[[package]]
+name = "purestwhite-gt911"
+version = "0.1.0"
+dependencies = [
  "embedded-hal-async",
 ]
 

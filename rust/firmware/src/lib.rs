@@ -195,8 +195,9 @@ pub fn hand_back(flash: FLASH<'_>, cpu: CPU_CTRL<'_>) -> Result<HandBack, &'stat
     Ok(HandBack { booted_state })
 }
 
-/// The report's text, cut at its room, saved again after every stage so a run that dies halfway
-/// still says how far it got.
+/// The report's text, saved again after every stage so a run that dies halfway still says how far
+/// it got. Text past its room is dropped and the last byte becomes `~`, so a cut report does not
+/// read as a run that stopped.
 pub struct Report {
     text: [u8; REPORT_TEXT],
     len: usize,
@@ -217,6 +218,8 @@ impl core::fmt::Write for Report {
             if let Some(slot) = self.text.get_mut(self.len) {
                 *slot = b;
                 self.len += 1;
+            } else if let Some(last) = self.text.last_mut() {
+                *last = b'~';
             }
         }
         Ok(())

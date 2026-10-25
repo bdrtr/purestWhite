@@ -102,6 +102,7 @@ dependencies = [
  "embedded-hal",
  "embedded-hal-async",
  "purestwhite-gauge",
+ "purestwhite-gt911",
  "purestwhite-rtc",
 ]
 
@@ -358,6 +359,13 @@ name = "purestwhite-gauge"
 version = "0.1.0"
 dependencies = [
  "embedded-hal",
+ "embedded-hal-async",
+]
+
+[[package]]
+name = "purestwhite-gt911"
+version = "0.1.0"
+dependencies = [
  "embedded-hal-async",
 ]
 
