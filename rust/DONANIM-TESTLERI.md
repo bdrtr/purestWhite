@@ -2364,3 +2364,11 @@ güncelleme bittikten 2–5 saniye sonra başlar. Geri dönüş "Bare-metal ilk 
   sağ alt köşe olmalı; iki noktanın X'leri ve Y'leri birbirinden belirgin farklı olmalı (değerleri
   bana iletin, eksen yönünü doğrular). "zaman: 15 s = saat N s" satırında N 14–16 olağan. Satır
   sonunda `~` varsa rapor sığmamış demektir.
+
+## Ekran denetleyicisi (bilgi, risksiz)
+
+X4 Pro'nun 800x480 paneli SSD1677, UC8179 ya da UC8279 denetleyicisiyle gelebilir; C++ firmware
+açılışta veriyolunu yoklayıp hangisi olduğunu bulur. Bare-metal ekran sürücüsü önce cihazdakini
+hedefleyecek.
+
+- [ ] Ayarlar → System → About ekranındaki "Display Controller" satırını bana iletin.
