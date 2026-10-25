@@ -2320,7 +2320,7 @@ bozar.
     denemesi de64e334 öncesi iki kez raporsuz bitti (cihaz kapandı, yukarıdaki nota bakın);
     de64e334 ile: "sonraki acilis: C++ yazilimi", "onyukleyici durumu: 1", "bitti", cihaz
     kendiliğinden C++'a döndü. Raporlar `firmware-arsiv/cihaz-raporlari/`'nda.
-- [ ] Aynısını `purestwhite-baremetal-deneme.bin` ile yapın. Dosyanın tamamını bana iletin:
+- [x] Aynısını `purestwhite-baremetal-deneme.bin` ile yapın. Dosyanın tamamını bana iletin:
   "esp-rtos: basladi", saat (UTC, doğru olmalı), pil yüzdesi (başlıktakine yakın),
   "zamanlayici: 10 s = saat 10 s" (9–11 s olağan) ve "bitti" bekleniyor; "PANIK"
   ya da eksik satırlar nerede durduğunu gösterir.
@@ -2332,6 +2332,9 @@ bozar.
     "bulundu, okunamadi", zamanlayıcı "saat yok". Saat sürücüsü VL bayrağında C++'taki gibi
     zaman vermez; cihazın saati muhtemelen hiç ayarlanmadı (karttaki dosyalar 2026-01-01
     tarihli). Rapor artık nedeni ayırır ve zamanlayıcıyı ham saniyelerle ölçer.
+  - Sonuç (4cef0e27 ile ikinci deneme): "saat: ayarlanmamis (VL biti)", "pil: %80",
+    "zamanlayici: 10 s = saat 10 s", "bitti". Saatin ayarlanmadığı doğrulandı; Embassy'nin
+    zamanlayıcısı saat yongasıyla uyuşuyor.
 - [ ] Deneme sırasında cihazı kapatmayın: rapor RTC belleğinde bekler ve güç kesilince silinir.
   Ana ekran gelene kadar (en çok 60 saniye) dokunmadan bekleyin.
 - [ ] Her denemeden önce eski `purestwhite-bare-metal.txt`'yi silin. Dosya oluşmadıysa imaj
