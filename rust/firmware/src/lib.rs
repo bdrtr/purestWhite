@@ -27,6 +27,27 @@ pub fn ready<F: Future>(future: F) -> Option<F::Output> {
     }
 }
 
+/// The CRC of the record the ESP-IDF bootloader keeps at the top of RTC fast memory (its
+/// `rtc_retain_mem_t`, 16 bytes at `SOC_RTC_DRAM_HIGH - 16` on the ESP32-S3): the app partition
+/// it booted last, which with `CONFIG_BOOTLOADER_SKIP_VALIDATE_IN_DEEP_SLEEP` it boots again after
+/// a deep sleep, without reading otadata. The address holds while sdkconfig.defaults keeps that
+/// option, `CONFIG_BOOTLOADER_RESERVE_RTC_SIZE=0x10` without a custom reserve, and secure boot off
+/// (its lines 387-401).
+const BOOTLOADER_RETAIN_CRC: usize = 0x600F_FFFC;
+
+/// Makes the bootloader choose the app after a deep sleep from otadata rather than boot this
+/// image again: it drops the record of the app booted last, whose CRC it then finds unset (all
+/// ones). The bootloader writes the record only while it boots, so once is enough.
+fn forget_last_boot() {
+    // SAFETY: the address is the last word of RTC fast memory, which these images do not use
+    // (esp-hal places its RTC fast data from the start); only the bootloader reads it, at the next
+    // reset.
+    unsafe {
+        (BOOTLOADER_RETAIN_CRC as *mut u32).write_volatile(u32::MAX);
+    }
+    core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
+}
+
 /// Where the report goes: the last 256 bytes of RTC slow memory, which the C++ firmware leaves
 /// unused (it checks that at boot). lib/hal/HalSystem.cpp reads it with the same layout: magic,
 /// length, then the text. A change of layout changes the magic.
@@ -114,7 +135,8 @@ fn ota_slot(p: &PartitionEntry) -> Option<u32> {
 
 /// Selects the C++ firmware, the OTA app slot this image was not booted from, for the next boot,
 /// valid. Done first, before anything that could fail: the device's bootloader may not roll back
-/// on its own, so from here on any reset, panic or watchdog lands in the C++ firmware.
+/// on its own, so from here on any reset, panic, watchdog or deep-sleep wake lands in the C++
+/// firmware (for the wake, see `forget_last_boot`).
 ///
 /// Like the C++ firmware's own switch (src/network/OtaBootSwitch.cpp), it writes one complete
 /// entry into the other otadata sector, so a power loss mid-write leaves the entry in force. It
@@ -127,6 +149,7 @@ fn ota_slot(p: &PartitionEntry) -> Option<u32> {
 /// not have exactly the two OTA app slots the C++ firmware uses, or this image's slot is not one
 /// of them.
 pub fn hand_back(flash: FLASH<'_>, cpu: CPU_CTRL<'_>) -> Result<HandBack, &'static str> {
+    forget_last_boot();
     // SAFETY: this code runs on the first core.
     unsafe { CpuControl::new(cpu).park_core(Cpu::AppCpu) };
     let mut storage = FlashStorage::new(flash);

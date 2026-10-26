@@ -1,0 +1,33 @@
+# rust/firmware's button-check image counts presses of Up, Down and Power from the bare-metal
+# firmware, then on a long Power press goes into deep sleep with Power (and a 60 s timer) armed to
+# wake it. The wake boots this firmware, which saves the report with what woke the chip.
+# Settings > System > SD Card Firmware Update flashes it into the other OTA slot.
+#   cd rust/firmware; cargo build --release; cd ../..
+#   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/button-check build/baremetal/button-check.bin
+#   emu/compare.sh emu/baremetal-buttons.txt x4pro build/baremetal/button-check.bin
+# The emulator waits about 3 s before each press, so the presses here fit the image's 40 s. The base
+# side fails at its first wait for the image's output: the unmodified base firmware never starts
+# the image.
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+touch:240,472
+timeout:180
+wait-log:dugmeler: hazir
+press:up
+press:up
+press:down
+press:power:1500
+wait-log:uyku: guc dugmesi
+wait:3
+press:power:2000
+ready
+expect-log:uyanma: dugme
+wait-quiet:5
+shot:back-home

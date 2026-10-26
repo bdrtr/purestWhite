@@ -1,0 +1,21 @@
+# rust/firmware's button-check image without a press: after its 40 s it goes into deep sleep
+# anyway, and its 60 s timer wakes the chip into this firmware, which saves the report.
+#   emu/compare.sh emu/baremetal-buttons-timer.txt x4pro build/baremetal/button-check.bin
+# (build as in emu/baremetal-buttons.txt). The base side fails at its first wait for the image.
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+touch:240,472
+timeout:180
+wait-log:dugmeler: hazir
+wait-log:uyku: guc dugmesi
+ready
+expect-log:uyanma: zamanlayici
+wait-quiet:5
+shot:back-home

@@ -11,6 +11,7 @@
 #include "esp_private/esp_cpu_internal.h"
 #include "esp_private/esp_system_attr.h"
 #include "esp_private/panic_internal.h"
+#include "esp_sleep.h"
 #if !__riscv
 #include <xtensa_context.h>  // XtExcFrame for the stack capture below
 #endif
@@ -222,9 +223,26 @@ void saveBareMetalReport() {
   const auto* bytes = reinterpret_cast<const volatile char*>(report + 2);
   for (uint32_t i = 0; i < len; ++i) text[i] = bytes[i];
   text[len] = '\0';
-  LOG_INF("SYS", "Bare-metal report:\n%s", text);
+  String saved(text);
+  // A test image that ended in a deep sleep (its last line says so): what woke the chip.
+  const int lastLine = saved.lastIndexOf('\n', saved.length() >= 2 ? saved.length() - 2 : 0);
+  const bool sleptLast = saved.substring(lastLine + 1).startsWith("uyku:");
+  switch (sleptLast ? esp_sleep_get_wakeup_cause() : ESP_SLEEP_WAKEUP_UNDEFINED) {
+    case ESP_SLEEP_WAKEUP_UNDEFINED:
+      break;
+    case ESP_SLEEP_WAKEUP_EXT1:
+      saved += "uyanma: dugme\n";
+      break;
+    case ESP_SLEEP_WAKEUP_TIMER:
+      saved += "uyanma: zamanlayici\n";
+      break;
+    default:
+      saved += "uyanma: diger (" + String(static_cast<int>(esp_sleep_get_wakeup_cause())) + ")\n";
+      break;
+  }
+  LOG_INF("SYS", "Bare-metal report:\n%s", saved.c_str());
   // Kept for the next boot until it is on the card.
-  if (Storage.writeFile(REPORT_PATH, String(text))) {
+  if (Storage.writeFile(REPORT_PATH, saved)) {
     report[0] = 0;
   } else {
     LOG_ERR("SYS", "Could not write %s", REPORT_PATH);
