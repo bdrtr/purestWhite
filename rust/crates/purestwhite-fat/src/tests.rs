@@ -25,7 +25,7 @@ use std::vec;
 use std::vec::Vec;
 
 /// Runs a future of the fakes below, which are always ready.
-fn block_on<F: Future>(future: F) -> F::Output {
+pub(crate) fn block_on<F: Future>(future: F) -> F::Output {
     match pin!(future)
         .as_mut()
         .poll(&mut Context::from_waker(Waker::noop()))
@@ -36,9 +36,9 @@ fn block_on<F: Future>(future: F) -> F::Output {
 }
 
 /// A volume image in memory, counting the device calls.
-struct Image {
-    bytes: Vec<u8>,
-    calls: usize,
+pub(crate) struct Image {
+    pub(crate) bytes: Vec<u8>,
+    pub(crate) calls: usize,
 }
 
 impl BlockDevice for Image {
@@ -56,9 +56,23 @@ impl BlockDevice for Image {
     }
 }
 
+impl BlockWrite for Image {
+    #[allow(clippy::unused_async_trait_impl)]
+    async fn write(&mut self, start: u32, blocks: &[Block]) -> Result<(), ()> {
+        self.calls += 1;
+        let at = start as usize * BLOCK;
+        let to = self
+            .bytes
+            .get_mut(at..at + blocks.len() * BLOCK)
+            .ok_or(())?;
+        to.copy_from_slice(blocks.as_flattened());
+        Ok(())
+    }
+}
+
 /// Whether dosfstools and mtools are there; without them a test fails, or with
 /// `PW_FAT_SKIP_TOOLS` set says so and passes.
-fn tools() -> bool {
+pub(crate) fn tools() -> bool {
     let found = Command::new("mkfs.fat").arg("--help").output().is_ok()
         && Command::new("mcopy").arg("-V").output().is_ok();
     if !found {
@@ -72,7 +86,7 @@ fn tools() -> bool {
 }
 
 /// Bytes of a file, from a seed.
-fn content(seed: u32, len: usize) -> Vec<u8> {
+pub(crate) fn content(seed: u32, len: usize) -> Vec<u8> {
     let mut x = seed.wrapping_mul(2_654_435_761) | 1;
     (0..len)
         .map(|_| {
@@ -87,10 +101,10 @@ fn content(seed: u32, len: usize) -> Vec<u8> {
 static NEXT: AtomicU32 = AtomicU32::new(0);
 
 /// A volume being built on the host, deleted when dropped.
-struct Host {
-    path: PathBuf,
+pub(crate) struct Host {
+    pub(crate) path: PathBuf,
     /// Where the volume starts in the image, for mtools.
-    offset: u64,
+    pub(crate) offset: u64,
     /// What the volume should hold: directories (as `Some` of nothing) and files.
     tree: BTreeMap<String, Option<Vec<u8>>>,
 }
@@ -104,7 +118,7 @@ impl Drop for Host {
 impl Host {
     /// An image of `kib` KiB of FAT `bits` with clusters of `cluster` blocks, in an MBR partition
     /// at block 2048 when asked.
-    fn new(bits: u8, kib: u64, cluster: u8, mbr: bool) -> Host {
+    pub(crate) fn new(bits: u8, kib: u64, cluster: u8, mbr: bool) -> Host {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let path = std::env::temp_dir().join(format!("pw-fat-{}-{n}.img", std::process::id()));
         let offset = if mbr { 2048 * 512 } else { 0 };
@@ -148,7 +162,7 @@ impl Host {
         }
     }
 
-    fn mtools(&self, tool: &str, args: &[&str]) {
+    pub(crate) fn mtools(&self, tool: &str, args: &[&str]) {
         let image = format!("{}@@{}", self.path.display(), self.offset);
         let out = Command::new(tool)
             .env("MTOOLS_SKIP_CHECK", "1")
@@ -164,12 +178,12 @@ impl Host {
         );
     }
 
-    fn mkdir(&mut self, path: &str) {
+    pub(crate) fn mkdir(&mut self, path: &str) {
         self.mtools("mmd", &[&format!("::/{path}")]);
         self.tree.insert(path.to_string(), None);
     }
 
-    fn put(&mut self, path: &str, bytes: Vec<u8>) {
+    pub(crate) fn put(&mut self, path: &str, bytes: Vec<u8>) {
         let n = NEXT.fetch_add(1, Ordering::Relaxed);
         let source = std::env::temp_dir().join(format!("pw-fat-src-{}-{n}", std::process::id()));
         std::fs::write(&source, &bytes).unwrap();
@@ -178,16 +192,58 @@ impl Host {
         self.tree.insert(path.to_string(), Some(bytes));
     }
 
-    fn delete(&mut self, path: &str) {
+    pub(crate) fn delete(&mut self, path: &str) {
         self.mtools("mdel", &[&format!("::/{path}")]);
         self.tree.remove(path);
     }
 
-    fn image(&self) -> Image {
+    pub(crate) fn image(&self) -> Image {
         Image {
             bytes: std::fs::read(&self.path).unwrap(),
             calls: 0,
         }
+    }
+
+    /// Puts `image` back as the host's volume, for the tools to look at.
+    pub(crate) fn store(&self, image: &Image) {
+        std::fs::write(&self.path, &image.bytes).unwrap();
+    }
+
+    /// `fsck.fat -n` on the volume: whether it found nothing to mend, and what it said.
+    pub(crate) fn fsck(&self) -> (bool, String) {
+        let n = NEXT.fetch_add(1, Ordering::Relaxed);
+        let volume = std::env::temp_dir().join(format!("pw-fat-fsck-{}-{n}", std::process::id()));
+        let bytes = std::fs::read(&self.path).unwrap();
+        std::fs::write(&volume, &bytes[self.offset as usize..]).unwrap();
+        let out = Command::new("fsck.fat")
+            .arg("-n")
+            .arg(&volume)
+            .output()
+            .unwrap();
+        let _ = std::fs::remove_file(&volume);
+        let said = format!(
+            "{}{}",
+            String::from_utf8_lossy(&out.stdout),
+            String::from_utf8_lossy(&out.stderr)
+        );
+        (out.status.success(), said)
+    }
+
+    /// The file at `path` as mtools reads it.
+    pub(crate) fn mtype(&self, path: &str) -> Vec<u8> {
+        let image = format!("{}@@{}", self.path.display(), self.offset);
+        let out = Command::new("mtype")
+            .env("MTOOLS_SKIP_CHECK", "1")
+            .env("LC_ALL", "C.UTF-8")
+            .args(["-i", &image, &format!("::/{path}")])
+            .output()
+            .unwrap();
+        assert!(
+            out.status.success(),
+            "mtype {path}: {}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+        out.stdout
     }
 
     /// The names directly in `dir` ("" for the root), sorted.
@@ -210,7 +266,7 @@ impl Host {
 }
 
 /// The names `vol` lists in `dir`, sorted.
-fn listed<D: BlockDevice>(vol: &mut Volume<D>, dir: &str) -> Vec<String> {
+pub(crate) fn listed<D: BlockDevice>(vol: &mut Volume<D>, dir: &str) -> Vec<String> {
     let dir = block_on(vol.open_dir(dir)).unwrap();
     let mut cursor = vol.cursor(dir);
     let mut name = Name::new();
@@ -226,7 +282,7 @@ fn listed<D: BlockDevice>(vol: &mut Volume<D>, dir: &str) -> Vec<String> {
 }
 
 /// The whole file at `path`, read `chunk` bytes at a time.
-fn read_all<D: BlockDevice>(vol: &mut Volume<D>, path: &str, chunk: usize) -> Vec<u8> {
+pub(crate) fn read_all<D: BlockDevice>(vol: &mut Volume<D>, path: &str, chunk: usize) -> Vec<u8> {
     let entry = block_on(vol.find(path)).unwrap();
     let mut file = vol.open(&entry).unwrap();
     let mut out = Vec::new();
@@ -270,8 +326,8 @@ fn check(host: &Host) {
 }
 
 /// A tree with long Turkish names, short names only (mtools writes a name that fits 8.3 in its
-/// code page, 850, without a long name), nested directories and files of sizes around blocks and clusters.
-/// (mtools writes a character past the BMP as one UTF-16 unit, so none is here: see
+/// code page, 850, without a long name), nested directories and files of sizes around blocks and
+/// clusters. (mtools writes a character past the BMP as one UTF-16 unit, so none is here: see
 /// `a_long_name_past_the_bmp`.)
 fn fill(host: &mut Host, cluster: usize) {
     host.put("README.TXT", content(1, 100));

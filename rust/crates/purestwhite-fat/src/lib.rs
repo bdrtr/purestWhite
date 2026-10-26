@@ -1,8 +1,12 @@
 //! FAT16 and FAT32 on a block device, for the bare-metal firmware's SD card: our own, from
 //! Microsoft's FAT specification (`fatgen103`), as the owner chose over a third-party crate.
-//! This first part reads: it mounts the volume (the first FAT partition of an MBR, or a card
-//! formatted without one), lists directories with their long names, finds paths, and reads files,
-//! the blocks of contiguous clusters in one device call straight into the caller's buffer.
+//! It mounts the volume (the first FAT partition of an MBR, or a card formatted without one),
+//! lists directories with their long names, finds paths, and reads files, the blocks of
+//! contiguous clusters in one device call straight into the caller's buffer. On a device that can
+//! write ([`BlockWrite`]) it also creates files with long names, writes them and removes them:
+//! every FAT change goes to each copy of the FAT in turn (only to the one in use when FAT32's
+//! mirroring is off), and FAT32's free-cluster count (`FSInfo`) is marked unknown, as `SdFat` does
+//! not keep it.
 //!
 //! Names are matched as `SdFat` matches them, so both firmwares find the same file: each UTF-16
 //! unit in upper case by `SdFat`'s own table (Turkish ı is not I there), the name looked up
@@ -23,12 +27,17 @@
 
 mod dir;
 mod file;
+mod short;
 #[cfg(test)]
 mod tests;
 mod upcase;
+mod write;
+#[cfg(test)]
+mod write_tests;
 
 pub use dir::{Dir, DirCursor, Entry, Name};
 pub use file::File;
+pub use write::Timestamp;
 
 /// Bytes in a block, the only size supported.
 pub const BLOCK: usize = 512;
@@ -59,6 +68,25 @@ impl<T: BlockDevice> BlockDevice for &mut T {
     }
 }
 
+/// A device that can also write.
+#[allow(
+    async_fn_in_trait,
+    reason = "single-threaded firmware; no Send bound needed"
+)]
+pub trait BlockWrite: BlockDevice {
+    /// Writes `blocks.len()` blocks, from block `start` on.
+    ///
+    /// # Errors
+    /// When the device fails.
+    async fn write(&mut self, start: u32, blocks: &[Block]) -> Result<(), Self::Error>;
+}
+
+impl<T: BlockWrite> BlockWrite for &mut T {
+    async fn write(&mut self, start: u32, blocks: &[Block]) -> Result<(), Self::Error> {
+        (**self).write(start, blocks).await
+    }
+}
+
 /// Why a call failed.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Error<E> {
@@ -78,6 +106,16 @@ pub enum Error<E> {
     NotADirectory,
     /// A directory opened as a file.
     NotAFile,
+    /// An entry by that name is already there.
+    Exists,
+    /// A name a FAT volume cannot hold: empty, "." or "..", longer than 255 UTF-16 units, or with
+    /// a control character or one of `\ / : * ? " < > |`.
+    BadName,
+    /// No free cluster left.
+    Full,
+    /// The directory holds no more entries: FAT16's root is full, a directory has 65 536, or no
+    /// numeric tail is left for a short name.
+    DirFull,
 }
 
 /// The two FAT types supported.
@@ -94,6 +132,13 @@ pub(crate) struct Layout {
     /// The FAT in use.
     pub(crate) fat_start: u32,
     pub(crate) fat_blocks: u32,
+    /// The first FAT, how many there are, and whether a change goes to all of them (otherwise
+    /// only to the one in use: FAT32 with mirroring off).
+    pub(crate) fats_start: u32,
+    pub(crate) fats: u32,
+    pub(crate) mirrored: bool,
+    /// FAT32's `FSInfo` block.
+    pub(crate) fsinfo: Option<u32>,
     /// FAT16's fixed root directory: its first block and entry count; FAT32's root is a cluster
     /// chain from `root_cluster`.
     pub(crate) root_start: u32,
@@ -153,6 +198,23 @@ fn partition(mbr: &Block) -> Option<(u32, u32)> {
         })
     };
     first_of(true).or_else(|| first_of(false))
+}
+
+/// FAT32's `FSInfo` signatures, at 0, 484 and 508.
+const FSINFO_LEAD: u32 = 0x4161_5252;
+const FSINFO_STRUCT: u32 = 0x6141_7272;
+const FSINFO_TRAIL: u32 = 0xAA55_0000;
+
+/// Whether `block` has `FSInfo`'s signatures.
+pub(crate) fn is_fsinfo(block: &Block) -> bool {
+    u32_at(block, 0) == FSINFO_LEAD
+        && u32_at(block, 484) == FSINFO_STRUCT
+        && u32_at(block, 508) == FSINFO_TRAIL
+}
+
+/// An `FSInfo` block's next free cluster, if it is one.
+fn fsinfo_next(block: &Block) -> Option<u32> {
+    is_fsinfo(block).then(|| u32_at(block, 492))
 }
 
 /// Whether `boot` is an exFAT boot sector (its OEM name).
@@ -226,11 +288,8 @@ fn layout<E>(boot: &Block, first: u32, limit: Option<u32>) -> Result<Layout, Err
     }
     // FAT32 with mirroring off uses the FAT its flags name; otherwise the first.
     let flags = u16_at(boot, 40);
-    let active = if kind == Kind::Fat32 && flags & 0x80 != 0 {
-        u32::from(flags & 0x0F)
-    } else {
-        0
-    };
+    let mirrored = !(kind == Kind::Fat32 && flags & 0x80 != 0);
+    let active = if mirrored { 0 } else { u32::from(flags & 0x0F) };
     if active >= fats {
         return Err(Error::Corrupt);
     }
@@ -240,10 +299,19 @@ fn layout<E>(boot: &Block, first: u32, limit: Option<u32>) -> Result<Layout, Err
         0
     };
     // All below `first + total`, which fits: `data` is below `total`.
+    // FSInfo is in the reserved blocks, past the boot sector; 0 or 0xFFFF for none.
+    let fsinfo = match u32::from(u16_at(boot, 48)) {
+        n if kind == Kind::Fat32 && (1..reserved).contains(&n) => Some(first + n),
+        _ => None,
+    };
     let layout = Layout {
         kind,
         fat_start: first + reserved + active * fat_blocks,
         fat_blocks,
+        fats_start: first + reserved,
+        fats,
+        mirrored,
+        fsinfo,
         root_start: first + reserved + fats * fat_blocks,
         root_entries,
         root_cluster,
@@ -270,6 +338,16 @@ impl Layout {
 
     pub(crate) fn cluster_bytes(&self) -> u32 {
         self.cluster_blocks * BLOCK_BYTES
+    }
+
+    /// Where `cluster`'s FAT entry is: its block within a FAT, and its byte in that block.
+    pub(crate) fn fat_place(&self, cluster: u32) -> (u32, usize) {
+        let width = match self.kind {
+            Kind::Fat16 => 2,
+            Kind::Fat32 => 4,
+        };
+        let offset = cluster * width;
+        (offset / BLOCK_BYTES, (offset % BLOCK_BYTES) as usize)
     }
 }
 
@@ -310,11 +388,27 @@ pub struct Volume<D> {
     /// A block of the FAT, and a block of a directory or a file read in part.
     fat: Cached,
     data: Cached,
+    /// The FAT block being changed, newer than the device's copies while `fat_dirty` (`create`,
+    /// `sync`, `close` and `remove` write it out before they return). It is read in place of `fat`'s copy of the same block,
+    /// which is older; moving on to another block loads that one through `fat`, so the older copy
+    /// is gone by then.
+    fat_w: Cached,
+    fat_dirty: bool,
+    /// What the writes need: where to look for a free cluster first, whether a look found none
+    /// since the last one was freed, whether `FSInfo`'s free count was marked unknown yet, and the
+    /// time new and written entries get.
+    pub(crate) next_free: u32,
+    pub(crate) full: bool,
+    pub(crate) fsinfo_marked: bool,
+    /// Files removed this mount, so an open file knows to look at its entry again.
+    pub(crate) removals: u32,
+    pub(crate) stamp: Timestamp,
 }
 
 impl<D: BlockDevice> Volume<D> {
     /// Mounts the first FAT partition of `dev`'s partition table (without one, an exFAT one, to
-    /// say it is unsupported), or the whole device when block 0 is a boot sector itself. The volume must fit its partition.
+    /// say it is unsupported), or the whole device when block 0 is a boot sector itself. The
+    /// volume must fit its partition.
     ///
     /// # Errors
     /// When the device fails, or there is no volume, or one of a type not supported.
@@ -332,11 +426,29 @@ impl<D: BlockDevice> Volume<D> {
             }
             None => layout(&block, 0, None)?,
         };
+        // FSInfo's next free cluster, where writes look first. Its free count is not kept up
+        // by every writer (SdFat leaves it), so it is not trusted.
+        let mut next_free = 2;
+        if let Some(at) = layout.fsinfo {
+            dev.read(at, core::slice::from_mut(&mut block))
+                .await
+                .map_err(Error::Device)?;
+            if let Some(next) = fsinfo_next(&block).filter(|&n| layout.is_cluster(n)) {
+                next_free = next;
+            }
+        }
         Ok(Volume {
             dev,
             layout,
             fat: Cached::new(),
             data: Cached::new(),
+            fat_w: Cached::new(),
+            fat_dirty: false,
+            next_free,
+            full: false,
+            fsinfo_marked: false,
+            removals: 0,
+            stamp: Timestamp::default(),
         })
     }
 
@@ -372,20 +484,11 @@ impl<D: BlockDevice> Volume<D> {
         if !l.is_cluster(cluster) {
             return Err(Error::Corrupt);
         }
-        let (width, end) = match l.kind {
-            Kind::Fat16 => (2, 0xFFF8),
-            Kind::Fat32 => (4, 0x0FFF_FFF8),
+        let end = match l.kind {
+            Kind::Fat16 => 0xFFF8,
+            Kind::Fat32 => 0x0FFF_FFF8,
         };
-        let offset = cluster * width;
-        let block = self
-            .fat
-            .load(&mut self.dev, l.fat_start + offset / 512)
-            .await?;
-        let at = (offset % 512) as usize;
-        let value = match l.kind {
-            Kind::Fat16 => u32::from(u16_at(block, at)),
-            Kind::Fat32 => u32_at(block, at) & 0x0FFF_FFFF,
-        };
+        let value = self.fat_entry(cluster).await?;
         if value >= end {
             Ok(None)
         } else if l.is_cluster(value) && value != cluster {
@@ -394,6 +497,23 @@ impl<D: BlockDevice> Volume<D> {
             // Free, reserved, bad or itself in the middle of a chain.
             Err(Error::Corrupt)
         }
+    }
+
+    /// `cluster`'s FAT entry as it stands (FAT32's top four bits dropped); `cluster` is below
+    /// `cluster_count + 2`, so the entry is inside the FAT.
+    pub(crate) async fn fat_entry(&mut self, cluster: u32) -> Result<u32, Error<D::Error>> {
+        let l = self.layout;
+        let (block, at) = l.fat_place(cluster);
+        let block = l.fat_start + block;
+        let block = if self.fat_w.at == Some(block) {
+            &self.fat_w.block
+        } else {
+            self.fat.load(&mut self.dev, block).await?
+        };
+        Ok(match l.kind {
+            Kind::Fat16 => u32::from(u16_at(block, at)),
+            Kind::Fat32 => u32_at(block, at) & 0x0FFF_FFFF,
+        })
     }
 
     /// Reads one block through the data cache.

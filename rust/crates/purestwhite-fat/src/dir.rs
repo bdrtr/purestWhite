@@ -3,32 +3,33 @@
 use crate::upcase::upcase;
 use crate::{BlockDevice, Error, Kind, Volume, byte_at, u16_at, u32_at};
 
-const ENTRY: usize = 32;
-const ENTRIES_PER_BLOCK: u32 = 16;
+pub(crate) const ENTRY: usize = 32;
+pub(crate) const ENTRIES_PER_BLOCK: u32 = 16;
 /// The most entries a directory may hold (fatgen103).
-const MAX_ENTRIES: u32 = 65_536;
+pub(crate) const MAX_ENTRIES: u32 = 65_536;
 const ATTR_VOLUME: u8 = 0x08;
-const ATTR_DIRECTORY: u8 = 0x10;
+pub(crate) const ATTR_DIRECTORY: u8 = 0x10;
 /// Read-only, hidden, system and volume together: a long-name piece.
-const ATTR_LONG_NAME: u8 = 0x0F;
-const DELETED: u8 = 0xE5;
+pub(crate) const ATTR_LONG_NAME: u8 = 0x0F;
+pub(crate) const DELETED: u8 = 0xE5;
 /// A short name whose first byte is really 0xE5.
 const KANJI_E5: u8 = 0x05;
 /// The flags of a short name shown in lower case (Windows NT's, which Linux follows).
 const LOWER_BASE: u8 = 0x08;
 const LOWER_EXT: u8 = 0x10;
 /// UTF-16 units in a long-name piece, and the most pieces a name has.
-const PIECE_UNITS: usize = 13;
-const MAX_PIECES: usize = 20;
+pub(crate) const PIECE_UNITS: usize = 13;
+pub(crate) const MAX_PIECES: usize = 20;
 /// Where a piece's units are.
-const PIECE_OFFSETS: [usize; PIECE_UNITS] = [1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30];
+pub(crate) const PIECE_OFFSETS: [usize; PIECE_UNITS] =
+    [1, 3, 5, 7, 9, 14, 16, 18, 20, 22, 24, 28, 30];
 /// UTF-8 bytes of the longest name: 255 UTF-16 units, at most 3 bytes each.
 const NAME_BYTES: usize = 768;
 
 /// A directory: FAT16's fixed root (cluster 0), or a cluster chain.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Dir {
-    cluster: u32,
+    pub(crate) cluster: u32,
 }
 
 /// An entry's name in UTF-8: the long name, or the short one when there is none.
@@ -80,6 +81,11 @@ pub struct Entry {
     pub(crate) size: u32,
     /// The short name as stored: 8 bytes of base, 3 of extension, space-padded.
     pub(crate) short_name: [u8; 11],
+    /// Where it is: its directory, its short entry's index there, and the index of its first
+    /// long-name piece (the short entry's own without a long name).
+    pub(crate) parent: Dir,
+    pub(crate) index: u32,
+    pub(crate) first: u32,
 }
 
 impl Entry {
@@ -108,7 +114,7 @@ impl Entry {
 pub struct DirCursor {
     dir: Dir,
     /// The next entry's index.
-    index: u32,
+    pub(crate) index: u32,
     /// The cluster holding entry `index`, and its place in the chain (cluster directories).
     cluster: u32,
     ordinal: u32,
@@ -185,7 +191,7 @@ impl LongName {
 }
 
 /// A short name's checksum, which its long-name pieces carry.
-fn checksum(short: &[u8]) -> u8 {
+pub(crate) fn checksum(short: &[u8]) -> u8 {
     short
         .iter()
         .fold(0u8, |sum, &b| sum.rotate_right(1).wrapping_add(b))
@@ -264,7 +270,7 @@ fn push_short(name: &mut Name, bytes: &[u8], lower: bool, base: bool) {
 }
 
 /// Whether `wanted` is the short name, ignoring ASCII case.
-fn short_matches(short: &[u8; 11], wanted: &str) -> bool {
+pub(crate) fn short_matches(short: &[u8; 11], wanted: &str) -> bool {
     let (base, ext) = short_parts(short);
     let wanted = wanted.as_bytes();
     let (w_base, w_ext) = match wanted.iter().rposition(|&b| b == b'.') {
@@ -307,7 +313,7 @@ impl<D: BlockDevice> Volume<D> {
     }
 
     /// The next raw entry of the listing, or `None` past its last slot.
-    async fn raw_entry(
+    pub(crate) async fn raw_entry(
         &mut self,
         cursor: &mut DirCursor,
     ) -> Result<Option<[u8; ENTRY]>, Error<D::Error>> {
@@ -362,7 +368,10 @@ impl<D: BlockDevice> Volume<D> {
         name: &mut Name,
     ) -> Result<Option<Entry>, Error<D::Error>> {
         let mut long = LongName::new();
+        // The index of the long name's first piece.
+        let mut long_start = 0;
         while !cursor.ended {
+            let index = cursor.index;
             let Some(raw) = self.raw_entry(cursor).await? else {
                 cursor.ended = true;
                 break;
@@ -380,6 +389,9 @@ impl<D: BlockDevice> Volume<D> {
             }
             let attributes = raw[11];
             if attributes & 0x3F == ATTR_LONG_NAME {
+                if raw[0] & 0x40 != 0 {
+                    long_start = index;
+                }
                 long.add(&raw);
                 continue;
             }
@@ -389,9 +401,12 @@ impl<D: BlockDevice> Volume<D> {
             }
             let mut short = [0u8; 11];
             short.copy_from_slice(raw.get(..11).unwrap_or(&[0; 11]));
-            if !long.finish(checksum(&short), name) {
+            let first = if long.finish(checksum(&short), name) {
+                long_start
+            } else {
                 short_name(&short, byte_at(&raw, 12), name);
-            }
+                index
+            };
             let high = match self.layout.kind {
                 Kind::Fat16 => 0,
                 Kind::Fat32 => u32::from(u16_at(&raw, 20)) << 16,
@@ -401,6 +416,9 @@ impl<D: BlockDevice> Volume<D> {
                 cluster: high | u32::from(u16_at(&raw, 26)),
                 size: u32_at(&raw, 28),
                 short_name: short,
+                parent: cursor.dir,
+                index,
+                first,
             }));
         }
         Ok(None)
@@ -467,13 +485,13 @@ impl<D: BlockDevice> Volume<D> {
 }
 
 /// A name as `SdFat` takes one to look up: without leading spaces, trailing dots and spaces.
-fn trim_name(name: &str) -> &str {
+pub(crate) fn trim_name(name: &str) -> &str {
     name.trim_start_matches(' ').trim_end_matches(['.', ' '])
 }
 
 /// Whether two names are the same, as `SdFat` compares long names: each UTF-16 unit in upper case
 /// by its table (see `upcase`).
-fn same_name(a: &str, b: &str) -> bool {
+pub(crate) fn same_name(a: &str, b: &str) -> bool {
     a.encode_utf16()
         .map(upcase)
         .eq(b.encode_utf16().map(upcase))

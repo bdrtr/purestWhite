@@ -1,16 +1,28 @@
 //! Files: reading and seeking along a cluster chain.
 
-use crate::{BLOCK, BLOCK_BYTES, BlockDevice, Entry, Error, Volume};
+use crate::{BLOCK, BLOCK_BYTES, BlockDevice, Dir, Entry, Error, Volume};
 
-/// An open file: its chain, its size, and where the next read starts.
+/// An open file: its chain, its size, where the next read or write starts, and where its entry
+/// is. As with `SdFat`, a file written to must be synced or closed, or its entry keeps the old size
+/// and first cluster; and an open file must not be removed (its writes would go into clusters
+/// that may by then be another file's).
 #[derive(Debug, PartialEq, Eq)]
 pub struct File {
-    first: u32,
-    size: u32,
-    pos: u32,
-    /// The cluster holding `pos` once a read found it, and its place in the chain.
-    cluster: u32,
-    ordinal: u32,
+    pub(crate) first: u32,
+    pub(crate) size: u32,
+    pub(crate) pos: u32,
+    /// The cluster holding `pos` once a read or write found it, and its place in the chain.
+    pub(crate) cluster: u32,
+    pub(crate) ordinal: u32,
+    pub(crate) parent: Dir,
+    pub(crate) index: u32,
+    /// What its entry holds, to know it is still the file's: the short name and first cluster.
+    pub(crate) short: [u8; 11],
+    pub(crate) entry_first: u32,
+    /// Written since the entry was.
+    pub(crate) dirty: bool,
+    /// The volume's removals when the entry was last known to be the file's.
+    pub(crate) removals: u32,
 }
 
 impl File {
@@ -24,7 +36,7 @@ impl File {
         self.pos
     }
 
-    /// Moves the next read to `pos`, at most the end.
+    /// Moves the next read or write to `pos`, at most the end.
     pub fn seek(&mut self, pos: u32) {
         self.pos = pos.min(self.size);
     }
@@ -52,12 +64,22 @@ impl<D: BlockDevice> Volume<D> {
             pos: 0,
             cluster: 0,
             ordinal: 0,
+            parent: entry.parent,
+            index: entry.index,
+            short: entry.short_name,
+            entry_first: entry.cluster,
+            dirty: false,
+            removals: self.removals,
         })
     }
 
     /// Points `file` at the `ordinal`th cluster of its chain: on from where it is, or from the
     /// start when that is behind.
-    async fn locate(&mut self, file: &mut File, ordinal: u32) -> Result<(), Error<D::Error>> {
+    pub(crate) async fn locate(
+        &mut self,
+        file: &mut File,
+        ordinal: u32,
+    ) -> Result<(), Error<D::Error>> {
         if file.cluster == 0 || file.ordinal > ordinal {
             file.cluster = file.first;
             file.ordinal = 0;

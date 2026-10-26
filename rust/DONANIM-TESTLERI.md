@@ -2478,6 +2478,12 @@ GPIO5 ise bir düğme.
 İlk sınama dosya sistemi henüz `embedded-sdmmc` iken yapıldı, ikincisi `purestwhite-fat`'li
 imajla; ikisi de geçti (aşağıda).
 
+`purestwhite-fat` artık yazabiliyor da (dosya oluşturma, yazma, silme; "rust: write files on our
+own FAT file system"), ama `sd-check` bunu kullanmaz, kart sürücüsü de yazmaları reddetmeye devam
+eder. Yazma şimdilik yalnızca ana makinede, imajlarla sınanıyor. Cihaz denemesi ayrı, kitapsız bir
+test kartında yapılacak; o imaj, kitaplarınızın olduğu kartı tanıyıp ona yazmayı reddedecek biçimde
+yapılacak.
+
 - [x] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-sd.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
   Firmware Güncelleme → dosyayı seçin → Onayla. Ekran değişmez; birkaç saniye sonra C++ ana ekranı
