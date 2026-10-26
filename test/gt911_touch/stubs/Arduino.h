@@ -10,8 +10,7 @@
 #include <initializer_list>
 
 #define IRAM_ATTR
-constexpr int HIGH = 1, LOW = 0, INPUT = 1, OUTPUT = 3, INPUT_PULLUP = 5, INPUT_PULLDOWN = 6, FALLING = 2,
-              ADC_11db = 3;
+constexpr int HIGH = 1, LOW = 0, INPUT = 1, OUTPUT = 3, INPUT_PULLUP = 5, INPUT_PULLDOWN = 6, FALLING = 2, ADC_11db = 3;
 
 inline unsigned long hostMillis = 1000;
 inline std::function<void(int pin, int level)> onDigitalWrite;

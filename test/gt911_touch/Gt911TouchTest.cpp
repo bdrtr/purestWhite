@@ -48,9 +48,9 @@ std::string describe(const Event& e) {
 struct Gt911 {
   std::mt19937 rng;
   int failPercent = 0;
-  int nackProbes = 0;  // address-only probes refused first (still starting)
-  int shortReads = 0;  // the next reads of more than a byte stop a byte early
-  int shortened = 0;   // reads it stopped early
+  int nackProbes = 0;            // address-only probes refused first (still starting)
+  int shortReads = 0;            // the next reads of more than a byte stop a byte early
+  int shortened = 0;             // reads it stopped early
   bool statusDelivered = false;  // a status read gave its byte since the last clear of this flag
   uint8_t addr = 0x5D;
   bool strapped = false;  // ignores INT: keeps addr through resets
@@ -127,16 +127,8 @@ void hook() {
 
 pw_gt911_config ourConfig() {
   const auto& t = BoardConfig::ACTIVE.touch;
-  return {t.i2cAddress,
-          t.i2cAddressAlt,
-          t.rawMinX,
-          t.rawMaxX,
-          t.rawMinY,
-          t.rawMaxY,
-          t.swapXY,
-          t.flipX,
-          t.flipY,
-          t.gt911CoordsAtByte0};
+  return {t.i2cAddress, t.i2cAddressAlt, t.rawMinX, t.rawMaxX, t.rawMinY,
+          t.rawMaxY,    t.swapXY,        t.flipX,   t.flipY,   t.gt911CoordsAtByte0};
 }
 
 pw_gt911_pins ourPins() {
@@ -213,9 +205,9 @@ TEST_F(Gt911TouchTest, BeginMakesTheSameResetsProbesAndFindings) {
             sdk.beginGt911();
             active = &ourChip;
             const uint8_t ours = ourBegin();
-            const std::string where = "wiring " + std::to_string(wiring) + " addresses " +
-                                      std::to_string(addresses) + " nack " + std::to_string(nack) + " at " +
-                                      std::to_string(at) + " strapped " + std::to_string(strapped);
+            const std::string where = "wiring " + std::to_string(wiring) + " addresses " + std::to_string(addresses) +
+                                      " nack " + std::to_string(nack) + " at " + std::to_string(at) + " strapped " +
+                                      std::to_string(strapped);
             ASSERT_EQ(ours, sdk.gt911Addr) << where;
             ASSERT_EQ(sdkChip.events.size(), ourChip.events.size()) << where;
             for (size_t i = 0; i < sdkChip.events.size(); ++i) {
