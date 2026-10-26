@@ -43,7 +43,7 @@ std::string describe(const Event& e) {
 struct Panel {
   std::map<int, std::vector<std::vector<uint8_t>>> replies;
   std::map<int, int> answered;  // replies given per command
-  int held = -1;  // LOW or HIGH when the line is held, whatever the pull
+  int held = -1;                // LOW or HIGH when the line is held, whatever the pull
   int mtpReads = 0;
   bool noisy = false;
   std::mt19937 rng{1};
@@ -119,12 +119,18 @@ namespace {
 
 int pinOf(uint8_t line) {
   switch (line) {
-    case PW_EPD_SCLK: return SCLK;
-    case PW_EPD_SDA: return SDA;
-    case PW_EPD_CS: return CS;
-    case PW_EPD_DC: return DC;
-    case PW_EPD_RST: return RST;
-    default: return BUSY;
+    case PW_EPD_SCLK:
+      return SCLK;
+    case PW_EPD_SDA:
+      return SDA;
+    case PW_EPD_CS:
+      return CS;
+    case PW_EPD_DC:
+      return DC;
+    case PW_EPD_RST:
+      return RST;
+    default:
+      return BUSY;
   }
 }
 
@@ -387,12 +393,23 @@ TEST(EpdProbeTest, MissingCallbacksTouchNothing) {
   for (int missing = 0; missing < 6; ++missing) {
     pw_epd_probe_lines l = lines;
     switch (missing) {
-      case 0: l.mode = nullptr; break;
-      case 1: l.write = nullptr; break;
-      case 2: l.read = nullptr; break;
-      case 3: l.release_reset_hold = nullptr; break;
-      case 4: l.pause_us = nullptr; break;
-      default: l.pause_ms = nullptr;
+      case 0:
+        l.mode = nullptr;
+        break;
+      case 1:
+        l.write = nullptr;
+        break;
+      case 2:
+        l.read = nullptr;
+        break;
+      case 3:
+        l.release_reset_hold = nullptr;
+        break;
+      case 4:
+        l.pause_us = nullptr;
+        break;
+      default:
+        l.pause_ms = nullptr;
     }
     EXPECT_FALSE(pw_epd_probe(&l, &r)) << missing;
   }
