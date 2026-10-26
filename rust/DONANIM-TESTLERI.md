@@ -2425,7 +2425,7 @@ Classic'te değil: orada C++ başka bir yoklama yapar); geri dönüş "Bare-meta
 aynıdır, önyükleyici geri alma VAR olmalı. Açılıştan 50 saniye sonra imaj panele yeni bir komut
 başlatmaz, sürmekte olanı ilk beklemesinde keser ve kendiliğinden C++'a döner (bekçi 60 saniyede).
 
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-ekran.bin`'i
+- [x] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-ekran.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
   Firmware Güncelleme → dosyayı seçin → Onayla. Dokunmadan izleyin. UC8279 ya da UC8179'da ekran
   beyaz zemin, kalın siyah çerçeve, büyük siyah bir blok ve çubuklarla yenilenmeli; 2 saniye sonra
@@ -2443,7 +2443,7 @@ başlatmaz, sürmekte olanı ilk beklemesinde keser ve kendiliğinden C++'a dön
   gördüğünüzdür: blok ve çubukların yerini, gölge kalıp kalmadığını, dört bant ekranının her birinde
   dört tonun birbirinden ayrılıp ayrılmadığını (ve hangisinin en iyi göründüğünü), ikinci okuyucu
   sayfasında ilk sayfanın izi kalıp kalmadığını bana anlatın.
-- [ ] Raporda "panel: ..." satırı denetleyiciyi söyler (About ekranındakiyle aynı olmalı; satırdaki
+- [x] Raporda "panel: ..." satırı denetleyiciyi söyler (About ekranındakiyle aynı olmalı; satırdaki
   "k" yoklamanın kararı, "ver" ve "flg" ham baytlar: uyuşmazsa bunları bana iletin). UC8279 ya da
   UC8179'da "ekran tam: tamam", "ekran hizli: tamam" (UC8179'da sonra "gri: tamam tamam tamam
   tamam": yukarıdaki dört bant ekranı sırayla; "gri tabansiz:" ise imaj okuyucu sayfası için
@@ -2455,3 +2455,8 @@ başlatmaz, sürmekte olanı ilk beklemesinde keser ve kendiliğinden C++'a dön
   imaj orada takılmış, bekçi sıfırlamıştır. "sonraki acilis:
   SECILEMEDI (...)" yazıp "panel:" satırı yoksa imaj açılışı C++'a veremediği için panele hiç
   dokunmadan sıfırlanmıştır (dönüşü önyükleyicinin geri alması sağlar): bunu bana iletin.
+  - Sonuç (2026-10-26, 1e027c71'in imajı, cihaz): "panel: UC8179 k1 ver 000001ffff flg 13" (About
+    ekranıyla aynı), "ekran tam: tamam", "ekran hizli: tamam", "gri: tamam tamam tamam tamam",
+    "ekran uyku: tamam", "bitti". Sahibine göre hepsi düzgün çizildi: desen ve kayan blok doğru,
+    dört bant ekranının her birinde dört ton ayrı görünüyor. Rust ekran sürücüsünün UC8179 siyah-beyaz
+    yolu ve dört gri geçişi gerçek panelde doğrulandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
