@@ -2371,7 +2371,8 @@ X4 Pro'nun 800x480 paneli SSD1677, UC8179 ya da UC8279 denetleyicisiyle gelebili
 açılışta veriyolunu yoklayıp hangisi olduğunu bulur. Bare-metal ekran sürücüsü önce cihazdakini
 hedefleyecek.
 
-- [ ] Ayarlar → System → About ekranındaki "Display Controller" satırını bana iletin.
+- [x] Ayarlar → System → About ekranındaki "Display Controller" satırını bana iletin.
+  - Sonuç (2026-10-26, cihaz): UC8179. Bare-metal ekran denemesi UC8179 sürücüsüyle çizecek.
 
 ## Bare-metal ekran ("rust: our own UC8279 panel driver, in the bare-metal firmware", "rust: probe the panel controller in the bare-metal firmware", "rust: our own UC8179 panel driver, in the bare-metal firmware")
 
