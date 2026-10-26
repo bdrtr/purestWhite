@@ -2474,14 +2474,14 @@ olduğu gibi kalır. Kart FAT32 (ya da FAT16) olmalı: exFAT'ı okumuyor, "fat: 
 VAR olmalı. Yalnızca X4 Pro'da: X4 Classic'te SD yuvası aynı ama kartın etkinleştirmesi GPIO6,
 GPIO5 ise bir düğme.
 
-İlk sınama dosya sistemi henüz `embedded-sdmmc` iken yapıldı ve geçti (aşağıda); aynı adımlar
-`purestwhite-fat`'li yeni imajla yinelenecek.
+İlk sınama dosya sistemi henüz `embedded-sdmmc` iken yapıldı, ikincisi `purestwhite-fat`'li
+imajla; ikisi de geçti (aşağıda).
 
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-sd.bin`'i
+- [x] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-sd.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
   Firmware Güncelleme → dosyayı seçin → Onayla. Ekran değişmez; birkaç saniye sonra C++ ana ekranı
   gelmeli (kart yanıt vermezse en çok bir dakika). Dokunmadan bekleyin.
-- [ ] Raporda "sd: deneme 1, tamam, M MB" (M kartın boyutu, 16 GB'lık kartta 15 000 civarı; "deneme 1
+- [x] Raporda "sd: deneme 1, tamam, M MB" (M kartın boyutu, 16 GB'lık kartta 15 000 civarı; "deneme 1
   2" gibi birden çok sayı, kartın ancak sonraki denemede bağlandığını söyler), "fat: FAT32, kume N
   B" (N kümenin bayt sayısı; 16 GB'lık kartta çoğunlukla 32768), "kok: K oge: ..."
   (kökteki öğe sayısı ve ilk adlar), "okundu: onyukleyici geri alma: VAR (yuva app1, durum 2)" ve
@@ -2494,3 +2494,8 @@ GPIO5 ise bir düğme.
     (yuva app1, durum 2)", "bitti". Kart ilk denemede bağlandı; kökteki öğe sayısı bilgisayardaki
     sayımla (rapor dosyası dışında) aynı. Kart sürücüsü ve SDK'nın bağlama sırası gerçek kartta
     doğrulandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
+  - Sonuç (2026-10-26, a5340013'ün `purestwhite-fat`'li imajı, cihaz): "sd: deneme 1, tamam, 14910
+    MB", "fat: FAT32, kume 8192 B", "kok: 21 oge: System Volume Information, XTCache, GO", "okundu:
+    onyukleyici geri alma: VAR (yuva app1, durum 2)", "bitti". Küme boyutu ve kökteki öğe sayısı
+    bilgisayardakiyle (`stat -f`, rapor dosyası dışında 21) aynı. Kendi FAT okuma yolumuz gerçek
+    kartta doğrulandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
