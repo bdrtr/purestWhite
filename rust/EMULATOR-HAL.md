@@ -96,7 +96,13 @@ vermeyen veriyolu yalnızca `test/epd_probe`'un modelinde sınanır). **esp-rtos
 QEMU çöker (sinyal 11). Zamanlayıcı olarak TIMG0 yerine SYSTIMER verilince de aynı (denenen
 sürümler: esp-hal 1.2.2, esp-rtos 0.4.0); esp-rtos'un S3'te kullandığı CPU-içi Software0 kesmesinin
 (1. seviye) emülasyonundaki bir eksiklik olabilir. Embassy kullanan her şey bu düzelene kadar
-yalnızca cihazda denenebilir.
+yalnızca cihazda denenebilir. esp-hal'in SDMMC yuvası kesmeli (async) kipte de çöker, başka
+biçimde: QEMU'nun dijital imza (DS) modeli "Invalid padding/digest" der ve QEMU sinyal 8 ile çıkar.
+Yuvanın kesmesiz (blocking) çağrılarıyla çalışır: `emu/baremetal-sd.txt` bare-metal `sd-check`
+imajıyla kartı bağlar, FAT bölümünü açar, kökü uzun adlarıyla listeler ve
+`.crosspoint/onyukleyici.txt`'yi okur. SD modelinde veri zaman aşımı yok: yanıtsız kalan bir veri
+okuması (ör. kartın dışındaki bir blok) emülatörü sonsuza dek bekletir; cihazda denetleyicinin
+zaman aşımıyla biter.
 
 eink-qemu'nun RTC_CNTL modelinde RTC bekçisi (RWDT) ve güç mandalı yok: bekçinin sıfırlaması da,
 pildeyken GPIO1 boşa düşünce cihazın kapanması da emülatörde görülmez, yalnızca cihazda.

@@ -1,8 +1,7 @@
 //! The X4 Pro's panel for the test images: its lines, the controller probe, and the driver for
 //! the controller found, run through blocking SPI and delays whose futures are ready at once.
 
-use core::pin::pin;
-use core::task::{Context, Poll, Waker};
+use crate::ready;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{AnyPin, Flex, Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::peripherals::{GPIO6, GPIO11, GPIO12, GPIO13, GPIO14, GPIO18, SPI2};
@@ -16,14 +15,6 @@ use purestwhite_epd::{Bus, BusError};
 /// How long a driver call may take. A full refresh takes a few seconds; past this BUSY is taken
 /// as stuck, so the test goes on instead of waiting for the watchdog.
 const CALL_LIMIT: Duration = Duration::from_secs(8);
-
-/// Runs a future whose awaits are all ready at once; `None` if one is not.
-fn ready<F: Future>(future: F) -> Option<F::Output> {
-    match pin!(future).poll(&mut Context::from_waker(Waker::noop())) {
-        Poll::Ready(value) => Some(value),
-        Poll::Pending => None,
-    }
-}
 
 /// Blocking SPI as embedded-hal-async's: each future is ready at once.
 pub struct BlockingSpi<S>(pub S);

@@ -2460,3 +2460,26 @@ başlatmaz, sürmekte olanı ilk beklemesinde keser ve kendiliğinden C++'a dön
     "ekran uyku: tamam", "bitti". Sahibine göre hepsi düzgün çizildi: desen ve kayan blok doğru,
     dört bant ekranının her birinde dört ton ayrı görünüyor. Rust ekran sürücüsünün UC8179 siyah-beyaz
     yolu ve dört gri geçişi gerçek panelde doğrulandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
+
+## Bare-metal SD kart ("rust: read the SD card in the bare-metal firmware")
+
+Bare-metal firmware kartı okuyabiliyor; şimdilik yalnızca okuyor. `sd-check` imajı kartı SDK'nın
+yaptığı gibi bağlar: 1 bit SDMMC, 20 MHz, GPIO5 etkinleştirmesinin darbesi, en çok dört deneme. Sonra
+FAT bölümünü açar, kökü uzun adlarıyla listeler ve `.crosspoint/onyukleyici.txt`'yi okuyup raporuna
+yazar. Karta hiçbir şey yazmaz: dosya sisteminin altındaki blok aygıtı da kart sürücüsü de her veri
+yazmasını reddeder, kitaplarınız ve ayarlarınız olduğu gibi kalır. Emülatörde kart bağlanıyor, kök
+listeleniyor, dosya okunuyor (`emu/baremetal-sd.txt`). Geri dönüş "Bare-metal ilk deneme"dekiyle
+aynıdır, önyükleyici geri alma VAR olmalı. Yalnızca X4 Pro'da: X4 Classic'te SD yuvası aynı ama kartın
+etkinleştirmesi GPIO6, GPIO5 ise bir düğme.
+
+- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-sd.bin`'i
+  (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
+  Firmware Güncelleme → dosyayı seçin → Onayla. Ekran değişmez; birkaç saniye sonra C++ ana ekranı
+  gelmeli (kart yanıt vermezse en çok bir dakika). Dokunmadan bekleyin.
+- [ ] Raporda "sd: deneme 1, tamam, M MB" (M kartın boyutu, 16 GB'lık kartta 15 000 civarı; "deneme 1
+  2" gibi birden çok sayı, kartın ancak sonraki denemede bağlandığını söyler), "kok: K oge: ..."
+  (kökteki öğe sayısı ve ilk adlar), "okundu: onyukleyici geri alma: VAR (yuva app1, durum 2)" ve
+  "bitti" bekleniyor. "bitti" yoksa ya da başka bir satır çıkarsa ("baglanamadi", "fat: ...",
+  "okunamadi", "PANIK" …) raporun tamamını bana iletin; satır bir sayıda yarım kaldıysa ve C++ bir
+  dakika kadar sonra geldiyse o denemede kart yanıt vermemiş, bekçi sıfırlamıştır. Kartın
+  değişmediğini, kitaplarınızın ve ayarlarınızın yerinde olduğunu C++'ta bir göz atarak doğrulayın.

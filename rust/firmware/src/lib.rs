@@ -1,10 +1,14 @@
 //! What the smoke-test images for the second OTA slot share: the watchdog armed first, handing
-//! the next boot back to the C++ firmware, the report they leave it in RTC slow memory, and the
-//! panel (`panel`).
+//! the next boot back to the C++ firmware, the report they leave it in RTC slow memory, the panel
+//! (`panel`) and the SD card (`sd`).
 #![no_std]
 #![warn(clippy::pedantic)]
 
 pub mod panel;
+pub mod sd;
+
+use core::pin::pin;
+use core::task::{Context, Poll, Waker};
 
 use esp_bootloader_esp_idf::partitions::{
     FlashStorage, PARTITION_TABLE_MAX_LEN, PartitionEntry, read_partition_table,
@@ -14,6 +18,14 @@ use esp_hal::peripherals::{CPU_CTRL, FLASH, GPIO1, RTC_TIMER};
 use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
 use esp_hal::system::{Cpu, CpuControl};
 use esp_hal::time::Duration;
+
+/// Runs a future whose awaits are all ready at once; `None` if one is not.
+pub fn ready<F: Future>(future: F) -> Option<F::Output> {
+    match pin!(future).poll(&mut Context::from_waker(Waker::noop())) {
+        Poll::Ready(value) => Some(value),
+        Poll::Pending => None,
+    }
+}
 
 /// Where the report goes: the last 256 bytes of RTC slow memory, which the C++ firmware leaves
 /// unused (it checks that at boot). lib/hal/HalSystem.cpp reads it with the same layout: magic,
