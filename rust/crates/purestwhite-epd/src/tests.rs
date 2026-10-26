@@ -8,6 +8,7 @@
 
 extern crate std;
 
+use super::uc8179::{self, Uc8179};
 use super::uc8279x4::{Refresh, Uc8279X4, X4_PRO};
 use super::*;
 use core::cell::RefCell;
@@ -375,4 +376,104 @@ fn skip_cancels_a_resync_but_not_the_first_flash() {
     panel.borrow_mut().frames.clear();
     block_on(uc.display(&mut b, &frame(0xFF), Refresh::Fast, false)).expect("third");
     assert!(!panel.borrow().commands().contains(&0x91));
+}
+
+#[test]
+fn uc8179_begin_ends_with_power_save_only_when_set() {
+    for (power_save, last) in [(0x22, 0xE3), (0, 0xE1)] {
+        let panel = RefCell::new(Panel::default());
+        let mut uc = Uc8179::new(uc8179::Config {
+            power_save,
+            ..uc8179::X4_PRO
+        });
+        block_on(uc.begin(&mut bus(&panel))).expect("begin");
+        let p = panel.borrow();
+        assert_eq!(
+            p.commands(),
+            [0x00, 0x61, 0x65, 0x03, 0x06]
+                .into_iter()
+                .chain([0xE1])
+                .chain((power_save != 0).then_some(0xE3))
+                .collect::<Vec<u8>>()
+        );
+        assert_eq!(p.commands().last(), Some(&last));
+    }
+}
+
+#[test]
+fn uc8179_fast_refresh_has_no_window_and_restores_the_idle_cdi() {
+    let panel = RefCell::new(Panel {
+        busy_ms: 3,
+        ..Panel::default()
+    });
+    let mut uc = Uc8179::new(uc8179::X4_PRO);
+    let mut b = bus(&panel);
+    block_on(uc.begin(&mut b)).expect("begin");
+    block_on(uc.display(&mut b, &frame(0xFF), Refresh::Full, false)).expect("full");
+    panel.borrow_mut().frames.clear();
+    let mut image = frame(0x00);
+    image[0] = 0x0F; // the first row's first byte: sent last of the visible rows
+    block_on(uc.display(&mut b, &image, Refresh::Fast, false)).expect("fast");
+    let p = panel.borrow();
+    assert!(!p.wrote_while_busy);
+    // DTM2, CDI, CCSET, TSSET, PSR, PFS, E1, PTIN, DRF, PTOUT, CDI (idle), DTM1.
+    assert_eq!(
+        p.commands(),
+        vec![
+            0x13, 0x50, 0xE0, 0xE5, 0x00, 0x03, 0xE1, 0x91, 0x12, 0x92, 0x50, 0x10
+        ]
+    );
+    let dtm2 = data_after(&p, 0);
+    assert_eq!(dtm2.len(), 100 * 600);
+    assert_eq!(dtm2[100 * 479], 0x0F);
+    assert!(dtm2[100 * 480..].iter().all(|&b| b == 0xFF));
+    let cdi: Vec<Vec<u8>> = p
+        .frames
+        .iter()
+        .enumerate()
+        .filter(|(_, f)| f.as_slice() == [(false, 0x50)])
+        .map(|(i, _)| p.frames[i + 1..i + 3].iter().map(|f| f[0].1).collect())
+        .collect();
+    assert_eq!(cdi, vec![vec![0x29, 0x07], vec![0xA9, 0x07]]);
+}
+
+#[test]
+fn geometry_outside_the_plane_is_refused() {
+    let panel = RefCell::new(Panel::default());
+    let mut wide = Uc8179::new(uc8179::Config {
+        width: 1100,
+        ..uc8179::X4_PRO
+    });
+    let mut b = bus(&panel);
+    assert_eq!(
+        block_on(wide.display(&mut b, &vec![0xFF; 1100 / 8 * 480], Refresh::Full, false)),
+        Err(BusError)
+    );
+    let mut short = Uc8279X4::new(super::uc8279x4::Config {
+        tres_height: 500,
+        ..X4_PRO
+    });
+    assert_eq!(
+        block_on(short.display(&mut b, &frame(0xFF), Refresh::Full, false)),
+        Err(BusError)
+    );
+    // And the other check of each: the UC8179's visible rows past its gates, the UC8279's rows
+    // wider than the plane buffer.
+    let mut tall = Uc8179::new(uc8179::Config {
+        tres_height: 400,
+        ..uc8179::X4_PRO
+    });
+    assert_eq!(
+        block_on(tall.display(&mut b, &frame(0xFF), Refresh::Full, false)),
+        Err(BusError)
+    );
+    let mut wide = Uc8279X4::new(super::uc8279x4::Config {
+        width: 1100,
+        ..X4_PRO
+    });
+    assert_eq!(
+        block_on(wide.display(&mut b, &vec![0xFF; 1100 / 8 * 480], Refresh::Full, false)),
+        Err(BusError)
+    );
+    assert!(panel.borrow().frames.is_empty());
 }

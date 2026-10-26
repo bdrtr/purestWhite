@@ -1,4 +1,4 @@
-//! Exports for test/uc8279_panel and test/epd_probe (see `rust/include/purestwhite/epd.h`).
+//! Exports for test/epd_panels and test/epd_probe (see `rust/include/purestwhite/epd.h`).
 
 use crate::i2c::block_on;
 use core::convert::Infallible;
@@ -7,9 +7,10 @@ use core::mem::MaybeUninit;
 use embedded_hal::digital::{ErrorType as PinErrorType, InputPin, OutputPin};
 use embedded_hal_async::delay::DelayNs;
 use embedded_hal_async::spi::{ErrorKind, ErrorType, SpiBus};
-use purestwhite_epd::Bus;
 use purestwhite_epd::probe::{self, Controller, Line as ProbeLine, Mode, ProbeLines, Verdict};
+use purestwhite_epd::uc8179::{Uc8179, X4_PRO as UC8179_X4_PRO};
 use purestwhite_epd::uc8279x4::{Refresh, Uc8279X4, X4_PRO};
+use purestwhite_epd::{Bus, BusError};
 
 /// `pw_epd_bus`.
 #[repr(C)]
@@ -23,14 +24,12 @@ pub struct CBus {
     pause_ms: Option<unsafe extern "C" fn(*mut c_void, u32)>,
 }
 
-/// `pw_uc8279x4`: room for a `Uc8279X4`.
+/// `pw_uc8279x4` and `pw_uc8179`: room for a `Uc8279X4` or a `Uc8179`, each in its own struct type.
 #[repr(C, align(4))]
 pub struct CPanel([u32; 8]);
 
 // As epd.h's.
 const _: () = assert!(size_of::<CBus>() == 7 * size_of::<usize>());
-const _: () = assert!(size_of::<Uc8279X4>() <= size_of::<CPanel>());
-const _: () = assert!(align_of::<Uc8279X4>() <= align_of::<CPanel>());
 
 /// A `pw_epd_bus` whose callbacks may be called with its context during the call.
 #[derive(Clone, Copy)]
@@ -167,38 +166,84 @@ fn lines(bus: &CBus) -> CBusLines<'_> {
     }
 }
 
+/// The panel drivers behind `pw_uc8279x4` and `pw_uc8179`.
+trait Driver: Sized {
+    fn x4_pro() -> Self;
+    async fn begin(&mut self, bus: &mut CBusLines<'_>) -> Result<(), BusError>;
+    async fn display(
+        &mut self,
+        bus: &mut CBusLines<'_>,
+        frame: &[u8],
+        refresh: Refresh,
+        power_off: bool,
+    ) -> Result<(), BusError>;
+    async fn deep_sleep(&mut self, bus: &mut CBusLines<'_>) -> Result<(), BusError>;
+}
+
+macro_rules! driver {
+    ($t:ty, $config:expr) => {
+        impl Driver for $t {
+            fn x4_pro() -> Self {
+                <$t>::new($config)
+            }
+            async fn begin(&mut self, bus: &mut CBusLines<'_>) -> Result<(), BusError> {
+                <$t>::begin(self, bus).await
+            }
+            async fn display(
+                &mut self,
+                bus: &mut CBusLines<'_>,
+                frame: &[u8],
+                refresh: Refresh,
+                power_off: bool,
+            ) -> Result<(), BusError> {
+                <$t>::display(self, bus, frame, refresh, power_off).await
+            }
+            async fn deep_sleep(&mut self, bus: &mut CBusLines<'_>) -> Result<(), BusError> {
+                <$t>::deep_sleep(self, bus).await
+            }
+        }
+    };
+}
+
+driver!(Uc8279X4, X4_PRO);
+driver!(Uc8179, UC8179_X4_PRO);
+
+/// Whether a driver's state fits a panel struct, which the casts below rely on.
+const fn fits<P>() -> bool {
+    size_of::<P>() <= size_of::<CPanel>() && align_of::<P>() <= align_of::<CPanel>()
+}
+
 /// # Safety
-/// `panel` is NULL or an aligned, writable `pw_uc8279x4` that nothing else uses during the call.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_uc8279x4_init(panel: *mut CPanel) {
+/// `panel` is NULL or an aligned, writable panel struct that nothing else uses during the call.
+unsafe fn init<P: Driver>(panel: *mut CPanel) {
+    const { assert!(fits::<P>()) };
     if !panel.is_null() {
-        // SAFETY: as documented; the asserts above make room and alignment. Zeroed first, so
+        // SAFETY: as documented; the assert above makes room and alignment. Zeroed first, so
         // the bytes past the state are not left indeterminate for a C copy.
         unsafe {
             panel.write(CPanel([0; 8]));
             panel
-                .cast::<MaybeUninit<Uc8279X4>>()
-                .write(MaybeUninit::new(Uc8279X4::new(X4_PRO)));
+                .cast::<MaybeUninit<P>>()
+                .write(MaybeUninit::new(P::x4_pro()));
         }
     }
 }
 
-/// The panel state of a `pw_uc8279x4` that `pw_uc8279x4_init` set up.
+/// The driver state in a panel struct that `init::<P>` set up.
 ///
 /// # Safety
-/// As the exports': `panel` is NULL or such a `pw_uc8279x4`, used by nothing else during the call.
-unsafe fn state<'a>(panel: *mut CPanel) -> Option<&'a mut Uc8279X4> {
+/// As the exports': `panel` is NULL or such a struct, used by nothing else during the call.
+unsafe fn state<'a, P: Driver>(panel: *mut CPanel) -> Option<&'a mut P> {
+    const { assert!(fits::<P>()) };
     // SAFETY: as documented.
-    unsafe { panel.cast::<Uc8279X4>().as_mut() }
+    unsafe { panel.cast::<P>().as_mut() }
 }
 
 /// # Safety
-/// `panel` is NULL or a `pw_uc8279x4` that `pw_uc8279x4_init` set up and nothing else uses during
-/// the call; `bus` is NULL or a `pw_epd_bus` whose callbacks may be called during the call.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_uc8279x4_begin(panel: *mut CPanel, bus: *const CBus) -> bool {
+/// As the `begin` exports.
+unsafe fn begin<P: Driver>(panel: *mut CPanel, bus: *const CBus) -> bool {
     // SAFETY: as documented.
-    let (Some(panel), Some(bus)) = (unsafe { state(panel) }, unsafe { bus.as_ref() }) else {
+    let (Some(panel), Some(bus)) = (unsafe { state::<P>(panel) }, unsafe { bus.as_ref() }) else {
         return false;
     };
     if !complete(bus) {
@@ -208,9 +253,8 @@ pub unsafe extern "C" fn pw_uc8279x4_begin(panel: *mut CPanel, bus: *const CBus)
 }
 
 /// # Safety
-/// As `pw_uc8279x4_begin`; `frame` is NULL or `len` readable bytes.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_uc8279x4_display(
+/// As the `display` exports.
+unsafe fn display<P: Driver>(
     panel: *mut CPanel,
     bus: *const CBus,
     frame: *const u8,
@@ -219,13 +263,10 @@ pub unsafe extern "C" fn pw_uc8279x4_display(
     power_off: bool,
 ) -> bool {
     // SAFETY: as documented.
-    let (Some(panel), Some(bus)) = (unsafe { state(panel) }, unsafe { bus.as_ref() }) else {
+    let (Some(panel), Some(bus)) = (unsafe { state::<P>(panel) }, unsafe { bus.as_ref() }) else {
         return false;
     };
-    if !complete(bus) {
-        return false;
-    }
-    if frame.is_null() {
+    if !complete(bus) || frame.is_null() {
         return false;
     }
     // SAFETY: as documented.
@@ -243,11 +284,10 @@ pub unsafe extern "C" fn pw_uc8279x4_display(
 }
 
 /// # Safety
-/// As `pw_uc8279x4_begin`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_uc8279x4_deep_sleep(panel: *mut CPanel, bus: *const CBus) -> bool {
+/// As the `deep_sleep` exports.
+unsafe fn deep_sleep<P: Driver>(panel: *mut CPanel, bus: *const CBus) -> bool {
     // SAFETY: as documented.
-    let (Some(panel), Some(bus)) = (unsafe { state(panel) }, unsafe { bus.as_ref() }) else {
+    let (Some(panel), Some(bus)) = (unsafe { state::<P>(panel) }, unsafe { bus.as_ref() }) else {
         return false;
     };
     if !complete(bus) {
@@ -256,25 +296,93 @@ pub unsafe extern "C" fn pw_uc8279x4_deep_sleep(panel: *mut CPanel, bus: *const 
     matches!(block_on(panel.deep_sleep(&mut lines(bus))), Some(Ok(())))
 }
 
-/// # Safety
-/// `panel` is NULL or a `pw_uc8279x4` that `pw_uc8279x4_init` set up and nothing else uses.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_uc8279x4_request_resync(panel: *mut CPanel) {
-    // SAFETY: as documented.
-    if let Some(panel) = unsafe { state(panel) } {
-        panel.request_resync();
-    }
+/// The C exports of one driver; the safety contract is each's, as epd.h states it. For `init`:
+/// `panel` is NULL or an aligned, writable struct of the driver's own type, any contents. For the
+/// others: `panel` is NULL or a struct of the driver's own type that its `init` set up (another
+/// driver's is undefined behaviour) and nothing else uses during the call; `bus` is NULL or a
+/// `pw_epd_bus` whose callbacks may be called during the call; `frame` is NULL or `len` readable
+/// bytes.
+macro_rules! exports {
+    ($t:ty, $init:ident, $begin:ident, $display:ident, $sleep:ident, $resync:ident, $skip:ident) => {
+        /// # Safety
+        /// See `exports!`.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $init(panel: *mut CPanel) {
+            // SAFETY: as documented.
+            unsafe { init::<$t>(panel) }
+        }
+
+        /// # Safety
+        /// See `exports!`.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $begin(panel: *mut CPanel, bus: *const CBus) -> bool {
+            // SAFETY: as documented.
+            unsafe { begin::<$t>(panel, bus) }
+        }
+
+        /// # Safety
+        /// See `exports!`.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $display(
+            panel: *mut CPanel,
+            bus: *const CBus,
+            frame: *const u8,
+            len: usize,
+            refresh: u8,
+            power_off: bool,
+        ) -> bool {
+            // SAFETY: as documented.
+            unsafe { display::<$t>(panel, bus, frame, len, refresh, power_off) }
+        }
+
+        /// # Safety
+        /// See `exports!`.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $sleep(panel: *mut CPanel, bus: *const CBus) -> bool {
+            // SAFETY: as documented.
+            unsafe { deep_sleep::<$t>(panel, bus) }
+        }
+
+        /// # Safety
+        /// See `exports!`.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $resync(panel: *mut CPanel) {
+            // SAFETY: as documented.
+            if let Some(panel) = unsafe { state::<$t>(panel) } {
+                panel.request_resync();
+            }
+        }
+
+        /// # Safety
+        /// See `exports!`.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $skip(panel: *mut CPanel) {
+            // SAFETY: as documented.
+            if let Some(panel) = unsafe { state::<$t>(panel) } {
+                panel.skip_initial_resync();
+            }
+        }
+    };
 }
 
-/// # Safety
-/// As `pw_uc8279x4_request_resync`.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pw_uc8279x4_skip_initial_resync(panel: *mut CPanel) {
-    // SAFETY: as documented.
-    if let Some(panel) = unsafe { state(panel) } {
-        panel.skip_initial_resync();
-    }
-}
+exports!(
+    Uc8279X4,
+    pw_uc8279x4_init,
+    pw_uc8279x4_begin,
+    pw_uc8279x4_display,
+    pw_uc8279x4_deep_sleep,
+    pw_uc8279x4_request_resync,
+    pw_uc8279x4_skip_initial_resync
+);
+exports!(
+    Uc8179,
+    pw_uc8179_init,
+    pw_uc8179_begin,
+    pw_uc8179_display,
+    pw_uc8179_deep_sleep,
+    pw_uc8179_request_resync,
+    pw_uc8179_skip_initial_resync
+);
 
 /// `pw_epd_probe_lines`.
 #[repr(C)]

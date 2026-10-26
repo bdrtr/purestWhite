@@ -1,7 +1,7 @@
-// C ABI of rust/crates/bembeyaz-ffi/src/epd.rs (rust/crates/purestwhite-epd): the X4 Pro's
-// UC8279 e-paper controller, black and white, and the controller probe. Only test/uc8279_panel and
-// test/epd_probe call it for now: the firmware's display stays freeink-sdk's FreeInkDisplay, and
-// the bare-metal firmware uses the crate directly.
+// C ABI of rust/crates/bembeyaz-ffi/src/epd.rs (rust/crates/purestwhite-epd): the X4 Pro's UC8279
+// and UC8179 e-paper controllers, black and white, and the controller probe. Only test/epd_panels
+// and test/epd_probe call it for now: the firmware's display stays freeink-sdk's FreeInkDisplay,
+// and the bare-metal firmware uses the crate directly.
 #pragma once
 
 #include <stdbool.h>
@@ -56,6 +56,22 @@ bool pw_uc8279x4_deep_sleep(pw_uc8279x4* panel, const pw_epd_bus* bus);
 // request made after a display; the first display after begin flashes regardless.
 void pw_uc8279x4_request_resync(pw_uc8279x4* panel);
 void pw_uc8279x4_skip_initial_resync(pw_uc8279x4* panel);
+
+// The UC8179 (purestwhite-epd's uc8179, freeink-sdk's Uc8179Driver, black and white): the same
+// calls, contracts and frame layout as the UC8279's above, on its own state. A pw_uc8279x4 is not
+// a pw_uc8179: passing, casting or copying one driver's state to the other's calls is undefined
+// behaviour.
+typedef struct {
+  uint32_t opaque[8];
+} pw_uc8179;
+
+void pw_uc8179_init(pw_uc8179* panel);
+bool pw_uc8179_begin(pw_uc8179* panel, const pw_epd_bus* bus);
+bool pw_uc8179_display(pw_uc8179* panel, const pw_epd_bus* bus, const uint8_t* frame, size_t len, uint8_t refresh,
+                       bool power_off);
+bool pw_uc8179_deep_sleep(pw_uc8179* panel, const pw_epd_bus* bus);
+void pw_uc8179_request_resync(pw_uc8179* panel);
+void pw_uc8179_skip_initial_resync(pw_uc8179* panel);
 
 // The controller probe (purestwhite-epd's probe, freeink-sdk's XteinkDetect X4-family path): the
 // panel lines as GPIOs. mode, write and read are Arduino's pinMode, digitalWrite and digitalRead

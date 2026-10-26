@@ -86,16 +86,16 @@ HAL'i taşıma sırasına göre (önce emülatörde tam görülenler):
 `esp_hal::init`, en yüksek saat hızı, `esp-alloc`, flash okuma ve yazma (`esp-storage`) çalışır.
 `emu/baremetal-handback.txt` SD güncellemesiyle ikinci yuvaya geçişi ve C++ firmware'e dönüşü baştan
 sona sınar; `emu/baremetal-handback-slot1.txt` aynısını C++ firmware ota_1'deyken.
-`emu/baremetal-display.txt` bare-metal UC8279 sürücüsünün tam ve hızlı yenilemesini ekran
-görüntüsüyle gösterir (`display-check`, esp-rtos'suz; imaj önce denetleyiciyi yoklar, `--panel
-uc8179` ile çalıştırınca UC8179'u bulup çizmeden döner; eink-qemu'nun X4 Pro için SSD1677 modeli
-yok, yanıt vermeyen veriyolu yalnızca `test/epd_probe`'un modelinde sınanır). **esp-rtos ise
-eink-qemu 0.9.2'de çalışmaz**: `esp_rtos::start`'taki ilk görev değişiminde yığın işaretçisi çevre
-birimi alanına (0x6002_9xxx) kayar, kesme girişleri yazmaç pencerelerini SDMMC ve DS kayıtlarının
-üstüne döker ve QEMU çöker (sinyal 11). Zamanlayıcı olarak TIMG0 yerine SYSTIMER verilince de aynı
-(denenen sürümler: esp-hal 1.2.2, esp-rtos 0.4.0); esp-rtos'un S3'te kullandığı CPU-içi Software0
-kesmesinin (1. seviye) emülasyonundaki bir eksiklik olabilir. Embassy kullanan her şey bu düzelene
-kadar yalnızca cihazda denenebilir.
+`emu/baremetal-display.txt` bare-metal UC8279 ve UC8179 sürücülerinin tam ve hızlı yenilemesini
+ekran görüntüsüyle gösterir (`display-check`, esp-rtos'suz; imaj önce denetleyiciyi yoklar; UC8179
+için `eink-qemu compare ... --panel uc8179`; eink-qemu'nun X4 Pro için SSD1677 modeli yok, yanıt
+vermeyen veriyolu yalnızca `test/epd_probe`'un modelinde sınanır). **esp-rtos ise eink-qemu 0.9.2'de
+çalışmaz**: `esp_rtos::start`'taki ilk görev değişiminde yığın işaretçisi çevre birimi alanına
+(0x6002_9xxx) kayar, kesme girişleri yazmaç pencerelerini SDMMC ve DS kayıtlarının üstüne döker ve
+QEMU çöker (sinyal 11). Zamanlayıcı olarak TIMG0 yerine SYSTIMER verilince de aynı (denenen
+sürümler: esp-hal 1.2.2, esp-rtos 0.4.0); esp-rtos'un S3'te kullandığı CPU-içi Software0 kesmesinin
+(1. seviye) emülasyonundaki bir eksiklik olabilir. Embassy kullanan her şey bu düzelene kadar
+yalnızca cihazda denenebilir.
 
 eink-qemu'nun RTC_CNTL modelinde RTC bekçisi (RWDT) ve güç mandalı yok: bekçinin sıfırlaması da,
 pildeyken GPIO1 boşa düşünce cihazın kapanması da emülatörde görülmez, yalnızca cihazda.

@@ -1,8 +1,8 @@
 //! The X4 Pro's panel from the bare-metal firmware: hands the next boot back to the C++
 //! firmware, probes which controller drives the panel (the bytes the C++ firmware's probe sends
-//! at every boot), and only on a UC8279 draws a test pattern with purestwhite-epd's driver (a
-//! full refresh, then a fast one with the block moved), holds it 3 s, puts the controller to
-//! sleep and resets. On another controller it sends nothing more.
+//! at every boot), and on a UC8279 or UC8179 draws a test pattern with purestwhite-epd's driver
+//! (a full refresh, then a fast one with the block moved), holds it 3 s, puts the controller to
+//! sleep and resets. On an SSD1677, which has no driver here yet, it sends nothing more.
 //! Without esp-rtos, so it runs in the emulator too: the driver's async calls go over blocking
 //! SPI and delays, ready at once.
 #![no_std]
@@ -22,6 +22,7 @@ use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::time::Rate;
 use purestwhite_epd::Bus;
 use purestwhite_epd::probe::{self, Controller, Line, Mode, ProbeLines};
+use purestwhite_epd::uc8179::{Uc8179, X4_PRO as UC8179_X4_PRO};
 use purestwhite_epd::uc8279x4::{Refresh, Uc8279X4, X4_PRO};
 use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
 
@@ -136,6 +137,48 @@ fn flex(pin: AnyPin<'_>) -> Flex<'_> {
     f
 }
 
+/// The panel driver for the controller found.
+enum Panel {
+    Uc8279(Uc8279X4),
+    Uc8179(Uc8179),
+    None,
+}
+
+/// The lines as this image drives them.
+type Lines<'d> = Bus<
+    BlockingSpi<Spi<'d, esp_hal::Blocking>>,
+    Output<'d>,
+    Output<'d>,
+    Output<'d>,
+    Input<'d>,
+    BlockingDelay,
+>;
+
+impl Panel {
+    /// Whether the call went through: `ready` and no bus error.
+    fn begin(&mut self, bus: &mut Lines<'_>) -> bool {
+        match self {
+            Panel::Uc8279(p) => matches!(ready(p.begin(bus)), Some(Ok(()))),
+            Panel::Uc8179(p) => matches!(ready(p.begin(bus)), Some(Ok(()))),
+            Panel::None => false,
+        }
+    }
+    fn display(&mut self, bus: &mut Lines<'_>, frame: &[u8], refresh: Refresh, off: bool) -> bool {
+        match self {
+            Panel::Uc8279(p) => matches!(ready(p.display(bus, frame, refresh, off)), Some(Ok(()))),
+            Panel::Uc8179(p) => matches!(ready(p.display(bus, frame, refresh, off)), Some(Ok(()))),
+            Panel::None => false,
+        }
+    }
+    fn deep_sleep(&mut self, bus: &mut Lines<'_>) -> bool {
+        match self {
+            Panel::Uc8279(p) => matches!(ready(p.deep_sleep(bus)), Some(Ok(()))),
+            Panel::Uc8179(p) => matches!(ready(p.deep_sleep(bus)), Some(Ok(()))),
+            Panel::None => false,
+        }
+    }
+}
+
 /// Runs a future whose awaits are all ready at once; `None` if one is not.
 fn ready<F: Future>(future: F) -> Option<F::Output> {
     match pin!(future).poll(&mut Context::from_waker(Waker::noop())) {
@@ -246,8 +289,13 @@ fn main() -> ! {
     };
     note_panel(&mut report, &found);
     report.save();
-    if !matches!(found.controller(), Controller::Uc8279(_)) {
-        // This driver is the UC8279's: nothing more goes to another controller.
+    let mut panel = match found.controller() {
+        Controller::Uc8279(_) => Panel::Uc8279(Uc8279X4::new(X4_PRO)),
+        Controller::Uc8179(_) => Panel::Uc8179(Uc8179::new(UC8179_X4_PRO)),
+        Controller::Ssd1677 => Panel::None,
+    };
+    if matches!(panel, Panel::None) {
+        // No driver for this controller yet: nothing more goes to it.
         let _ = writeln!(report, "ekran: atlandi");
         let _ = writeln!(report, "bitti");
         esp_println::println!("{}", report.as_str());
@@ -279,27 +327,18 @@ fn main() -> ! {
         delay: BlockingDelay(Delay::new()),
     };
 
-    let mut panel = Uc8279X4::new(X4_PRO);
-    let mut frame = vec![0xFFu8; panel.row_bytes() * 480];
+    let mut frame = vec![0xFFu8; 100 * 480];
     let delay = Delay::new();
-    let begun = matches!(ready(panel.begin(&mut bus)), Some(Ok(())));
+    let begun = panel.begin(&mut bus);
     pattern(&mut frame, 10);
-    let full = begun
-        && matches!(
-            ready(panel.display(&mut bus, &frame, Refresh::Full, false)),
-            Some(Ok(()))
-        );
+    let full = begun && panel.display(&mut bus, &frame, Refresh::Full, false);
     let _ = writeln!(report, "ekran tam: {}", if full { "tamam" } else { "hata" });
     report.save();
     esp_println::println!("ekran tam: {full}");
     delay.delay_millis(2000);
 
     pattern(&mut frame, 60);
-    let fast = full
-        && matches!(
-            ready(panel.display(&mut bus, &frame, Refresh::Fast, true)),
-            Some(Ok(()))
-        );
+    let fast = full && panel.display(&mut bus, &frame, Refresh::Fast, true);
     let _ = writeln!(
         report,
         "ekran hizli: {}",
@@ -309,7 +348,7 @@ fn main() -> ! {
     esp_println::println!("ekran hizli: {fast}");
     delay.delay_millis(3000);
 
-    let slept = matches!(ready(panel.deep_sleep(&mut bus)), Some(Ok(())));
+    let slept = panel.deep_sleep(&mut bus);
     let _ = writeln!(
         report,
         "ekran uyku: {}",

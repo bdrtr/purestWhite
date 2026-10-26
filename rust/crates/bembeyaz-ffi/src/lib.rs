@@ -19,7 +19,7 @@ mod css;
 mod device;
 mod dict;
 mod dither;
-// Test-only ABIs (test/uc8279_panel, test/epd_probe, test/gt911_touch): kept out of the firmware
+// Test-only ABIs (test/epd_panels, test/epd_probe, test/gt911_touch): kept out of the firmware
 // build.
 #[cfg(not(target_os = "none"))]
 mod epd;

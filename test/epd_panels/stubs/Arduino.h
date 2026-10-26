@@ -1,5 +1,5 @@
 #pragma once
-// Arduino for test/uc8279_panel: what freeink-sdk's EpdBus and Uc8279X4Driver call, with pin
+// Arduino for test/epd_panels: what freeink-sdk's EpdBus, Uc8279X4Driver and Uc8179Driver call, with pin
 // writes, BUSY reads and pauses reported to the test.
 #include <cstddef>
 #include <cstdint>
@@ -39,3 +39,4 @@ struct SerialStub {
   }
 };
 inline SerialStub Serial;
+#define PROGMEM

@@ -1,10 +1,11 @@
 //! The X4 Pro's e-paper panel: the controller's bus (write-only SPI with chip select, a
-//! data/command line, reset and BUSY) and, in [`uc8279x4`], the UC8279 controller the panel ships
-//! with. The framing, the reset pulse and the BUSY waits are freeink-sdk's `EpdBus`, which this
-//! replaces in the bare-metal firmware. The caller sets up what `EpdBus::begin` did: SPI mode 0,
-//! MSB first, at the board's clock (10 MHz on the X4 Pro); chip select and data/command as
-//! outputs, high; reset as an output released from any pad hold (esp-hal releases it when it
-//! takes the pin); BUSY as an input without a pull.
+//! data/command line, reset and BUSY), the probe that tells which controller drives it ([`probe`]),
+//! and two of the controllers it ships with: [`uc8279x4`] and [`uc8179`]. The framing, the reset
+//! pulse and the BUSY waits are freeink-sdk's `EpdBus`, which this replaces in the bare-metal
+//! firmware. The caller sets up what `EpdBus::begin` did: SPI mode 0, MSB first, at the board's
+//! clock (10 MHz on the X4 Pro); chip select and data/command as outputs, high; reset as an output
+//! released from any pad hold (esp-hal releases it when it takes the pin); BUSY as an input without
+//! a pull.
 //!
 //! The SPI bus and the delay are embedded-hal-async's: a refresh waits about a second on BUSY,
 //! which an executor must be free to spend elsewhere. The pins are embedded-hal's.
@@ -22,6 +23,7 @@ use embedded_hal_async::spi::SpiBus;
 pub mod probe;
 #[cfg(test)]
 mod tests;
+pub mod uc8179;
 pub mod uc8279x4;
 
 /// A transfer or a pin failed.

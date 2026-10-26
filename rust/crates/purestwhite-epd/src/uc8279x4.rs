@@ -124,6 +124,12 @@ impl Uc8279X4 {
         usize::from(self.config.width / 8)
     }
 
+    /// Rows no wider than the plane buffer, and every visible row inside the addressed gates.
+    fn geometry_ok(&self) -> bool {
+        let c = self.config;
+        self.row_bytes() <= MAX_ROW && c.gate_offset.saturating_add(c.height) <= c.tres_height
+    }
+
     /// Resets the controller and programs it.
     ///
     /// # Errors
@@ -280,7 +286,8 @@ impl Uc8279X4 {
     /// panel off afterwards when asked.
     ///
     /// # Errors
-    /// When a transfer or a pin fails, or `frame` is too short.
+    /// When a transfer or a pin fails, `frame` is too short, or the config's rows are wider than
+    /// 128 bytes or do not fit the addressed gates.
     pub async fn display<S, Cs, Dc, Rst, Busy, D>(
         &mut self,
         bus: &mut Bus<S, Cs, Dc, Rst, Busy, D>,
@@ -296,7 +303,7 @@ impl Uc8279X4 {
         Busy: InputPin,
         D: DelayNs,
     {
-        if frame.len() < self.row_bytes() * usize::from(self.config.height) {
+        if frame.len() < self.row_bytes() * usize::from(self.config.height) || !self.geometry_ok() {
             return Err(BusError);
         }
         let fast = refresh == Refresh::Fast && !self.need_full_clear && self.old_plane_valid;

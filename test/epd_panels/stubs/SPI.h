@@ -1,5 +1,5 @@
 #pragma once
-// SPI for test/uc8279_panel: every byte goes to the test's onSpiWrite.
+// SPI for test/epd_panels: every byte goes to the test's onSpiWrite.
 #include <cstddef>
 #include <cstdint>
 #include <functional>
