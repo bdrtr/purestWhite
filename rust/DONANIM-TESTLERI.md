@@ -2500,7 +2500,7 @@ imajla; ikisi de geçti (aşağıda).
     onyukleyici geri alma: VAR (yuva app1, durum 2)", "bitti". Küme boyutu ve kökteki öğe sayısı
     bilgisayardakiyle (`stat -f`, rapor dosyası dışında 21) aynı. Kendi FAT okuma yolumuz gerçek
     kartta doğrulandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
-- [ ] Çok bloklu okuma: aynı adımlar, yeni `purestwhite-baremetal-sd.bin` ile. Dosyayı kartın
+- [x] Çok bloklu okuma: aynı adımlar, yeni `purestwhite-baremetal-sd.bin` ile. Dosyayı kartın
   köküne bu adla koyun: imaj kendini orada bu adla arar. Raporda şunlar bekleniyor:
   - "sd: deneme 1, tamam, M MB, cmd23 var" ya da "... cmd23 yok": kart blok sayısını önceden
     bildiren CMD23'ü alıyor mu; ikisi de olur, hangi yolun denendiğini söyler.
@@ -2514,3 +2514,9 @@ imajla; ikisi de geçti (aşağıda).
   dosyanın kökte bu adla bulunmadığını, "imaj: bulunamadi (...)" ya da "imaj: acilamadi (...)" onu
   ararken ya da açarken bir hata çıktığını söyler. Bunlardan biri çıkarsa raporun tamamını bana
   iletin.
+  - Sonuç (2026-10-26, 4b2560bf'nin imajı, cihaz): "sd: deneme 1, tamam, 14910 MB, cmd23 var",
+    "fat: FAT32, kume 8192 B", "kok: 21 oge", "okundu: onyukleyici geri alma: VAR", "imaj: 131536 B,
+    tek 131 ms, cok 72 ms, fnv 90991353", "bitti". Sağlama bilgisayardaki dosyanınkiyle aynı; kart
+    CMD23'ü alıyor, yani geri tutulan CMD23 yolu denendi. Çok bloklu okuma blok blok okumadan 1,8
+    kat hızlı (yaklaşık 1,8 MB/s; tek veri hattında 20 MHz'in sınırı 2,5 MB/s). Rapor
+    `firmware-arsiv/cihaz-raporlari/`'nda.
