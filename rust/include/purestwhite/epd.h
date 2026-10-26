@@ -1,7 +1,7 @@
 // C ABI of rust/crates/bembeyaz-ffi/src/epd.rs (rust/crates/purestwhite-epd): the X4 Pro's
-// UC8279 e-paper controller, black and white. Only test/uc8279_panel calls it for now: the
-// firmware's display stays freeink-sdk's FreeInkDisplay, and the bare-metal firmware uses the
-// crate directly.
+// UC8279 e-paper controller, black and white, and the controller probe. Only test/uc8279_panel and
+// test/epd_probe call it for now: the firmware's display stays freeink-sdk's FreeInkDisplay, and
+// the bare-metal firmware uses the crate directly.
 #pragma once
 
 #include <stdbool.h>
@@ -56,6 +56,41 @@ bool pw_uc8279x4_deep_sleep(pw_uc8279x4* panel, const pw_epd_bus* bus);
 // request made after a display; the first display after begin flashes regardless.
 void pw_uc8279x4_request_resync(pw_uc8279x4* panel);
 void pw_uc8279x4_skip_initial_resync(pw_uc8279x4* panel);
+
+// The controller probe (purestwhite-epd's probe, freeink-sdk's XteinkDetect X4-family path): the
+// panel lines as GPIOs. mode, write and read are Arduino's pinMode, digitalWrite and digitalRead
+// on one of the lines below; release_reset_hold releases a pad hold on reset; pause_us and
+// pause_ms pause. Every callback is required and must not throw; the struct must not change during
+// the call.
+enum { PW_EPD_SCLK = 0, PW_EPD_SDA = 1, PW_EPD_CS = 2, PW_EPD_DC = 3, PW_EPD_RST = 4, PW_EPD_BUSY = 5 };
+enum { PW_EPD_OUTPUT = 0, PW_EPD_INPUT = 1, PW_EPD_INPUT_PULLUP = 2 };
+typedef struct {
+  void* context;
+  void (*mode)(void* context, uint8_t line, uint8_t mode);
+  void (*write)(void* context, uint8_t line, bool high);
+  bool (*read)(void* context, uint8_t line);
+  void (*release_reset_hold)(void* context);
+  void (*pause_us)(void* context, uint32_t us);
+  void (*pause_ms)(void* context, uint32_t ms);
+} pw_epd_probe_lines;
+
+// What the probe read: verdict (as the SDK's DisplayControllerVerdict: 0 neither pass matched and
+// no MTP confirmed, 1 a UC81xx confirmed, 2 inconclusive: exactly one pass matched, or both
+// matched with different VER), VER from the authoritative pass, FLG from the first, the MTP block when
+// read, and the controller the X4 Pro runs (0 SSD1677, 1 UC8179, 2 UC8279) with its LUT_VER.
+typedef struct {
+  uint8_t verdict;
+  uint8_t ver[5];
+  uint8_t flg;
+  bool mtp_valid;
+  uint8_t mtp[48];
+  uint8_t controller;
+  uint8_t lut_ver;
+} pw_epd_probe_result;
+
+// Runs the probe and leaves every line an input; out is written whole (it need not be initialized).
+// False with no line touched when lines, a callback or out is NULL.
+bool pw_epd_probe(const pw_epd_probe_lines* lines, pw_epd_probe_result* out);
 
 #ifdef __cplusplus
 }

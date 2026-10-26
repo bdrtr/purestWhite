@@ -1,4 +1,4 @@
-//! Exports for test/uc8279_panel (see `rust/include/purestwhite/epd.h`).
+//! Exports for test/uc8279_panel and test/epd_probe (see `rust/include/purestwhite/epd.h`).
 
 use crate::i2c::block_on;
 use core::convert::Infallible;
@@ -8,6 +8,7 @@ use embedded_hal::digital::{ErrorType as PinErrorType, InputPin, OutputPin};
 use embedded_hal_async::delay::DelayNs;
 use embedded_hal_async::spi::{ErrorKind, ErrorType, SpiBus};
 use purestwhite_epd::Bus;
+use purestwhite_epd::probe::{self, Controller, Line as ProbeLine, Mode, ProbeLines, Verdict};
 use purestwhite_epd::uc8279x4::{Refresh, Uc8279X4, X4_PRO};
 
 /// `pw_epd_bus`.
@@ -273,4 +274,157 @@ pub unsafe extern "C" fn pw_uc8279x4_skip_initial_resync(panel: *mut CPanel) {
     if let Some(panel) = unsafe { state(panel) } {
         panel.skip_initial_resync();
     }
+}
+
+/// `pw_epd_probe_lines`.
+#[repr(C)]
+pub struct CProbeLines {
+    context: *mut c_void,
+    mode: Option<unsafe extern "C" fn(*mut c_void, u8, u8)>,
+    write: Option<unsafe extern "C" fn(*mut c_void, u8, bool)>,
+    read: Option<unsafe extern "C" fn(*mut c_void, u8) -> bool>,
+    release_reset_hold: Option<unsafe extern "C" fn(*mut c_void)>,
+    pause_us: Option<unsafe extern "C" fn(*mut c_void, u32)>,
+    pause_ms: Option<unsafe extern "C" fn(*mut c_void, u32)>,
+}
+
+/// `pw_epd_probe_result`.
+#[repr(C)]
+pub struct CProbeResult {
+    verdict: u8,
+    ver: [u8; 5],
+    flg: u8,
+    mtp_valid: bool,
+    mtp: [u8; probe::MTP_LEN],
+    controller: u8,
+    lut_ver: u8,
+}
+
+const _: () = assert!(size_of::<CProbeLines>() == 7 * size_of::<usize>());
+const _: () = assert!(size_of::<CProbeResult>() == 58 && align_of::<CProbeResult>() == 1);
+
+/// A `pw_epd_probe_lines` with every callback, which may be called with its context.
+struct GpioLines<'a> {
+    c: &'a CProbeLines,
+    mode: unsafe extern "C" fn(*mut c_void, u8, u8),
+    write: unsafe extern "C" fn(*mut c_void, u8, bool),
+    read: unsafe extern "C" fn(*mut c_void, u8) -> bool,
+    release_reset_hold: unsafe extern "C" fn(*mut c_void),
+}
+
+fn line(l: ProbeLine) -> u8 {
+    match l {
+        ProbeLine::Sclk => 0,
+        ProbeLine::Sda => 1,
+        ProbeLine::Cs => 2,
+        ProbeLine::Dc => 3,
+        ProbeLine::Rst => 4,
+        ProbeLine::Busy => 5,
+    }
+}
+
+impl ProbeLines for GpioLines<'_> {
+    fn mode(&mut self, l: ProbeLine, mode: Mode) {
+        let m = match mode {
+            Mode::Output => 0,
+            Mode::Input => 1,
+            Mode::InputPullUp => 2,
+        };
+        // SAFETY: the callback takes its context.
+        unsafe { (self.mode)(self.c.context, line(l), m) }
+    }
+    fn write(&mut self, l: ProbeLine, high: bool) {
+        // SAFETY: as `mode`.
+        unsafe { (self.write)(self.c.context, line(l), high) }
+    }
+    fn read(&mut self, l: ProbeLine) -> bool {
+        // SAFETY: as `mode`.
+        unsafe { (self.read)(self.c.context, line(l)) }
+    }
+    fn release_reset_hold(&mut self) {
+        // SAFETY: as `mode`.
+        unsafe { (self.release_reset_hold)(self.c.context) }
+    }
+}
+
+struct ProbePause<'a> {
+    c: &'a CProbeLines,
+    us: unsafe extern "C" fn(*mut c_void, u32),
+    ms: unsafe extern "C" fn(*mut c_void, u32),
+}
+
+#[allow(
+    clippy::unused_async,
+    reason = "the C++ calls block; the futures are ready at once"
+)]
+impl DelayNs for ProbePause<'_> {
+    async fn delay_ns(&mut self, ns: u32) {
+        // SAFETY: the callback takes its context.
+        unsafe { (self.us)(self.c.context, ns.div_ceil(1000)) }
+    }
+    async fn delay_us(&mut self, us: u32) {
+        // SAFETY: as `delay_ns`.
+        unsafe { (self.us)(self.c.context, us) }
+    }
+    async fn delay_ms(&mut self, ms: u32) {
+        // SAFETY: as `delay_ns`.
+        unsafe { (self.ms)(self.c.context, ms) }
+    }
+}
+
+/// # Safety
+/// `lines` is NULL or a `pw_epd_probe_lines` whose callbacks may be called during the call;
+/// `out` is NULL or a writable `pw_epd_probe_result`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_epd_probe(lines: *const CProbeLines, out: *mut CProbeResult) -> bool {
+    // SAFETY: as documented.
+    let Some(c) = (unsafe { lines.as_ref() }) else {
+        return false;
+    };
+    let (Some(mode), Some(write), Some(read), Some(release_reset_hold), Some(us), Some(ms)) = (
+        c.mode,
+        c.write,
+        c.read,
+        c.release_reset_hold,
+        c.pause_us,
+        c.pause_ms,
+    ) else {
+        return false;
+    };
+    if out.is_null() {
+        return false;
+    }
+    let mut gpio = GpioLines {
+        c,
+        mode,
+        write,
+        read,
+        release_reset_hold,
+    };
+    let mut pause = ProbePause { c, us, ms };
+    let Some(found) = block_on(probe::probe(&mut gpio, &mut pause)) else {
+        return false;
+    };
+    let (controller, lut_ver) = match found.controller() {
+        Controller::Ssd1677 => (0, 0),
+        Controller::Uc8179(id) => (1, id),
+        Controller::Uc8279(id) => (2, id),
+    };
+    let result = CProbeResult {
+        verdict: match found.verdict {
+            Verdict::PrimaryAssumed => 0,
+            Verdict::Uc81xxConfirmed => 1,
+            Verdict::Inconclusive => 2,
+        },
+        ver: found.ver,
+        flg: found.flg,
+        mtp_valid: found.mtp.is_some(),
+        mtp: found.mtp.unwrap_or([0; probe::MTP_LEN]),
+        controller,
+        lut_ver,
+    };
+    // SAFETY: as documented; written whole, after the callbacks ran, so `out` need not hold a
+    // valid result before.
+    unsafe { out.write(result) };
+    true
 }

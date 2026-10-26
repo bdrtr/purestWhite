@@ -1,6 +1,8 @@
 //! The X4 Pro's panel from the bare-metal firmware: hands the next boot back to the C++
-//! firmware, then draws a test pattern with purestwhite-epd's UC8279 driver (a full refresh,
-//! then a fast one with the block moved), holds it 3 s, puts the controller to sleep and resets.
+//! firmware, probes which controller drives the panel (the bytes the C++ firmware's probe sends
+//! at every boot), and only on a UC8279 draws a test pattern with purestwhite-epd's driver (a
+//! full refresh, then a fast one with the block moved), holds it 3 s, puts the controller to
+//! sleep and resets. On another controller it sends nothing more.
 //! Without esp-rtos, so it runs in the emulator too: the driver's async calls go over blocking
 //! SPI and delays, ready at once.
 #![no_std]
@@ -15,10 +17,11 @@ use core::pin::pin;
 use core::task::{Context, Poll, Waker};
 use esp_backtrace as _;
 use esp_hal::delay::Delay;
-use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig};
+use esp_hal::gpio::{AnyPin, Flex, Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::time::Rate;
 use purestwhite_epd::Bus;
+use purestwhite_epd::probe::{self, Controller, Line, Mode, ProbeLines};
 use purestwhite_epd::uc8279x4::{Refresh, Uc8279X4, X4_PRO};
 use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
 
@@ -71,6 +74,68 @@ impl embedded_hal_async::delay::DelayNs for BlockingDelay {
     }
 }
 
+/// The panel's lines as GPIOs for the probe.
+struct PanelGpio<'d> {
+    sclk: Flex<'d>,
+    sda: Flex<'d>,
+    cs: Flex<'d>,
+    dc: Flex<'d>,
+    rst: Flex<'d>,
+    busy: Flex<'d>,
+}
+
+impl<'d> PanelGpio<'d> {
+    fn pin(&mut self, line: Line) -> &mut Flex<'d> {
+        match line {
+            Line::Sclk => &mut self.sclk,
+            Line::Sda => &mut self.sda,
+            Line::Cs => &mut self.cs,
+            Line::Dc => &mut self.dc,
+            Line::Rst => &mut self.rst,
+            Line::Busy => &mut self.busy,
+        }
+    }
+}
+
+impl ProbeLines for PanelGpio<'_> {
+    fn mode(&mut self, line: Line, mode: Mode) {
+        let pin = self.pin(line);
+        match mode {
+            Mode::Output => {
+                // As Arduino's pinMode(OUTPUT): no pull left from an input setting.
+                pin.apply_input_config(&InputConfig::default());
+                pin.set_input_enable(false);
+                pin.set_output_enable(true);
+            }
+            Mode::Input | Mode::InputPullUp => {
+                pin.set_output_enable(false);
+                let pull = if mode == Mode::Input {
+                    Pull::None
+                } else {
+                    Pull::Up
+                };
+                pin.apply_input_config(&InputConfig::default().with_pull(pull));
+                pin.set_input_enable(true);
+            }
+        }
+    }
+    fn write(&mut self, line: Line, high: bool) {
+        self.pin(line).set_level(Level::from(high));
+    }
+    fn read(&mut self, line: Line) -> bool {
+        self.pin(line).is_high()
+    }
+    /// Taking a pin (`Flex::new`) already released any pad hold.
+    fn release_reset_hold(&mut self) {}
+}
+
+/// A panel line as a push-pull GPIO, for the probe.
+fn flex(pin: AnyPin<'_>) -> Flex<'_> {
+    let mut f = Flex::new(pin);
+    f.apply_output_config(&OutputConfig::default());
+    f
+}
+
 /// Runs a future whose awaits are all ready at once; `None` if one is not.
 fn ready<F: Future>(future: F) -> Option<F::Output> {
     match pin!(future).poll(&mut Context::from_waker(Waker::noop())) {
@@ -108,9 +173,44 @@ fn pattern(frame: &mut [u8], block: usize) {
     }
 }
 
+/// Probes the panel controller over SCLK, SDA, CS, DC, RST and BUSY as GPIOs.
+fn probe_panel(pins: [AnyPin<'_>; 6]) -> Option<probe::Probe> {
+    let [sclk, sda, cs, dc, rst, busy] = pins.map(flex);
+    let mut gpio = PanelGpio {
+        sclk,
+        sda,
+        cs,
+        dc,
+        rst,
+        busy,
+    };
+    ready(probe::probe(&mut gpio, &mut BlockingDelay(Delay::new())))
+}
+
+/// The controller found, for the report.
+fn note_panel(report: &mut Report, found: &probe::Probe) {
+    let name = match found.controller() {
+        Controller::Uc8279(_) => "UC8279",
+        Controller::Uc8179(_) => "UC8179",
+        Controller::Ssd1677 => "SSD1677",
+    };
+    let verdict = match found.verdict {
+        probe::Verdict::PrimaryAssumed => 0,
+        probe::Verdict::Uc81xxConfirmed => 1,
+        probe::Verdict::Inconclusive => 2,
+    };
+    let [v0, v1, v2, v3, v4] = found.ver;
+    // The verdict and the raw bytes, to explain a disagreement with the About screen.
+    let _ = writeln!(
+        report,
+        "panel: {name} k{verdict} ver {v0:02x}{v1:02x}{v2:02x}{v3:02x}{v4:02x} flg {:02x}",
+        found.flg
+    );
+}
+
 #[esp_hal::main]
 fn main() -> ! {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
+    let mut peripherals = esp_hal::init(esp_hal::Config::default());
     let _rtc = arm_watchdog(peripherals.RTC_TIMER);
     let _latch = hold_power_latch(peripherals.GPIO1);
     let mut report = Report::default();
@@ -121,11 +221,39 @@ fn main() -> ! {
             let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
         }
         Err(e) => {
+            // The way back rests on the bootloader alone now: touch nothing more.
             let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
+            report.save();
+            esp_hal::system::software_reset()
         }
     }
     report.save();
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
+
+    // Which controller: the panel lines as GPIOs for a moment, then as SPI below.
+    let found = probe_panel([
+        peripherals.GPIO12.reborrow().into(),
+        peripherals.GPIO11.reborrow().into(),
+        peripherals.GPIO13.reborrow().into(),
+        peripherals.GPIO18.reborrow().into(),
+        peripherals.GPIO14.reborrow().into(),
+        peripherals.GPIO6.reborrow().into(),
+    ]);
+    let Some(found) = found else {
+        let _ = writeln!(report, "panel: yoklanamadi");
+        report.save();
+        esp_hal::system::software_reset()
+    };
+    note_panel(&mut report, &found);
+    report.save();
+    if !matches!(found.controller(), Controller::Uc8279(_)) {
+        // This driver is the UC8279's: nothing more goes to another controller.
+        let _ = writeln!(report, "ekran: atlandi");
+        let _ = writeln!(report, "bitti");
+        esp_println::println!("{}", report.as_str());
+        report.save();
+        esp_hal::system::software_reset()
+    }
 
     // The X4 Pro's panel lines (freeink-sdk's board profile): SCLK 12, MOSI 11, CS 13, DC 18,
     // RST 14, BUSY 6; 10 MHz, mode 0.

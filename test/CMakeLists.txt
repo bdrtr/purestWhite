@@ -139,6 +139,7 @@ add_subdirectory(rtc_pcf8563)
 add_subdirectory(cw2017_gauge)
 add_subdirectory(gt911_touch)
 add_subdirectory(uc8279_panel)
+add_subdirectory(epd_probe)
 
 find_package(Python3 REQUIRED COMPONENTS Interpreter)
 add_test(NAME TrustedTimeTimezone COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/test_trusted_time.py)

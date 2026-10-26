@@ -19,6 +19,7 @@ use embedded_hal::digital::{InputPin, OutputPin};
 use embedded_hal_async::delay::DelayNs;
 use embedded_hal_async::spi::SpiBus;
 
+pub mod probe;
 #[cfg(test)]
 mod tests;
 pub mod uc8279x4;

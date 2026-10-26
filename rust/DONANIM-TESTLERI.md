@@ -2373,25 +2373,28 @@ hedefleyecek.
 
 - [ ] Ayarlar → System → About ekranındaki "Display Controller" satırını bana iletin.
 
-## Bare-metal ekran ("rust: our own UC8279 panel driver, in the bare-metal firmware")
+## Bare-metal ekran ("rust: our own UC8279 panel driver, in the bare-metal firmware"; yoklama: "rust: probe the panel controller in the bare-metal firmware")
 
 `purestwhite-epd`, X4 Pro'nun UC8279 ekran denetleyicisinin siyah-beyaz sürücüsü; şimdilik yalnızca
-bare-metal `display-check` imajında. Emülatörde (UC8279 0x68) desen doğru çiziliyor.
+bare-metal `display-check` imajında. İmaj önce denetleyiciyi yoklar (C++ firmware'in her açılışta
+gönderdiği baytların aynısı: 0x71, 0x70, gerekirse 0xA2) ve yalnızca UC8279 bulursa çizer; başka bir
+denetleyicide başka hiçbir komut göndermez, raporuna hangisi olduğunu yazar. Emülatörde UC8279'da
+desen çiziliyor, UC8179'da atlanıyor. Bu yüzden deneme her X4 Pro'da yapılabilir (X4 Classic'te
+değil: orada C++ başka bir yoklama yapar); geri dönüş
+"Bare-metal ilk deneme"dekiyle aynıdır, önyükleyici geri alma VAR olmalı.
 
-**Bu deneme yalnızca "Ekran denetleyicisi" maddesinde About ekranı UC8279 gösterirse yapılır.**
-İmaj denetleyiciyi yoklamadan UC8279 komutlarını gönderir; SSD1677'de aynı baytlar başka komutlardır
-(0x10 derin uyku, 0x12 yazılımsal reset, 0x30 dalga biçimi OTP'si) ve geri alınamayan bir yazmaya
-yol açmaları düşük olasılık olsa da dışlanamaz. Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır;
-önyükleyici geri alma VAR olmalı.
-
-- [ ] (Yalnızca UC8279'da.) Kartta eski `purestwhite-bare-metal.txt` varsa silin.
-  `purestwhite-baremetal-ekran.bin`'i (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun;
-  Ayarlar → System → SD Karttan Firmware Güncelleme → dosyayı seçin → Onayla. Dokunmadan izleyin:
-  ekran beyaz zemin, kalın siyah çerçeve, büyük siyah bir blok ve çubuklarla yenilenmeli; 2 saniye
-  sonra hızlı yenilemeyle blok kaymalı (yeni yerinde çubukların bir kısmını örter, bu doğru);
-  3 saniye sonra C++ ana ekranı gelmeli. Asıl sınama gördüğünüzdür: blok ve çubukların yerini,
-  gölge kalıp kalmadığını bana anlatın.
-- [ ] Raporda "ekran tam: tamam", "ekran hizli: tamam", "ekran uyku: tamam" ve "bitti" bekleniyor.
-  "tamam" yalnızca veriyolu çağrılarının hata vermediğini gösterir, çizimi değil (veriyolu yalnızca
-  yazar). Ekran donup bir dakika kadar sonra C++ geliyorsa ve bir "ekran" satırı eksikse BUSY o
-  adımda boşa çıkmamış, bekçi sıfırlamıştır.
+- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-ekran.bin`'i
+  (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
+  Firmware Güncelleme → dosyayı seçin → Onayla. Dokunmadan izleyin. UC8279'da ekran beyaz zemin,
+  kalın siyah çerçeve, büyük siyah bir blok ve çubuklarla yenilenmeli; 2 saniye sonra hızlı
+  yenilemeyle blok kaymalı (yeni yerinde çubukların bir kısmını örter, bu doğru); 3 saniye sonra C++
+  ana ekranı gelmeli. Başka bir denetleyicide ekran değişmeden birkaç saniyede C++ gelir. Asıl
+  sınama gördüğünüzdür: blok ve çubukların yerini, gölge kalıp kalmadığını bana anlatın.
+- [ ] Raporda "panel: ..." satırı denetleyiciyi söyler (About ekranındakiyle aynı olmalı; satırdaki
+  "k" yoklamanın kararı, "ver" ve "flg" ham baytlar: uyuşmazsa bunları bana iletin).
+  "sonraki acilis: SECILEMEDI (...)" yazıp "panel:" satırı yoksa imaj açılışı C++'a veremediği için
+  panele hiç dokunmadan sıfırlanmıştır (dönüşü önyükleyicinin geri alması sağlar): bunu bana iletin. UC8279'da
+  "ekran tam: tamam", "ekran hizli: tamam", "ekran uyku: tamam" ve "bitti", başkasında "ekran:
+  atlandi" ve "bitti" bekleniyor. "tamam" yalnızca veriyolu çağrılarının hata vermediğini gösterir,
+  çizimi değil (veriyolu yalnızca yazar). Ekran donup bir dakika kadar sonra C++ geliyorsa ve bir
+  "ekran" satırı eksikse BUSY o adımda boşa çıkmamış, bekçi sıfırlamıştır.
