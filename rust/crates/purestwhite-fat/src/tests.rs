@@ -415,13 +415,13 @@ fn contiguous_clusters_come_in_one_call() {
     let entry = block_on(vol.find("ardışık kümeler.bin")).unwrap();
     let mut file = vol.open(&entry).unwrap();
     let mut buf = vec![0u8; 64 * 1024];
-    let before = vol.dev.calls;
+    let before = vol.device_mut().calls;
     assert_eq!(block_on(vol.read(&mut file, &mut buf)).unwrap(), buf.len());
     // 128 clusters of one block: the data in one call, the FAT in a block or two.
     assert!(
-        vol.dev.calls - before <= 3,
+        vol.device_mut().calls - before <= 3,
         "{} calls",
-        vol.dev.calls - before
+        vol.device_mut().calls - before
     );
     assert!(buf == content(5, 64 * 1024));
 }

@@ -1,7 +1,8 @@
 # rust/firmware's sd-check image reads the SD card from the bare-metal firmware, read only: it mounts
 # the card as freeink-sdk's SdmmcBlockDevice does, opens the FAT volume, lists the root and reads a
-# file the C++ firmware writes into .crosspoint, then hands back to this firmware, which saves the
-# report. Settings > System > SD Card Firmware Update flashes it into the other OTA slot.
+# file the C++ firmware writes into .crosspoint and reads the image's own file a block at a time
+# and then in multi-block reads, then hands back to this firmware, which saves the report.
+# Settings > System > SD Card Firmware Update flashes it into the other OTA slot.
 #   cd rust/firmware; cargo build --release; cd ../..
 #   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/sd-check build/baremetal/sd-check.bin
 #   emu/compare.sh emu/baremetal-sd.txt x4pro build/baremetal/sd-check.bin
@@ -20,6 +21,7 @@ touch:240,472
 timeout:180
 wait-log:sd: deneme [0-9 ]+, tamam
 wait-log:okundu: 
+wait-log:imaj: [0-9]+ B, tek
 wait-log:Bare-metal report
 wait-quiet:5
 shot:back-home

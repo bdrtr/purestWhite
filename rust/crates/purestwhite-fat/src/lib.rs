@@ -352,6 +352,12 @@ impl<D: BlockDevice> Volume<D> {
         self.layout.cluster_bytes()
     }
 
+    /// The device, to set it up between reads. The volume keeps a block of the FAT and one of
+    /// data: the device must still give the same bytes.
+    pub fn device_mut(&mut self) -> &mut D {
+        &mut self.dev
+    }
+
     /// The device back.
     pub fn into_inner(self) -> D {
         self.dev

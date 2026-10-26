@@ -2461,14 +2461,15 @@ başlatmaz, sürmekte olanı ilk beklemesinde keser ve kendiliğinden C++'a dön
     dört bant ekranının her birinde dört ton ayrı görünüyor. Rust ekran sürücüsünün UC8179 siyah-beyaz
     yolu ve dört gri geçişi gerçek panelde doğrulandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
 
-## Bare-metal SD kart ("rust: read the SD card in the bare-metal firmware", "rust: our own FAT file system, read path")
+## Bare-metal SD kart ("rust: read the SD card in the bare-metal firmware", "rust: our own FAT file system, read path", "rust: read several SD blocks in one card command")
 
 Bare-metal firmware kartı okuyabiliyor; şimdilik yalnızca okuyor. `sd-check` imajı kartı SDK'nın
 yaptığı gibi bağlar: 1 bit SDMMC, 20 MHz, GPIO5 etkinleştirmesinin darbesi, en çok dört deneme. Sonra
-FAT bölümünü kendi dosya sistemimizle (`purestwhite-fat`) açar, kökü uzun adlarıyla listeler ve
-`.crosspoint/onyukleyici.txt`'yi okuyup raporuna yazar. Karta hiçbir şey yazmaz: dosya sisteminin
-blok aygıtında yazma yok, kart sürücüsü de her veri yazmasını reddeder; kitaplarınız ve ayarlarınız
-olduğu gibi kalır. Kart FAT32 (ya da FAT16) olmalı: exFAT'ı okumuyor, "fat: acilamadi
+FAT bölümünü kendi dosya sistemimizle (`purestwhite-fat`) açar, kökteki öğeleri sayar (ilk
+sürümler adlarını da yazıyordu) ve `.crosspoint/onyukleyici.txt`'yi okuyup raporuna yazar. Son
+sürümü kendi imaj dosyasını da iki kez okur, önce her blok ayrı komutla, sonra 32 bloğa kadar tek
+komutla ve iki süreyi yazar. Karta hiçbir şey yazmaz: dosya sisteminin blok aygıtında yazma yok,
+kart sürücüsü de her veri yazmasını reddeder; kitaplarınız ve ayarlarınız olduğu gibi kalır. Kart FAT32 (ya da FAT16) olmalı: exFAT'ı okumuyor, "fat: acilamadi
 (Unsupported)" der. Emülatörde kart bağlanıyor, kök listeleniyor, dosya okunuyor
 (`emu/baremetal-sd.txt`). Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır, önyükleyici geri alma
 VAR olmalı. Yalnızca X4 Pro'da: X4 Classic'te SD yuvası aynı ama kartın etkinleştirmesi GPIO6,
@@ -2499,3 +2500,17 @@ imajla; ikisi de geçti (aşağıda).
     onyukleyici geri alma: VAR (yuva app1, durum 2)", "bitti". Küme boyutu ve kökteki öğe sayısı
     bilgisayardakiyle (`stat -f`, rapor dosyası dışında 21) aynı. Kendi FAT okuma yolumuz gerçek
     kartta doğrulandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
+- [ ] Çok bloklu okuma: aynı adımlar, yeni `purestwhite-baremetal-sd.bin` ile. Dosyayı kartın
+  köküne bu adla koyun: imaj kendini orada bu adla arar. Raporda şunlar bekleniyor:
+  - "sd: deneme 1, tamam, M MB, cmd23 var" ya da "... cmd23 yok": kart blok sayısını önceden
+    bildiren CMD23'ü alıyor mu; ikisi de olur, hangi yolun denendiğini söyler.
+  - "kok: K oge" (artık adlar yazılmıyor) ve "okundu: onyukleyici geri alma: VAR" (dosyanın ilk 26
+    baytı).
+  - "imaj: N B, tek T1 ms, cok T2 ms, fnv H" ve "bitti". N imaj dosyasının boyutu; H onun sağlaması,
+    bilgisayardaki dosyanınkiyle aynı olmalı (ben karşılaştırırım); T2, T1'den belirgin kısa olmalı.
+
+  "imaj: FARKLI ..." iki okumanın farklı veri getirdiğini söyler. "imaj: tek okunamadi (...)" blok
+  blok okumada, "imaj: cok okunamadi (...)" çok bloklu okumada bir kart hatası demektir. "imaj: yok"
+  dosyanın kökte bu adla bulunmadığını, "imaj: bulunamadi (...)" ya da "imaj: acilamadi (...)" onu
+  ararken ya da açarken bir hata çıktığını söyler. Bunlardan biri çıkarsa raporun tamamını bana
+  iletin.

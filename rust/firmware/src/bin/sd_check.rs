@@ -1,7 +1,8 @@
 //! The X4 Pro's SD card from the bare-metal firmware, read only: hands the next boot back to the
 //! C++ firmware, mounts the card as the SDK does (see `purestwhite_firmware::sd`), opens its FAT
-//! volume, lists the root directory with long names, and reads a small file the C++ firmware
-//! writes into `.crosspoint`, then reports and resets. Every write is refused below the file
+//! volume, counts the root directory's entries, reads a small file the C++ firmware writes into
+//! `.crosspoint`, and reads this image's own file twice, one block per card command and then many, timing
+//! both and hashing what came; then reports and resets. Every write is refused below the file
 //! system, so the card is left as it was. Without esp-rtos, so it runs in the emulator too.
 #![no_std]
 #![warn(clippy::pedantic)]
@@ -9,13 +10,13 @@
 
 extern crate alloc;
 
-use alloc::string::String;
 use core::fmt::Write as _;
 use esp_backtrace as _;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::sdmmc::{Config as SdConfig, SdHostController, SlotConfig};
-use purestwhite_fat::{Error, Kind, Name, Volume};
+use esp_hal::time::Instant;
+use purestwhite_fat::{Error, File, Kind, Name, Volume};
 use purestwhite_firmware::ready;
 use purestwhite_firmware::sd::{self, BlockingBus, Card, CardBlocks, SpinDelay};
 use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
@@ -36,8 +37,11 @@ pub fn custom_halt() -> ! {
 /// The directory the C++ firmware writes into, and the files in it read, the first found.
 const DIR: &str = ".crosspoint";
 const READ: [&str; 2] = ["onyukleyici.txt", "state.json"];
-/// Bytes of the root's first names that go into the report.
-const NAMES: usize = 40;
+/// This image's file, read whole: its name on the owner's card, and in the emulator's.
+const IMAGE: [&str; 2] = ["purestwhite-baremetal-sd.bin", "sd-check.bin"];
+/// FNV-1a's 32-bit offset basis and prime.
+const FNV_BASIS: u32 = 0x811C_9DC5;
+const FNV_PRIME: u32 = 0x0100_0193;
 
 /// Saves the report with its last line and resets into the C++ firmware.
 fn finish(report: &mut Report) -> ! {
@@ -105,7 +109,7 @@ fn main() -> ! {
         .with_clk(peripherals.GPIO41)
         .with_cmd(peripherals.GPIO42)
         .with_data0(peripherals.GPIO40);
-    let mut card: Card<'_> = Card::new_uninit(BlockingBus(slot), SpinDelay(Delay::new()));
+    let mut card: Card<'_> = Card::new_uninit(BlockingBus::new(slot), SpinDelay(Delay::new()));
     // A word per try, saved before it starts: a try the watchdog cuts short still shows.
     let _ = write!(report, "sd: deneme");
     let mounted = sd::mount(&mut card, &mut enable, |attempt| {
@@ -116,15 +120,20 @@ fn main() -> ! {
         let _ = writeln!(report, ", baglanamadi");
         finish(&mut report)
     }
-    let card = CardBlocks(card);
-    let _ = writeln!(report, ", tamam, {} MB", card.blocks() / 2048);
+    let card = CardBlocks::new(card);
+    let cmd23 = if card.takes_cmd23() { "var" } else { "yok" };
+    let _ = writeln!(
+        report,
+        ", tamam, {} MB, cmd23 {cmd23}",
+        card.blocks() / 2048
+    );
     report.save();
 
     browse(card, &mut report)
 }
 
-/// Opens the FAT volume, lists the root and reads a file in `DIR`, noting each in the report;
-/// then finishes.
+/// Opens the FAT volume, counts the root's entries, reads a file in `DIR` and times reading this
+/// image, noting each in the report; then finishes.
 fn browse(card: CardBlocks<'_>, report: &mut Report) -> ! {
     let mut volume = match ready(Volume::mount(card)) {
         Some(Ok(v)) => v,
@@ -140,23 +149,13 @@ fn browse(card: CardBlocks<'_>, report: &mut Report) -> ! {
     let _ = writeln!(report, "fat: {kind}, kume {} B", volume.cluster_bytes());
     report.save();
 
-    // The root: how many entries, and the first names that fit.
     let root = volume.root();
     let mut cursor = volume.cursor(root);
     let mut name = Name::new();
-    let (mut total, mut names) = (0u32, String::new());
+    let mut total = 0u32;
     loop {
         match ready(volume.next(&mut cursor, &mut name)) {
-            Some(Ok(Some(_))) => {
-                total += 1;
-                let name = name.as_str();
-                if names.len() + name.len() + 2 <= NAMES {
-                    if !names.is_empty() {
-                        names.push_str(", ");
-                    }
-                    names.push_str(name);
-                }
-            }
+            Some(Ok(Some(_))) => total += 1,
             Some(Ok(None)) => break,
             e => {
                 let _ = writeln!(report, "kok: {total} ogeden sonra okunamadi ({})", Why(&e));
@@ -164,13 +163,24 @@ fn browse(card: CardBlocks<'_>, report: &mut Report) -> ! {
             }
         }
     }
-    let _ = writeln!(report, "kok: {total} oge: {}", cut(&names, NAMES));
+    let _ = writeln!(report, "kok: {total} oge");
     report.save();
 
-    // A file in a long-named directory, found by its long names: the first there; any error but
-    // a missing file ends the test.
+    read_state(&mut volume, report);
+    report.save();
+    time_image(&mut volume, report);
+    finish(report)
+}
+
+/// Reads the start of the first of `READ` in `DIR`, a long-named directory, found by long names;
+/// any error but a missing directory or file ends the test.
+fn read_state(volume: &mut Volume<CardBlocks<'_>>, report: &mut Report) {
     let dir = match ready(volume.open_dir(DIR)) {
         Some(Ok(dir)) => dir,
+        Some(Err(Error::NotFound)) => {
+            let _ = writeln!(report, "{DIR} yok");
+            return;
+        }
         e => {
             let _ = writeln!(report, "{DIR} acilamadi ({})", Why(&e));
             finish(report)
@@ -196,14 +206,88 @@ fn browse(card: CardBlocks<'_>, report: &mut Report) -> ! {
         match ready(volume.read(&mut file, &mut text)) {
             Some(Ok(n)) => {
                 let read = core::str::from_utf8(text.get(..n).unwrap_or_default()).unwrap_or("?");
-                let _ = writeln!(report, "okundu: {}", cut(read.trim_end(), 60));
+                // Its first words: "onyukleyici geri alma: VAR" or "YOK".
+                let _ = writeln!(report, "okundu: {}", cut(read.trim_end(), 26));
             }
             e => {
                 let _ = writeln!(report, "okunamadi: {path} ({})", Why(&e));
+                finish(report)
             }
         }
-        finish(report)
+        return;
     }
     let _ = writeln!(report, "{DIR} icinde okunacak dosya yok");
-    finish(report)
+}
+
+/// Reads this image's file whole twice, one block per card command and then up to `sd::RUN`, and notes
+/// its size, both times and the hash of what came (or that the two differ).
+fn time_image(volume: &mut Volume<CardBlocks<'_>>, report: &mut Report) {
+    let mut found = None;
+    for path in IMAGE {
+        match ready(volume.find(path)) {
+            Some(Ok(entry)) => {
+                found = Some(entry);
+                break;
+            }
+            Some(Err(Error::NotFound)) => {}
+            e => {
+                let _ = writeln!(report, "imaj: bulunamadi ({})", Why(&e));
+                finish(report)
+            }
+        }
+    }
+    let Some(entry) = found else {
+        let _ = writeln!(report, "imaj: yok");
+        return;
+    };
+    let mut file = match volume.open(&entry) {
+        Ok(file) => file,
+        Err(e) => {
+            let _ = writeln!(report, "imaj: acilamadi ({e:?})");
+            finish(report)
+        }
+    };
+    let mut buf = [0u8; sd::RUN * 512];
+    let (one_ms, one) = read_whole(volume, &mut file, &mut buf, 1, "tek", report);
+    let (many_ms, many) = read_whole(volume, &mut file, &mut buf, sd::RUN, "cok", report);
+    if one == many {
+        let _ = writeln!(
+            report,
+            "imaj: {} B, tek {one_ms} ms, cok {many_ms} ms, fnv {one:08x}",
+            file.size()
+        );
+    } else {
+        let _ = writeln!(report, "imaj: FARKLI, tek {one:08x}, cok {many:08x}");
+    }
+}
+
+/// Reads `file` whole from its start through `buf`, at most `run` blocks a card read: the time it
+/// took in milliseconds and the FNV-1a hash of its bytes. A failed read ends the test.
+fn read_whole(
+    volume: &mut Volume<CardBlocks<'_>>,
+    file: &mut File,
+    buf: &mut [u8],
+    run: usize,
+    pass: &str,
+    report: &mut Report,
+) -> (u64, u32) {
+    volume.device_mut().set_run(run);
+    file.seek(0);
+    let start = Instant::now();
+    let mut hash = FNV_BASIS;
+    loop {
+        match ready(volume.read(file, buf)) {
+            Some(Ok(0)) => break,
+            Some(Ok(n)) => {
+                for &b in buf.get(..n).unwrap_or_default() {
+                    hash = (hash ^ u32::from(b)).wrapping_mul(FNV_PRIME);
+                }
+            }
+            e => {
+                let _ = writeln!(report, "imaj: {pass} okunamadi ({})", Why(&e));
+                finish(report)
+            }
+        }
+    }
+    (start.elapsed().as_millis(), hash)
 }

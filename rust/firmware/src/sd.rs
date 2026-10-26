@@ -4,8 +4,9 @@
 //! before each of up to four tries, each proven by a real read of block 0. The card protocol is
 //! `sdio`'s, over esp-hal's blocking slot calls ([`BlockingBus`], test-image glue: the async slot's
 //! interrupts crash eink-qemu 0.9.2); the FAT volume is our `purestwhite-fat`'s, over
-//! [`CardBlocks`], which can only read. Every future here is ready at its first poll; the
-//! blocking calls end at esp-hal's own limits, the slowest a data phase at the controller's data
+//! [`CardBlocks`], which can only read. On this blocking bus, reads of several blocks are one
+//! open-ended CMD18 that the controller stops with CMD12, as ESP-IDF's driver reads them. Every future here is ready at its
+//! first poll; the blocking calls end at esp-hal's own limits, the slowest a data phase at the controller's data
 //! timeout (about 42 s at the 400 kHz the card starts at), and the RTC watchdog backs them.
 
 use crate::ready;
@@ -24,6 +25,10 @@ pub const CLOCK_HZ: u32 = 20_000_000;
 pub const TRIES: u8 = 4;
 /// CMD12, which stops a transfer.
 const STOP_TRANSMISSION: u8 = 12;
+/// CMD23, which sets the block count of the transfer after it.
+const SET_BLOCK_COUNT: u8 = 23;
+/// Blocks a card read takes at most, through [`CardBlocks`]' buffer: 16 KiB.
+pub const RUN: usize = 32;
 
 /// esp-hal's busy-wait delay as embedded-hal-async's.
 pub struct SpinDelay(pub Delay);
@@ -38,7 +43,11 @@ impl embedded_hal_async::delay::DelayNs for SpinDelay {
 /// Slot 1 through esp-hal's blocking calls, as `sdio`'s bus, for the test images: each call runs
 /// to its end and its future is ready at once. One data line, reads only (writes are refused with
 /// `Unsupported`).
-pub struct BlockingBus<'d>(pub Slot<'d, 1, Blocking>);
+pub struct BlockingBus<'d> {
+    slot: Slot<'d, 1, Blocking>,
+    /// The count of the CMD23 kept back (see `send_command`), for the read right after it.
+    count: Option<u32>,
+}
 
 /// A command's response as esp-hal's engine takes it.
 fn response_len(len: sdio::ResponseLen) -> ResponseLen {
@@ -49,7 +58,12 @@ fn response_len(len: sdio::ResponseLen) -> ResponseLen {
     }
 }
 
-impl BlockingBus<'_> {
+impl<'d> BlockingBus<'d> {
+    #[must_use]
+    pub fn new(slot: Slot<'d, 1, Blocking>) -> Self {
+        BlockingBus { slot, count: None }
+    }
+
     /// A data read into `buf`, in blocks of `block_size` bytes.
     fn read(
         &mut self,
@@ -62,7 +76,9 @@ impl BlockingBus<'_> {
         let count =
             u32::try_from(buf.len() / block_size.max(1)).map_err(|_| MmcError::BlockSize)?;
         let buf = DmaAlignedMut::new(buf).map_err(MmcError::from)?;
-        Ok(self.0.read_blocks_blocking(index, arg, buf, size, count)?)
+        Ok(self
+            .slot
+            .read_blocks_blocking(index, arg, buf, size, count)?)
     }
 }
 
@@ -72,6 +88,13 @@ impl sdio::MmcBus for BlockingBus<'_> {
     where
         C: sdio::ControlCommand + 'a,
     {
+        // `sdio` sets the count of a multi-block read with CMD23 when the card takes it. Like
+        // ESP-IDF's driver, which the SDK uses, we leave the read open-ended and the controller
+        // stops it itself: CMD23 is not sent, and its count only checks the read that follows.
+        if C::INDEX == SET_BLOCK_COUNT {
+            self.count = Some(cmd.arg());
+            return Ok(<C::Resp<'a> as Response>::from_words(&[0; 4]));
+        }
         // As esp-hal's own bus: CMD12 stops a transfer, the others wait for one.
         let stop = C::INDEX == STOP_TRANSMISSION;
         let flags = CommandFlags {
@@ -79,7 +102,7 @@ impl sdio::MmcBus for BlockingBus<'_> {
             stop_abort: stop,
             busy: <C::Resp<'a> as Response>::BUSY,
         };
-        let words = match self.0.command_blocking(
+        let words = match self.slot.command_blocking(
             C::INDEX,
             cmd.arg(),
             response_len(<C::Resp<'a> as Response>::LEN),
@@ -104,16 +127,20 @@ impl sdio::MmcBus for BlockingBus<'_> {
     where
         C: sdio::BlockReadCommand + 'a,
     {
-        // esp-hal's blocking transfer always stops a multi-block read itself.
+        // esp-hal's blocking transfer always stops a multi-block read itself (CMD12): what `sdio`
+        // asks with `auto_stop`, or after a CMD23 kept back for as many blocks.
         let (index, arg, size) = (C::INDEX, cmd.arg(), cmd.block_size().len());
         let buf = &mut *cmd.buf();
-        if !auto_stop && buf.len() > size {
+        let count = self.count.take();
+        let blocks = u32::try_from(buf.len() / size.max(1)).ok();
+        if buf.len() > size && !auto_stop && (count.is_none() || count != blocks) {
             return Err(MmcError::Unsupported);
         }
         let words = self.read(index, arg, buf, size)?;
         Ok(<C::Resp<'a> as Response>::from_words(&words))
     }
 
+    // A write path must take `count` too (and see `sdio`'s ACMD23), or a stale count carries over.
     async fn write_blocks<'a, C>(
         &mut self,
         _cmd: C,
@@ -142,15 +169,16 @@ impl sdio::MmcBus for BlockingBus<'_> {
     }
 
     async fn init_idle(&mut self, hz: u32) -> Result<(), MmcError> {
-        self.0.set_bus_low_level(BusWidth::Bit1, hz)?;
-        Ok(self.0.send_init_sequence()?)
+        self.count = None;
+        self.slot.set_bus_low_level(BusWidth::Bit1, hz)?;
+        Ok(self.slot.send_init_sequence()?)
     }
 
     fn set_bus(&mut self, width: sdio::BusWidth, hz: u32) -> Result<(), MmcError> {
         if !matches!(width, sdio::BusWidth::W1) || hz > CLOCK_HZ {
             return Err(MmcError::Unsupported);
         }
-        Ok(self.0.set_bus_low_level(BusWidth::Bit1, hz)?)
+        Ok(self.slot.set_bus_low_level(BusWidth::Bit1, hz)?)
     }
 
     fn supports_mmc(&self) -> bool {
@@ -202,15 +230,41 @@ pub fn mount(
     None
 }
 
-/// The mounted card as `purestwhite-fat`'s block device, a block at a time; that device can only
-/// read.
-pub struct CardBlocks<'d>(pub Card<'d>);
+/// The mounted card as `purestwhite-fat`'s block device, which can only read: up to `RUN` blocks
+/// a card read, through a buffer the controller's DMA takes.
+pub struct CardBlocks<'d> {
+    card: Card<'d>,
+    buffer: [CardBlock; RUN],
+    /// Blocks a card read takes at most, 1 to `RUN`.
+    run: usize,
+}
 
-impl CardBlocks<'_> {
+impl<'d> CardBlocks<'d> {
+    #[must_use]
+    pub fn new(card: Card<'d>) -> Self {
+        CardBlocks {
+            card,
+            buffer: core::array::from_fn(|_| Aligned([0; 512])),
+            run: RUN,
+        }
+    }
+
     /// The card's size in blocks.
     #[must_use]
     pub fn blocks(&self) -> u32 {
-        u32::try_from(self.0.card().csd.block_count()).unwrap_or(u32::MAX)
+        u32::try_from(self.card.card().csd.block_count()).unwrap_or(u32::MAX)
+    }
+
+    /// Whether the card takes CMD23, so that `sdio` asks for it (and [`BlockingBus`] keeps it back).
+    #[must_use]
+    pub fn takes_cmd23(&self) -> bool {
+        self.card.card().scr.supports_cmd23()
+    }
+
+    /// Reads at most `blocks` blocks a card read from now on, 1 to `RUN`: with 1, every read is a
+    /// single-block one (CMD17).
+    pub fn set_run(&mut self, blocks: usize) {
+        self.run = blocks.clamp(1, RUN);
     }
 }
 
@@ -222,11 +276,18 @@ impl purestwhite_fat::BlockDevice for CardBlocks<'_> {
         start: u32,
         blocks: &mut [purestwhite_fat::Block],
     ) -> Result<(), MmcError> {
-        let mut buffer: [CardBlock; 1] = [Aligned([0; 512])];
-        for (at, block) in (start..).zip(blocks.iter_mut()) {
-            self.0.read(at, &mut buffer).await?;
-            let [read] = &buffer;
-            block.copy_from_slice(&**read);
+        let mut at = start;
+        for chunk in blocks.chunks_mut(self.run) {
+            let buffer = self
+                .buffer
+                .get_mut(..chunk.len())
+                .ok_or(MmcError::BlockSize)?;
+            self.card.read(at, buffer).await?;
+            for (to, from) in chunk.iter_mut().zip(buffer.iter()) {
+                to.copy_from_slice(&**from);
+            }
+            let read = u32::try_from(chunk.len()).map_err(|_| MmcError::BlockSize)?;
+            at = at.checked_add(read).ok_or(MmcError::BlockSize)?;
         }
         Ok(())
     }
