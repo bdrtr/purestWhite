@@ -1,0 +1,25 @@
+# rust/firmware's display-check image draws a test pattern with purestwhite-epd's UC8279 driver:
+# a full refresh, then a fast one with the block moved, then hands back to this firmware.
+# Settings > System > SD Card Firmware Update flashes it into the other OTA slot.
+#   cd rust/firmware; cargo build --release; cd ../..
+#   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/display-check build/baremetal/display-check.bin
+#   emu/compare.sh emu/baremetal-display.txt x4pro build/baremetal/display-check.bin
+# (Against a base without HalSystem::saveBareMetalReport the base side fails at the report wait.)
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+touch:240,472
+timeout:180
+wait-log:ekran tam: true
+shot:full
+wait-log:ekran hizli: true
+shot:fast
+wait-log:Bare-metal report
+wait-quiet:5
+shot:back-home

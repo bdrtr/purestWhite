@@ -1330,12 +1330,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "purestwhite-epd"
+version = "0.1.0"
+dependencies = [
+ "embedded-hal 1.0.0",
+ "embedded-hal-async",
+]
+
+[[package]]
 name = "purestwhite-firmware"
 version = "0.1.0"
 dependencies = [
  "embassy-executor",
  "embassy-time",
  "embedded-hal 1.0.0",
+ "embedded-hal-async",
  "esp-alloc",
  "esp-backtrace",
  "esp-bootloader-esp-idf",
@@ -1343,6 +1352,7 @@ dependencies = [
  "esp-println",
  "esp-rtos",
  "log",
+ "purestwhite-epd",
  "purestwhite-gauge",
  "purestwhite-gt911",
  "purestwhite-rtc",

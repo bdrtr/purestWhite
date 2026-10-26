@@ -1,0 +1,62 @@
+// C ABI of rust/crates/bembeyaz-ffi/src/epd.rs (rust/crates/purestwhite-epd): the X4 Pro's
+// UC8279 e-paper controller, black and white. Only test/uc8279_panel calls it for now: the
+// firmware's display stays freeink-sdk's FreeInkDisplay, and the bare-metal firmware uses the
+// crate directly.
+#pragma once
+
+#include <stdbool.h>
+#include <stddef.h>
+#include <stdint.h>
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+// The controller's lines; every callback is required (a bus missing one is refused with no
+// traffic), must not throw, and the struct must not change during a call. write sends len bytes
+// inside the current chip-select frame and returns once they are out (false when it fails);
+// set_cs, set_dc and set_rst drive their line; busy_high reads BUSY (low while the controller
+// works: a BUSY stuck low blocks the call for good); pause_ms pauses.
+typedef struct {
+  void* context;
+  bool (*write)(void* context, const uint8_t* bytes, size_t len);
+  void (*set_cs)(void* context, bool high);
+  void (*set_dc)(void* context, bool high);
+  void (*set_rst)(void* context, bool high);
+  bool (*busy_high)(void* context);
+  void (*pause_ms)(void* context, uint32_t ms);
+} pw_epd_bus;
+
+// The controller's state between calls, opaque. Call pw_uc8279x4_init before anything else: any
+// other contents, zero bytes included, are not a panel. One call at a time per panel, never from
+// inside a bus callback.
+typedef struct {
+  uint32_t opaque[8];
+} pw_uc8279x4;
+
+// What a refresh does with the OLD plane: a flash from white, from the target's complement, or a
+// partial refresh (a full one until the panel is known).
+enum { PW_EPD_FULL = 0, PW_EPD_HALF = 1, PW_EPD_FAST = 2 };
+
+void pw_uc8279x4_init(pw_uc8279x4* panel);
+// Resets and programs the controller; false when a transfer fails. After any false result the
+// controller's state is unknown: begin again before the next display. NULL panel or bus, or a bus
+// missing a callback, is false with no traffic, as in the calls below.
+bool pw_uc8279x4_begin(pw_uc8279x4* panel, const pw_epd_bus* bus);
+// Shows frame (a bit per pixel, 1 white, 100-byte rows, 480 of them; unchanged until the call
+// returns) and powers the panel off afterwards when asked; false when a transfer fails, or with
+// no traffic when frame is NULL or too short or refresh unknown. The first display after begin
+// always flashes.
+bool pw_uc8279x4_display(pw_uc8279x4* panel, const pw_epd_bus* bus, const uint8_t* frame, size_t len, uint8_t refresh,
+                         bool power_off);
+// Powers off when on, then deep sleep, which only begin (a hardware reset) ends; false when a
+// transfer fails.
+bool pw_uc8279x4_deep_sleep(pw_uc8279x4* panel, const pw_epd_bus* bus);
+// The next PW_EPD_FAST flashes from white instead (a PW_EPD_HALF stays one) / cancels such a
+// request made after a display; the first display after begin flashes regardless.
+void pw_uc8279x4_request_resync(pw_uc8279x4* panel);
+void pw_uc8279x4_skip_initial_resync(pw_uc8279x4* panel);
+
+#ifdef __cplusplus
+}
+#endif
