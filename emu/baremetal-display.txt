@@ -1,14 +1,15 @@
 # rust/firmware's display-check image probes the panel controller and draws a test pattern with
-# purestwhite-epd's UC8279 or UC8179 driver: a full refresh, then a fast one with the block moved,
-# then hands back to this firmware. Settings > System > SD Card Firmware Update flashes it into
-# the other OTA slot.
+# purestwhite-epd's UC8279 or UC8179 driver: a full refresh, then a fast one with the block moved
+# (on a UC8179 gray bands follow, which emu/baremetal-display-gray.txt checks), then hands back to
+# this firmware. Settings > System > SD Card Firmware Update flashes it into the other OTA slot.
 #   cd rust/firmware; cargo build --release; cd ../..
 #   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/display-check build/baremetal/display-check.bin
 #   emu/compare.sh emu/baremetal-display.txt x4pro build/baremetal/display-check.bin
 # compare.sh runs the default UC8279 (0x68) panel. For the UC8179, run eink-qemu itself, with the
 # same base as compare.sh and a new --out directory each time:
 #   ../tools/eink-qemu-0.9.2/qemu/bin/eink-qemu compare ../crosspoint-base/.pio/build/x4pro .pio/build/x4pro --put build/baremetal/display-check.bin --sleep on --panel uc8179 --out emu/runs/display-uc8179 --script emu/baremetal-display.txt
-# (Against a base without HalSystem::saveBareMetalReport the base side fails at the report wait.)
+# The base side fails at its first wait for the image's output (step 11): the recorded runs show the
+# unmodified base firmware never starting the image.
 ready
 touch:240,562
 wait-screen

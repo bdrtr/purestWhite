@@ -2396,30 +2396,49 @@ hedefleyecek.
 - [x] Ayarlar → System → About ekranındaki "Display Controller" satırını bana iletin.
   - Sonuç (2026-10-26, cihaz): UC8179. Bare-metal ekran denemesi UC8179 sürücüsüyle çizecek.
 
-## Bare-metal ekran ("rust: our own UC8279 panel driver, in the bare-metal firmware", "rust: probe the panel controller in the bare-metal firmware", "rust: our own UC8179 panel driver, in the bare-metal firmware", "rust: show the bare-metal touch window on the panel")
+## Bare-metal ekran ("rust: our own UC8279 panel driver, in the bare-metal firmware", "rust: probe the panel controller in the bare-metal firmware", "rust: our own UC8179 panel driver, in the bare-metal firmware", "rust: show the bare-metal touch window on the panel", "rust: the UC8179's grayscale passes", "rust: gray bands in the bare-metal display check")
 
-`purestwhite-epd`, X4 Pro'nun UC8279 ve UC8179 ekran denetleyicilerinin siyah-beyaz sürücüsü;
-şimdilik yalnızca bare-metal `display-check` imajında. İmaj önce denetleyiciyi yoklar (C++
-firmware'in her açılışta gönderdiği baytların aynısı: 0x71, 0x70, gerekirse 0xA2) ve UC8279 ya da
-UC8179 bulursa çizer; SSD1677'de (henüz sürücüsü yok) başka hiçbir komut göndermez; raporuna hangisi
-olduğunu yazar. Emülatörde iki denetleyicide de desen çiziliyor. Bu yüzden deneme her X4 Pro'da
-yapılabilir (X4 Classic'te değil: orada C++ başka bir yoklama yapar); geri dönüş "Bare-metal ilk
-deneme"dekiyle aynıdır, önyükleyici geri alma VAR olmalı.
+`purestwhite-epd`, X4 Pro'nun UC8279 ve UC8179 ekran denetleyicilerinin siyah-beyaz sürücüsü ve
+UC8179'un 4 seviyeli gri geçişleri; şimdilik yalnızca bare-metal `display-check` imajında. İmaj önce
+denetleyiciyi yoklar (C++ firmware'in her açılışta gönderdiği baytların aynısı: 0x71, 0x70,
+gerekirse 0xA2) ve UC8279 ya da UC8179 bulursa çizer. UC8179'da ardından dört gri bant gösterir,
+CrossPoint'in gri geçişleriyle: iki okuyucu sayfası (yumuşatılmış yazının geçişi, Overlay; ikinci
+sayfada bantlar ters sırada ve sayfaya gri sayfadan sonraki yanıp sönmeyen geçişle gelinir), sonra
+resim görüntüleyicininki (Absolute), sonra uyku ekranınınki (Direct). SSD1677'de (henüz sürücüsü
+yok) başka hiçbir komut göndermez; raporuna hangisi olduğunu yazar. Emülatörde iki denetleyicide de
+desen, UC8179'da bantlar da çiziliyor (`emu/baremetal-display-gray.txt`); gri geçişler SDK'nınkilerle
+veriyolu düzeyinde aynı (`test/epd_panels`). Bu yüzden deneme her X4 Pro'da yapılabilir (X4
+Classic'te değil: orada C++ başka bir yoklama yapar); geri dönüş "Bare-metal ilk deneme"dekiyle
+aynıdır, önyükleyici geri alma VAR olmalı. Açılıştan 50 saniye sonra imaj panele yeni bir komut
+başlatmaz, sürmekte olanı ilk beklemesinde keser ve kendiliğinden C++'a döner (bekçi 60 saniyede).
 
 - [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-ekran.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
   Firmware Güncelleme → dosyayı seçin → Onayla. Dokunmadan izleyin. UC8279 ya da UC8179'da ekran
   beyaz zemin, kalın siyah çerçeve, büyük siyah bir blok ve çubuklarla yenilenmeli; 2 saniye sonra
-  hızlı yenilemeyle blok kaymalı (yeni yerinde çubukların bir kısmını örter, bu doğru); 3 saniye
-  sonra C++ ana ekranı gelmeli. SSD1677'de ekran değişmeden birkaç saniyede C++ gelir. Asıl sınama
-  gördüğünüzdür: blok ve çubukların yerini, gölge kalıp kalmadığını bana anlatın.
+  hızlı yenilemeyle blok kaymalı (yeni yerinde çubukların bir kısmını örter, bu doğru). UC8279'da 3
+  saniye sonra C++ ana ekranı gelmeli. UC8179'da 3 saniye sonra dört geniş bant ekranı gelir, her
+  biri 3 saniye kalır; bantlar ekranın bir kenarından ötekine siyah, koyu gri, açık gri, beyazdır
+  (hangi kenardan başladığı önemli değil):
+  1. Okuyucu sayfası: ekran hızlıca üç siyah ve bir beyaz banda geçer, hemen ardından iki siyah
+     bant koyu ve açık griye döner.
+  2. İkinci okuyucu sayfası: bantlar ters sıraya geçer, ekran yanıp sönmeden.
+  3. Resim: ekran yanıp sönüp üç siyah ve bir beyaz banda geçer, sonra iki siyah bant griye döner.
+  4. Uyku ekranı geçişi: ekran yenilenip dört bandı doğrudan gösterir.
+
+  Sonra C++ gelmeli. SSD1677'de ekran değişmeden birkaç saniyede C++ gelir. Asıl sınama
+  gördüğünüzdür: blok ve çubukların yerini, gölge kalıp kalmadığını, dört bant ekranının her birinde
+  dört tonun birbirinden ayrılıp ayrılmadığını (ve hangisinin en iyi göründüğünü), ikinci okuyucu
+  sayfasında ilk sayfanın izi kalıp kalmadığını bana anlatın.
 - [ ] Raporda "panel: ..." satırı denetleyiciyi söyler (About ekranındakiyle aynı olmalı; satırdaki
   "k" yoklamanın kararı, "ver" ve "flg" ham baytlar: uyuşmazsa bunları bana iletin). UC8279 ya da
-  UC8179'da "ekran tam: tamam", "ekran hizli: tamam", "ekran uyku: tamam" ve "bitti", SSD1677'de
+  UC8179'da "ekran tam: tamam", "ekran hizli: tamam" (UC8179'da sonra "gri: tamam tamam tamam
+  tamam": yukarıdaki dört bant ekranı sırayla; "gri tabansiz:" ise imaj okuyucu sayfası için
+  belleği bulamamış demektir), "ekran uyku: tamam" ve "bitti", SSD1677'de
   "ekran: atlandi" ve "bitti" bekleniyor. "tamam" yalnızca veriyolu çağrılarının hata vermediğini ve
   denetleyicinin 8 saniyede bitirdiğini gösterir, çizimi değil (veriyolu yalnızca yazar). "hata"
-  çoğunlukla BUSY'nin 8 saniyede boşalmadığını gösterir; ondan sonraki adımlar denenmez ve
-  satırları yazılmaz. Ekran donup bir dakika kadar sonra C++ geliyorsa ve bir satır eksikse
+  çoğunlukla BUSY'nin 8 saniyede boşalmadığını (ya da açılıştan 50 saniye geçtiğini) gösterir;
+  ondan sonraki adımlar denenmez ve satırları yazılmaz. Ekran donup bir dakika kadar sonra C++ geliyorsa ve bir satır eksikse
   imaj orada takılmış, bekçi sıfırlamıştır. "sonraki acilis:
   SECILEMEDI (...)" yazıp "panel:" satırı yoksa imaj açılışı C++'a veremediği için panele hiç
   dokunmadan sıfırlanmıştır (dönüşü önyükleyicinin geri alması sağlar): bunu bana iletin.

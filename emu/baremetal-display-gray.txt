@@ -1,0 +1,35 @@
+# rust/firmware's display-check image on a UC8179 panel: the test pattern as emu/baremetal-display.txt, then four gray
+# bands in purestwhite-epd's UC8179 grayscale passes: two reader pages (Overlay, the second with the bands reversed
+# after the non-flashing transition), an image's (Absolute) and the sleep screen's (Direct). Build the image as that
+# file says, then run eink-qemu with the UC8179 panel, with the same base as compare.sh and a new --out directory each
+# time:
+#   ../tools/eink-qemu-0.9.2/qemu/bin/eink-qemu compare ../crosspoint-base/.pio/build/x4pro .pio/build/x4pro --put build/baremetal/display-check.bin --sleep on --panel uc8179 --out emu/runs/display-gray --script emu/baremetal-display-gray.txt
+# The base side fails at its first wait for the image's output (step 11): the recorded runs show the unmodified base
+# firmware never starting the image.
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+touch:240,472
+timeout:180
+wait-log:ekran tam: true
+shot:full
+wait-log:ekran hizli: true
+shot:fast
+wait-log:gri yazi 1: true
+shot:gray-reader-1
+wait-log:gri yazi 2: true
+shot:gray-reader-2
+wait-log:gri resim: true
+shot:gray-image
+wait-log:gri dogrudan: true
+shot:gray-direct
+wait-log:ekran uyku: tamam
+wait-log:Bare-metal report
+wait-quiet:5
+shot:back-home

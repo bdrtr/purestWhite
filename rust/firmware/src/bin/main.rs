@@ -140,7 +140,7 @@ fn open_screen<'d>(mut pins: PanelPins<'d>, report: &mut Report) -> Option<Scree
     };
     let controller = found.controller();
     let _ = write!(report, "ekran {}: ", controller.name());
-    let Some(mut panel) = Panel::for_controller(controller) else {
+    let Some(mut panel) = Panel::for_controller(controller, None) else {
         // No driver for this controller yet: nothing more goes to it.
         let _ = writeln!(report, "atlandi");
         return None;

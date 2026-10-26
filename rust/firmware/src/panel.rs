@@ -9,7 +9,7 @@ use esp_hal::peripherals::{GPIO6, GPIO11, GPIO12, GPIO13, GPIO14, GPIO18, SPI2};
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::time::{Duration, Instant, Rate};
 use purestwhite_epd::probe::{self, Controller, Line, Mode, ProbeLines};
-use purestwhite_epd::uc8179::{Uc8179, X4_PRO as UC8179_X4_PRO};
+use purestwhite_epd::uc8179::{GrayMode, Uc8179, X4_PRO as UC8179_X4_PRO};
 use purestwhite_epd::uc8279x4::{Refresh, Uc8279X4, X4_PRO};
 use purestwhite_epd::{Bus, BusError};
 
@@ -56,6 +56,8 @@ impl<S: embedded_hal::spi::SpiBus> embedded_hal_async::spi::SpiBus for BlockingS
 pub struct BlockingDelay {
     delay: Delay,
     deadline: Option<Instant>,
+    /// No call's deadline is later (see `finish_by`).
+    last: Option<Instant>,
 }
 
 impl BlockingDelay {
@@ -63,6 +65,7 @@ impl BlockingDelay {
         BlockingDelay {
             delay: Delay::new(),
             deadline: None,
+            last: None,
         }
     }
 }
@@ -205,9 +208,22 @@ pub enum Panel {
     Uc8179(Uc8179),
 }
 
-/// Gives the next driver call `CALL_LIMIT` to finish.
-fn limit(bus: &mut Lines<'_>) {
-    bus.delay.deadline = Some(Instant::now() + CALL_LIMIT);
+/// Gives the next driver call `CALL_LIMIT` to finish, and no later than `finish_by`'s time;
+/// `false`, and the call is not to start, once that time has passed.
+fn limit(bus: &mut Lines<'_>) -> bool {
+    let now = Instant::now();
+    if bus.delay.last.is_some_and(|last| now > last) {
+        return false;
+    }
+    let call = now + CALL_LIMIT;
+    bus.delay.deadline = Some(bus.delay.last.map_or(call, |last| call.min(last)));
+    true
+}
+
+/// Once `by` has passed no driver call starts, and one under way stops at its next wait: a run
+/// of them ends before the watchdog however slowly each one finishes.
+pub fn finish_by(bus: &mut Lines<'_>, by: Instant) {
+    bus.delay.last = Some(by);
 }
 
 /// Lifts the call's deadline; whether the call went through.
@@ -217,12 +233,16 @@ fn settle(bus: &mut Lines<'_>, done: Option<Result<(), BusError>>) -> bool {
 }
 
 impl Panel {
-    /// `None` for a controller without a driver here (the SSD1677).
+    /// `None` for a controller without a driver here (the SSD1677). The UC8179 keeps its
+    /// grayscale base in `base` when given one a frame long.
     #[must_use]
-    pub fn for_controller(controller: Controller) -> Option<Self> {
+    pub fn for_controller(controller: Controller, base: Option<&'static mut [u8]>) -> Option<Self> {
         match controller {
             Controller::Uc8279(_) => Some(Panel::Uc8279(Uc8279X4::new(X4_PRO))),
-            Controller::Uc8179(_) => Some(Panel::Uc8179(Uc8179::new(UC8179_X4_PRO))),
+            Controller::Uc8179(_) => Some(Panel::Uc8179(
+                base.and_then(|b| Uc8179::with_base(UC8179_X4_PRO, b))
+                    .unwrap_or_else(|| Uc8179::new(UC8179_X4_PRO)),
+            )),
             Controller::Ssd1677 => None,
         }
     }
@@ -230,7 +250,9 @@ impl Panel {
     /// Whether the call went through: no bus error, and done within `CALL_LIMIT`. After one that
     /// did not, the controller's state is unknown and nothing more should go to it.
     pub fn begin(&mut self, bus: &mut Lines<'_>) -> bool {
-        limit(bus);
+        if !limit(bus) {
+            return false;
+        }
         let done = match self {
             Panel::Uc8279(p) => ready(p.begin(bus)),
             Panel::Uc8179(p) => ready(p.begin(bus)),
@@ -246,7 +268,9 @@ impl Panel {
         refresh: Refresh,
         power_off: bool,
     ) -> bool {
-        limit(bus);
+        if !limit(bus) {
+            return false;
+        }
         let done = match self {
             Panel::Uc8279(p) => ready(p.display(bus, frame, refresh, power_off)),
             Panel::Uc8179(p) => ready(p.display(bus, frame, refresh, power_off)),
@@ -256,11 +280,78 @@ impl Panel {
 
     /// As `begin`.
     pub fn deep_sleep(&mut self, bus: &mut Lines<'_>) -> bool {
-        limit(bus);
+        if !limit(bus) {
+            return false;
+        }
         let done = match self {
             Panel::Uc8279(p) => ready(p.deep_sleep(bus)),
             Panel::Uc8179(p) => ready(p.deep_sleep(bus)),
         };
+        settle(bus, done)
+    }
+
+    /// Whether the UC8179 keeps its grayscale base (`for_controller` was given one it took).
+    #[must_use]
+    pub fn has_gray_base(&self) -> bool {
+        matches!(self, Panel::Uc8179(p) if p.has_base())
+    }
+
+    /// A grayscale pass on the UC8179, as CrossPoint runs one; `false` on the UC8279, which has
+    /// none here. `fill(frame, plane)` writes into `frame` the base (`None`; `Direct` does not
+    /// show it) and the LSB and MSB planes (`Some(false)`, `Some(true)`) in the encoding of `mode`
+    /// (see [`GrayMode`]). Overlay is the reader's page: its base is a `Fast` refresh and the
+    /// planes get the base back after the gray refresh. The others are an image's: the base is a
+    /// `Half` refresh and a resync follows. Each step as `begin`.
+    pub fn gray(
+        &mut self,
+        bus: &mut Lines<'_>,
+        frame: &mut [u8],
+        mode: GrayMode,
+        fill: impl Fn(&mut [u8], Option<bool>),
+    ) -> bool {
+        let Panel::Uc8179(p) = self else {
+            return false;
+        };
+        let reader = mode == GrayMode::Overlay;
+        fill(frame, None);
+        if !limit(bus) {
+            return false;
+        }
+        let fallback = if reader { Refresh::Fast } else { Refresh::Half };
+        let done = ready(p.begin_grayscale(bus, frame, mode, fallback, false));
+        if !settle(bus, done) {
+            return false;
+        }
+        for msb in [false, true] {
+            fill(frame, Some(msb));
+            if !limit(bus) {
+                return false;
+            }
+            let done = if msb {
+                ready(p.copy_grayscale_msb(bus, frame))
+            } else {
+                ready(p.copy_grayscale_lsb(bus, frame))
+            };
+            if !settle(bus, done) {
+                return false;
+            }
+        }
+        if !limit(bus) {
+            return false;
+        }
+        let done = ready(p.display_gray(bus, false, !reader));
+        if !settle(bus, done) {
+            return false;
+        }
+        if !reader {
+            p.request_resync();
+            return true;
+        }
+        fill(frame, None);
+        if !limit(bus) {
+            return false;
+        }
+        let done = ready(p.cleanup_grayscale(bus, Some(frame)));
         settle(bus, done)
     }
 }

@@ -1,9 +1,13 @@
 //! The X4 Pro's panel from the bare-metal firmware: hands the next boot back to the C++
 //! firmware, probes which controller drives the panel (the bytes the C++ firmware's probe sends
 //! at every boot), and on a UC8279 or UC8179 draws a test pattern with purestwhite-epd's driver
-//! (a full refresh, then a fast one with the block moved), holds it 3 s, puts the controller to
-//! sleep and resets; after a step that fails, it sends nothing more. On an SSD1677, which has no
-//! driver here yet, it sends nothing after the probe.
+//! (a full refresh, held 2 s, then a fast one with the block moved). On a UC8179 four gray bands
+//! follow, in CrossPoint's grayscale passes: two reader pages (the second with the bands reversed,
+//! after the non-flashing transition), an image's and the sleep screen's. From the fast pattern
+//! on each screen is held 3 s; then the controller sleeps and the chip resets. After a step that
+//! fails nothing more goes to the controller; 50 s after boot no call starts, and one under way
+//! stops at its next wait. On an
+//! SSD1677, which has no driver here yet, nothing goes to it after the probe.
 //! Without esp-rtos, so it runs in the emulator too: the driver's async calls go over blocking
 //! SPI and delays, ready at once.
 #![no_std]
@@ -13,12 +17,15 @@
 extern crate alloc;
 
 use alloc::vec;
+use alloc::vec::Vec;
 use core::fmt::Write as _;
 use esp_backtrace as _;
 use esp_hal::delay::Delay;
-use purestwhite_epd::probe::{Probe, Verdict};
+use esp_hal::time::{Duration, Instant};
+use purestwhite_epd::probe::{Controller, Probe, Verdict};
+use purestwhite_epd::uc8179::GrayMode;
 use purestwhite_epd::uc8279x4::Refresh;
-use purestwhite_firmware::panel::{Panel, PanelPins};
+use purestwhite_firmware::panel::{Panel, PanelPins, finish_by};
 use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -79,6 +86,43 @@ fn note(report: &mut Report, found: &Probe) {
     );
 }
 
+/// Bytes in a frame: 480 rows of 100.
+const FRAME_BYTES: usize = 100 * 480;
+
+/// The grayscale steps on a UC8179: the pass, the bands' levels from the start of each row (0
+/// black to 3 white), and the step's name on the serial port.
+const GRAY_STEPS: [(GrayMode, [u8; 4], &str); 4] = [
+    (GrayMode::Overlay, [0, 1, 2, 3], "gri yazi 1"),
+    (GrayMode::Overlay, [3, 2, 1, 0], "gri yazi 2"),
+    (GrayMode::Absolute, [0, 1, 2, 3], "gri resim"),
+    (GrayMode::Direct, [0, 1, 2, 3], "gri dogrudan"),
+];
+
+/// Four bands across each row, 200 pixels each, of `levels`, as CrossPoint encodes them: the base
+/// (`None`) white only for white, and the LSB and MSB planes (`Some(msb)`) as `mode` takes them.
+fn bands(frame: &mut [u8], levels: [u8; 4], mode: GrayMode, plane: Option<bool>) {
+    for row in frame.chunks_exact_mut(100) {
+        for (part, &level) in row.chunks_exact_mut(25).zip(&levels) {
+            let set = match (plane, mode) {
+                (None, _) => level == 3,
+                (Some(false), GrayMode::Overlay) => level == 1,
+                (Some(true), GrayMode::Overlay) => level == 1 || level == 2,
+                (Some(false), _) => level == 1 || level == 3,
+                (Some(true), _) => level >= 2,
+            };
+            part.fill(if set { 0xFF } else { 0x00 });
+        }
+    }
+}
+
+/// A frame-long buffer that lives as long as the program, or `None` when the heap has no room.
+fn lasting_frame() -> Option<&'static mut [u8]> {
+    let mut v = Vec::new();
+    v.try_reserve_exact(FRAME_BYTES).ok()?;
+    v.resize(FRAME_BYTES, 0);
+    Some(v.leak())
+}
+
 /// "tamam" or "hata".
 fn outcome(ok: bool) -> &'static str {
     if ok { "tamam" } else { "hata" }
@@ -88,6 +132,7 @@ fn outcome(ok: bool) -> &'static str {
 fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
     let _rtc = arm_watchdog(peripherals.RTC_TIMER);
+    let started = Instant::now();
     let _latch = hold_power_latch(peripherals.GPIO1);
     let mut report = Report::default();
     let _ = writeln!(report, "purestWhite bare-metal ekran denemesi");
@@ -105,6 +150,8 @@ fn main() -> ! {
     }
     report.save();
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
+    // Room for the UC8179's grayscale base (the SDK's PSRAM copy) beside the frame.
+    esp_alloc::heap_allocator!(size: 50 * 1024);
 
     // Which controller: the panel lines as GPIOs for a moment, then as SPI below.
     let mut pins = PanelPins {
@@ -123,7 +170,10 @@ fn main() -> ! {
     };
     note(&mut report, &found);
     report.save();
-    let Some(mut panel) = Panel::for_controller(found.controller()) else {
+    let base = matches!(found.controller(), Controller::Uc8179(_))
+        .then(lasting_frame)
+        .flatten();
+    let Some(mut panel) = Panel::for_controller(found.controller(), base) else {
         // No driver for this controller yet: nothing more goes to it.
         let _ = writeln!(report, "ekran: atlandi");
         let _ = writeln!(report, "bitti");
@@ -136,8 +186,10 @@ fn main() -> ! {
         report.save();
         esp_hal::system::software_reset()
     };
+    // Well before the 60 s watchdog, however slowly each call finishes.
+    finish_by(&mut bus, started + Duration::from_secs(50));
 
-    let mut frame = vec![0xFFu8; 100 * 480];
+    let mut frame = vec![0xFFu8; FRAME_BYTES];
     let delay = Delay::new();
     pattern(&mut frame, 10);
     let full = panel.begin(&mut bus) && panel.display(&mut bus, &frame, Refresh::Full, false);
@@ -153,8 +205,33 @@ fn main() -> ! {
         esp_println::println!("ekran hizli: {fast}");
         if fast {
             delay.delay_millis(3000);
-            let slept = panel.deep_sleep(&mut bus);
-            let _ = writeln!(report, "ekran uyku: {}", outcome(slept));
+            let mut held = true;
+            if matches!(panel, Panel::Uc8179(_)) {
+                // One line, a word per step in `GRAY_STEPS`' order.
+                let label = if panel.has_gray_base() {
+                    "gri"
+                } else {
+                    "gri tabansiz"
+                };
+                let _ = write!(report, "{label}:");
+                for (mode, levels, name) in GRAY_STEPS {
+                    held = panel.gray(&mut bus, &mut frame, mode, |f, plane| {
+                        bands(f, levels, mode, plane);
+                    });
+                    let _ = write!(report, " {}", outcome(held));
+                    report.save();
+                    esp_println::println!("{name}: {held}");
+                    if !held {
+                        break;
+                    }
+                    delay.delay_millis(3000);
+                }
+                let _ = writeln!(report);
+            }
+            if held {
+                let slept = panel.deep_sleep(&mut bus);
+                let _ = writeln!(report, "ekran uyku: {}", outcome(slept));
+            }
         }
     }
     let _ = writeln!(report, "bitti");

@@ -87,8 +87,9 @@ HAL'i taşıma sırasına göre (önce emülatörde tam görülenler):
 `emu/baremetal-handback.txt` SD güncellemesiyle ikinci yuvaya geçişi ve C++ firmware'e dönüşü baştan
 sona sınar; `emu/baremetal-handback-slot1.txt` aynısını C++ firmware ota_1'deyken.
 `emu/baremetal-display.txt` bare-metal UC8279 ve UC8179 sürücülerinin tam ve hızlı yenilemesini
-ekran görüntüsüyle gösterir (`display-check`, esp-rtos'suz; imaj önce denetleyiciyi yoklar; UC8179
-için `eink-qemu compare ... --panel uc8179`; eink-qemu'nun X4 Pro için SSD1677 modeli yok, yanıt
+ekran görüntüsüyle gösterir, `emu/baremetal-display-gray.txt` de UC8179'un dört gri geçişini
+(`display-check`, esp-rtos'suz; imaj önce denetleyiciyi yoklar; UC8179 için `eink-qemu compare ...
+--panel uc8179`; eink-qemu'nun X4 Pro için SSD1677 modeli yok, yanıt
 vermeyen veriyolu yalnızca `test/epd_probe`'un modelinde sınanır). **esp-rtos ise eink-qemu 0.9.2'de
 çalışmaz**: `esp_rtos::start`'taki ilk görev değişiminde yığın işaretçisi çevre birimi alanına
 (0x6002_9xxx) kayar, kesme girişleri yazmaç pencerelerini SDMMC ve DS kayıtlarının üstüne döker ve
