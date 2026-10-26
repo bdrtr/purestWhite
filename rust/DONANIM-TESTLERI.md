@@ -2357,7 +2357,7 @@ ekranı beyaza boyar, denetleyiciyi uyutur ve C++'a döner. SSD1677'de ekran de�
 görünmez. Ekrana çizdiği için yalnızca X4 Pro'da denenir (X4 Classic'te değil). Geri dönüş
 "Bare-metal ilk deneme"dekiyle aynıdır; önyükleyici geri alma VAR olmalı.
 
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-deneme.bin`'i (bu
+- [x] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-deneme.bin`'i (bu
   commit'teki imaj; arşivdeki sağlama toplamıyla) koyun; Ayarlar → System → SD Karttan Firmware
   Güncelleme → dosyayı seçin → Onayla. Güncellemeden birkaç saniye sonra ekran birkaç kez yanıp
   söner ve siyah kalır. Yalnızca ekran siyahken, şu sırayla dokunun: önce ekranın sol üst köşesine
@@ -2365,7 +2365,7 @@ görünmez. Ekrana çizdiği için yalnızca X4 Pro'da denenir (X4 Classic'te de
   parmağınızı koyup ekran beyaza dönmeye başlayana kadar orada tutun. Ekran beyaz olduktan birkaç
   saniye sonra C++ ana ekranı gelmeli. Ekran siyaha hiç dönmezse dokunmadan bekleyin; C++ en çok
   bir dakikada gelir.
-- [ ] Raporda "dokunma: 0x5d" (ya da 0x14), "ekran UC8179: siyah tamam T s" (ya da UC8279),
+- [x] Raporda "dokunma: 0x5d" (ya da 0x14), "ekran UC8179: siyah tamam T s" (ya da UC8279),
   "kare N cok K ilk X,Y son X,Y home H hata E", "beyaz tamam T s" ve "bitti" bekleniyor: N
   sıfırdan büyük, K en az 2, H en az 1, E 0 ya da çok küçük. "ilk" sol üst, "son" sağ alt köşe
   olmalı; iki noktanın X'leri ve Y'leri birbirinden belirgin farklı olmalı (değerleri bana iletin,
@@ -2392,6 +2392,13 @@ görünmez. Ekrana çizdiği için yalnızca X4 Pro'da denenir (X4 Classic'te de
     home 0 hata 0": pencerede hiç temas gelmedi; sahibi ekran siyahken bir kez dokunmuş, büyük
     olasılıkla siyah yenileme bitmeden (pencere yenileme bitince açılır), sonra ekran beyaza
     dönmüş. Deneme yukarıdaki sırayla, ekran siyahta durduktan sonra yeniden yapılacak.
+  - Sonuç (2026-10-26, üçüncü deneme, aynı imaj): "siyah tamam 1.9 s", "kare 543 cok 2 ilk 57,462
+    son 710,39 home 14 hata 0", "beyaz tamam 1.9 s". Sürücü 15 s boyunca hatasız okudu; iki parmak
+    tanındı; sol üst köşe (57,462), sağ alt köşe (710,39): eksenler değişiyor ve köşeler zıt uçlarda,
+    SDK'nın panel düzlemindeki dönüşümüyle (test/gt911_touch onunla aynı olduğunu gösteriyor). Home
+    iki basışta 14 kez sayıldı: SDK da basışı yeni karede 0x10 bitinin yükselişinden sayar
+    (InputManager.cpp pollGt911), yani yonga tuşu defalarca bildirmiş; büyük olasılıkla sağ alt
+    köşede tutan parmak alttaki dokunmatik Home tuşuna yakındı. Dokunma sürücüsü cihazda doğrulandı.
 
 ## Ekran denetleyicisi (bilgi, risksiz)
 
