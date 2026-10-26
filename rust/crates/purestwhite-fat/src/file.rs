@@ -4,8 +4,9 @@ use crate::{BLOCK, BLOCK_BYTES, BlockDevice, Dir, Entry, Error, Volume};
 
 /// An open file: its chain, its size, where the next read or write starts, and where its entry
 /// is. As with `SdFat`, a file written to must be synced or closed, or its entry keeps the old size
-/// and first cluster; and an open file must not be removed (its writes would go into clusters
-/// that may by then be another file's).
+/// and first cluster; an open file must not be removed or renamed (its writes would go into
+/// clusters that may by then be another file's, or its entry would be gone); and a file must not
+/// be written through two handles at once.
 #[derive(Debug, PartialEq, Eq)]
 pub struct File {
     pub(crate) first: u32,

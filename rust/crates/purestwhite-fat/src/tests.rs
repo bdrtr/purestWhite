@@ -383,6 +383,8 @@ fn volumes_of_both_types_list_and_read_back() {
             vol.kind(),
             if bits == 16 { Kind::Fat16 } else { Kind::Fat32 }
         );
+        // mkfs.fat was given this serial number.
+        assert_eq!(vol.serial(), Some(0x1234_ABCD));
         check(&host);
     }
 }

@@ -485,6 +485,7 @@ fn whole_blocks_written_past_the_cache_are_not_read_stale() {
             fats: 1,
             mirrored: true,
             fsinfo: None,
+            serial: None,
             root_start: 2,
             root_entries: 16,
             root_cluster: 0,
@@ -549,7 +550,28 @@ fn some_writes(dev: Cut<'_>) -> Result<usize, Error<()>> {
     }
     block_on(vol.write(&mut file, &content(3, 2000)))?;
     block_on(vol.close(file))?;
+    block_on(vol.mkdir("Yeni dizin"))?;
+    write_file_or(&mut vol, "Yeni dizin/içinde.txt", &content(4, 700))?;
+    block_on(vol.rename("kesilen yazma.bin", "Yeni dizin/taşındı.bin"))?;
+    block_on(vol.rename("Yeni dizin", "Dizin/Alt dizin"))?;
+    let entry = block_on(vol.find("Dizin/Alt dizin/taşındı.bin"))?;
+    let mut moved = vol.open(&entry)?;
+    block_on(vol.truncate(&mut moved, 600))?;
+    block_on(vol.close(moved))?;
+    block_on(vol.mkdir("boş"))?;
+    block_on(vol.remove_dir("boş"))?;
     Ok(vol.into_inner().writes)
+}
+
+/// `write_file` that gives errors back.
+fn write_file_or<D: BlockWrite>(
+    vol: &mut Volume<D>,
+    path: &str,
+    bytes: &[u8],
+) -> Result<(), Error<D::Error>> {
+    let mut file = block_on(vol.create(path))?;
+    block_on(vol.write(&mut file, bytes))?;
+    block_on(vol.close(file))
 }
 
 #[test]
@@ -586,12 +608,18 @@ fn a_cut_at_any_write_leaves_nothing_worse_than_lost_clusters() {
         });
         host.store(&image);
         let (_, said) = host.fsck();
+        // A chain shorter than its file is reported as "chain length is N" (a longer one with
+        // "is > N", which is allowed).
+        let short_chain = said.contains("cluster chain length is ")
+            && !said.contains("cluster chain length is >");
+        assert!(!short_chain, "cut after {left} writes:\n{said}");
         for bad in [
             "free cluster",
-            "shared",
+            "share",
             "cross",
             "Duplicate",
             "bad cluster",
+            "outside a LFN sequence",
         ] {
             assert!(!said.contains(bad), "cut after {left} writes:\n{said}");
         }
@@ -622,6 +650,13 @@ fn a_file_removed_while_open_does_not_write_into_another_entry() {
             Err(Error::NotFound)
         ));
         assert_eq!(vol.device_mut().calls, calls);
+        // An empty file has no clusters to free; its removal still counts.
+        let mut empty = block_on(vol.create("boş.bin")).unwrap();
+        block_on(vol.remove("boş.bin")).unwrap();
+        assert!(matches!(
+            block_on(vol.write(&mut empty, b"x")),
+            Err(Error::NotFound)
+        ));
         assert!(read_all(&mut vol, "yeni.bin", 512) == content(2, 100));
     }
     let files = BTreeMap::from([(String::from("yeni.bin"), content(2, 100))]);
@@ -735,4 +770,416 @@ fn fsinfo_is_marked_after_a_failed_try() {
     assert_eq!(&image.bytes[at + 488..at + 492], &[0xFF; 4]);
     let files = BTreeMap::from([(String::from("bir.bin"), content(1, 5000))]);
     check(&host, &mut image, &files);
+}
+
+/// The cluster in "." (index 0) or ".." (index 1) of `dir`.
+fn dot_cluster(vol: &mut Volume<&mut Image>, dir: Dir, index: u32) -> u32 {
+    let raw = block_on(vol.read_slot(dir, index)).unwrap();
+    assert_eq!(&raw[..2], if index == 0 { b". " } else { b".." });
+    (u32::from(u16::from_le_bytes([raw[20], raw[21]])) << 16)
+        | u32::from(u16::from_le_bytes([raw[26], raw[27]]))
+}
+
+#[test]
+fn directories_made_here_are_seen_by_fsck_and_mtools() {
+    if !tools() {
+        return;
+    }
+    for (bits, kib, cluster) in [(16, 32_768, 1), (32, 40_960, 1), (32, 40_960, 8)] {
+        let mut host = Host::new(bits, kib, cluster, false);
+        // Free clusters that are not zero: a new directory's cluster must be zeroed.
+        host.put("çöp.bin", vec![0xA5; 2 * 1024 * 1024]);
+        host.delete("çöp.bin");
+        let mut image = host.image();
+        let mut files = BTreeMap::new();
+        {
+            let mut vol = block_on(Volume::mount(&mut image)).unwrap();
+            let kitaplar = block_on(vol.mkdir("Kitaplar")).unwrap();
+            let roman = block_on(vol.mkdir("Kitaplar/Roman ve Öykü")).unwrap();
+            let mut path = String::from("Kitaplar/Roman ve Öykü");
+            for depth in 0..5 {
+                path = format!("{path}/kat {depth}");
+                block_on(vol.mkdir(&path)).unwrap();
+            }
+            for (i, at) in ["Kitaplar", "Kitaplar/Roman ve Öykü", path.as_str()]
+                .into_iter()
+                .enumerate()
+            {
+                let file = format!("{at}/dosya {i}.txt");
+                let bytes = content(i as u32, 1000 + i * 3000);
+                write_file(&mut vol, &file, &bytes, 999);
+                files.insert(file, bytes);
+            }
+            // "." is the directory, ".." its parent, 0 for the root (on FAT32 too).
+            assert_eq!(dot_cluster(&mut vol, kitaplar, 0), kitaplar.cluster);
+            assert_eq!(dot_cluster(&mut vol, kitaplar, 1), 0);
+            assert_eq!(dot_cluster(&mut vol, roman, 1), kitaplar.cluster);
+            assert!(matches!(
+                block_on(vol.mkdir("KITAPLAR")),
+                Err(Error::Exists)
+            ));
+            assert!(matches!(
+                block_on(vol.mkdir("Kitaplar/dosya 0.txt/alt")),
+                Err(Error::NotADirectory)
+            ));
+            assert_eq!(listed(&mut vol, "Kitaplar").len(), 2);
+        }
+        check(&host, &mut image, &files);
+    }
+}
+
+#[test]
+fn renames_and_moves() {
+    if !tools() {
+        return;
+    }
+    let mut host = Host::new(32, 40_960, 1, false);
+    host.mkdir("Dizin");
+    host.mkdir("Üst");
+    host.put("eski ad.txt", content(1, 2000));
+    host.put("notlar.txt", content(2, 100));
+    host.put("a.txt", content(3, 5000));
+    host.put("Dizin/içerik.bin", content(4, 9000));
+    let mut image = host.image();
+    {
+        let mut vol = block_on(Volume::mount(&mut image)).unwrap();
+        block_on(vol.rename("eski ad.txt", "yeni ad.txt")).unwrap();
+        // Only the case changes: the entry is its own clash.
+        block_on(vol.rename("notlar.txt", "Notlar.TXT")).unwrap();
+        block_on(vol.rename("a.txt", "Dizin/b.txt")).unwrap();
+        block_on(vol.rename("Dizin", "Üst/Taşınan dizin")).unwrap();
+        for gone in ["eski ad.txt", "a.txt", "Dizin"] {
+            assert!(
+                matches!(block_on(vol.find(gone)), Err(Error::NotFound)),
+                "{gone}"
+            );
+        }
+        let names = listed(&mut vol, "");
+        assert!(names.contains(&String::from("Notlar.TXT")), "{names:?}");
+        // The moved directory's ".." follows it.
+        let moved = block_on(vol.open_dir("Üst/Taşınan dizin")).unwrap();
+        let ust = block_on(vol.open_dir("Üst")).unwrap();
+        assert_eq!(dot_cluster(&mut vol, moved, 1), ust.cluster);
+        assert!(matches!(
+            block_on(vol.rename("yeni ad.txt", "Notlar.TXT")),
+            Err(Error::Exists)
+        ));
+        assert!(matches!(
+            block_on(vol.rename("yok.txt", "var.txt")),
+            Err(Error::NotFound)
+        ));
+        assert!(matches!(
+            block_on(vol.rename("Üst", "Üst/Taşınan dizin/Üst")),
+            Err(Error::IntoItself)
+        ));
+        assert!(matches!(
+            block_on(vol.rename("Üst", "Üst/kendisi")),
+            Err(Error::IntoItself)
+        ));
+        // Back to the root: ".." is 0 again.
+        block_on(vol.rename("Üst/Taşınan dizin", "Geri")).unwrap();
+        let back = block_on(vol.open_dir("Geri")).unwrap();
+        assert_eq!(dot_cluster(&mut vol, back, 1), 0);
+    }
+    let files = BTreeMap::from([
+        (String::from("yeni ad.txt"), content(1, 2000)),
+        (String::from("Notlar.TXT"), content(2, 100)),
+        (String::from("Geri/b.txt"), content(3, 5000)),
+        (String::from("Geri/içerik.bin"), content(4, 9000)),
+    ]);
+    check(&host, &mut image, &files);
+}
+
+#[test]
+fn only_empty_directories_are_removed() {
+    if !tools() {
+        return;
+    }
+    let mut host = Host::new(16, 32_768, 1, false);
+    host.mkdir("Dolu");
+    host.put("Dolu/bir.txt", content(1, 10));
+    host.put("dosya.txt", content(2, 10));
+    let mut image = host.image();
+    {
+        let mut vol = block_on(Volume::mount(&mut image)).unwrap();
+        block_on(vol.mkdir("Boş dizin")).unwrap();
+        block_on(vol.remove_dir("Boş dizin")).unwrap();
+        assert!(matches!(
+            block_on(vol.find("Boş dizin")),
+            Err(Error::NotFound)
+        ));
+        assert!(matches!(
+            block_on(vol.remove_dir("Dolu")),
+            Err(Error::NotEmpty)
+        ));
+        assert!(matches!(
+            block_on(vol.remove_dir("dosya.txt")),
+            Err(Error::NotADirectory)
+        ));
+        block_on(vol.remove("Dolu/bir.txt")).unwrap();
+        block_on(vol.remove_dir("Dolu")).unwrap();
+        assert_eq!(listed(&mut vol, ""), vec![String::from("dosya.txt")]);
+    }
+    let files = BTreeMap::from([(String::from("dosya.txt"), content(2, 10))]);
+    check(&host, &mut image, &files);
+}
+
+#[test]
+fn truncation_frees_what_is_past_the_new_end() {
+    if !tools() {
+        return;
+    }
+    let host = Host::new(32, 40_960, 1, false);
+    let mut image = host.image();
+    let bytes = content(5, 10 * BLOCK + 300);
+    let mut files = BTreeMap::new();
+    {
+        let mut vol = block_on(Volume::mount(&mut image)).unwrap();
+        for (name, len) in [
+            ("ortadan.bin", 5 * BLOCK + 100),
+            ("küme sınırı.bin", 3 * BLOCK),
+            ("sıfır.bin", 0),
+            ("aynı.bin", bytes.len()),
+        ] {
+            let mut file = block_on(vol.create(name)).unwrap();
+            block_on(vol.write(&mut file, &bytes)).unwrap();
+            file.seek(file.size());
+            block_on(vol.truncate(&mut file, len as u32)).unwrap();
+            assert_eq!(file.size() as usize, len);
+            assert_eq!(file.position() as usize, len);
+            // Bigger than it is: nothing.
+            block_on(vol.truncate(&mut file, 1 << 20)).unwrap();
+            block_on(vol.close(file)).unwrap();
+            assert_eq!(block_on(vol.find(name)).unwrap().size() as usize, len);
+            files.insert(String::from(name), bytes[..len].to_vec());
+        }
+        // A file cut to nothing has no cluster, and writes again from its start.
+        assert_eq!(block_on(vol.find("sıfır.bin")).unwrap().cluster, 0);
+        let entry = block_on(vol.find("sıfır.bin")).unwrap();
+        let mut again = vol.open(&entry).unwrap();
+        block_on(vol.write(&mut again, b"yeniden")).unwrap();
+        block_on(vol.close(again)).unwrap();
+        files.insert(String::from("sıfır.bin"), b"yeniden".to_vec());
+    }
+    check(&host, &mut image, &files);
+}
+
+/// A device that notes the blocks written, in order.
+struct Recorder<'a> {
+    image: &'a mut Image,
+    written: Vec<u32>,
+}
+
+impl BlockDevice for Recorder<'_> {
+    type Error = ();
+
+    async fn read(&mut self, start: u32, blocks: &mut [Block]) -> Result<(), ()> {
+        self.image.read(start, blocks).await
+    }
+}
+
+impl BlockWrite for Recorder<'_> {
+    async fn write(&mut self, start: u32, blocks: &[Block]) -> Result<(), ()> {
+        self.written.push(start);
+        self.image.write(start, blocks).await
+    }
+}
+
+#[test]
+fn a_rename_that_grows_its_directory_links_the_cluster_before_the_old_entry_goes() {
+    if !tools() {
+        return;
+    }
+    let mut host = Host::new(32, 40_960, 1, false);
+    host.mkdir("D");
+    host.put("kök dosyası.txt", content(1, 100));
+    let mut image = host.image();
+    // "D" full: ".", ".." and 14 short-name-only entries fill its one-block cluster.
+    {
+        let mut vol = block_on(Volume::mount(&mut image)).unwrap();
+        for i in 0..14 {
+            write_file(&mut vol, &format!("D/F{i:02}.TXT"), b"x", 1);
+        }
+    }
+    let (old, fats) = {
+        let mut vol = block_on(Volume::mount(&mut image)).unwrap();
+        let entry = block_on(vol.find("kök dosyası.txt")).unwrap();
+        let (block, _) = block_on(vol.slot_place(entry.parent, entry.index)).unwrap();
+        let l = vol.layout;
+        (block, l.fats_start..l.root_start)
+    };
+    let mut dev = Recorder {
+        image: &mut image,
+        written: Vec::new(),
+    };
+    {
+        let mut vol = block_on(Volume::mount(&mut dev)).unwrap();
+        block_on(vol.rename("kök dosyası.txt", "D/yeni ad.txt")).unwrap();
+    }
+    let first_fat = dev.written.iter().position(|b| fats.contains(b)).unwrap();
+    let first_old = dev.written.iter().position(|&b| b == old).unwrap();
+    assert!(first_fat < first_old, "{:?}", dev.written);
+    let files = BTreeMap::from([(String::from("D/yeni ad.txt"), content(1, 100))]);
+    check(&host, &mut image, &files);
+}
+
+#[test]
+fn a_create_that_grows_its_directory_links_the_cluster_before_the_entry() {
+    if !tools() {
+        return;
+    }
+    let mut host = Host::new(32, 40_960, 1, false);
+    host.mkdir("E");
+    let mut image = host.image();
+    {
+        let mut vol = block_on(Volume::mount(&mut image)).unwrap();
+        for i in 0..14 {
+            write_file(&mut vol, &format!("E/F{i:02}.TXT"), b"x", 1);
+        }
+    }
+    let fats = {
+        let vol = block_on(Volume::mount(&mut image)).unwrap();
+        vol.layout.fats_start..vol.layout.root_start
+    };
+    let mut dev = Recorder {
+        image: &mut image,
+        written: Vec::new(),
+    };
+    let entry_block = {
+        let mut vol = block_on(Volume::mount(&mut dev)).unwrap();
+        let file = block_on(vol.create("E/yeni dosya.txt")).unwrap();
+        block_on(vol.close(file)).unwrap();
+        let entry = block_on(vol.find("E/yeni dosya.txt")).unwrap();
+        block_on(vol.slot_place(entry.parent, entry.index))
+            .unwrap()
+            .0
+    };
+    // The entry's block is written last after the FAT that links its cluster.
+    let first_fat = dev.written.iter().position(|b| fats.contains(b)).unwrap();
+    let entry_write = dev.written.iter().rposition(|&b| b == entry_block).unwrap();
+    assert!(first_fat < entry_write, "{:?}", dev.written);
+    host.store(&image);
+    let (clean, said) = host.fsck();
+    assert!(clean, "fsck.fat:\n{said}");
+}
+
+#[test]
+fn a_second_handle_does_not_write_into_clusters_another_one_freed() {
+    if !tools() {
+        return;
+    }
+    let host = Host::new(32, 40_960, 1, false);
+    let mut image = host.image();
+    {
+        let mut vol = block_on(Volume::mount(&mut image)).unwrap();
+        write_file(&mut vol, "iki kez.bin", &content(1, 3000), 3000);
+        let entry = block_on(vol.find("iki kez.bin")).unwrap();
+        let mut first = vol.open(&entry).unwrap();
+        let mut second = vol.open(&entry).unwrap();
+        let mut buf = [0u8; 100];
+        block_on(vol.read(&mut second, &mut buf)).unwrap();
+        block_on(vol.truncate(&mut first, 0)).unwrap();
+        second.seek(0);
+        assert!(matches!(
+            block_on(vol.write(&mut second, b"eski")),
+            Err(Error::NotFound)
+        ));
+        block_on(vol.close(first)).unwrap();
+    }
+    host.store(&image);
+    let (clean, said) = host.fsck();
+    assert!(clean, "fsck.fat:\n{said}");
+}
+
+#[test]
+fn a_second_handle_walks_its_chain_again_after_a_cut_through_another() {
+    if !tools() {
+        return;
+    }
+    let host = Host::new(32, 40_960, 1, false);
+    let mut image = host.image();
+    let mut files = BTreeMap::new();
+    {
+        let mut vol = block_on(Volume::mount(&mut image)).unwrap();
+        write_file(&mut vol, "a.bin", &content(1, 3 * BLOCK), 3 * BLOCK);
+        let entry = block_on(vol.find("a.bin")).unwrap();
+        let mut first = vol.open(&entry).unwrap();
+        let mut second = vol.open(&entry).unwrap();
+        // The second handle remembers the third cluster.
+        second.seek(2 * BLOCK as u32 + 10);
+        block_on(vol.read(&mut second, &mut [0u8; 1])).unwrap();
+        block_on(vol.truncate(&mut first, BLOCK as u32)).unwrap();
+        block_on(vol.close(first)).unwrap();
+        // Another file takes the freed clusters (allocation starts again from them).
+        vol.next_free = entry.cluster + 1;
+        write_file(&mut vol, "b.bin", &content(2, 2 * BLOCK), 2 * BLOCK);
+        // The second handle now ends where the cut did, and grows into new clusters.
+        assert_eq!(second.size() as usize, 3 * BLOCK);
+        assert_eq!(block_on(vol.write(&mut second, b"x")).unwrap(), 1);
+        assert_eq!(second.size() as usize, BLOCK + 1);
+        block_on(vol.close(second)).unwrap();
+        let mut a = content(1, BLOCK);
+        a.push(b'x');
+        files.insert(String::from("a.bin"), a);
+        files.insert(String::from("b.bin"), content(2, 2 * BLOCK));
+    }
+    check(&host, &mut image, &files);
+}
+
+#[test]
+fn a_written_second_handle_does_not_write_into_clusters_a_cut_freed() {
+    if !tools() {
+        return;
+    }
+    let host = Host::new(32, 40_960, 1, false);
+    let mut image = host.image();
+    {
+        let mut vol = block_on(Volume::mount(&mut image)).unwrap();
+        write_file(&mut vol, "a.bin", &content(1, 3 * BLOCK), 3 * BLOCK);
+        let entry = block_on(vol.find("a.bin")).unwrap();
+        let mut first = vol.open(&entry).unwrap();
+        let mut second = vol.open(&entry).unwrap();
+        // The second handle has written into the third cluster and not synced: it keeps its
+        // size, and remembers that cluster.
+        second.seek(2 * BLOCK as u32 + 10);
+        block_on(vol.write(&mut second, b"y")).unwrap();
+        block_on(vol.truncate(&mut first, BLOCK as u32)).unwrap();
+        block_on(vol.close(first)).unwrap();
+        vol.next_free = entry.cluster + 1;
+        write_file(&mut vol, "b.bin", &content(2, 2 * BLOCK), 2 * BLOCK);
+        // Its next write walks the cut chain again and grows it with new clusters.
+        block_on(vol.write(&mut second, b"x")).unwrap();
+        block_on(vol.close(second)).unwrap();
+        assert!(read_all(&mut vol, "b.bin", 512) == content(2, 2 * BLOCK));
+    }
+    host.store(&image);
+    let (clean, said) = host.fsck();
+    assert!(clean, "fsck.fat:\n{said}");
+    assert!(host.mtype("b.bin") == content(2, 2 * BLOCK));
+}
+
+#[test]
+fn a_file_removed_before_its_first_sync_loses_only_its_clusters() {
+    if !tools() {
+        return;
+    }
+    let host = Host::new(32, 40_960, 1, false);
+    let mut image = host.image();
+    {
+        let mut vol = block_on(Volume::mount(&mut image)).unwrap();
+        let mut unsynced = block_on(vol.create("kirli.bin")).unwrap();
+        block_on(vol.write(&mut unsynced, &content(5, 100))).unwrap();
+        block_on(vol.remove("kirli.bin")).unwrap();
+        assert!(matches!(
+            block_on(vol.sync(&mut unsynced)),
+            Err(Error::NotFound)
+        ));
+    }
+    // Its cluster was taken but never in an entry: lost, as fsck.fat says, and nothing else.
+    host.store(&image);
+    let (_, said) = host.fsck();
+    assert!(said.contains("Reclaimed 1 unused cluster"), "{said}");
+    for bad in ["free cluster", "share", "Duplicate", "chain length"] {
+        assert!(!said.contains(bad), "{said}");
+    }
 }

@@ -1,17 +1,27 @@
 //! Writing, on a device that can ([`BlockWrite`]): clusters taken and given back through every
-//! copy of the FAT, directory entries with long names, and files created, written and removed.
-//! As in `SdFat`, a file's writes reach its entry (size, first cluster) when it is synced or
-//! closed. FAT32's `FSInfo` free count is not kept either; unlike `SdFat`, which leaves it stale,
-//! the first FAT change of a mount marks it unknown.
+//! copy of the FAT, directory entries with long names, files created, written, cut short and
+//! removed, directories made and removed, and renames. As in `SdFat`, a file's writes reach its
+//! entry (size, first cluster) when it is synced or closed. FAT32's `FSInfo` free count is not
+//! kept either; unlike `SdFat`, which leaves it stale, the first FAT change of a mount marks it
+//! unknown.
 //!
 //! The order of the writes keeps a write cut off between two blocks from doing harm beyond what
-//! `fsck.fat` mends: a file's data, then the FAT, then its entry; a new cluster is marked as a
-//! chain's end before the chain points at it; a directory's new cluster is zeroed before it joins
-//! the directory; long-name pieces go before their short entry; a removed file's entries are
-//! marked deleted before its clusters are freed. So a cut leaves at most lost clusters, a file
-//! shorter than its chain, or a long name without its entry, and no entry points at a free
-//! cluster, as long as no open file is removed (see [`File`]). (An SD card cut off while writing may also damage blocks it wrote shortly before,
-//! which no order guards against.)
+//! `fsck.fat` mends:
+//! - a file's data, then the FAT, then its entry; a cut-short file's entry before its freed
+//!   clusters;
+//! - a new cluster marked as a chain's end before the chain points at it, a directory's new
+//!   cluster zeroed (and, for a new directory, given "." and "..") and in the FAT on the device
+//!   before an entry points at it or is written into it;
+//! - long-name pieces before their short entry; when an entry goes, its short entry first and
+//!   then its pieces from the last back, then its clusters;
+//! - a rename's old entry marked deleted before the new one is written, a moved directory's ".."
+//!   last.
+//!
+//! So a cut leaves at most lost clusters, a file shorter than its chain, a long name without its
+//! entry, or a moved directory whose ".." still names its old parent; no entry points at a free
+//! cluster and no two share one, as long as no open file is removed or renamed (see [`File`]).
+//! An SD card cut off while writing may also damage blocks it wrote shortly before, which no order
+//! guards against.
 
 use crate::dir::{
     ATTR_DIRECTORY, ATTR_LONG_NAME, DELETED, ENTRIES_PER_BLOCK, ENTRY, MAX_ENTRIES, PIECE_OFFSETS,
@@ -25,10 +35,15 @@ use crate::{
 
 /// A file's attribute: changed since the last backup, which every new or written file gets.
 const ATTR_ARCHIVE: u8 = 0x20;
+/// "." and "..", the first two entries of every directory but the root.
+const DOT: [u8; 11] = *b".          ";
+const DOT_DOT: [u8; 11] = *b"..         ";
 /// The numeric tails one pass over a directory looks at: a window of 1024. A directory of at
 /// most 65 536 entries leaves one of 1 to 65 537 free, so 65 passes at most find it.
 const TAIL_WINDOW: u32 = 1024;
 const TAIL_WINDOWS: u32 = 65;
+/// The deepest directory tree walked up through "..", one block read a level.
+const MAX_DEPTH: u32 = 4096;
 
 /// A date and time for directory entries, kept as FAT keeps them: local time from 1980 to 2107,
 /// to two seconds. Out-of-range fields are clamped.
@@ -79,6 +94,25 @@ fn put_u16(raw: &mut [u8], at: usize, value: u16) {
 fn put_u32(raw: &mut [u8], at: usize, value: u32) {
     if let Some(to) = raw.get_mut(at..at + 4) {
         to.copy_from_slice(&value.to_le_bytes());
+    }
+}
+
+/// Where a new entry goes: its short name, its long-name pieces, and its first slot.
+#[derive(Clone, Copy)]
+struct Plan {
+    short: [u8; 11],
+    pieces: u32,
+    first: u32,
+}
+
+/// `name` as an entry gets it: without leading spaces and trailing dots and spaces, and one
+/// that FAT can hold.
+fn checked_name<E>(name: &str) -> Result<&str, Error<E>> {
+    let name = trim_name(name);
+    if valid_long(name) {
+        Ok(name)
+    } else {
+        Err(Error::BadName)
     }
 }
 
@@ -196,6 +230,8 @@ impl<D: BlockWrite> Volume<D> {
             let next = self.next_cluster(cluster).await?;
             self.set_fat(cluster, 0).await?;
             self.full = false;
+            // An open file may still point here: its next write looks at its entry again.
+            self.removals = self.removals.wrapping_add(1);
             match next {
                 Some(next) => cluster = next,
                 None => return Ok(()),
@@ -273,7 +309,11 @@ impl<D: BlockWrite> Volume<D> {
     }
 
     /// The block holding entry `index` of `dir`, and the entry's byte in it.
-    async fn slot_place(&mut self, dir: Dir, index: u32) -> Result<(u32, usize), Error<D::Error>> {
+    pub(crate) async fn slot_place(
+        &mut self,
+        dir: Dir,
+        index: u32,
+    ) -> Result<(u32, usize), Error<D::Error>> {
         let l = self.layout;
         let within = (index % ENTRIES_PER_BLOCK) as usize * ENTRY;
         if dir.cluster == 0 {
@@ -385,10 +425,15 @@ impl<D: BlockWrite> Volume<D> {
         Ok(start)
     }
 
-    /// A short name for `long` that no entry of `dir` has (`Exists` when `long` is already a
-    /// name there): the basis, or the basis with the lowest free numeric tail, looked for a
-    /// window of tails a pass.
-    async fn pick_short(&mut self, dir: Dir, long: &str) -> Result<[u8; 11], Error<D::Error>> {
+    /// A short name for `long` that no entry of `dir` but `except` has (`Exists` when `long` is
+    /// already a name there): the basis, or the basis with the lowest free numeric tail, looked
+    /// for a window of tails a pass.
+    async fn pick_short(
+        &mut self,
+        dir: Dir,
+        long: &str,
+        except: Option<u32>,
+    ) -> Result<[u8; 11], Error<D::Error>> {
         let basis = basis(long);
         for window in 0..TAIL_WINDOWS {
             let low = window * TAIL_WINDOW;
@@ -396,6 +441,9 @@ impl<D: BlockWrite> Volume<D> {
             let mut cursor = self.cursor(dir);
             let mut name = Name::new();
             while let Some(entry) = self.next(&mut cursor, &mut name).await? {
+                if Some(entry.index) == except {
+                    continue;
+                }
                 if window == 0
                     && (same_name(name.as_str(), long) || short_matches(&entry.short_name, long))
                 {
@@ -428,31 +476,53 @@ impl<D: BlockWrite> Volume<D> {
         Err(Error::DirFull)
     }
 
-    /// Adds an entry named `long` to `dir`: its long-name pieces (unless `long` is its short name
-    /// exactly) and its short entry.
-    async fn add_entry(
+    /// Picks the short name for an entry named `long` in `dir` and finds it room (growing `dir`
+    /// if need be); `except` is the index of an entry of `dir` that does not count (one being
+    /// renamed).
+    async fn plan_entry(
         &mut self,
         dir: Dir,
         long: &str,
-        attributes: u8,
-        cluster: u32,
-    ) -> Result<Entry, Error<D::Error>> {
-        let short = self.pick_short(dir, long).await?;
+        except: Option<u32>,
+    ) -> Result<Plan, Error<D::Error>> {
+        let short = self.pick_short(dir, long, except).await?;
         let exact = basis(long).exact && short == basis(long).name;
-        let units = long.encode_utf16().count();
         let pieces = if exact {
             0
         } else {
-            u32::try_from(units.div_ceil(PIECE_UNITS)).map_err(|_| Error::BadName)?
+            u32::try_from(long.encode_utf16().count().div_ceil(PIECE_UNITS))
+                .map_err(|_| Error::BadName)?
         };
         let first = self.make_room(dir, pieces + 1).await?;
+        Ok(Plan {
+            short,
+            pieces,
+            first,
+        })
+    }
+
+    /// Writes the entry `plan` made room for: the long-name pieces of `long`, then `raw` with the
+    /// plan's short name.
+    async fn write_entry(
+        &mut self,
+        dir: Dir,
+        long: &str,
+        plan: &Plan,
+        mut raw: [u8; ENTRY],
+    ) -> Result<Entry, Error<D::Error>> {
+        let Plan {
+            short,
+            pieces,
+            first,
+        } = *plan;
+        let units = long.encode_utf16().count();
         let sum = checksum(&short);
         for piece in (1..=pieces).rev() {
-            let mut raw = [0u8; ENTRY];
-            raw[0] = u8::try_from(piece).map_err(|_| Error::BadName)?
+            let mut lfn = [0u8; ENTRY];
+            lfn[0] = u8::try_from(piece).map_err(|_| Error::BadName)?
                 | if piece == pieces { 0x40 } else { 0 };
-            raw[11] = ATTR_LONG_NAME;
-            raw[13] = sum;
+            lfn[11] = ATTR_LONG_NAME;
+            lfn[13] = sum;
             let skip = (piece as usize - 1) * PIECE_UNITS;
             let mut name_units = long.encode_utf16().skip(skip);
             let mut ended = skip >= units;
@@ -465,13 +535,29 @@ impl<D: BlockWrite> Volume<D> {
                     ended = true;
                     0
                 };
-                put_u16(&mut raw, at, unit);
+                put_u16(&mut lfn, at, unit);
             }
-            self.write_slot(dir, first + (pieces - piece), &raw).await?;
+            self.write_slot(dir, first + (pieces - piece), &lfn).await?;
         }
         let index = first + pieces;
-        let mut raw = [0u8; ENTRY];
         raw[..11].copy_from_slice(&short);
+        // No lower-case flags: the long name says how it is written.
+        raw[12] = 0;
+        self.write_slot(dir, index, &raw).await?;
+        Ok(Entry {
+            attributes: raw[11],
+            cluster: self.cluster_of(&raw),
+            size: u32_at(&raw, 28),
+            short_name: short,
+            parent: dir,
+            index,
+            first,
+        })
+    }
+
+    /// A new short entry: `attributes`, `cluster`, empty, made now.
+    fn new_raw(&self, attributes: u8, cluster: u32) -> [u8; ENTRY] {
+        let mut raw = [0u8; ENTRY];
         raw[11] = attributes;
         let (date, time) = (self.stamp.date(), self.stamp.time());
         put_u16(&mut raw, 14, time);
@@ -480,16 +566,16 @@ impl<D: BlockWrite> Volume<D> {
         put_u16(&mut raw, 22, time);
         put_u16(&mut raw, 24, date);
         self.set_cluster(&mut raw, cluster);
-        self.write_slot(dir, index, &raw).await?;
-        Ok(Entry {
-            attributes,
-            cluster,
-            size: 0,
-            short_name: short,
-            parent: dir,
-            index,
-            first,
-        })
+        raw
+    }
+
+    /// The first cluster a short entry names.
+    fn cluster_of(&self, raw: &[u8; ENTRY]) -> u32 {
+        let high = match self.layout.kind {
+            Kind::Fat16 => 0,
+            Kind::Fat32 => u32::from(u16::from_le_bytes([raw[20], raw[21]])) << 16,
+        };
+        high | u32::from(u16::from_le_bytes([raw[26], raw[27]]))
     }
 
     /// Puts `cluster` into a short entry: its high half only on FAT32.
@@ -504,10 +590,7 @@ impl<D: BlockWrite> Volume<D> {
     async fn parent_of<'p>(&mut self, path: &'p str) -> Result<(Dir, &'p str), Error<D::Error>> {
         let path = path.trim_end_matches('/');
         let (parent, name) = path.rsplit_once('/').unwrap_or(("", path));
-        let name = trim_name(name);
-        if !valid_long(name) {
-            return Err(Error::BadName);
-        }
+        let name = checked_name(name)?;
         Ok((self.open_dir(parent).await?, name))
     }
 
@@ -518,9 +601,27 @@ impl<D: BlockWrite> Volume<D> {
     /// full, the volume is full (a directory needs to grow), or the device fails.
     pub async fn create(&mut self, path: &str) -> Result<File, Error<D::Error>> {
         let (dir, name) = self.parent_of(path).await?;
-        let entry = self.add_entry(dir, name, ATTR_ARCHIVE, 0).await;
+        self.create_in(dir, name).await
+    }
+
+    /// Creates an empty file named `name` in `dir`, and opens it.
+    ///
+    /// # Errors
+    /// As `create`'s.
+    pub async fn create_in(&mut self, dir: Dir, name: &str) -> Result<File, Error<D::Error>> {
+        let name = checked_name(name)?;
+        let made = self.add_file(dir, name).await;
         self.flush_fat().await?;
-        self.open(&entry?)
+        self.open(&made?)
+    }
+
+    /// The entry of a new empty file named `name` in `dir`.
+    async fn add_file(&mut self, dir: Dir, name: &str) -> Result<Entry, Error<D::Error>> {
+        let plan = self.plan_entry(dir, name, None).await?;
+        // A cluster the directory grew by is in it on the device before an entry is written there.
+        self.flush_fat().await?;
+        let raw = self.new_raw(ATTR_ARCHIVE, 0);
+        self.write_entry(dir, name, &plan, raw).await
     }
 
     /// Writes `data` into `file` from its position on, growing it as needed; the bytes written:
@@ -529,18 +630,25 @@ impl<D: BlockWrite> Volume<D> {
     ///
     /// # Errors
     /// When the volume is full (what was written before stays, and the file's size says how
-    /// much), the file's entry is no longer its own (it was removed while open; then nothing is
-    /// written), the file's chain is damaged, or the device fails.
+    /// much), the file's entry is no longer its own (it was removed or renamed while open, or its
+    /// clusters freed through another handle; then nothing is written), the file's chain is damaged, or the device fails.
     pub async fn write(&mut self, file: &mut File, data: &[u8]) -> Result<usize, Error<D::Error>> {
         if file.first != 0 && !self.layout.is_cluster(file.first) {
             return Err(Error::Corrupt);
         }
-        // A file removed since it was last looked at may have lost its clusters to another one:
-        // its entry must still be its own.
+        // Clusters were freed since the file last looked: its entry must still be its own, and the
+        // cluster it remembers may be gone (cut off through another handle), so its chain is walked
+        // again; a file not written since takes the entry's size.
         if file.removals != self.removals {
-            if !self.is_own_entry(file).await? {
+            let raw = self.read_slot(file.parent, file.index).await?;
+            if raw[..11] != file.short || self.cluster_of(&raw) != file.entry_first {
                 return Err(Error::NotFound);
             }
+            if !file.dirty {
+                file.size = u32_at(&raw, 28);
+                file.pos = file.pos.min(file.size);
+            }
+            file.cluster = 0;
             file.removals = self.removals;
         }
         let room = u32::MAX - file.pos;
@@ -666,12 +774,7 @@ impl<D: BlockWrite> Volume<D> {
     /// Whether `file`'s entry still has the short name and first cluster the file knows.
     async fn is_own_entry(&mut self, file: &File) -> Result<bool, Error<D::Error>> {
         let raw = self.read_slot(file.parent, file.index).await?;
-        let high = match self.layout.kind {
-            Kind::Fat16 => 0,
-            Kind::Fat32 => u32::from(u16::from_le_bytes([raw[20], raw[21]])) << 16,
-        };
-        let cluster = high | u32::from(u16::from_le_bytes([raw[26], raw[27]]));
-        Ok(raw[..11] == file.short && cluster == file.entry_first)
+        Ok(raw[..11] == file.short && self.cluster_of(&raw) == file.entry_first)
     }
 
     /// Removes the file at `path`: its entries are marked deleted, then its clusters freed. The
@@ -690,17 +793,219 @@ impl<D: BlockWrite> Volume<D> {
         settled
     }
 
-    /// Marks `entry`'s slots deleted and frees its clusters.
-    async fn remove_entry(&mut self, entry: &Entry) -> Result<(), Error<D::Error>> {
-        self.removals = self.removals.wrapping_add(1);
-        for index in entry.first..=entry.index {
+    /// Marks `entry`'s slots deleted: its short entry, then its long-name pieces from the last
+    /// slot back, so a cut leaves the long name's leading pieces, its first among them, without
+    /// their entry (which `fsck.fat` deletes), never pieces without their first.
+    async fn mark_deleted(&mut self, entry: &Entry) -> Result<(), Error<D::Error>> {
+        for index in (entry.first..=entry.index).rev() {
             let mut raw = self.read_slot(entry.parent, index).await?;
             raw[0] = DELETED;
             self.write_slot(entry.parent, index, &raw).await?;
         }
+        Ok(())
+    }
+
+    /// Marks `entry`'s slots deleted and frees its clusters.
+    async fn remove_entry(&mut self, entry: &Entry) -> Result<(), Error<D::Error>> {
+        self.removals = self.removals.wrapping_add(1);
+        self.mark_deleted(entry).await?;
         if entry.cluster != 0 {
             self.free_chain(entry.cluster).await?;
         }
         Ok(())
+    }
+
+    /// What a directory's ".." holds for `parent`: its cluster, or 0 for the root.
+    fn dot_dot(&self, parent: Dir) -> u32 {
+        if parent == self.root() {
+            0
+        } else {
+            parent.cluster
+        }
+    }
+
+    /// Creates the directory at `path`, whose parent must be there.
+    ///
+    /// # Errors
+    /// As `create`'s.
+    pub async fn mkdir(&mut self, path: &str) -> Result<Dir, Error<D::Error>> {
+        let (dir, name) = self.parent_of(path).await?;
+        self.mkdir_in(dir, name).await
+    }
+
+    /// Creates a directory named `name` in `dir`: its entry goes in last, once its cluster
+    /// (zeroed, with "." and "..") is taken in the FAT on the device.
+    ///
+    /// # Errors
+    /// As `create`'s.
+    pub async fn mkdir_in(&mut self, dir: Dir, name: &str) -> Result<Dir, Error<D::Error>> {
+        let name = checked_name(name)?;
+        let made = self.add_dir(dir, name).await;
+        self.flush_fat().await?;
+        made
+    }
+
+    async fn add_dir(&mut self, dir: Dir, name: &str) -> Result<Dir, Error<D::Error>> {
+        let plan = self.plan_entry(dir, name, None).await?;
+        let cluster = self.allocate(None).await?;
+        self.zero_cluster(cluster).await?;
+        let new = Dir { cluster };
+        let mut dot = self.new_raw(ATTR_DIRECTORY, cluster);
+        dot[..11].copy_from_slice(&DOT);
+        self.write_slot(new, 0, &dot).await?;
+        let mut dot_dot = self.new_raw(ATTR_DIRECTORY, self.dot_dot(dir));
+        dot_dot[..11].copy_from_slice(&DOT_DOT);
+        self.write_slot(new, 1, &dot_dot).await?;
+        self.flush_fat().await?;
+        let raw = self.new_raw(ATTR_DIRECTORY, cluster);
+        self.write_entry(dir, name, &plan, raw).await?;
+        Ok(new)
+    }
+
+    /// Removes the empty directory at `path`: its entries are marked deleted, then its clusters
+    /// freed.
+    ///
+    /// # Errors
+    /// When nothing is there, it is a file, it holds entries, its chain is damaged, or the device
+    /// fails.
+    pub async fn remove_dir(&mut self, path: &str) -> Result<(), Error<D::Error>> {
+        let entry = self.find(path).await?;
+        let Some(dir) = entry.dir() else {
+            return Err(if entry.is_dir() {
+                Error::Corrupt
+            } else {
+                Error::NotADirectory
+            });
+        };
+        if !self.is_empty(dir).await? {
+            return Err(Error::NotEmpty);
+        }
+        let removed = self.remove_entry(&entry).await;
+        let settled = self.flush_fat().await;
+        removed?;
+        settled
+    }
+
+    /// Whether `dir` holds nothing but "." and "..".
+    async fn is_empty(&mut self, dir: Dir) -> Result<bool, Error<D::Error>> {
+        let mut cursor = self.cursor(dir);
+        let mut name = Name::new();
+        Ok(self.next(&mut cursor, &mut name).await?.is_none())
+    }
+
+    /// Renames or moves the file or directory at `from` to `to`, whose parent must be there and
+    /// which must not be there. The new entry is made ready first (short name, room); then the
+    /// old one is marked deleted and the new one written, so a cut in between loses the entry
+    /// (its clusters are lost, for `fsck.fat` to find) but never leaves two entries on one
+    /// chain. A moved directory's ".." is set last. The file must not be open (see [`File`]).
+    ///
+    /// # Errors
+    /// When `from` is not there, `to`'s name is not one FAT can hold or is taken, a directory
+    /// would go into itself, the target directory is full, the volume is full (the target
+    /// directory needs to grow), or the device fails.
+    pub async fn rename(&mut self, from: &str, to: &str) -> Result<(), Error<D::Error>> {
+        let entry = self.find(from).await?;
+        let (dir, name) = self.parent_of(to).await?;
+        let moved = entry.dir();
+        if let Some(moved) = moved {
+            self.refuse_into_itself(moved, dir).await?;
+        }
+        let except = (dir == entry.parent).then_some(entry.index);
+        let renamed = self.move_entry(&entry, dir, name, except).await;
+        let settled = self.flush_fat().await;
+        renamed?;
+        settled
+    }
+
+    async fn move_entry(
+        &mut self,
+        entry: &Entry,
+        dir: Dir,
+        name: &str,
+        except: Option<u32>,
+    ) -> Result<(), Error<D::Error>> {
+        let plan = self.plan_entry(dir, name, except).await?;
+        // A cluster the target directory grew by is in it on the device before the old entry goes.
+        self.flush_fat().await?;
+        let raw = self.read_slot(entry.parent, entry.index).await?;
+        self.removals = self.removals.wrapping_add(1);
+        self.mark_deleted(entry).await?;
+        self.write_entry(dir, name, &plan, raw).await?;
+        if let Some(moved) = entry.dir()
+            && dir != entry.parent
+        {
+            let mut dot_dot = self.read_slot(moved, 1).await?;
+            if dot_dot[..11] != DOT_DOT {
+                return Err(Error::Corrupt);
+            }
+            self.set_cluster(&mut dot_dot, self.dot_dot(dir));
+            self.write_slot(moved, 1, &dot_dot).await?;
+        }
+        Ok(())
+    }
+
+    /// Refuses to move `moved` into `target` when `target` is `moved` or under it, going up
+    /// from `target` by "..". A tree deeper than `MAX_DEPTH`, or a ".." loop, counts as damaged.
+    /// (A cut can leave a moved directory's ".." naming its old parent; moving its new parent
+    /// into it then passes, as the walk follows the stale "..", and `fsck.fat` finds the two as
+    /// lost chains.)
+    async fn refuse_into_itself(&mut self, moved: Dir, target: Dir) -> Result<(), Error<D::Error>> {
+        let root = self.root();
+        let mut dir = target;
+        for _ in 0..MAX_DEPTH {
+            if dir == moved {
+                return Err(Error::IntoItself);
+            }
+            if dir == root {
+                return Ok(());
+            }
+            let dot_dot = self.read_slot(dir, 1).await?;
+            if dot_dot[..11] != DOT_DOT {
+                return Err(Error::Corrupt);
+            }
+            dir = match self.cluster_of(&dot_dot) {
+                0 => root,
+                cluster => Dir { cluster },
+            };
+        }
+        Err(Error::Corrupt)
+    }
+
+    /// Cuts `file` to `len` bytes (nothing happens if it is not longer): its entry first, then
+    /// the clusters past the new end freed. Its position stays, at most the new end.
+    ///
+    /// # Errors
+    /// As `sync`'s, or when its chain is damaged.
+    pub async fn truncate(&mut self, file: &mut File, len: u32) -> Result<(), Error<D::Error>> {
+        if len >= file.size {
+            return Ok(());
+        }
+        if file.first != 0 && !self.layout.is_cluster(file.first) {
+            return Err(Error::Corrupt);
+        }
+        let keep = len.div_ceil(self.layout.cluster_bytes());
+        // The chain's new last cluster, and the first one to free.
+        let (last, tail) = if keep == 0 {
+            (None, file.first)
+        } else {
+            self.locate(file, keep - 1).await?;
+            let last = file.cluster;
+            (Some(last), self.next_cluster(last).await?.unwrap_or(0))
+        };
+        if keep == 0 {
+            file.first = 0;
+        }
+        file.size = len;
+        file.pos = file.pos.min(len);
+        file.cluster = 0;
+        file.dirty = true;
+        self.sync(file).await?;
+        if tail != 0 {
+            if let Some(last) = last {
+                self.set_fat(last, self.chain_end()).await?;
+            }
+            self.free_chain(tail).await?;
+        }
+        self.flush_fat().await
     }
 }

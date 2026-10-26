@@ -3,10 +3,12 @@
 //! It mounts the volume (the first FAT partition of an MBR, or a card formatted without one),
 //! lists directories with their long names, finds paths, and reads files, the blocks of
 //! contiguous clusters in one device call straight into the caller's buffer. On a device that can
-//! write ([`BlockWrite`]) it also creates files with long names, writes them and removes them:
-//! every FAT change goes to each copy of the FAT in turn (only to the one in use when FAT32's
+//! write ([`BlockWrite`]) it also creates files with long names, writes, cuts short and removes
+//! them, makes and removes directories, and renames and moves entries: every FAT change goes to each copy of the FAT in turn (only to the one in use when FAT32's
 //! mirroring is off), and FAT32's free-cluster count (`FSInfo`) is marked unknown, as `SdFat` does
-//! not keep it.
+//! not keep it. Only one writer may have a card mounted at a time: the volume keeps its own
+//! FAT cache and free-cluster hints, as `SdFat` keeps its own, and two writers would hand out
+//! the same clusters.
 //!
 //! Names are matched as `SdFat` matches them, so both firmwares find the same file: each UTF-16
 //! unit in upper case by `SdFat`'s own table (Turkish ı is not I there), the name looked up
@@ -113,6 +115,10 @@ pub enum Error<E> {
     BadName,
     /// No free cluster left.
     Full,
+    /// A directory to remove still holds entries.
+    NotEmpty,
+    /// A directory moved into itself or a directory under it.
+    IntoItself,
     /// The directory holds no more entries: FAT16's root is full, a directory has 65 536, or no
     /// numeric tail is left for a short name.
     DirFull,
@@ -139,6 +145,8 @@ pub(crate) struct Layout {
     pub(crate) mirrored: bool,
     /// FAT32's `FSInfo` block.
     pub(crate) fsinfo: Option<u32>,
+    /// The volume's serial number, when the boot sector has one.
+    pub(crate) serial: Option<u32>,
     /// FAT16's fixed root directory: its first block and entry count; FAT32's root is a cluster
     /// chain from `root_cluster`.
     pub(crate) root_start: u32,
@@ -304,8 +312,15 @@ fn layout<E>(boot: &Block, first: u32, limit: Option<u32>) -> Result<Layout, Err
         n if kind == Kind::Fat32 && (1..reserved).contains(&n) => Some(first + n),
         _ => None,
     };
+    // The extended boot signature 0x29 says the serial number follows it.
+    let signature_at = match kind {
+        Kind::Fat16 => 38,
+        Kind::Fat32 => 66,
+    };
+    let serial = (byte_at(boot, signature_at) == 0x29).then(|| u32_at(boot, signature_at + 1));
     let layout = Layout {
         kind,
+        serial,
         fat_start: first + reserved + active * fat_blocks,
         fat_blocks,
         fats_start: first + reserved,
@@ -462,6 +477,12 @@ impl<D: BlockDevice> Volume<D> {
     #[must_use]
     pub fn cluster_bytes(&self) -> u32 {
         self.layout.cluster_bytes()
+    }
+
+    /// The volume's serial number, set when it was formatted, if its boot sector has one.
+    #[must_use]
+    pub fn serial(&self) -> Option<u32> {
+        self.layout.serial
     }
 
     /// The device, to set it up between reads. The volume keeps a block of the FAT and one of
