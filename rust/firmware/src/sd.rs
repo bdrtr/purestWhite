@@ -3,16 +3,14 @@
 //! 20 MHz, and GPIO5, an active-low enable, pulsed high for 80 ms and then held low for 120 ms
 //! before each of up to four tries, each proven by a real read of block 0. The card protocol is
 //! `sdio`'s, over esp-hal's blocking slot calls ([`BlockingBus`], test-image glue: the async slot's
-//! interrupts crash eink-qemu 0.9.2); the FAT volume is `embedded-sdmmc`'s for now, over
-//! [`ReadOnlyCard`], which refuses every write. Every future here is ready at its first poll; the
+//! interrupts crash eink-qemu 0.9.2); the FAT volume is our `purestwhite-fat`'s, over
+//! [`CardBlocks`], which can only read. Every future here is ready at its first poll; the
 //! blocking calls end at esp-hal's own limits, the slowest a data phase at the controller's data
 //! timeout (about 42 s at the 400 kHz the card starts at), and the RTC watchdog backs them.
 
 use crate::ready;
 use aligned::{A4, Aligned};
 use block_device_driver::BlockDevice as _;
-use core::cell::RefCell;
-use embedded_sdmmc::{Block, BlockCount, BlockDevice, BlockIdx};
 use esp_hal::Blocking;
 use esp_hal::delay::Delay;
 use esp_hal::dma::aligned::DmaAlignedMut;
@@ -204,75 +202,32 @@ pub fn mount(
     None
 }
 
-/// Why a block call failed.
-#[derive(Debug)]
-pub enum CardError {
-    Card(MmcError),
-    /// A future that was not ready at once, which the blocking bus does not make.
-    Pending,
-    /// A write, which [`ReadOnlyCard`] refuses.
-    ReadOnly,
-}
+/// The mounted card as `purestwhite-fat`'s block device, a block at a time; that device can only
+/// read.
+pub struct CardBlocks<'d>(pub Card<'d>);
 
-impl core::fmt::Display for CardError {
-    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
-        match self {
-            CardError::Card(e) => write!(f, "{e}"),
-            CardError::Pending => f.write_str("pending"),
-            CardError::ReadOnly => f.write_str("read only"),
-        }
-    }
-}
-
-impl core::error::Error for CardError {}
-
-/// The mounted card as `embedded-sdmmc`'s block device, which only reads, a block at a time:
-/// nothing above it can change the card.
-pub struct ReadOnlyCard<'d> {
-    card: RefCell<Card<'d>>,
-    blocks: u32,
-}
-
-impl<'d> ReadOnlyCard<'d> {
-    #[must_use]
-    pub fn new(card: Card<'d>) -> Self {
-        let blocks = u32::try_from(card.card().csd.block_count()).unwrap_or(u32::MAX);
-        ReadOnlyCard {
-            card: RefCell::new(card),
-            blocks,
-        }
-    }
-
+impl CardBlocks<'_> {
     /// The card's size in blocks.
     #[must_use]
     pub fn blocks(&self) -> u32 {
-        self.blocks
+        u32::try_from(self.0.card().csd.block_count()).unwrap_or(u32::MAX)
     }
 }
 
-impl BlockDevice for ReadOnlyCard<'_> {
-    type Error = CardError;
+impl purestwhite_fat::BlockDevice for CardBlocks<'_> {
+    type Error = MmcError;
 
-    fn read(&self, blocks: &mut [Block], start_block_idx: BlockIdx) -> Result<(), CardError> {
-        let mut card = self.card.borrow_mut();
+    async fn read(
+        &mut self,
+        start: u32,
+        blocks: &mut [purestwhite_fat::Block],
+    ) -> Result<(), MmcError> {
         let mut buffer: [CardBlock; 1] = [Aligned([0; 512])];
-        for (at, block) in (start_block_idx.0..).zip(blocks.iter_mut()) {
-            match ready(card.read(at, &mut buffer)) {
-                Some(Ok(())) => {}
-                Some(Err(e)) => return Err(CardError::Card(e)),
-                None => return Err(CardError::Pending),
-            }
+        for (at, block) in (start..).zip(blocks.iter_mut()) {
+            self.0.read(at, &mut buffer).await?;
             let [read] = &buffer;
-            block.contents.copy_from_slice(&**read);
+            block.copy_from_slice(&**read);
         }
         Ok(())
-    }
-
-    fn write(&self, _blocks: &[Block], _start_block_idx: BlockIdx) -> Result<(), CardError> {
-        Err(CardError::ReadOnly)
-    }
-
-    fn num_blocks(&self) -> Result<BlockCount, CardError> {
-        Ok(BlockCount(self.blocks))
     }
 }

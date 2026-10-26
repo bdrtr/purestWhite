@@ -11,15 +11,13 @@ extern crate alloc;
 
 use alloc::string::String;
 use core::fmt::Write as _;
-use core::ops::ControlFlow;
-use embedded_sdmmc::{
-    LfnBuffer, Mode, ShortFileName, TimeSource, Timestamp, VolumeIdx, VolumeManager,
-};
 use esp_backtrace as _;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::sdmmc::{Config as SdConfig, SdHostController, SlotConfig};
-use purestwhite_firmware::sd::{self, BlockingBus, Card, ReadOnlyCard, SpinDelay};
+use purestwhite_fat::{Error, Kind, Name, Volume};
+use purestwhite_firmware::ready;
+use purestwhite_firmware::sd::{self, BlockingBus, Card, CardBlocks, SpinDelay};
 use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -35,27 +33,11 @@ pub fn custom_halt() -> ! {
     esp_hal::system::software_reset()
 }
 
-/// The directory read, and the files in it read, the first found: what the C++ firmware writes.
+/// The directory the C++ firmware writes into, and the files in it read, the first found.
 const DIR: &str = ".crosspoint";
 const READ: [&str; 2] = ["onyukleyici.txt", "state.json"];
 /// Bytes of the root's first names that go into the report.
 const NAMES: usize = 40;
-
-/// No clock: nothing is written, so no time is needed.
-struct NoClock;
-
-impl TimeSource for NoClock {
-    fn get_timestamp(&self) -> Timestamp {
-        Timestamp::from_calendar(2026, 1, 1, 0, 0, 0).unwrap_or(Timestamp {
-            year_since_1970: 56,
-            zero_indexed_month: 0,
-            zero_indexed_day: 0,
-            hours: 0,
-            minutes: 0,
-            seconds: 0,
-        })
-    }
-}
 
 /// Saves the report with its last line and resets into the C++ firmware.
 fn finish(report: &mut Report) -> ! {
@@ -63,6 +45,19 @@ fn finish(report: &mut Report) -> ! {
     esp_println::println!("{}", report.as_str());
     report.save();
     esp_hal::system::software_reset()
+}
+
+/// Why a call gave no value: its error, or that its future was not ready at once.
+struct Why<'a, T, E>(&'a Option<Result<T, E>>);
+
+impl<T, E: core::fmt::Debug> core::fmt::Display for Why<'_, T, E> {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        match self.0 {
+            Some(Err(e)) => write!(f, "{e:?}"),
+            Some(Ok(_)) => f.write_str("?"),
+            None => f.write_str("hazir degil"),
+        }
+    }
 }
 
 /// `text` cut to at most `max` bytes, at a character boundary.
@@ -121,7 +116,7 @@ fn main() -> ! {
         let _ = writeln!(report, ", baglanamadi");
         finish(&mut report)
     }
-    let card = ReadOnlyCard::new(card);
+    let card = CardBlocks(card);
     let _ = writeln!(report, ", tamam, {} MB", card.blocks() / 2048);
     report.save();
 
@@ -130,68 +125,81 @@ fn main() -> ! {
 
 /// Opens the FAT volume, lists the root and reads a file in `DIR`, noting each in the report;
 /// then finishes.
-fn browse(card: ReadOnlyCard<'_>, report: &mut Report) -> ! {
-    let manager: VolumeManager<_, _> = VolumeManager::new(card, NoClock);
-    let volume = match manager.open_volume(VolumeIdx(0)) {
-        Ok(v) => v,
-        Err(e) => {
-            let _ = writeln!(report, "fat: acilamadi ({e:?})");
+fn browse(card: CardBlocks<'_>, report: &mut Report) -> ! {
+    let mut volume = match ready(Volume::mount(card)) {
+        Some(Ok(v)) => v,
+        e => {
+            let _ = writeln!(report, "fat: acilamadi ({})", Why(&e));
             finish(report)
         }
     };
-    let Ok(root) = volume.open_root_dir() else {
-        let _ = writeln!(report, "fat: kok acilamadi");
-        finish(report)
+    let kind = match volume.kind() {
+        Kind::Fat16 => "FAT16",
+        Kind::Fat32 => "FAT32",
     };
+    let _ = writeln!(report, "fat: {kind}, kume {} B", volume.cluster_bytes());
+    report.save();
 
-    // The root: how many entries, the first names that fit, and the short name of `DIR`.
-    let mut lfn_storage = [0u8; 256];
-    let mut lfn = LfnBuffer::new(&mut lfn_storage);
-    let (mut total, mut names, mut dir) = (0u32, String::new(), None::<ShortFileName>);
-    let listed = root.iterate_dir_lfn(&mut lfn, |entry, long| {
-        if entry.attributes.is_volume() {
-            return ControlFlow::Continue(());
-        }
-        total += 1;
-        let mut short = String::new();
-        let _ = write!(short, "{}", entry.name);
-        // A name too long for the buffer comes empty: the short one then.
-        let name = long.filter(|l| !l.is_empty()).unwrap_or(&short);
-        if name == DIR {
-            dir = Some(entry.name);
-        }
-        if names.len() + name.len() + 2 <= NAMES {
-            if !names.is_empty() {
-                names.push_str(", ");
+    // The root: how many entries, and the first names that fit.
+    let root = volume.root();
+    let mut cursor = volume.cursor(root);
+    let mut name = Name::new();
+    let (mut total, mut names) = (0u32, String::new());
+    loop {
+        match ready(volume.next(&mut cursor, &mut name)) {
+            Some(Ok(Some(_))) => {
+                total += 1;
+                let name = name.as_str();
+                if names.len() + name.len() + 2 <= NAMES {
+                    if !names.is_empty() {
+                        names.push_str(", ");
+                    }
+                    names.push_str(name);
+                }
             }
-            names.push_str(name);
+            Some(Ok(None)) => break,
+            e => {
+                let _ = writeln!(report, "kok: {total} ogeden sonra okunamadi ({})", Why(&e));
+                finish(report)
+            }
         }
-        ControlFlow::Continue(())
-    });
-    if let Err(e) = listed {
-        let _ = writeln!(report, "kok: {total} ogeden sonra okunamadi ({e:?})");
-        finish(report)
     }
     let _ = writeln!(report, "kok: {total} oge: {}", cut(&names, NAMES));
     report.save();
 
-    // A file in a long-named directory, opened by its long name.
-    let Some(dir) = dir.and_then(|name| root.open_dir(name).ok()) else {
-        let _ = writeln!(report, "{DIR} yok");
-        finish(report)
+    // A file in a long-named directory, found by its long names: the first there; any error but
+    // a missing file ends the test.
+    let dir = match ready(volume.open_dir(DIR)) {
+        Some(Ok(dir)) => dir,
+        e => {
+            let _ = writeln!(report, "{DIR} acilamadi ({})", Why(&e));
+            finish(report)
+        }
     };
-    for name in READ {
-        let Ok(file) = dir.open_long_name_file_in_dir(name, Mode::ReadOnly) else {
-            continue;
+    for path in READ {
+        let entry = match ready(volume.find_from(dir, path)) {
+            Some(Ok(entry)) => entry,
+            Some(Err(Error::NotFound)) => continue,
+            e => {
+                let _ = writeln!(report, "bulunamadi: {path} ({})", Why(&e));
+                finish(report)
+            }
+        };
+        let mut file = match volume.open(&entry) {
+            Ok(file) => file,
+            Err(e) => {
+                let _ = writeln!(report, "acilamadi: {path} ({e:?})");
+                finish(report)
+            }
         };
         let mut text = [0u8; 64];
-        match file.read(&mut text) {
-            Ok(n) => {
+        match ready(volume.read(&mut file, &mut text)) {
+            Some(Ok(n)) => {
                 let read = core::str::from_utf8(text.get(..n).unwrap_or_default()).unwrap_or("?");
                 let _ = writeln!(report, "okundu: {}", cut(read.trim_end(), 60));
             }
-            Err(e) => {
-                let _ = writeln!(report, "okunamadi: {name} ({e:?})");
+            e => {
+                let _ = writeln!(report, "okunamadi: {path} ({})", Why(&e));
             }
         }
         finish(report)

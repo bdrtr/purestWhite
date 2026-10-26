@@ -2461,25 +2461,36 @@ başlatmaz, sürmekte olanı ilk beklemesinde keser ve kendiliğinden C++'a dön
     dört bant ekranının her birinde dört ton ayrı görünüyor. Rust ekran sürücüsünün UC8179 siyah-beyaz
     yolu ve dört gri geçişi gerçek panelde doğrulandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
 
-## Bare-metal SD kart ("rust: read the SD card in the bare-metal firmware")
+## Bare-metal SD kart ("rust: read the SD card in the bare-metal firmware", "rust: our own FAT file system, read path")
 
 Bare-metal firmware kartı okuyabiliyor; şimdilik yalnızca okuyor. `sd-check` imajı kartı SDK'nın
 yaptığı gibi bağlar: 1 bit SDMMC, 20 MHz, GPIO5 etkinleştirmesinin darbesi, en çok dört deneme. Sonra
-FAT bölümünü açar, kökü uzun adlarıyla listeler ve `.crosspoint/onyukleyici.txt`'yi okuyup raporuna
-yazar. Karta hiçbir şey yazmaz: dosya sisteminin altındaki blok aygıtı da kart sürücüsü de her veri
-yazmasını reddeder, kitaplarınız ve ayarlarınız olduğu gibi kalır. Emülatörde kart bağlanıyor, kök
-listeleniyor, dosya okunuyor (`emu/baremetal-sd.txt`). Geri dönüş "Bare-metal ilk deneme"dekiyle
-aynıdır, önyükleyici geri alma VAR olmalı. Yalnızca X4 Pro'da: X4 Classic'te SD yuvası aynı ama kartın
-etkinleştirmesi GPIO6, GPIO5 ise bir düğme.
+FAT bölümünü kendi dosya sistemimizle (`purestwhite-fat`) açar, kökü uzun adlarıyla listeler ve
+`.crosspoint/onyukleyici.txt`'yi okuyup raporuna yazar. Karta hiçbir şey yazmaz: dosya sisteminin
+blok aygıtında yazma yok, kart sürücüsü de her veri yazmasını reddeder; kitaplarınız ve ayarlarınız
+olduğu gibi kalır. Kart FAT32 (ya da FAT16) olmalı: exFAT'ı okumuyor, "fat: acilamadi
+(Unsupported)" der. Emülatörde kart bağlanıyor, kök listeleniyor, dosya okunuyor
+(`emu/baremetal-sd.txt`). Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır, önyükleyici geri alma
+VAR olmalı. Yalnızca X4 Pro'da: X4 Classic'te SD yuvası aynı ama kartın etkinleştirmesi GPIO6,
+GPIO5 ise bir düğme.
+
+İlk sınama dosya sistemi henüz `embedded-sdmmc` iken yapıldı ve geçti (aşağıda); aynı adımlar
+`purestwhite-fat`'li yeni imajla yinelenecek.
 
 - [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-sd.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
   Firmware Güncelleme → dosyayı seçin → Onayla. Ekran değişmez; birkaç saniye sonra C++ ana ekranı
   gelmeli (kart yanıt vermezse en çok bir dakika). Dokunmadan bekleyin.
 - [ ] Raporda "sd: deneme 1, tamam, M MB" (M kartın boyutu, 16 GB'lık kartta 15 000 civarı; "deneme 1
-  2" gibi birden çok sayı, kartın ancak sonraki denemede bağlandığını söyler), "kok: K oge: ..."
+  2" gibi birden çok sayı, kartın ancak sonraki denemede bağlandığını söyler), "fat: FAT32, kume N
+  B" (N kümenin bayt sayısı; 16 GB'lık kartta çoğunlukla 32768), "kok: K oge: ..."
   (kökteki öğe sayısı ve ilk adlar), "okundu: onyukleyici geri alma: VAR (yuva app1, durum 2)" ve
   "bitti" bekleniyor. "bitti" yoksa ya da başka bir satır çıkarsa ("baglanamadi", "fat: ...",
   "okunamadi", "PANIK" …) raporun tamamını bana iletin; satır bir sayıda yarım kaldıysa ve C++ bir
   dakika kadar sonra geldiyse o denemede kart yanıt vermemiş, bekçi sıfırlamıştır. Kartın
   değişmediğini, kitaplarınızın ve ayarlarınızın yerinde olduğunu C++'ta bir göz atarak doğrulayın.
+  - Sonuç (2026-10-26, 04e8dc8e'nin `embedded-sdmmc`'li imajı, cihaz): "sd: deneme 1, tamam, 14910
+    MB", "kok: 21 oge: System Volume Information, XTCache, GO", "okundu: onyukleyici geri alma: VAR
+    (yuva app1, durum 2)", "bitti". Kart ilk denemede bağlandı; kökteki öğe sayısı bilgisayardaki
+    sayımla (rapor dosyası dışında) aynı. Kart sürücüsü ve SDK'nın bağlama sırası gerçek kartta
+    doğrulandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.

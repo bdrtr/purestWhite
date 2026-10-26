@@ -364,6 +364,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "purestwhite-fat"
+version = "0.1.0"
+
+[[package]]
 name = "purestwhite-gauge"
 version = "0.1.0"
 dependencies = [
