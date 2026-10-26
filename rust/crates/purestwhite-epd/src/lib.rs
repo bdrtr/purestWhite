@@ -103,7 +103,8 @@ where
         sent
     }
 
-    /// A command and its data bytes, each in its own frame, as freeink-sdk's drivers send them.
+    /// A command and its data bytes, each in its own frame: freeink-sdk's `cmd` and `data` calls
+    /// one after another, not its `cmdData` (that is `frame`).
     ///
     /// # Errors
     /// When a transfer or a pin fails.
@@ -113,6 +114,24 @@ where
             self.data(&[b]).await?;
         }
         Ok(())
+    }
+
+    /// A command and its data bytes in one chip-select frame (freeink-sdk's `cmdData`).
+    ///
+    /// # Errors
+    /// When a transfer or a pin fails.
+    pub async fn frame(&mut self, command: u8, bytes: &[u8]) -> Result<(), BusError> {
+        pin(self.dc.set_low())?;
+        pin(self.cs.set_low())?;
+        let mut sent = self.write(&[command]).await;
+        if sent.is_ok() && !bytes.is_empty() {
+            sent = match self.dc.set_high() {
+                Ok(()) => self.write(bytes).await,
+                Err(_) => Err(BusError),
+            };
+        }
+        pin(self.cs.set_high())?;
+        sent
     }
 
     /// A command, then a burst of data in one chip-select frame, written by `fill` row by row:

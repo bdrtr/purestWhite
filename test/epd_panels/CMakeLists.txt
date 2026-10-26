@@ -26,3 +26,27 @@ target_link_libraries(EpdPanelsTest PRIVATE
 )
 
 gtest_discover_tests(EpdPanelsTest)
+
+# The UC8179's grayscale passes: with BOARD_HAS_PSRAM (the X4 Pro's build, where the SDK keeps the black-and-white
+# base) and without it.
+foreach(variant IN ITEMS EpdGrayTest EpdGrayNoBaseTest)
+  add_executable(${variant}
+    EpdGrayTest.cpp
+    ${SDK_DISPLAY}/src/bus/EpdBus.cpp
+    ${SDK_DISPLAY}/src/driver/Uc8179Driver.cpp
+  )
+  target_include_directories(${variant} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/stubs
+    ${SDK_DISPLAY}/src
+    ${SDK_DISPLAY}/include
+    ${REPO_ROOT}/freeink-sdk/libs/hardware/BoardConfig/include
+  )
+  target_compile_definitions(${variant} PRIVATE FREEINK_DEVICE_X4PRO=1)
+  target_compile_options(${variant} PRIVATE -include initializer_list)
+  target_link_libraries(${variant} PRIVATE
+    crosspoint_test_common
+    GTest::gtest_main
+  )
+  gtest_discover_tests(${variant} TEST_PREFIX ${variant}.)
+endforeach()
+target_compile_definitions(EpdGrayTest PRIVATE BOARD_HAS_PSRAM=1)

@@ -8,7 +8,7 @@ use embedded_hal::digital::{ErrorType as PinErrorType, InputPin, OutputPin};
 use embedded_hal_async::delay::DelayNs;
 use embedded_hal_async::spi::{ErrorKind, ErrorType, SpiBus};
 use purestwhite_epd::probe::{self, Controller, Line as ProbeLine, Mode, ProbeLines, Verdict};
-use purestwhite_epd::uc8179::{Uc8179, X4_PRO as UC8179_X4_PRO};
+use purestwhite_epd::uc8179::{GrayMode, Uc8179, X4_PRO as UC8179_X4_PRO};
 use purestwhite_epd::uc8279x4::{Refresh, Uc8279X4, X4_PRO};
 use purestwhite_epd::{Bus, BusError};
 
@@ -25,11 +25,12 @@ pub struct CBus {
 }
 
 /// `pw_uc8279x4` and `pw_uc8179`: room for a `Uc8279X4` or a `Uc8179`, each in its own struct type.
-#[repr(C, align(4))]
-pub struct CPanel([u32; 8]);
+#[repr(C, align(8))]
+pub struct CPanel([u64; 8]);
 
 // As epd.h's.
 const _: () = assert!(size_of::<CBus>() == 7 * size_of::<usize>());
+const _: () = assert!(size_of::<CPanel>() == 64 && align_of::<CPanel>() == 8);
 
 /// A `pw_epd_bus` whose callbacks may be called with its context during the call.
 #[derive(Clone, Copy)]
@@ -271,16 +272,23 @@ unsafe fn display<P: Driver>(
     }
     // SAFETY: as documented.
     let frame = unsafe { core::slice::from_raw_parts(frame, len) };
-    let refresh = match refresh {
-        0 => Refresh::Full,
-        1 => Refresh::Half,
-        2 => Refresh::Fast,
-        _ => return false,
+    let Some(refresh) = refresh_of(refresh) else {
+        return false;
     };
     matches!(
         block_on(panel.display(&mut lines(bus), frame, refresh, power_off)),
         Some(Ok(()))
     )
+}
+
+/// `PW_EPD_FULL`, `PW_EPD_HALF`, `PW_EPD_FAST`.
+fn refresh_of(refresh: u8) -> Option<Refresh> {
+    match refresh {
+        0 => Some(Refresh::Full),
+        1 => Some(Refresh::Half),
+        2 => Some(Refresh::Fast),
+        _ => None,
+    }
 }
 
 /// # Safety
@@ -383,6 +391,239 @@ exports!(
     pw_uc8179_request_resync,
     pw_uc8179_skip_initial_resync
 );
+
+/// # Safety
+/// `panel` is NULL or an aligned, writable `pw_uc8179`, any contents; `base` is NULL or `len`
+/// writable bytes that stay valid, and that nothing else reads or writes, while `panel` is used
+/// (until it is initialized again); the state is not copied, since a copy would share `base`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_uc8179_init_with_gray_base(
+    panel: *mut CPanel,
+    base: *mut u8,
+    len: usize,
+) -> bool {
+    const { assert!(fits::<Uc8179>()) };
+    if panel.is_null() {
+        return false;
+    }
+    let state = if base.is_null() {
+        None
+    } else {
+        // SAFETY: as documented, so the buffer outlives every use of the state and nothing else
+        // touches it; zeroed first, as a slice's bytes must be initialized.
+        let base = unsafe {
+            base.write_bytes(0, len);
+            core::slice::from_raw_parts_mut(base, len)
+        };
+        Uc8179::with_base(UC8179_X4_PRO, base)
+    };
+    let with_base = state.is_some();
+    let state = state.unwrap_or_else(|| Uc8179::new(UC8179_X4_PRO));
+    // SAFETY: as documented; as `init`.
+    unsafe {
+        panel.write(CPanel([0; 8]));
+        panel
+            .cast::<MaybeUninit<Uc8179>>()
+            .write(MaybeUninit::new(state));
+    }
+    with_base
+}
+
+/// A `pw_uc8179` that `pw_uc8179_init` or `pw_uc8179_init_with_gray_base` set up and a complete
+/// bus, or `None`.
+///
+/// # Safety
+/// As the gray exports'.
+unsafe fn gray<'a>(panel: *mut CPanel, bus: *const CBus) -> Option<(&'a mut Uc8179, &'a CBus)> {
+    // SAFETY: as documented.
+    let (Some(panel), Some(bus)) = (unsafe { state::<Uc8179>(panel) }, unsafe { bus.as_ref() })
+    else {
+        return None;
+    };
+    complete(bus).then_some((panel, bus))
+}
+
+/// `frame` as a slice, empty when NULL.
+///
+/// # Safety
+/// `frame` is NULL or `len` readable bytes, unchanged during the call.
+unsafe fn bytes<'a>(frame: *const u8, len: usize) -> &'a [u8] {
+    if frame.is_null() {
+        &[]
+    } else {
+        // SAFETY: as documented.
+        unsafe { core::slice::from_raw_parts(frame, len) }
+    }
+}
+
+/// # Safety
+/// For this and the gray exports below: `panel` is NULL or a `pw_uc8179` that its `init` set up,
+/// used by nothing else during the call; `bus` is NULL or a `pw_epd_bus` whose callbacks may be
+/// called during the call; a frame or plane is NULL or `len` readable bytes.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_uc8179_begin_grayscale(
+    panel: *mut CPanel,
+    bus: *const CBus,
+    frame: *const u8,
+    len: usize,
+    mode: u8,
+    fallback: u8,
+    power_off: bool,
+) -> bool {
+    // SAFETY: as documented.
+    let Some((panel, bus)) = (unsafe { gray(panel, bus) }) else {
+        return false;
+    };
+    let mode = match mode {
+        0 => GrayMode::Overlay,
+        1 => GrayMode::Absolute,
+        2 => GrayMode::Direct,
+        _ => return false,
+    };
+    let Some(fallback) = refresh_of(fallback) else {
+        return false;
+    };
+    // SAFETY: as documented.
+    let frame = unsafe { bytes(frame, len) };
+    matches!(
+        block_on(panel.begin_grayscale(&mut lines(bus), frame, mode, fallback, power_off)),
+        Some(Ok(()))
+    )
+}
+
+/// # Safety
+/// See `pw_uc8179_begin_grayscale`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_uc8179_display_plain(
+    panel: *mut CPanel,
+    bus: *const CBus,
+    frame: *const u8,
+    len: usize,
+    refresh: u8,
+    power_off: bool,
+) -> bool {
+    // SAFETY: as documented.
+    let Some((panel, bus)) = (unsafe { gray(panel, bus) }) else {
+        return false;
+    };
+    let Some(refresh) = refresh_of(refresh) else {
+        return false;
+    };
+    // SAFETY: as documented.
+    let frame = unsafe { bytes(frame, len) };
+    matches!(
+        block_on(panel.display_plain(&mut lines(bus), frame, refresh, power_off)),
+        Some(Ok(()))
+    )
+}
+
+/// # Safety
+/// See `pw_uc8179_begin_grayscale`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_uc8179_display_grayscale_base(
+    panel: *mut CPanel,
+    bus: *const CBus,
+    frame: *const u8,
+    len: usize,
+    fallback: u8,
+    power_off: bool,
+) -> bool {
+    // SAFETY: as documented.
+    let Some((panel, bus)) = (unsafe { gray(panel, bus) }) else {
+        return false;
+    };
+    let Some(fallback) = refresh_of(fallback) else {
+        return false;
+    };
+    // SAFETY: as documented.
+    let frame = unsafe { bytes(frame, len) };
+    matches!(
+        block_on(panel.display_grayscale_base(&mut lines(bus), frame, fallback, power_off)),
+        Some(Ok(()))
+    )
+}
+
+/// # Safety
+/// See `pw_uc8179_begin_grayscale`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_uc8179_copy_grayscale_lsb(
+    panel: *mut CPanel,
+    bus: *const CBus,
+    plane: *const u8,
+    len: usize,
+) -> bool {
+    // SAFETY: as documented.
+    let Some((panel, bus)) = (unsafe { gray(panel, bus) }) else {
+        return false;
+    };
+    // SAFETY: as documented.
+    let plane = unsafe { bytes(plane, len) };
+    matches!(
+        block_on(panel.copy_grayscale_lsb(&mut lines(bus), plane)),
+        Some(Ok(()))
+    )
+}
+
+/// # Safety
+/// See `pw_uc8179_begin_grayscale`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_uc8179_copy_grayscale_msb(
+    panel: *mut CPanel,
+    bus: *const CBus,
+    plane: *const u8,
+    len: usize,
+) -> bool {
+    // SAFETY: as documented.
+    let Some((panel, bus)) = (unsafe { gray(panel, bus) }) else {
+        return false;
+    };
+    // SAFETY: as documented.
+    let plane = unsafe { bytes(plane, len) };
+    matches!(
+        block_on(panel.copy_grayscale_msb(&mut lines(bus), plane)),
+        Some(Ok(()))
+    )
+}
+
+/// # Safety
+/// See `pw_uc8179_begin_grayscale`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_uc8179_display_gray(
+    panel: *mut CPanel,
+    bus: *const CBus,
+    power_off: bool,
+    factory: bool,
+) -> bool {
+    // SAFETY: as documented.
+    let Some((panel, bus)) = (unsafe { gray(panel, bus) }) else {
+        return false;
+    };
+    matches!(
+        block_on(panel.display_gray(&mut lines(bus), power_off, factory)),
+        Some(Ok(()))
+    )
+}
+
+/// # Safety
+/// See `pw_uc8179_begin_grayscale`.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn pw_uc8179_cleanup_grayscale(
+    panel: *mut CPanel,
+    bus: *const CBus,
+    bw: *const u8,
+    len: usize,
+) -> bool {
+    // SAFETY: as documented.
+    let Some((panel, bus)) = (unsafe { gray(panel, bus) }) else {
+        return false;
+    };
+    // SAFETY: as documented.
+    let bw = (!bw.is_null()).then(|| unsafe { bytes(bw, len) });
+    matches!(
+        block_on(panel.cleanup_grayscale(&mut lines(bus), bw)),
+        Some(Ok(()))
+    )
+}
 
 /// `pw_epd_probe_lines`.
 #[repr(C)]

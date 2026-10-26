@@ -477,3 +477,62 @@ fn geometry_outside_the_plane_is_refused() {
     );
     assert!(panel.borrow().frames.is_empty());
 }
+
+#[test]
+fn a_frame_carries_its_command_and_data_and_always_ends() {
+    let panel = RefCell::new(Panel::default());
+    let mut b = bus(&panel);
+    block_on(b.frame(0x90, &[1, 2])).expect("frame");
+    block_on(b.frame(0x50, &[])).expect("no data");
+    panel.borrow_mut().fail_bursts = true;
+    assert_eq!(block_on(b.frame(0x50, &[1, 2])), Err(BusError));
+    let p = panel.borrow();
+    assert_eq!(p.frames[0], vec![(false, 0x90), (true, 1), (true, 2)]);
+    assert_eq!(p.frames[1], vec![(false, 0x50)]);
+    assert_eq!(p.frames[2], vec![(false, 0x50)]);
+    assert!(!p.cs_low);
+}
+
+/// Runs an Overlay page on a UC8179 with `base` and returns the DTM1 and DTM2 planes the gray
+/// refresh got.
+fn overlay_planes(
+    base: Option<&mut [u8]>,
+    bw: &[u8],
+    lsb: &[u8],
+    msb: &[u8],
+) -> (Vec<u8>, Vec<u8>) {
+    let panel = RefCell::new(Panel::default());
+    let mut uc = match base {
+        Some(base) => Uc8179::with_base(uc8179::X4_PRO, base).expect("a frame long"),
+        None => Uc8179::new(uc8179::X4_PRO),
+    };
+    let mut b = bus(&panel);
+    block_on(uc.begin(&mut b)).expect("begin");
+    block_on(uc.begin_grayscale(&mut b, bw, uc8179::GrayMode::Overlay, Refresh::Full, false))
+        .expect("base");
+    panel.borrow_mut().frames.clear();
+    block_on(uc.copy_grayscale_lsb(&mut b, lsb)).expect("lsb");
+    block_on(uc.copy_grayscale_msb(&mut b, msb)).expect("msb");
+    let p = panel.borrow();
+    (data_after(&p, 0), data_after(&p, 2))
+}
+
+#[test]
+fn overlay_masks_become_absolute_planes_with_a_base() {
+    // One byte of each: white, light, dark, black pixels in pairs.
+    let bw = vec![0b1100_0000; 100 * 480];
+    let lsb = vec![0b0000_1100; 100 * 480];
+    let msb = vec![0b0011_1100; 100 * 480];
+    let mut base = vec![0xA5; 100 * 480];
+    let (dtm1, dtm2) = overlay_planes(Some(&mut base), &bw, &lsb, &msb);
+    // (DTM1, DTM2): white (1,1), light (0,1), dark (1,0), black (0,0).
+    assert_eq!(dtm1[0], 0b1100_1100);
+    assert_eq!(dtm2[0], 0b1111_0000);
+    // The base is recovered for the planes after the refresh.
+    assert_eq!(base[0], 0b1100_0000);
+    // Without a base the masks go as they are; a short one is refused.
+    let (dtm1, dtm2) = overlay_planes(None, &bw, &lsb, &msb);
+    assert_eq!((dtm1[0], dtm2[0]), (lsb[0], msb[0]));
+    let mut short = vec![0; 100 * 480 - 1];
+    assert!(Uc8179::with_base(uc8179::X4_PRO, short.as_mut_slice()).is_none());
+}
