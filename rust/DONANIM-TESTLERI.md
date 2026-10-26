@@ -2528,36 +2528,31 @@ kitaplarınızın olduğu kartı tanıyıp ona yazmayı reddedecek biçimde yap�
     kat hızlı (yaklaşık 1,8 MB/s; tek veri hattında 20 MHz'in sınırı 2,5 MB/s). Rapor
     `firmware-arsiv/cihaz-raporlari/`'nda.
 
-## Bare-metal düğmeler ve uyku ("rust: buttons and deep sleep in the bare-metal firmware")
+## Bare-metal düğmeler ("rust: buttons and deep sleep in the bare-metal firmware", "rust: count the buttons without sleeping")
 
-Bare-metal firmware düğmeleri okuyor ve derin uykuya girip güç düğmesiyle uyanabiliyor.
-`button-check` imajı 40 saniye boyunca Yukarı, Aşağı ve Güç basmalarını sayar; Güç'ü bir saniye
-basılı tutarsanız saymayı bitirir (hiç uzun basmazsanız 40 saniye dolunca biter, raporda "guc
-uzun: yok, 40 s doldu" yazar). Sonra, Güç bırakılınca, C++ firmware'in uykuya girdiği gibi derin
-uykuya girer (Güç 10 saniye daha bırakılmazsa yine de uyur, raporda "guc birakilmadi, yine de
-uyku" yazar). Güç düğmesi ya da 60 saniyelik zamanlayıcı cihazı uyandırır; uyanış C++ firmware'i
-açar, o da raporu uyanma nedeniyle birlikte karta yazar. İmaj karta yazmaz, ekrana çizmez;
-yalnızca uykudan önce kartın ve dokunmanın gücünü keser, panelin reset hattını tutar, C++
-firmware'in kendi uykusunda yaptığı gibi. Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır,
-önyükleyici geri alma VAR olmalı. Emülatörde basmalar sayılıyor; uyku, Güç ile uyanış
-(`emu/baremetal-buttons.txt`) ve zamanlayıcıyla uyanış (`emu/baremetal-buttons-timer.txt`)
-çalışıyor.
+Bare-metal firmware düğmeleri okuyor. `button-check` imajı 40 saniye boyunca Yukarı, Aşağı ve Güç
+basmalarını sayar; Güç'ü bir saniye basılı tutarsanız saymayı bitirir (hiç uzun basmazsanız 40
+saniye dolunca biter, raporda "guc uzun: yok, 40 s doldu" yazar). Güç bırakılınca raporu yazar ve
+C++ firmware'e döner. İmaj ekrana hiçbir şey çizmez: ekran güncelleme sayfasında kalır, bu
+normaldir. Karta yazmaz. Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır, önyükleyici geri alma
+VAR olmalı. Emülatörde basmalar sayılıyor (`emu/baremetal-buttons.txt`).
 
-Dikkat: Yukarı düğmesi (GPIO0) aynı zamanda önyükleme ayağıdır. Cihaz açılırken ya da uyanırken
-Yukarı'yı basılı tutmayın; tutarsanız indirme kipine girer. Uyandırırken Aşağı'yı da basılı
-tutmayın: C++ firmware Aşağı + Güç'ü kurtarma kipi sayar.
+Dikkat: Yukarı düğmesi (GPIO0) aynı zamanda önyükleme ayağıdır. Cihaz açılırken Yukarı'yı basılı
+tutmayın; tutarsanız indirme kipine girer.
+
+İlk sürüm sayımdan sonra derin uykuya giriyordu. Cihazda (2026-10-26) uykudan ne Güç düğmesi ne
+60 saniyelik zamanlayıcı uyandırdı; ekran güncelleme sayfasında kaldı, sahibi Güç'e uzun basıp
+cihazı yeniden başlattı ve C++ geldi. Tam yeniden başlatma RTC belleğini sildiği için rapor
+kayboldu. Emülatörde iki uyanış da çalışıyordu: emülatör derin uykuyu donanım ayrıntısıyla
+taklit etmiyor. Uyku, kendini kurtaran ayrı bir tanı imajıyla (`sleep-check`) yeniden denenecek.
+Bu denemelerde imaj takılırsa kurtarma yolu Güç'e uzun basmaktır.
 
 - [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-dugme.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
-  Firmware Güncelleme → dosyayı seçin → Onayla. Ekran değişmez. İmajın başlaması için birkaç saniye
-  bekleyin, sonra 40 saniye içinde: Yukarı'ya 3 kez, Aşağı'ya 2 kez kısaca basın, ardından Güç'ü
-  bir saniyeden biraz uzun basılı tutup bırakın. Cihaz uykuya girer (ekran olduğu gibi kalır).
-- [ ] Birkaç saniye bekleyin, sonra Güç'e C++'ta uyandırırken yaptığınız gibi basın (bir an
-  basılı tutun; çok kısa basarsanız C++ bunu yanlışlıkla uyanma sayıp yeniden uyur, o zaman bir
-  daha basın). C++ ana ekranı gelmeli. Hiçbir şeye basmazsanız cihaz 60 saniye sonra kendisi
-  uyanır; bu da sınanır, ama önce düğmeyle deneyin.
-- [ ] Raporda "dugme: yukari 3, asagi 2, guc 1", "guc uzun: evet", "uyku: guc dugmesi ya da 60 s"
-  ve "uyanma: dugme" bekleniyor (60 saniye beklediyseniz "uyanma: zamanlayici"). Sayılar
-  bastıklarınızdan farklıysa ya da "uyanma:" satırı yoksa raporun tamamını bana iletin. Güç'e
-  bastığınızda cihaz uyanmadı da 60 saniye sonra kendisi uyandıysa, bunu da söyleyin.
-
+  Firmware Güncelleme → dosyayı seçin → Onayla. Güncelleme bitince ekran donar (normal). 5 saniye
+  bekleyin, sonra 40 saniye içinde aralarında yarım saniye bırakarak Yukarı'ya 3 kez, Aşağı'ya 2
+  kez kısaca basın, ardından Güç'ü 2 saniye basılı tutup bırakın. Birkaç saniye içinde C++ ana
+  ekranı gelmeli.
+- [ ] Raporda "dugme: yukari 3, asagi 2, guc 1", "guc uzun: evet" ve "bitti" bekleniyor. Sayılar
+  bastıklarınızdan farklıysa raporun tamamını bana iletin. C++ bir dakika içinde gelmezse Güç'e
+  uzun basıp yeniden başlatın ve bana söyleyin.
