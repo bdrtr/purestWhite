@@ -2386,6 +2386,12 @@ görünmez. Ekrana çizdiği için yalnızca X4 Pro'da denenir (X4 Classic'te de
     sınanmadı: pencere görünür olmadığı için imaj artık onu ekranı siyaha boyayarak gösteriyor.
     Zamanlayıcı ile saat iki denemede de uyuştuğu için "zaman" satırı, "esp-rtos: basladi" ile
     birlikte, ekran satırlarına yer açmak için rapordan çıktı.
+  - Sonuç (2026-10-26, 715ac43b'nin imajı, ikinci deneme): "ekran UC8179: siyah tamam 1.9 s",
+    "beyaz tamam 1.9 s": Rust ekran sürücüsü gerçek UC8179'da ilk kez çizdi (ekran siyah oldu,
+    sonra beyaz), tam yenileme 1,9 s, 8 s sınırına bol pay. "kare 3 cok 0 ilk -1,-1 son -1,-1
+    home 0 hata 0": pencerede hiç temas gelmedi; sahibi ekran siyahken bir kez dokunmuş, büyük
+    olasılıkla siyah yenileme bitmeden (pencere yenileme bitince açılır), sonra ekran beyaza
+    dönmüş. Deneme yukarıdaki sırayla, ekran siyahta durduktan sonra yeniden yapılacak.
 
 ## Ekran denetleyicisi (bilgi, risksiz)
 
