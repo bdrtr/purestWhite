@@ -2276,11 +2276,12 @@ Planın 2. aşamasının ilk adımı: `rust/firmware`, esp-hal ve Embassy üstü
 firmware. Şimdilik bir duman testi: ikinci OTA yuvasında bir kez açılır, ilk iş sonraki açılışı
 C++ firmware'e geri verir (otadata), sonra esp-rtos ve Embassy'yi başlatır, saat ve pil
 sürücülerimizi (`purestwhite-rtc`, `purestwhite-gauge`) esp-hal'in gerçek I2C'si üzerinde
-değiştirmeden çalıştırır, Embassy zamanlayıcısını saat yongasıyla karşılaştırır, sonucu RTC yavaş
-belleğine bırakıp sıfırlanır. C++ firmware açılışta bu raporu kartın köküne
-`purestwhite-bare-metal.txt` olarak yazar (`HalSystem::saveBareMetalReport`). Ekrana hiçbir şey
-çizmez: cihaz SD güncellemesinden sonra eski ekranla durur (geri dönüş denemesinde birkaç saniye,
-duman testinde 30 saniyeye kadar), sonra C++ firmware yeniden açılır.
+değiştirmeden çalıştırır (ilk sürümler Embassy zamanlayıcısını saat yongasıyla da
+karşılaştırırdı), sonucu RTC yavaş belleğine bırakıp sıfırlanır. C++ firmware açılışta bu raporu
+kartın köküne `purestwhite-bare-metal.txt` olarak yazar (`HalSystem::saveBareMetalReport`). Geri
+dönüş denemesi ekrana hiçbir şey çizmez: cihaz SD güncellemesinden sonra birkaç saniye eski ekranla
+durur. Duman testi artık dokunma penceresinde ekranı siyaha, sonra beyaza boyar (bkz. "Bare-metal
+dokunma"). Sonra C++ firmware yeniden açılır, en çok bir dakika içinde.
 
 Güvenlik: 60 saniyelik RTC bekçisi en başta kurulur ve her takılmayı sıfırlar; ardından sonraki
 açılış C++ firmware'e, yani imajın açıldığı yuvanın (MMU'dan okunur) ötekine verilir (önyükleyicinin
@@ -2336,7 +2337,8 @@ bozar.
     "zamanlayici: 10 s = saat 10 s", "bitti". Saatin ayarlanmadığı doğrulandı; Embassy'nin
     zamanlayıcısı saat yongasıyla uyuşuyor.
 - [ ] Deneme sırasında cihazı kapatmayın: rapor RTC belleğinde bekler ve güç kesilince silinir.
-  Ana ekran gelene kadar (en çok 60 saniye) dokunmadan bekleyin.
+  Ana ekran gelene kadar (en çok 60 saniye) dokunmadan bekleyin; "Bare-metal dokunma"
+  denemesinde yalnızca ekran siyahken dokunun.
 - [ ] Her denemeden önce eski `purestwhite-bare-metal.txt`'yi silin. Dosya oluşmadıysa imaj
   açılmamış ya da raporu bırakamadan sıfırlanmış demektir; bana haber verin.
 - [ ] Bir adım cihazı geri getirmezse: en çok 60 saniye bekleyin (bekçi sıfırlar). Cihaz C++
@@ -2344,26 +2346,46 @@ bozar.
   Güç düğmesi de bir şey yapmaz (firmware'in okuduğu bir giriş); USB'den de kurtarılamaz; durup
   bana haber verin.
 
-## Bare-metal dokunma ("rust: our own GT911 touch driver, in the bare-metal firmware")
+## Bare-metal dokunma ("rust: our own GT911 touch driver, in the bare-metal firmware", "rust: show the bare-metal touch window on the panel")
 
 `purestwhite-gt911`, X4 Pro'nun GT911 dokunmatik yongasının sürücüsü; şimdilik yalnızca bare-metal
 deneme imajında çalışır (C++ firmware'de dokunma SDK'nın InputManager'ında kalır). İmaj, saat ve
-pilden sonra yongayı resetler, adresini bulur ve yaklaşık 15 saniye boyunca her 20 ms'de bir okur:
-güncelleme bittikten 2–5 saniye sonra başlar. Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır;
-önyükleyici geri alma VAR olmalı. Bu denemede ekrana dokunmak serbesttir.
+pilden sonra yongayı resetler ve adresini bulur; yonga bulunduysa ekran denetleyicisini yoklar ve
+UC8279 ya da UC8179'da ekranı tamamen siyaha boyar (`purestwhite-epd`, "Bare-metal ekran"daki
+sürücü). Ekranın siyah kaldığı yaklaşık 15 saniye boyunca dokunuşları her 20 ms'de bir okur, sonra
+ekranı beyaza boyar, denetleyiciyi uyutur ve C++'a döner. SSD1677'de ekran değişmez, pencere
+görünmez. Ekrana çizdiği için yalnızca X4 Pro'da denenir (X4 Classic'te değil). Geri dönüş
+"Bare-metal ilk deneme"dekiyle aynıdır; önyükleyici geri alma VAR olmalı.
 
 - [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-deneme.bin`'i (bu
   commit'teki imaj; arşivdeki sağlama toplamıyla) koyun; Ayarlar → System → SD Karttan Firmware
-  Güncelleme → dosyayı seçin → Onayla. "Güncelleme tamamlandı" yazısı çıkınca 3 saniye bekleyip şu
-  sırayla dokunun: önce 5 saniye boyunca ekranın sol üst köşesine birkaç kez (cihazı okurken
-  tuttuğunuz gibi; pencerenin başlangıcı pil okumasına göre kayabilir), sonra Home tuşuna iki kez,
-  sonra iki parmakla birkaç kez, en son sağ alt köşeye parmağınızı koyup ana ekran gelene kadar
-  orada tutun.
-- [ ] Raporda "dokunma: 0x5d" (ya da 0x14) ve "kare N cok K ilk X,Y son X,Y home H hata E"
-  bekleniyor: N sıfırdan büyük, K en az 2, H en az 1, E 0 ya da çok küçük. "ilk" sol üst, "son"
-  sağ alt köşe olmalı; iki noktanın X'leri ve Y'leri birbirinden belirgin farklı olmalı (değerleri
-  bana iletin, eksen yönünü doğrular). "zaman: 15 s = saat N s" satırında N 14–16 olağan. Satır
+  Güncelleme → dosyayı seçin → Onayla. Güncellemeden birkaç saniye sonra ekran birkaç kez yanıp
+  söner ve siyah kalır. Yalnızca ekran siyahken, şu sırayla dokunun: önce ekranın sol üst köşesine
+  birkaç kez, sonra Home tuşuna iki kez, sonra iki parmakla birkaç kez, en son sağ alt köşeye
+  parmağınızı koyup ekran beyaza dönmeye başlayana kadar orada tutun. Ekran beyaz olduktan birkaç
+  saniye sonra C++ ana ekranı gelmeli. Ekran siyaha hiç dönmezse dokunmadan bekleyin; C++ en çok
+  bir dakikada gelir.
+- [ ] Raporda "dokunma: 0x5d" (ya da 0x14), "ekran UC8179: siyah tamam T s" (ya da UC8279),
+  "kare N cok K ilk X,Y son X,Y home H hata E", "beyaz tamam T s" ve "bitti" bekleniyor: N
+  sıfırdan büyük, K en az 2, H en az 1, E 0 ya da çok küçük. "ilk" sol üst, "son" sağ alt köşe
+  olmalı; iki noktanın X'leri ve Y'leri birbirinden belirgin farklı olmalı (değerleri bana iletin,
+  eksen yönünü doğrular). T, yenilemenin saniyesi: birkaç saniye olağan, 8 s'ye yakınsa sınır dar
+  demektir (bana iletin). Ekran siyaha dönmediyse "ekran" satırı nedenini söyler (SSD1677'de
+  "atlandi"; dokunma yongası bulunmadıysa "ekran" satırı hiç yazılmaz); pencere yine 15 saniye açık
+  kalır. "siyah hata" ya da "beyaz hata" T 8 s civarındaysa denetleyici o yenilemeyi 8 saniyede
+  bitirmemiş (BUSY boşalmamış), kısaysa veriyolu hata vermiştir; ondan sonra panele bir şey
+  gönderilmez ("beyaz tamam T s, uyku hata": yalnızca uyutma). Bir satır yarım kaldıysa
+  ve C++ bir dakika kadar sonra geldiyse imaj orada takılmış, bekçi sıfırlamıştır. "sonraki acilis:
+  SECILEMEDI (...)" yazıp başka satır yoksa imaj açılışı C++'a veremediği için hiçbir şeye
+  dokunmadan sıfırlanmıştır (dönüşü önyükleyicinin geri alması sağlar): bunu bana iletin. Satır
   sonunda `~` varsa rapor sığmamış demektir.
+  - Sonuç (2026-10-26, cihaz, ilk deneme): "dokunma: 0x5d", "kare 71 cok 1 ilk 794,467 son
+    794,470 home 0 hata 0", "zaman: 15 s = saat 15 s". Sürücü yongayı buldu ve 15 s hatasız okudu;
+    pencere görünmediği için o sırada dokunulmadı (dokunuşlar C++ ana ekranı geldikten sonra),
+    kenardaki sabit temas büyük olasılıkla tutan el. Home ve iki parmak bare-metal'de henüz
+    sınanmadı: pencere görünür olmadığı için imaj artık onu ekranı siyaha boyayarak gösteriyor.
+    Zamanlayıcı ile saat iki denemede de uyuştuğu için "zaman" satırı, "esp-rtos: basladi" ile
+    birlikte, ekran satırlarına yer açmak için rapordan çıktı.
 
 ## Ekran denetleyicisi (bilgi, risksiz)
 
@@ -2374,7 +2396,7 @@ hedefleyecek.
 - [x] Ayarlar → System → About ekranındaki "Display Controller" satırını bana iletin.
   - Sonuç (2026-10-26, cihaz): UC8179. Bare-metal ekran denemesi UC8179 sürücüsüyle çizecek.
 
-## Bare-metal ekran ("rust: our own UC8279 panel driver, in the bare-metal firmware", "rust: probe the panel controller in the bare-metal firmware", "rust: our own UC8179 panel driver, in the bare-metal firmware")
+## Bare-metal ekran ("rust: our own UC8279 panel driver, in the bare-metal firmware", "rust: probe the panel controller in the bare-metal firmware", "rust: our own UC8179 panel driver, in the bare-metal firmware", "rust: show the bare-metal touch window on the panel")
 
 `purestwhite-epd`, X4 Pro'nun UC8279 ve UC8179 ekran denetleyicilerinin siyah-beyaz sürücüsü;
 şimdilik yalnızca bare-metal `display-check` imajında. İmaj önce denetleyiciyi yoklar (C++
@@ -2394,8 +2416,10 @@ deneme"dekiyle aynıdır, önyükleyici geri alma VAR olmalı.
 - [ ] Raporda "panel: ..." satırı denetleyiciyi söyler (About ekranındakiyle aynı olmalı; satırdaki
   "k" yoklamanın kararı, "ver" ve "flg" ham baytlar: uyuşmazsa bunları bana iletin). UC8279 ya da
   UC8179'da "ekran tam: tamam", "ekran hizli: tamam", "ekran uyku: tamam" ve "bitti", SSD1677'de
-  "ekran: atlandi" ve "bitti" bekleniyor. "tamam" yalnızca veriyolu çağrılarının hata vermediğini
-  gösterir, çizimi değil (veriyolu yalnızca yazar). Ekran donup bir dakika kadar sonra C++ geliyorsa
-  ve bir "ekran" satırı eksikse BUSY o adımda boşa çıkmamış, bekçi sıfırlamıştır. "sonraki acilis:
+  "ekran: atlandi" ve "bitti" bekleniyor. "tamam" yalnızca veriyolu çağrılarının hata vermediğini ve
+  denetleyicinin 8 saniyede bitirdiğini gösterir, çizimi değil (veriyolu yalnızca yazar). "hata"
+  çoğunlukla BUSY'nin 8 saniyede boşalmadığını gösterir; ondan sonraki adımlar denenmez ve
+  satırları yazılmaz. Ekran donup bir dakika kadar sonra C++ geliyorsa ve bir satır eksikse
+  imaj orada takılmış, bekçi sıfırlamıştır. "sonraki acilis:
   SECILEMEDI (...)" yazıp "panel:" satırı yoksa imaj açılışı C++'a veremediği için panele hiç
   dokunmadan sıfırlanmıştır (dönüşü önyükleyicinin geri alması sağlar): bunu bana iletin.

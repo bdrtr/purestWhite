@@ -1,7 +1,10 @@
 //! What the smoke-test images for the second OTA slot share: the watchdog armed first, handing
-//! the next boot back to the C++ firmware, and the report they leave it in RTC slow memory.
+//! the next boot back to the C++ firmware, the report they leave it in RTC slow memory, and the
+//! panel (`panel`).
 #![no_std]
 #![warn(clippy::pedantic)]
+
+pub mod panel;
 
 use esp_bootloader_esp_idf::partitions::{
     FlashStorage, PARTITION_TABLE_MAX_LEN, PartitionEntry, read_partition_table,

@@ -2,7 +2,8 @@
 //! firmware, probes which controller drives the panel (the bytes the C++ firmware's probe sends
 //! at every boot), and on a UC8279 or UC8179 draws a test pattern with purestwhite-epd's driver
 //! (a full refresh, then a fast one with the block moved), holds it 3 s, puts the controller to
-//! sleep and resets. On an SSD1677, which has no driver here yet, it sends nothing more.
+//! sleep and resets; after a step that fails, it sends nothing more. On an SSD1677, which has no
+//! driver here yet, it sends nothing after the probe.
 //! Without esp-rtos, so it runs in the emulator too: the driver's async calls go over blocking
 //! SPI and delays, ready at once.
 #![no_std]
@@ -13,17 +14,11 @@ extern crate alloc;
 
 use alloc::vec;
 use core::fmt::Write as _;
-use core::pin::pin;
-use core::task::{Context, Poll, Waker};
 use esp_backtrace as _;
 use esp_hal::delay::Delay;
-use esp_hal::gpio::{AnyPin, Flex, Input, InputConfig, Level, Output, OutputConfig, Pull};
-use esp_hal::spi::master::{Config as SpiConfig, Spi};
-use esp_hal::time::Rate;
-use purestwhite_epd::Bus;
-use purestwhite_epd::probe::{self, Controller, Line, Mode, ProbeLines};
-use purestwhite_epd::uc8179::{Uc8179, X4_PRO as UC8179_X4_PRO};
-use purestwhite_epd::uc8279x4::{Refresh, Uc8279X4, X4_PRO};
+use purestwhite_epd::probe::{Probe, Verdict};
+use purestwhite_epd::uc8279x4::Refresh;
+use purestwhite_firmware::panel::{Panel, PanelPins};
 use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -37,154 +32,6 @@ esp_bootloader_esp_idf::esp_app_desc!();
 pub fn custom_halt() -> ! {
     Report::append_saved("PANIK\n");
     esp_hal::system::software_reset()
-}
-
-/// Blocking SPI as embedded-hal-async's: each future is ready at once.
-struct BlockingSpi<S>(S);
-
-impl<S: embedded_hal::spi::SpiBus> embedded_hal_async::spi::ErrorType for BlockingSpi<S> {
-    type Error = S::Error;
-}
-
-#[allow(clippy::unused_async, reason = "blocking calls, ready at once")]
-impl<S: embedded_hal::spi::SpiBus> embedded_hal_async::spi::SpiBus for BlockingSpi<S> {
-    async fn read(&mut self, words: &mut [u8]) -> Result<(), S::Error> {
-        self.0.read(words)
-    }
-    async fn write(&mut self, words: &[u8]) -> Result<(), S::Error> {
-        self.0.write(words)
-    }
-    async fn transfer(&mut self, read: &mut [u8], write: &[u8]) -> Result<(), S::Error> {
-        self.0.transfer(read, write)
-    }
-    async fn transfer_in_place(&mut self, words: &mut [u8]) -> Result<(), S::Error> {
-        self.0.transfer_in_place(words)
-    }
-    async fn flush(&mut self) -> Result<(), S::Error> {
-        self.0.flush()
-    }
-}
-
-/// esp-hal's busy-wait delay as embedded-hal-async's.
-struct BlockingDelay(Delay);
-
-#[allow(clippy::unused_async, reason = "blocking calls, ready at once")]
-impl embedded_hal_async::delay::DelayNs for BlockingDelay {
-    async fn delay_ns(&mut self, ns: u32) {
-        embedded_hal::delay::DelayNs::delay_ns(&mut self.0, ns);
-    }
-}
-
-/// The panel's lines as GPIOs for the probe.
-struct PanelGpio<'d> {
-    sclk: Flex<'d>,
-    sda: Flex<'d>,
-    cs: Flex<'d>,
-    dc: Flex<'d>,
-    rst: Flex<'d>,
-    busy: Flex<'d>,
-}
-
-impl<'d> PanelGpio<'d> {
-    fn pin(&mut self, line: Line) -> &mut Flex<'d> {
-        match line {
-            Line::Sclk => &mut self.sclk,
-            Line::Sda => &mut self.sda,
-            Line::Cs => &mut self.cs,
-            Line::Dc => &mut self.dc,
-            Line::Rst => &mut self.rst,
-            Line::Busy => &mut self.busy,
-        }
-    }
-}
-
-impl ProbeLines for PanelGpio<'_> {
-    fn mode(&mut self, line: Line, mode: Mode) {
-        let pin = self.pin(line);
-        match mode {
-            Mode::Output => {
-                // As Arduino's pinMode(OUTPUT): no pull left from an input setting.
-                pin.apply_input_config(&InputConfig::default());
-                pin.set_input_enable(false);
-                pin.set_output_enable(true);
-            }
-            Mode::Input | Mode::InputPullUp => {
-                pin.set_output_enable(false);
-                let pull = if mode == Mode::Input {
-                    Pull::None
-                } else {
-                    Pull::Up
-                };
-                pin.apply_input_config(&InputConfig::default().with_pull(pull));
-                pin.set_input_enable(true);
-            }
-        }
-    }
-    fn write(&mut self, line: Line, high: bool) {
-        self.pin(line).set_level(Level::from(high));
-    }
-    fn read(&mut self, line: Line) -> bool {
-        self.pin(line).is_high()
-    }
-    /// Taking a pin (`Flex::new`) already released any pad hold.
-    fn release_reset_hold(&mut self) {}
-}
-
-/// A panel line as a push-pull GPIO, for the probe.
-fn flex(pin: AnyPin<'_>) -> Flex<'_> {
-    let mut f = Flex::new(pin);
-    f.apply_output_config(&OutputConfig::default());
-    f
-}
-
-/// The panel driver for the controller found.
-enum Panel {
-    Uc8279(Uc8279X4),
-    Uc8179(Uc8179),
-    None,
-}
-
-/// The lines as this image drives them.
-type Lines<'d> = Bus<
-    BlockingSpi<Spi<'d, esp_hal::Blocking>>,
-    Output<'d>,
-    Output<'d>,
-    Output<'d>,
-    Input<'d>,
-    BlockingDelay,
->;
-
-impl Panel {
-    /// Whether the call went through: `ready` and no bus error.
-    fn begin(&mut self, bus: &mut Lines<'_>) -> bool {
-        match self {
-            Panel::Uc8279(p) => matches!(ready(p.begin(bus)), Some(Ok(()))),
-            Panel::Uc8179(p) => matches!(ready(p.begin(bus)), Some(Ok(()))),
-            Panel::None => false,
-        }
-    }
-    fn display(&mut self, bus: &mut Lines<'_>, frame: &[u8], refresh: Refresh, off: bool) -> bool {
-        match self {
-            Panel::Uc8279(p) => matches!(ready(p.display(bus, frame, refresh, off)), Some(Ok(()))),
-            Panel::Uc8179(p) => matches!(ready(p.display(bus, frame, refresh, off)), Some(Ok(()))),
-            Panel::None => false,
-        }
-    }
-    fn deep_sleep(&mut self, bus: &mut Lines<'_>) -> bool {
-        match self {
-            Panel::Uc8279(p) => matches!(ready(p.deep_sleep(bus)), Some(Ok(()))),
-            Panel::Uc8179(p) => matches!(ready(p.deep_sleep(bus)), Some(Ok(()))),
-            Panel::None => false,
-        }
-    }
-}
-
-/// Runs a future whose awaits are all ready at once; `None` if one is not.
-fn ready<F: Future>(future: F) -> Option<F::Output> {
-    match pin!(future).poll(&mut Context::from_waker(Waker::noop())) {
-        Poll::Ready(value) => Some(value),
-        Poll::Pending => None,
-    }
 }
 
 /// White with a 16-pixel black border, a black block whose left edge is `block` bytes in, and
@@ -216,44 +63,30 @@ fn pattern(frame: &mut [u8], block: usize) {
     }
 }
 
-/// Probes the panel controller over SCLK, SDA, CS, DC, RST and BUSY as GPIOs.
-fn probe_panel(pins: [AnyPin<'_>; 6]) -> Option<probe::Probe> {
-    let [sclk, sda, cs, dc, rst, busy] = pins.map(flex);
-    let mut gpio = PanelGpio {
-        sclk,
-        sda,
-        cs,
-        dc,
-        rst,
-        busy,
-    };
-    ready(probe::probe(&mut gpio, &mut BlockingDelay(Delay::new())))
-}
-
-/// The controller found, for the report.
-fn note_panel(report: &mut Report, found: &probe::Probe) {
-    let name = match found.controller() {
-        Controller::Uc8279(_) => "UC8279",
-        Controller::Uc8179(_) => "UC8179",
-        Controller::Ssd1677 => "SSD1677",
-    };
+/// The controller found, with the probe's verdict and raw bytes.
+fn note(report: &mut Report, found: &Probe) {
     let verdict = match found.verdict {
-        probe::Verdict::PrimaryAssumed => 0,
-        probe::Verdict::Uc81xxConfirmed => 1,
-        probe::Verdict::Inconclusive => 2,
+        Verdict::PrimaryAssumed => 0,
+        Verdict::Uc81xxConfirmed => 1,
+        Verdict::Inconclusive => 2,
     };
     let [v0, v1, v2, v3, v4] = found.ver;
-    // The verdict and the raw bytes, to explain a disagreement with the About screen.
     let _ = writeln!(
         report,
-        "panel: {name} k{verdict} ver {v0:02x}{v1:02x}{v2:02x}{v3:02x}{v4:02x} flg {:02x}",
+        "panel: {} k{verdict} ver {v0:02x}{v1:02x}{v2:02x}{v3:02x}{v4:02x} flg {:02x}",
+        found.controller().name(),
         found.flg
     );
 }
 
+/// "tamam" or "hata".
+fn outcome(ok: bool) -> &'static str {
+    if ok { "tamam" } else { "hata" }
+}
+
 #[esp_hal::main]
 fn main() -> ! {
-    let mut peripherals = esp_hal::init(esp_hal::Config::default());
+    let peripherals = esp_hal::init(esp_hal::Config::default());
     let _rtc = arm_watchdog(peripherals.RTC_TIMER);
     let _latch = hold_power_latch(peripherals.GPIO1);
     let mut report = Report::default();
@@ -274,86 +107,56 @@ fn main() -> ! {
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
 
     // Which controller: the panel lines as GPIOs for a moment, then as SPI below.
-    let found = probe_panel([
-        peripherals.GPIO12.reborrow().into(),
-        peripherals.GPIO11.reborrow().into(),
-        peripherals.GPIO13.reborrow().into(),
-        peripherals.GPIO18.reborrow().into(),
-        peripherals.GPIO14.reborrow().into(),
-        peripherals.GPIO6.reborrow().into(),
-    ]);
-    let Some(found) = found else {
+    let mut pins = PanelPins {
+        spi: peripherals.SPI2,
+        sclk: peripherals.GPIO12,
+        mosi: peripherals.GPIO11,
+        cs: peripherals.GPIO13,
+        dc: peripherals.GPIO18,
+        rst: peripherals.GPIO14,
+        busy: peripherals.GPIO6,
+    };
+    let Some(found) = pins.probe() else {
         let _ = writeln!(report, "panel: yoklanamadi");
         report.save();
         esp_hal::system::software_reset()
     };
-    note_panel(&mut report, &found);
+    note(&mut report, &found);
     report.save();
-    let mut panel = match found.controller() {
-        Controller::Uc8279(_) => Panel::Uc8279(Uc8279X4::new(X4_PRO)),
-        Controller::Uc8179(_) => Panel::Uc8179(Uc8179::new(UC8179_X4_PRO)),
-        Controller::Ssd1677 => Panel::None,
-    };
-    if matches!(panel, Panel::None) {
+    let Some(mut panel) = Panel::for_controller(found.controller()) else {
         // No driver for this controller yet: nothing more goes to it.
         let _ = writeln!(report, "ekran: atlandi");
         let _ = writeln!(report, "bitti");
         esp_println::println!("{}", report.as_str());
         report.save();
         esp_hal::system::software_reset()
-    }
-
-    // The X4 Pro's panel lines (freeink-sdk's board profile): SCLK 12, MOSI 11, CS 13, DC 18,
-    // RST 14, BUSY 6; 10 MHz, mode 0.
-    let spi = Spi::new(
-        peripherals.SPI2,
-        SpiConfig::default().with_frequency(Rate::from_mhz(10)),
-    )
-    .map(|spi| {
-        spi.with_sck(peripherals.GPIO12)
-            .with_mosi(peripherals.GPIO11)
-    });
-    let Ok(spi) = spi else {
+    };
+    let Some(mut bus) = pins.open() else {
         let _ = writeln!(report, "ekran: spi kurulamadi");
         report.save();
         esp_hal::system::software_reset()
     };
-    let mut bus = Bus {
-        spi: BlockingSpi(spi),
-        cs: Output::new(peripherals.GPIO13, Level::High, OutputConfig::default()),
-        dc: Output::new(peripherals.GPIO18, Level::High, OutputConfig::default()),
-        rst: Output::new(peripherals.GPIO14, Level::High, OutputConfig::default()),
-        busy: Input::new(peripherals.GPIO6, InputConfig::default()),
-        delay: BlockingDelay(Delay::new()),
-    };
 
     let mut frame = vec![0xFFu8; 100 * 480];
     let delay = Delay::new();
-    let begun = panel.begin(&mut bus);
     pattern(&mut frame, 10);
-    let full = begun && panel.display(&mut bus, &frame, Refresh::Full, false);
-    let _ = writeln!(report, "ekran tam: {}", if full { "tamam" } else { "hata" });
+    let full = panel.begin(&mut bus) && panel.display(&mut bus, &frame, Refresh::Full, false);
+    let _ = writeln!(report, "ekran tam: {}", outcome(full));
     report.save();
     esp_println::println!("ekran tam: {full}");
-    delay.delay_millis(2000);
-
-    pattern(&mut frame, 60);
-    let fast = full && panel.display(&mut bus, &frame, Refresh::Fast, true);
-    let _ = writeln!(
-        report,
-        "ekran hizli: {}",
-        if fast { "tamam" } else { "hata" }
-    );
-    report.save();
-    esp_println::println!("ekran hizli: {fast}");
-    delay.delay_millis(3000);
-
-    let slept = panel.deep_sleep(&mut bus);
-    let _ = writeln!(
-        report,
-        "ekran uyku: {}",
-        if slept { "tamam" } else { "hata" }
-    );
+    if full {
+        delay.delay_millis(2000);
+        pattern(&mut frame, 60);
+        let fast = panel.display(&mut bus, &frame, Refresh::Fast, true);
+        let _ = writeln!(report, "ekran hizli: {}", outcome(fast));
+        report.save();
+        esp_println::println!("ekran hizli: {fast}");
+        if fast {
+            delay.delay_millis(3000);
+            let slept = panel.deep_sleep(&mut bus);
+            let _ = writeln!(report, "ekran uyku: {}", outcome(slept));
+        }
+    }
     let _ = writeln!(report, "bitti");
     esp_println::println!("{}", report.as_str());
     report.save();

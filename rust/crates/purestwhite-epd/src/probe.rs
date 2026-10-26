@@ -79,6 +79,18 @@ pub enum Controller {
     Uc8279(u8),
 }
 
+impl Controller {
+    /// The part's name.
+    #[must_use]
+    pub fn name(self) -> &'static str {
+        match self {
+            Controller::Ssd1677 => "SSD1677",
+            Controller::Uc8179(_) => "UC8179",
+            Controller::Uc8279(_) => "UC8279",
+        }
+    }
+}
+
 /// `LUT_VER` values of the UC8279 (the stock firmware's panel tables).
 #[must_use]
 pub fn lut_ver_is_uc8279(id: u8) -> bool {

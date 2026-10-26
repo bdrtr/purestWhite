@@ -1,7 +1,8 @@
 //! Smoke test of the bare-metal firmware, for the second OTA slot: starts esp-rtos and Embassy,
 //! runs our clock, fuel gauge and touch drivers (purestwhite-rtc, purestwhite-gauge,
-//! purestwhite-gt911) on esp-hal's I2C, reads touches for 15 s while timing Embassy's timer
-//! against the clock chip, then leaves a text report in RTC slow memory and resets.
+//! purestwhite-gt911) on esp-hal's I2C, reads touches for 15 s with the panel black meanwhile and
+//! white after (on a UC8279 or UC8179, with purestwhite-epd), then leaves a text report in RTC slow
+//! memory and resets.
 //!
 //! First it arms the RTC watchdog and hands the next boot back to the C++ firmware (see
 //! `hand_back`), which then saves the report to the SD card. The report is saved after every
@@ -10,6 +11,7 @@
 #![warn(clippy::pedantic)]
 #![no_main]
 
+use alloc::vec::Vec;
 use core::fmt::Write as _;
 use embassy_executor::Spawner;
 use embassy_time::{Delay, Instant, Timer};
@@ -20,6 +22,8 @@ use esp_hal::i2c::master::{Config as I2cConfig, I2c, SoftwareTimeout};
 use esp_hal::time::{Duration, Rate};
 use esp_hal::timer::systimer::SystemTimer;
 use log::info;
+use purestwhite_epd::uc8279x4::Refresh;
+use purestwhite_firmware::panel::{Lines, Panel, PanelPins};
 use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
 use purestwhite_gt911::{Reading, ResetPins};
 
@@ -107,11 +111,70 @@ fn clock_raw<B: embedded_hal::i2c::I2c>(bus: &mut B) -> Option<[u8; 3]> {
         .map(|()| raw)
 }
 
-/// Seconds since midnight from the clock chip's registers, whether or not its time was ever set:
-/// the oscillator runs either way once powered.
-fn clock_seconds<B: embedded_hal::i2c::I2c>(bus: &mut B) -> Option<u32> {
-    let bcd = |v: u8| u32::from(v >> 4) * 10 + u32::from(v & 0x0F);
-    clock_raw(bus).map(|[s, m, h]| bcd(h & 0x3F) * 3600 + bcd(m & 0x7F) * 60 + bcd(s & 0x7F))
+/// A frame of the X4 Pro's panel: 480 rows of 100 bytes.
+const FRAME_BYTES: usize = 100 * 480;
+
+/// The panel set up for drawing, with a frame for it. The driver runs blocking, as in
+/// `display_check`: nothing else runs meanwhile, and it is the path the emulator checks.
+struct Screen<'d> {
+    panel: Panel,
+    lines: Lines<'d>,
+    frame: Vec<u8>,
+}
+
+impl Screen<'_> {
+    /// The whole panel `fill` (0x00 black, 0xFF white) in a full refresh, powered off after.
+    fn paint(&mut self, fill: u8) -> bool {
+        self.frame.fill(fill);
+        self.panel
+            .display(&mut self.lines, &self.frame, Refresh::Full, true)
+    }
+}
+
+/// Probes the panel and sets it up when a driver here can draw on it; notes the controller, or
+/// why not, in the report.
+fn open_screen<'d>(mut pins: PanelPins<'d>, report: &mut Report) -> Option<Screen<'d>> {
+    let Some(found) = pins.probe() else {
+        let _ = writeln!(report, "ekran: yoklanamadi");
+        return None;
+    };
+    let controller = found.controller();
+    let _ = write!(report, "ekran {}: ", controller.name());
+    let Some(mut panel) = Panel::for_controller(controller) else {
+        // No driver for this controller yet: nothing more goes to it.
+        let _ = writeln!(report, "atlandi");
+        return None;
+    };
+    let mut frame = Vec::new();
+    if frame.try_reserve_exact(FRAME_BYTES).is_err() {
+        let _ = writeln!(report, "bellek yok");
+        return None;
+    }
+    frame.resize(FRAME_BYTES, 0xFF);
+    let Some(mut lines) = pins.open() else {
+        let _ = writeln!(report, "spi yok");
+        return None;
+    };
+    if !panel.begin(&mut lines) {
+        let _ = writeln!(report, "baslatilamadi");
+        return None;
+    }
+    Some(Screen {
+        panel,
+        lines,
+        frame,
+    })
+}
+
+/// "tamam" or "hata", for the report.
+fn outcome(ok: bool) -> &'static str {
+    if ok { "tamam" } else { "hata" }
+}
+
+/// Whole seconds and tenths since `start`, for the report.
+fn took(start: Instant) -> (u64, u64) {
+    let ms = start.elapsed().as_millis();
+    (ms / 1000, ms % 1000 / 100)
 }
 
 #[esp_rtos::main]
@@ -129,14 +192,16 @@ async fn main(spawner: Spawner) -> ! {
     esp_println::logger::init_logger_from_env();
 
     match handed_back {
-        Ok(found) => {
+        // The bootloader's state is left out: the report has no room for it, and the rollback
+        // check reports it.
+        Ok(_) => {
             let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
-            if let Some(state) = found.booted_state {
-                let _ = writeln!(report, "onyukleyici durumu: {state}");
-            }
         }
         Err(e) => {
+            // The way back rests on the bootloader alone now: touch nothing more.
             let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
+            report.save();
+            esp_hal::system::software_reset()
         }
     }
     report.save();
@@ -144,8 +209,7 @@ async fn main(spawner: Spawner) -> ! {
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
     let systimer = SystemTimer::new(peripherals.SYSTIMER);
     esp_rtos::start(systimer.alarm0, peripherals.FROM_CPU_INTR0);
-    let _ = writeln!(report, "esp-rtos: basladi");
-    report.save();
+    // No report line: the report has no room for it, and the lines after it show it.
     info!("esp-rtos started");
 
     // The touch controller's active-low supply: the C++ firmware powers it before using the
@@ -246,9 +310,33 @@ async fn main(spawner: Spawner) -> ! {
     }
     report.save();
 
-    // Touches for 15 s, read every 20 ms; meanwhile Embassy's timer against the clock chip, which
-    // should agree give or take its one-second resolution.
-    let clock_start = bus.as_mut().and_then(clock_seconds);
+    // The window on screen: black while touches are read, so they are made inside it. Only with
+    // the touch controller found, which also tells an X4 Pro.
+    let pins = PanelPins {
+        spi: peripherals.SPI2,
+        sclk: peripherals.GPIO12,
+        mosi: peripherals.GPIO11,
+        cs: peripherals.GPIO13,
+        dc: peripherals.GPIO18,
+        rst: peripherals.GPIO14,
+        busy: peripherals.GPIO6,
+    };
+    let mut screen = touch.and_then(|_| open_screen(pins, &mut report));
+    // Saved before each refresh: one that never ends leaves its line unfinished.
+    report.save();
+    if let Some(s) = screen.as_mut() {
+        let start = Instant::now();
+        let black = s.paint(0x00);
+        let (secs, tenths) = took(start);
+        let _ = writeln!(report, "siyah {} {secs}.{tenths} s", outcome(black));
+        if !black {
+            // The controller's state is unknown: nothing more goes to it.
+            screen = None;
+        }
+    }
+    report.save();
+
+    // Touches for 15 s, read every 20 ms.
     let start = Instant::now();
     let mut touches = Touches::default();
     while Instant::now() - start < embassy_time::Duration::from_secs(15) {
@@ -277,7 +365,6 @@ async fn main(spawner: Spawner) -> ! {
         }
         Timer::after_millis(20).await;
     }
-    let clock_end = bus.as_mut().and_then(clock_seconds);
     if touch.is_some() {
         let point =
             |p: Option<(u16, u16)>| p.map_or((-1, -1), |(x, y)| (i32::from(x), i32::from(y)));
@@ -288,17 +375,19 @@ async fn main(spawner: Spawner) -> ! {
             touches.frames, touches.most, touches.home_presses, touches.failed
         );
     }
-    match (clock_start, clock_end) {
-        (Some(a), Some(b)) => {
-            let _ = writeln!(
-                report,
-                "zaman: 15 s = saat {} s",
-                b.wrapping_sub(a).wrapping_add(86_400) % 86_400
-            );
-        }
-        _ => {
-            let _ = writeln!(report, "zaman: saat yok");
-        }
+    report.save();
+    if let Some(s) = screen.as_mut() {
+        let _ = write!(report, "beyaz ");
+        report.save();
+        let start = Instant::now();
+        let white = s.paint(0xFF);
+        let (secs, tenths) = took(start);
+        let slept = white && s.panel.deep_sleep(&mut s.lines);
+        let _ = match (white, slept) {
+            (true, true) => writeln!(report, "tamam {secs}.{tenths} s"),
+            (true, false) => writeln!(report, "tamam {secs}.{tenths} s, uyku hata"),
+            (false, _) => writeln!(report, "hata {secs}.{tenths} s"),
+        };
     }
     let _ = writeln!(report, "bitti");
 
