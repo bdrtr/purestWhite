@@ -1,0 +1,26 @@
+# rust/firmware's psram-check image starts the X4 Pro's PSRAM from the bare-metal firmware, adds it
+# to the heap and fills nearly all of it twice, reading it back; then it resets into this firmware,
+# which saves the report.
+# Settings > System > SD Card Firmware Update flashes it into the other OTA slot.
+#   cd rust/firmware; cargo build --release; cd ../..
+#   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/psram-check build/baremetal/psram-check.bin
+#   emu/compare.sh emu/baremetal-psram.txt x4pro build/baremetal/psram-check.bin
+# The base side fails at its first wait for the image's output: the unmodified base firmware
+# never starts the image.
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+touch:240,472
+timeout:180
+wait-log:bellek ters: hata
+wait-log:Bare-metal report
+expect-log:bellek: hata 0,
+expect-log:bellek ters: hata 0,
+wait-quiet:5
+shot:back-home

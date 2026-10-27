@@ -42,6 +42,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "psram-check"
+path = "./src/bin/psram_check.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rollback-check"
 path = "./src/bin/rollback_check.rs"
 test = false

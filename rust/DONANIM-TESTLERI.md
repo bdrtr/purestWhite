@@ -2605,3 +2605,23 @@ kalır), karta yazmaz. Emülatörde üç adım da çalışıyor (`emu/baremetal-
     girilmedi" yok). Uyku kodu ilk denemedekiyle aynı; fark bekçide: ilk imajın tek aşamalı sistem
     sıfırlaması güç mandalını bırakıyordu, cihazın kapanıp raporun kaybolması büyük olasılıkla
     bundandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
+
+## Bare-metal PSRAM ("rust: the PSRAM in the bare-metal firmware")
+
+Bare-metal firmware 8 MB'lık PSRAM'i açabiliyor. `psram-check` imajı PSRAM'i sekiz hatlı ve 40 MHz'de
+başlatır (C++ 80 MHz kullanır, ama bunun için her açılışta bir zamanlama ayarı yapar; esp-hal bu
+ayarı henüz yapmıyor, 40 MHz'de gerekmiyor), yığına ekler, neredeyse tamamını tek bir ayırmayla
+alır ve önce bir desenle, sonra tersiyle doldurup geri okur; hataları ve süreleri yazar, sonra C++
+firmware'e döner. Uyumaz, karta yazmaz, ekrana çizmez (ekran güncelleme sayfasında kalır, bu
+normaldir). Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır. Emülatörde 8192 KB bulunuyor ve iki
+geçiş de hatasız (`emu/baremetal-psram.txt`).
+
+- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-psram.bin`'i
+  (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
+  Firmware Güncelleme → dosyayı seçin → Onayla. Ekran donar; hiçbir şeye dokunmayın.
+  Birkaç saniye içinde C++ ana ekranı gelmeli. Bir dakika içinde gelmezse Güç'e uzun basıp açın ve
+  bana söyleyin.
+- [ ] Raporda "psram: 8192 KB, 40 MHz, ...", "yigin: 8128 KB, psram'de", "bellek: hata 0, ..." ve "bellek
+  ters: hata 0, ..." ile "bitti" bekleniyor. "hata" sıfırdan büyükse ya da "psram: bulunamadi",
+  "yigin: ... ayrilamadi", "PSRAM DISINDA" ya da "PANIK" çıkarsa raporun tamamını bana iletin.
+

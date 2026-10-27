@@ -15,6 +15,7 @@ use esp_bootloader_esp_idf::partitions::{
 };
 use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::peripherals::{CPU_CTRL, FLASH, GPIO1, RTC_TIMER};
+use esp_hal::psram::{FlashFreq, PsramConfig, PsramMode, PsramSize, SpiRamFreq};
 use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
 use esp_hal::system::{Cpu, CpuControl};
 use esp_hal::time::Duration;
@@ -67,6 +68,23 @@ pub fn arm_watchdog(rtc_timer: RTC_TIMER<'_>) -> Rtc<'_> {
     rtc.rwdt
         .set_stage_action(RwdtStage::Stage0, RwdtStageAction::ResetCore);
     rtc
+}
+
+/// The PSRAM's clock, in MHz: 40, not the C++ firmware's 80. ESP-IDF tunes the sampling timing
+/// at every boot for octal PSRAM above 40 MHz, and esp-hal 1.2.2 does not yet.
+pub const PSRAM_MHZ: u32 = 40;
+
+/// The X4 Pro's PSRAM: 8 MB octal, beside flash at 80 MHz, as the C++ firmware has it (the Arduino
+/// core's `dio_opi` variant), at `PSRAM_MHZ`; its size is read from the chip.
+#[must_use]
+pub fn psram_config() -> PsramConfig {
+    PsramConfig {
+        mode: PsramMode::OctalSpi,
+        size: PsramSize::AutoDetect,
+        core_clock: None,
+        flash_frequency: FlashFreq::FlashFreq80m,
+        ram_frequency: SpiRamFreq::Freq40m,
+    }
 }
 
 /// Raises the X4 Pro's power latch (GPIO1) and holds its pad: on battery the device turns off as
