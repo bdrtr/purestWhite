@@ -2548,12 +2548,18 @@ kayboldu. Emülatörde iki uyanış da çalışıyordu: emülatör derin uykuyu 
 taklit etmiyor. Uyku, kendini kurtaran ayrı bir tanı imajıyla (`sleep-check`) yeniden denenecek.
 Bu denemelerde imaj takılırsa kurtarma yolu Güç'e uzun basmaktır.
 
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-dugme.bin`'i
+- [x] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-dugme.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
   Firmware Güncelleme → dosyayı seçin → Onayla. Güncelleme bitince ekran donar (normal). 5 saniye
   bekleyin, sonra 40 saniye içinde aralarında yarım saniye bırakarak Sol'a 3 kez, Sağ'a 2 kez
   kısaca basın, ardından Güç'ü 2 saniye basılı tutup bırakın. Birkaç saniye içinde C++ ana
   ekranı gelmeli.
-- [ ] Raporda "dugme: sol 3, sag 2, guc 1", "guc uzun: evet" ve "bitti" bekleniyor. Sayılar
+- [x] Raporda "dugme: sol 3, sag 2, guc 1", "guc uzun: evet" ve "bitti" bekleniyor. Sayılar
   bastıklarınızdan farklıysa raporun tamamını bana iletin. C++ bir dakika içinde gelmezse Güç'e
   uzun basıp yeniden başlatın ve bana söyleyin.
+  - Sonuç (2026-10-27, 8a55083e'nin uyuyan imajıyla, cihaz): "dugme: yukari 3, asagi 2, guc 3",
+    "guc uzun: evet", "uyku: guc dugmesi ya da 60 s". Sahibi Sol'a 3, Sağ'a 2 kez bastı: sayım
+    doğru, düğmeler ve titreşim süzme cihazda doğrulandı (Güç'e birkaç kez basılmış). Sayım kodu
+    yeni imajla aynı; yalnızca adlar sol/sağ oldu ve uyku çıktı. Bu kez rapor silinmeden C++'a
+    dönüldü; cihazda uyanma nedenini yazan C++ yoktu, nasıl döndüğü belirsiz. Rapor
+    `firmware-arsiv/cihaz-raporlari/`'nda.
