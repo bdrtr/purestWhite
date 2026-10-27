@@ -2580,10 +2580,10 @@ sistemi sıfırlar; bu son çare mandalı bırakır, cihaz pildeyse kapanır ve 
 cihazda uykudan kurtardığı henüz görülmedi. İmaj ekrana çizmez (ekran güncelleme sayfasında
 kalır), karta yazmaz. Emülatörde üç adım da çalışıyor (`emu/baremetal-sleep.txt`).
 
-- [ ] Önce yeni C++ firmware'i (`purestWhite-next-uyanma.bin`) her zamanki gibi SD ile kurun ve C++
+- [x] Önce yeni C++ firmware'i (`purestWhite-next-uyanma.bin`) her zamanki gibi SD ile kurun ve C++
   ana ekranının geldiğini görün. Cihazdaki C++'tan tek farkı, uyku raporlarının sonuna uyanma ve
   sıfırlama nedenini yazması; bu deneme onsuz pek bir şey söylemez.
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. Ayarlar → System → SD Karttan Firmware
+- [x] Kartta eski `purestwhite-bare-metal.txt` varsa silin. Ayarlar → System → SD Karttan Firmware
   Güncelleme → `purestwhite-baremetal-uyku.bin` → Onayla. Güncelleme bitince ekran donar (normal).
   Sonra:
   1. 10 saniye bekleyin, Güç'e bir kez kısaca basın (hafif uykudan uyandırır).
@@ -2592,9 +2592,16 @@ kalır), karta yazmaz. Emülatörde üç adım da çalışıyor (`emu/baremetal-
 - [ ] 2 dakika içinde C++ gelmezse Güç'e kısa basın; olmazsa uzun basıp açın. Hangisinin açtığını
   ve ne kadar beklediğinizi bana söyleyin; rapor çıkmayabilir, bu da bir bulgudur (rapor hiç
   yoksa güç tamamen kesilmiştir).
-- [ ] Raporda "uyku: hafif 3 s", "hafif 3 s: zamanlayici, ~3000 ms", "uyku: hafif guc", "hafif guc:
+- [x] Raporda "uyku: hafif 3 s", "hafif 3 s: zamanlayici, ~3000 ms", "uyku: hafif guc", "hafif guc:
   dugme, ...", "uyku: derin, guc ya da 15 s", "uyanma: dugme" ve "sifirlama: DEEPSLEEP" bekleniyor.
   "uyanma: zamanlayici" çıkarsa Güç derin uykudan uyandırmamış, 15 saniyelik zamanlayıcı
   uyandırmıştır. Rapor bir "uyku: ..." satırında bitip ardından "sifirlama: WDT (other)" geliyorsa o
   adım takılmış, bekçi kurtarmıştır; "uyku: girilmedi" de varsa çip uykuya hiç girememiştir. Her
   raporu tamamen bana iletin.
+  - Sonuç (2026-10-27, 0249e415'in imajı ve C++'ı, cihaz): "uyku: hafif 3 s", "hafif 3 s:
+    zamanlayici, 3001 ms", "uyku: hafif guc", "hafif guc: dugme, 14875 ms", "uyku: derin, guc ya da
+    15 s", "uyanma: dugme", "sifirlama: DEEPSLEEP". Üç adım da cihazda çalıştı: hafif uyku
+    zamanlayıcıyla ve Güç ile, derin uyku Güç ile (ext1) uyandı; bekçiye gerek kalmadı ("uyku:
+    girilmedi" yok). Uyku kodu ilk denemedekiyle aynı; fark bekçide: ilk imajın tek aşamalı sistem
+    sıfırlaması güç mandalını bırakıyordu, cihazın kapanıp raporun kaybolması büyük olasılıkla
+    bundandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
