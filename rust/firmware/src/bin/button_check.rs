@@ -1,6 +1,6 @@
 //! The X4 Pro's buttons from the bare-metal firmware: hands the next boot back to the C++
-//! firmware, then for up to 40 s counts the presses of Up (GPIO0), Down (GPIO7) and Power
-//! (GPIO3), debounced by `purestwhite-buttons` as the SDK debounces them. Power held for a second
+//! firmware, then for up to 40 s counts the presses of Left (GPIO0, the SDK's Up), Right
+//! (GPIO7, its Down) and Power (GPIO3), debounced by `purestwhite-buttons` as the SDK debounces them. Power held for a second
 //! ends the count early. Once Power is up again (or after 10 s), it reports and resets into the
 //! C++ firmware. Without esp-rtos, so it runs in the emulator too.
 #![no_std]
@@ -98,7 +98,7 @@ fn main() -> ! {
         delay.delay_millis(1);
     }
     let [ups, downs, powers] = presses;
-    let _ = writeln!(report, "dugme: yukari {ups}, asagi {downs}, guc {powers}");
+    let _ = writeln!(report, "dugme: sol {ups}, sag {downs}, guc {powers}");
     let _ = writeln!(
         report,
         "guc uzun: {}",

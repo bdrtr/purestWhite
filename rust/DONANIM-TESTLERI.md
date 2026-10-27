@@ -2530,15 +2530,16 @@ kitaplarınızın olduğu kartı tanıyıp ona yazmayı reddedecek biçimde yap�
 
 ## Bare-metal düğmeler ("rust: buttons and deep sleep in the bare-metal firmware", "rust: count the buttons without sleeping")
 
-Bare-metal firmware düğmeleri okuyor. `button-check` imajı 40 saniye boyunca Yukarı, Aşağı ve Güç
-basmalarını sayar; Güç'ü bir saniye basılı tutarsanız saymayı bitirir (hiç uzun basmazsanız 40
-saniye dolunca biter, raporda "guc uzun: yok, 40 s doldu" yazar). Güç bırakılınca raporu yazar ve
+Bare-metal firmware düğmeleri okuyor. `button-check` imajı 40 saniye boyunca Sol, Sağ ve Güç
+basmalarını sayar (Sol ve Sağ, SDK'nın Yukarı ve Aşağı dediği tuşlar); Güç'ü bir saniye basılı
+tutarsanız saymayı bitirir (hiç uzun basmazsanız 40 saniye dolunca biter, raporda "guc uzun: yok,
+40 s doldu" yazar). Güç bırakılınca raporu yazar ve
 C++ firmware'e döner. İmaj ekrana hiçbir şey çizmez: ekran güncelleme sayfasında kalır, bu
 normaldir. Karta yazmaz. Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır, önyükleyici geri alma
 VAR olmalı. Emülatörde basmalar sayılıyor (`emu/baremetal-buttons.txt`).
 
-Dikkat: Yukarı düğmesi (GPIO0) aynı zamanda önyükleme ayağıdır. Cihaz açılırken Yukarı'yı basılı
-tutmayın; tutarsanız indirme kipine girer.
+Dikkat: Sol tuş (GPIO0) aynı zamanda önyükleme ayağıdır. Cihaz açılırken Sol'u basılı tutmayın;
+tutarsanız indirme kipine girer.
 
 İlk sürüm sayımdan sonra derin uykuya giriyordu. Cihazda (2026-10-26) uykudan ne Güç düğmesi ne
 60 saniyelik zamanlayıcı uyandırdı; ekran güncelleme sayfasında kaldı, sahibi Güç'e uzun basıp
@@ -2550,9 +2551,9 @@ Bu denemelerde imaj takılırsa kurtarma yolu Güç'e uzun basmaktır.
 - [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-dugme.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
   Firmware Güncelleme → dosyayı seçin → Onayla. Güncelleme bitince ekran donar (normal). 5 saniye
-  bekleyin, sonra 40 saniye içinde aralarında yarım saniye bırakarak Yukarı'ya 3 kez, Aşağı'ya 2
-  kez kısaca basın, ardından Güç'ü 2 saniye basılı tutup bırakın. Birkaç saniye içinde C++ ana
+  bekleyin, sonra 40 saniye içinde aralarında yarım saniye bırakarak Sol'a 3 kez, Sağ'a 2 kez
+  kısaca basın, ardından Güç'ü 2 saniye basılı tutup bırakın. Birkaç saniye içinde C++ ana
   ekranı gelmeli.
-- [ ] Raporda "dugme: yukari 3, asagi 2, guc 1", "guc uzun: evet" ve "bitti" bekleniyor. Sayılar
+- [ ] Raporda "dugme: sol 3, sag 2, guc 1", "guc uzun: evet" ve "bitti" bekleniyor. Sayılar
   bastıklarınızdan farklıysa raporun tamamını bana iletin. C++ bir dakika içinde gelmezse Güç'e
   uzun basıp yeniden başlatın ve bana söyleyin.
