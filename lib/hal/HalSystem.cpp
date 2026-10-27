@@ -224,7 +224,7 @@ void saveBareMetalReport() {
   for (uint32_t i = 0; i < len; ++i) text[i] = bytes[i];
   text[len] = '\0';
   String saved(text);
-  // A test image that ended in a deep sleep (its last line says so): what woke the chip.
+  // A test image whose report ends in a sleep line: what woke the chip, after a deep sleep.
   const int lastLine = saved.lastIndexOf('\n', saved.length() >= 2 ? saved.length() - 2 : 0);
   const bool sleptLast = saved.substring(lastLine + 1).startsWith("uyku:");
   switch (sleptLast ? esp_sleep_get_wakeup_cause() : ESP_SLEEP_WAKEUP_UNDEFINED) {
@@ -239,6 +239,10 @@ void saveBareMetalReport() {
     default:
       saved += "uyanma: diger (" + String(static_cast<int>(esp_sleep_get_wakeup_cause())) + ")\n";
       break;
+  }
+  // And what reset the chip: a sleep that did not wake ends in a watchdog reset.
+  if (sleptLast) {
+    saved += "sifirlama: " + String(resetReasonName(esp_reset_reason())) + "\n";
   }
   LOG_INF("SYS", "Bare-metal report:\n%s", saved.c_str());
   // Kept for the next boot until it is on the card.

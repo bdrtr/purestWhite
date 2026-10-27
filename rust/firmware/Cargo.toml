@@ -36,6 +36,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "sleep-check"
+path = "./src/bin/sleep_check.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rollback-check"
 path = "./src/bin/rollback_check.rs"
 test = false

@@ -2563,3 +2563,38 @@ Bu denemelerde imaj takılırsa kurtarma yolu Güç'e uzun basmaktır.
     yeni imajla aynı; yalnızca adlar sol/sağ oldu ve uyku çıktı. Bu kez rapor silinmeden C++'a
     dönüldü; cihazda uyanma nedenini yazan C++ yoktu, nasıl döndüğü belirsiz. Rapor
     `firmware-arsiv/cihaz-raporlari/`'nda.
+
+## Bare-metal uyku tanısı ("rust: a sleep diagnostic that recovers by itself")
+
+İlk derin uyku denemesi cihazda uyanmadı ("Bare-metal düğmeler"e bakın). `sleep-check` imajı uykuyu
+adım adım dener ve her adımı rapora yazar:
+1. 3 saniyelik hafif uyku, zamanlayıcıyla;
+2. Güç'e basılana kadar (en çok 20 saniye) hafif uyku, derin uykunun da kullandığı yoldan;
+3. Güç'e basılana kadar ya da 15 saniye derin uyku; uyanış C++ firmware'i açar.
+
+Hafif uykudan sonra imaj kaldığı yerden devam eder ve ne olduğunu kendisi yazar. Derin uykudan
+sonra C++ açılır ve raporun sonuna uyanma ve sıfırlama nedenini ekler. Bekçi uykuda da sayar: bir
+adım takılırsa 60 saniyede, çip hâlâ çalışıyorsa rapora "uyku: girilmedi" yazar, 15 saniye sonra
+çekirdeği sıfırlar (güç mandalı ve rapor korunur, C++ açılır). Bu da olmazsa 30 saniye sonra bütün
+sistemi sıfırlar; bu son çare mandalı bırakır, cihaz pildeyse kapanır ve rapor gider. Bekçinin
+cihazda uykudan kurtardığı henüz görülmedi. İmaj ekrana çizmez (ekran güncelleme sayfasında
+kalır), karta yazmaz. Emülatörde üç adım da çalışıyor (`emu/baremetal-sleep.txt`).
+
+- [ ] Önce yeni C++ firmware'i (`purestWhite-next-uyanma.bin`) her zamanki gibi SD ile kurun ve C++
+  ana ekranının geldiğini görün. Cihazdaki C++'tan tek farkı, uyku raporlarının sonuna uyanma ve
+  sıfırlama nedenini yazması; bu deneme onsuz pek bir şey söylemez.
+- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. Ayarlar → System → SD Karttan Firmware
+  Güncelleme → `purestwhite-baremetal-uyku.bin` → Onayla. Güncelleme bitince ekran donar (normal).
+  Sonra:
+  1. 10 saniye bekleyin, Güç'e bir kez kısaca basın (hafif uykudan uyandırır).
+  2. 5 saniye bekleyin, Güç'ü 2 saniye basılı tutup bırakın (derin uykudan uyandırır).
+  3. Hiçbir şeye dokunmayın. Birkaç saniye içinde C++ ana ekranı gelmeli.
+- [ ] 2 dakika içinde C++ gelmezse Güç'e kısa basın; olmazsa uzun basıp açın. Hangisinin açtığını
+  ve ne kadar beklediğinizi bana söyleyin; rapor çıkmayabilir, bu da bir bulgudur (rapor hiç
+  yoksa güç tamamen kesilmiştir).
+- [ ] Raporda "uyku: hafif 3 s", "hafif 3 s: zamanlayici, ~3000 ms", "uyku: hafif guc", "hafif guc:
+  dugme, ...", "uyku: derin, guc ya da 15 s", "uyanma: dugme" ve "sifirlama: DEEPSLEEP" bekleniyor.
+  "uyanma: zamanlayici" çıkarsa Güç derin uykudan uyandırmamış, 15 saniyelik zamanlayıcı
+  uyandırmıştır. Rapor bir "uyku: ..." satırında bitip ardından "sifirlama: WDT (other)" geliyorsa o
+  adım takılmış, bekçi kurtarmıştır; "uyku: girilmedi" de varsa çip uykuya hiç girememiştir. Her
+  raporu tamamen bana iletin.
