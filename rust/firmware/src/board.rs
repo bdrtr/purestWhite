@@ -9,7 +9,9 @@ use esp_hal::peripherals::{
     GPIO10, GPIO11, GPIO12, GPIO13, GPIO14, GPIO18, GPIO38, GPIO39, GPIO40, GPIO41, GPIO42, I2C0,
     LPWR, PSRAM, Peripherals, RTC_TIMER, SDHOST, SPI2, SYSTIMER,
 };
-use esp_hal::psram::{FlashFreq, PsramConfig, PsramMode, PsramSize, SpiRamFreq};
+use esp_hal::psram::{
+    FlashFreq, PsramConfig, PsramMode, PsramSize, SpiRamFreq, SpiTimingConfigCoreClock,
+};
 
 /// What every image takes first: the RTC watchdog's timer, the power latch (GPIO1, high keeps
 /// the device on), and the flash and the second core, for handing the next boot back.
@@ -137,19 +139,35 @@ impl Board {
 }
 
 /// The PSRAM's clock, in MHz: 40, not the C++ firmware's 80. ESP-IDF tunes the sampling timing
-/// at every boot for octal PSRAM above 40 MHz, and esp-hal 1.2.2 does not yet.
+/// at every boot for octal PSRAM above 40 MHz, and esp-hal 1.2.2 does not yet (esp-hal#6618). The
+/// `psram-80mhz` feature runs it at 80 without that tuning, for a test image only: it may read
+/// wrong data on another chip or when warm.
+#[cfg(not(feature = "psram-80mhz"))]
 pub const PSRAM_MHZ: u32 = 40;
+#[cfg(feature = "psram-80mhz")]
+pub const PSRAM_MHZ: u32 = 80;
+
+/// The PSRAM's clock as esp-hal takes it, and the clock of the memory interface it is divided
+/// from: at 80 MHz, 160 MHz as ESP-IDF has it (and esp-hal#3956 found it needs).
+#[cfg(not(feature = "psram-80mhz"))]
+const PSRAM_CLOCKS: (SpiRamFreq, Option<SpiTimingConfigCoreClock>) = (SpiRamFreq::Freq40m, None);
+#[cfg(feature = "psram-80mhz")]
+const PSRAM_CLOCKS: (SpiRamFreq, Option<SpiTimingConfigCoreClock>) = (
+    SpiRamFreq::Freq80m,
+    Some(SpiTimingConfigCoreClock::SpiTimingConfigCoreClock160m),
+);
 
 /// The X4 Pro's PSRAM: 8 MB octal, beside flash at 80 MHz, as the C++ firmware has it (the Arduino
 /// core's `dio_opi` variant), at `PSRAM_MHZ`; its size is read from the chip.
 #[must_use]
 pub fn psram_config() -> PsramConfig {
+    let (ram_frequency, core_clock) = PSRAM_CLOCKS;
     PsramConfig {
         mode: PsramMode::OctalSpi,
         size: PsramSize::AutoDetect,
-        core_clock: None,
+        core_clock,
         flash_frequency: FlashFreq::FlashFreq80m,
-        ram_frequency: SpiRamFreq::Freq40m,
+        ram_frequency,
     }
 }
 

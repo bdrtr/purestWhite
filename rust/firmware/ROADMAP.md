@@ -74,13 +74,13 @@ fail on another or when warm: memory errors, not crashes. Others ran 80 MHz by s
 
 Steps:
 
-1. An issue in esp-hal asking for the tuning (none is open for it; the owner decides before
-   anything is posted).
+1. An issue in esp-hal asking for the tuning: [esp-hal#6618][6618], opened 2026-10-29 with the
+   owner's approval, offering a pull request.
 2. Port ESP-IDF's tuning (`components/esp_hw_support/mspi_timing_tuning.c`, Apache-2.0) for the
    S3's octal PSRAM into esp-hal, as a pull request: write a pattern through SPI1, try each
    sampling setting, take the middle of the settings that read back right.
-3. Until then, 80 MHz only as an experiment: `psram-check` at 80 MHz with `core_clock` 160 MHz,
-   run cold and warm; the real firmware stays at 40 MHz.
+3. Until then, 80 MHz only as an experiment: `psram-check` built with the `psram-80mhz` feature
+   (80 MHz, `core_clock` 160 MHz), run cold and warm; the real firmware stays at 40 MHz.
 
 ## Emulator
 
@@ -126,3 +126,5 @@ gate open without it, and without changing the bootloader or the partition table
    leaves the old entry in force (`purestwhite-ota`).
 7. **Tested every time.** The emulator's hand-back scenarios (`emu/baremetal-handback.txt`, from
    either slot) and a recovery-key scenario run for every release.
+
+[6618]: https://github.com/esp-rs/esp-hal/issues/6618

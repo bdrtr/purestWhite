@@ -623,3 +623,19 @@ are now in English, and the C++ firmware looks for a last line starting with "sl
   start (`test_image::start`), the hand-back through `purestwhite-ota`, `Board::take`,
   `panel::open`, the touch opening and the sleep: expected as in the item above, in English, with
   "next boot: C++ firmware" as the second line.
+
+## PSRAM at 80 MHz without tuning ("firmware: a psram-80mhz feature for a PSRAM test image")
+
+`psram-check` built with `--features psram-80mhz` runs the PSRAM at 80 MHz (memory interface
+clock 160 MHz) without the timing tuning ESP-IDF does and esp-hal 1.2.2 lacks
+([esp-hal#6618](https://github.com/esp-rs/esp-hal/issues/6618)). It hands the next boot back
+first, so a hang at the PSRAM's start ends in a watchdog reset into the C++ firmware. The emulator
+passes it (`emu/baremetal-psram.txt`), but does not model the timing: only the device can tell.
+
+- [ ] Cold: after the device has been off for a while, install
+  `purestwhite-baremetal-psram80.bin` from SD. Expected in the report: "psram: 8192 KB, 80 MHz,
+  at …", "heap: N KB, in PSRAM", "memory: errors 0, …" and "memory inverted: errors 0, …", with
+  write and read times shorter than at 40 MHz (send them: they show the speed gained).
+- [ ] Warm: the same after an hour of reading or charging. Any error count above zero, a missing
+  "memory" line or "PANIC" means 80 MHz is not safe without tuning on this device: tell me.
+

@@ -71,6 +71,10 @@ path = "./src/bin/rollback_check.rs"
 test = false
 bench = false
 
+[features]
+# The PSRAM at 80 MHz without timing tuning, for a test image only (see src/board.rs).
+psram-80mhz = []
+
 [dependencies]
 esp-hal = { version = "=1.2.2", features = ["esp32s3", "log-04", "unstable"] }
 esp-rtos = { version = "=0.4.0", features = ["embassy", "esp-alloc", "esp32s3", "log-04"] }
