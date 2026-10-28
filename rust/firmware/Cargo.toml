@@ -98,6 +98,7 @@ sdio = "=0.5.3"
 
 bembeyaz-font = { path = "../crates/bembeyaz-font" }
 bembeyaz-gfx = { path = "../crates/bembeyaz-gfx" }
+purestwhite-app = { path = "../crates/purestwhite-app" }
 purestwhite-buttons = { path = "../crates/purestwhite-buttons" }
 purestwhite-epd = { path = "../crates/purestwhite-epd" }
 purestwhite-fat = { path = "../crates/purestwhite-fat" }
@@ -106,6 +107,7 @@ purestwhite-gt911 = { path = "../crates/purestwhite-gt911" }
 purestwhite-ota = { path = "../crates/purestwhite-ota" }
 purestwhite-render = { path = "../crates/purestwhite-render" }
 purestwhite-rtc = { path = "../crates/purestwhite-rtc" }
+purestwhite-services = { path = "../crates/purestwhite-services" }
 purestwhite-touch = { path = "../crates/purestwhite-touch" }
 
 [profile.dev]

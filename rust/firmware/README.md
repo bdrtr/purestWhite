@@ -17,9 +17,10 @@ pinned to exact versions in `Cargo.toml` (esp-hal `=1.2.2`, esp-rtos `=0.4.0`, .
 
 ## Code layout
 
-`src/lib.rs` holds the device layers. The layers do not depend on an executor: esp-rtos does not
-run in the emulator, so an image without one drives their async calls over blocking buses with
-`ready` (in `lib.rs`), which runs a future whose awaits are all ready at once.
+`src/lib.rs` holds the device layers. Most do not depend on an executor: esp-rtos does not run in
+the emulator, so an image without one drives their async calls over blocking buses with `ready`
+(in `lib.rs`), which runs a future whose awaits are all ready at once. `keys`, `screen` and
+`sd`'s `AsyncBus` need esp-rtos (its timer and the GPIO and SDMMC interrupts): device only.
 
 - `board`: the X4 Pro's wiring in one place. `Board::take` splits the chip's peripherals into the
   device's parts, handed over as they are, not yet set up: `Boot` (the RTC watchdog's timer, the
@@ -33,6 +34,15 @@ run in the emulator, so an image without one drives their async calls over block
   `InputManager::update()` does, and gives what changed: button changes, a request to sleep (Power
   held longer than `POWER_HOLD_MS`, 400 ms), touch events, the point held and the tap candidate.
   The caller polls every `POLL_MS` (15 ms), from an Embassy task or a plain loop.
+- `keys`: the three buttons for the Embassy main, as the application's events (`run_keys`):
+  debounced and Power's hold timed as in `input`, but woken by the pins' interrupts or a timer, so
+  nothing runs while every button is up. It ends when asked to rest and hands the pins back.
+- `memory`: the PSRAM as a heap of its own (`PSRAM`, `add_psram`), never the global allocator, and
+  the panel's frames in it (`psram_frame`), allocated as slices.
+- `screen`: the panel as the services' `Screen` (`DeviceScreen`): the probed controller's driver
+  over the panel's lines, with embassy-time's delays and BUSY awaited on its interrupt, so other
+  tasks run while the panel refreshes (SPI stays blocking). It begins the panel before the first
+  frame and again after any call that failed or was given up on.
 - `sleep`: deep sleep as the C++ firmware enters it (`HalPowerManager::startDeepSleep`): Power
   armed through the low-power path, the rails held, the digital pads' auto-hold turned off, then the
   sleep. The module's doc explains why the auto-hold must be off.

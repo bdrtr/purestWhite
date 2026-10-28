@@ -1386,6 +1386,7 @@ dependencies = [
  "esp-println",
  "esp-rtos",
  "log",
+ "purestwhite-app",
  "purestwhite-buttons",
  "purestwhite-epd",
  "purestwhite-fat",
@@ -1394,6 +1395,7 @@ dependencies = [
  "purestwhite-ota",
  "purestwhite-render",
  "purestwhite-rtc",
+ "purestwhite-services",
  "purestwhite-touch",
  "sdio",
 ]
@@ -1431,6 +1433,17 @@ name = "purestwhite-rtc"
 version = "0.1.0"
 dependencies = [
  "embedded-hal 1.0.0",
+]
+
+[[package]]
+name = "purestwhite-services"
+version = "0.1.0"
+dependencies = [
+ "embassy-futures",
+ "embassy-sync 0.8.0",
+ "embassy-time",
+ "purestwhite-app",
+ "purestwhite-render",
 ]
 
 [[package]]

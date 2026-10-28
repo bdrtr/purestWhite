@@ -10,7 +10,7 @@ use esp_hal::time::{Duration, Instant, Rate};
 use purestwhite_epd::probe::{self, Controller, Line, Mode, Probe, ProbeLines};
 use purestwhite_epd::uc8179::{GrayMode, Uc8179, X4_PRO as UC8179_X4_PRO};
 use purestwhite_epd::uc8279x4::{Refresh, Uc8279X4, X4_PRO};
-use purestwhite_epd::{Bus, BusError};
+use purestwhite_epd::{Bus, BusError, Interface};
 
 /// How long a driver call may take. A full refresh takes a few seconds; past this BUSY is taken
 /// as stuck, so the test goes on instead of waiting for the watchdog.
@@ -281,10 +281,7 @@ impl Panel {
         if !limit(bus) {
             return false;
         }
-        let done = match self {
-            Panel::Uc8279(p) => ready(p.begin(bus)),
-            Panel::Uc8179(p) => ready(p.begin(bus)),
-        };
+        let done = ready(self.begin_on(bus));
         settle(bus, done)
     }
 
@@ -299,10 +296,7 @@ impl Panel {
         if !limit(bus) {
             return false;
         }
-        let done = match self {
-            Panel::Uc8279(p) => ready(p.display(bus, frame, refresh, power_off)),
-            Panel::Uc8179(p) => ready(p.display(bus, frame, refresh, power_off)),
-        };
+        let done = ready(self.display_on(bus, frame, refresh, power_off));
         settle(bus, done)
     }
 
@@ -311,11 +305,48 @@ impl Panel {
         if !limit(bus) {
             return false;
         }
-        let done = match self {
-            Panel::Uc8279(p) => ready(p.deep_sleep(bus)),
-            Panel::Uc8179(p) => ready(p.deep_sleep(bus)),
-        };
+        let done = ready(self.deep_sleep_on(bus));
         settle(bus, done)
+    }
+
+    /// The driver's `begin` over any of the panel's line sets: the blocking calls above run it
+    /// with `ready`, the Embassy main's `crate::screen` awaits it.
+    ///
+    /// # Errors
+    /// The driver's.
+    pub async fn begin_on(&mut self, bus: &mut impl Interface) -> Result<(), BusError> {
+        match self {
+            Panel::Uc8279(p) => p.begin(bus).await,
+            Panel::Uc8179(p) => p.begin(bus).await,
+        }
+    }
+
+    /// As `begin_on`, for `display`.
+    ///
+    /// # Errors
+    /// The driver's.
+    pub async fn display_on(
+        &mut self,
+        bus: &mut impl Interface,
+        frame: &[u8],
+        refresh: Refresh,
+        power_off: bool,
+    ) -> Result<(), BusError> {
+        match self {
+            Panel::Uc8279(p) => p.display(bus, frame, refresh, power_off).await,
+            Panel::Uc8179(p) => p.display(bus, frame, refresh, power_off).await,
+        }
+    }
+
+    /// As `begin_on`, for `deep_sleep`.
+    ///
+    /// # Errors
+    /// The driver's.
+    pub async fn deep_sleep_on(&mut self, bus: &mut impl Interface) -> Result<(), BusError> {
+        match self {
+            Panel::Uc8279(p) => p.deep_sleep(bus).await,
+            Panel::Uc8179(p) => p.deep_sleep(bus).await,
+        }
     }
 
     /// Whether the UC8179 keeps its grayscale base (`for_controller` was given one it took).
