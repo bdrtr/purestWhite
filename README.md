@@ -23,6 +23,19 @@ decoding code in Rust.
 
 Current version: **0.0.3** (based on CrossPoint 1.6.5).
 
+## Two firmwares in this repository
+
+- **The C++ firmware** (`src/`, `lib/`, built with PlatformIO): CrossPoint with the changes below.
+  It is the one to read books with, and the safety net: it installs firmware from the SD card.
+- **The bare-metal Rust firmware** ([`rust/firmware`](rust/firmware/README.md), esp-hal and
+  Embassy): a new firmware, written from scratch for the X4 Pro and tried in the second OTA slot.
+  For now it is a set of test images, each of which hands the next boot back to the C++ firmware;
+  its [roadmap](rust/firmware/ROADMAP.md) says what must be true before it replaces the C++ one.
+  Both share the Rust crates under [`rust/crates`](rust/crates).
+
+When the bare-metal firmware replaces the C++ one, it moves into a repository of its own, with
+its history; this one then keeps only the C++ firmware.
+
 ## What is different from CrossPoint
 
 - **Rust where it counts.** The XML, CSS, package (OPF) and ZIP parsers, DEFLATE, the PNG

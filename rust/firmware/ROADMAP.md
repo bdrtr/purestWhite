@@ -40,6 +40,16 @@ path unchanged.
 4. Wi-Fi and HTTPS (gate 2), then BLE (gate 3), then writing to the card (gate 4).
 5. Only then the user interface and the rest of the features.
 
+## The repository
+
+During phase 2 both firmwares stay in this repository: they depend on each other (the test
+images hand the next boot back to the C++ firmware, which saves their report and remains the SD
+updater; the C++ firmware links the `bembeyaz-*` crates). `rust/` is kept self-contained (its
+tests read only data under `rust/`), so that at phase 3 it moves, with its history
+(`git filter-repo --subdirectory-filter rust`), into a repository of its own, crediting CrossPoint
+and keeping its MIT notice; this repository then keeps only the C++ firmware, for maintenance,
+and is archived later. The `bembeyaz-*` crates may take the `purestwhite-*` name at that move.
+
 ## Battery: how the bare-metal firmware could lose, and what keeps it from losing
 
 The C++ firmware does not use automatic light sleep (`CONFIG_PM_ENABLE` is off). When idle for 3 s
