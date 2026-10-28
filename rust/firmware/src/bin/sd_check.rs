@@ -17,10 +17,10 @@ use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::sdmmc::{Config as SdConfig, SdHostController, SlotConfig};
 use esp_hal::time::Instant;
 use purestwhite_fat::{Error, File, Kind, Name, Volume};
-use purestwhite_firmware::hold_power_latch;
+use purestwhite_firmware::board::Board;
 use purestwhite_firmware::ready;
 use purestwhite_firmware::sd::{self, BlockingBus, Card, CardBlocks, SpinDelay};
-use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
+use purestwhite_firmware::test_image::{Report, Started, start};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -79,29 +79,18 @@ fn cut(text: &str, max: usize) -> &str {
 
 #[esp_hal::main]
 fn main() -> ! {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
-    let _rtc = arm_watchdog(peripherals.RTC_TIMER);
-    let _latch = hold_power_latch(peripherals.GPIO1);
-    let mut report = Report::default();
-    let _ = writeln!(report, "purestWhite bare-metal SD denemesi");
-    report.save();
-    match hand_back(peripherals.FLASH, peripherals.CPU_CTRL) {
-        Ok(_) => {
-            let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
-        }
-        Err(e) => {
-            // The way back rests on the bootloader alone now: touch nothing more.
-            let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
-            report.save();
-            esp_hal::system::software_reset()
-        }
-    }
-    report.save();
+    let board = Board::take(esp_hal::init(esp_hal::Config::default()));
+    let Started {
+        rtc: _rtc,
+        latch: _latch,
+        mut report,
+        ..
+    } = start("purestWhite bare-metal SD denemesi", board.boot);
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
 
     // The card off until its first try.
-    let mut enable = Output::new(peripherals.GPIO5, Level::High, OutputConfig::default());
-    let Ok(controller) = SdHostController::new(peripherals.SDHOST, SdConfig::default()) else {
+    let mut enable = Output::new(board.card.supply, Level::High, OutputConfig::default());
+    let Ok(controller) = SdHostController::new(board.card.sdhost, SdConfig::default()) else {
         let _ = writeln!(report, "sd: denetleyici kurulamadi");
         finish(&mut report)
     };
@@ -110,9 +99,9 @@ fn main() -> ! {
         finish(&mut report)
     };
     let slot = slot
-        .with_clk(peripherals.GPIO41)
-        .with_cmd(peripherals.GPIO42)
-        .with_data0(peripherals.GPIO40);
+        .with_clk(board.card.clk)
+        .with_cmd(board.card.cmd)
+        .with_data0(board.card.dat0);
     let mut card: Card<'_> = Card::new_uninit(BlockingBus::new(slot), SpinDelay(Delay::new()));
     // A word per try, saved before it starts: a try the watchdog cuts short still shows.
     let _ = write!(report, "sd: deneme");

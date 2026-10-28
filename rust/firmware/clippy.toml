@@ -1,0 +1,3 @@
+doc-valid-idents = ["CrossPoint", "PNGdec", ".."]
+# Functions stay short and single-purpose: no god functions (counts code lines only).
+too-many-lines-threshold = 50

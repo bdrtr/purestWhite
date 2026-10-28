@@ -1,13 +1,13 @@
 //! The X4 Pro's panel for the test images: its lines, the controller probe, and the driver for
 //! the controller found, run through blocking SPI and delays whose futures are ready at once.
 
+use crate::board::PanelParts;
 use crate::ready;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{AnyPin, Flex, Input, InputConfig, Level, Output, OutputConfig, Pull};
-use esp_hal::peripherals::{GPIO6, GPIO11, GPIO12, GPIO13, GPIO14, GPIO18, SPI2};
 use esp_hal::spi::master::{Config as SpiConfig, Spi};
 use esp_hal::time::{Duration, Instant, Rate};
-use purestwhite_epd::probe::{self, Controller, Line, Mode, ProbeLines};
+use purestwhite_epd::probe::{self, Controller, Line, Mode, Probe, ProbeLines};
 use purestwhite_epd::uc8179::{GrayMode, Uc8179, X4_PRO as UC8179_X4_PRO};
 use purestwhite_epd::uc8279x4::{Refresh, Uc8279X4, X4_PRO};
 use purestwhite_epd::{Bus, BusError};
@@ -68,18 +68,6 @@ impl embedded_hal_async::delay::DelayNs for BlockingDelay {
         }
         embedded_hal::delay::DelayNs::delay_ns(&mut self.delay, ns);
     }
-}
-
-/// The panel's peripherals (freeink-sdk's board profile): SCLK 12, MOSI 11, CS 13, DC 18,
-/// RST 14, BUSY 6, on SPI2.
-pub struct PanelPins<'d> {
-    pub spi: SPI2<'d>,
-    pub sclk: GPIO12<'d>,
-    pub mosi: GPIO11<'d>,
-    pub cs: GPIO13<'d>,
-    pub dc: GPIO18<'d>,
-    pub rst: GPIO14<'d>,
-    pub busy: GPIO6<'d>,
 }
 
 /// The panel's lines as GPIOs for the probe.
@@ -144,10 +132,10 @@ fn flex(pin: AnyPin<'_>) -> Flex<'_> {
     f
 }
 
-impl PanelPins<'_> {
+impl PanelParts {
     /// Which controller drives the panel, with the lines as GPIOs for the probe's moment: the
     /// bytes the C++ firmware's probe sends at every boot. `None` if the probe could not run.
-    pub fn probe(&mut self) -> Option<probe::Probe> {
+    fn probe(&mut self) -> Option<Probe> {
         let mut gpio = PanelGpio {
             sclk: flex(self.sclk.reborrow().into()),
             sda: flex(self.mosi.reborrow().into()),
@@ -170,11 +158,10 @@ pub type Lines<'d> = Bus<
     BlockingDelay,
 >;
 
-impl<'d> PanelPins<'d> {
+impl PanelParts {
     /// The lines as SPI at 10 MHz, mode 0, with CS, DC and RST high and BUSY an input without a
     /// pull; `None` if SPI cannot be set up.
-    #[must_use]
-    pub fn open(self) -> Option<Lines<'d>> {
+    fn into_lines(self) -> Option<Lines<'static>> {
         let spi = Spi::new(
             self.spi,
             SpiConfig::default().with_frequency(Rate::from_mhz(10)),
@@ -191,6 +178,57 @@ impl<'d> PanelPins<'d> {
             delay: BlockingDelay::new(),
         })
     }
+}
+
+/// The panel, ready to begin: what the probe found, the driver for it, and the lines.
+pub struct Opened {
+    pub probe: Probe,
+    pub panel: Panel,
+    pub lines: Lines<'static>,
+}
+
+/// Why the panel cannot be used, with what the probe found when it ran.
+pub enum OpenError {
+    /// The probe could not run.
+    Probe,
+    /// No driver here for the controller found (the SSD1677): nothing more goes to it.
+    NoDriver(Probe),
+    /// SPI could not be set up.
+    Spi(Probe),
+}
+
+impl OpenError {
+    /// What the probe found, when it ran.
+    #[must_use]
+    pub fn probe(&self) -> Option<&Probe> {
+        match self {
+            OpenError::Probe => None,
+            OpenError::NoDriver(found) | OpenError::Spi(found) => Some(found),
+        }
+    }
+}
+
+/// The panel: its controller probed with the lines as GPIOs for a moment, as the C++ firmware
+/// probes at every boot; the driver for it (for the UC8179, with the grayscale base that `base`
+/// returns for it; see `Panel::for_controller`); and the lines as SPI. The driver is not begun.
+///
+/// # Errors
+/// The step that failed (`OpenError`).
+pub fn open(
+    mut parts: PanelParts,
+    base: impl FnOnce(Controller) -> Option<&'static mut [u8]>,
+) -> Result<Opened, OpenError> {
+    let probe = parts.probe().ok_or(OpenError::Probe)?;
+    let controller = probe.controller();
+    let Some(panel) = Panel::for_controller(controller, base(controller)) else {
+        return Err(OpenError::NoDriver(probe));
+    };
+    let lines = parts.into_lines().ok_or(OpenError::Spi(probe))?;
+    Ok(Opened {
+        probe,
+        panel,
+        lines,
+    })
 }
 
 /// The panel driver for the controller found.
@@ -226,8 +264,7 @@ fn settle(bus: &mut Lines<'_>, done: Option<Result<(), BusError>>) -> bool {
 impl Panel {
     /// `None` for a controller without a driver here (the SSD1677). The UC8179 keeps its
     /// grayscale base in `base` when given one a frame long.
-    #[must_use]
-    pub fn for_controller(controller: Controller, base: Option<&'static mut [u8]>) -> Option<Self> {
+    fn for_controller(controller: Controller, base: Option<&'static mut [u8]>) -> Option<Self> {
         match controller {
             Controller::Uc8279(_) => Some(Panel::Uc8279(Uc8279X4::new(X4_PRO))),
             Controller::Uc8179(_) => Some(Panel::Uc8179(

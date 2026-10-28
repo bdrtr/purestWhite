@@ -18,15 +18,16 @@
 use core::fmt::Write as _;
 use esp_backtrace as _;
 use esp_hal::delay::Delay;
-use esp_hal::gpio::{Input as Pin, InputConfig, Level, Output, OutputConfig, Pull};
+use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::rtc_cntl::Rtc;
 use esp_hal::rtc_cntl::sleep::LowPower;
 use esp_hal::time::{Duration, Instant};
+use purestwhite_firmware::board::Board;
 use purestwhite_firmware::input::{self, ButtonPins, Input, Polled};
-use purestwhite_firmware::sleep::{self, Rails};
+use purestwhite_firmware::ready;
+use purestwhite_firmware::sleep::Rails;
 use purestwhite_firmware::test_image::{self, TestSleep};
-use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
-use purestwhite_firmware::{hold_power_latch, ready};
+use purestwhite_firmware::test_image::{Report, Started, start};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -44,14 +45,13 @@ pub fn custom_halt() -> ! {
 /// How long without input puts the device to sleep, and how long it runs at most.
 const IDLE: Duration = Duration::from_secs(60);
 const MOST: Duration = Duration::from_secs(180);
-/// How long Power may stay down before the sleep starts anyway.
-const RELEASE_WAIT: Duration = Duration::from_secs(10);
 /// The sleep: until Power, or for at most 60 s; the watchdog resets the chip if it has not
-/// woken after 90 s, and fully 30 s later.
+/// woken after 90 s, and fully 30 s later. Power may stay down 10 s before it starts anyway.
 const TEST_SLEEP: TestSleep = TestSleep {
     timer: Duration::from_secs(60),
     core: Duration::from_secs(90),
     system: Duration::from_secs(30),
+    release: Duration::from_secs(10),
 };
 
 /// Milliseconds since boot, wrapping as `millis()` does.
@@ -165,76 +165,36 @@ fn watch<B: embedded_hal_async::i2c::I2c>(
 
 #[esp_hal::main]
 fn main() -> ! {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
-    let mut rtc = arm_watchdog(peripherals.RTC_TIMER);
-    let _latch = hold_power_latch(peripherals.GPIO1);
-    let mut report = Report::default();
-    let _ = writeln!(report, "purestWhite bare-metal giris denemesi");
-    report.save();
-    match hand_back(peripherals.FLASH, peripherals.CPU_CTRL) {
-        Ok(_) => {
-            let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
-        }
-        Err(e) => {
-            // The way back rests on the bootloader alone now: touch nothing more.
-            let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
-            report.save();
-            esp_hal::system::software_reset()
-        }
-    }
-    report.save();
+    let board = Board::take(esp_hal::init(esp_hal::Config::default()));
+    let Started {
+        mut rtc,
+        latch: _latch,
+        mut report,
+        ..
+    } = start("purestWhite bare-metal giris denemesi", board.boot);
 
-    // The touch controller's supply, active low, on before the shared bus is driven, as the C++
-    // firmware does.
-    let delay = Delay::new();
-    let touch_power = Output::new(peripherals.GPIO2, Level::Low, OutputConfig::default());
-    delay.delay_millis(50);
-    let (touch, _touch_pins) = test_image::open_touch(
-        peripherals.I2C0,
-        peripherals.GPIO39,
-        peripherals.GPIO38,
-        peripherals.GPIO4,
-        peripherals.GPIO10,
-    );
-    match &touch {
-        Some((_, addr)) => {
-            let _ = writeln!(report, "dokunma: {addr:#04x}");
-        }
-        None => {
-            let _ = writeln!(report, "dokunma: yok");
-        }
-    }
-    report.save();
-
-    let pulled_up = InputConfig::default().with_pull(Pull::Up);
-    let pins = ButtonPins {
-        left: Pin::new(peripherals.GPIO0, pulled_up),
-        right: Pin::new(peripherals.GPIO7, pulled_up),
-        power: Pin::new(peripherals.GPIO3, pulled_up),
-    };
-    let mut input = Input::new(pins, touch, input::POWER_HOLD_MS);
+    let touch = test_image::open_touch(board.touch, board.i2c);
+    test_image::note_touch(&mut report, touch.found.as_ref().map(|&(_, addr)| addr));
+    let pins = ButtonPins::new(board.buttons);
+    let mut input = Input::new(pins, touch.found, input::POWER_HOLD_MS);
     let mut counts = Counts::default();
     esp_println::println!("giris: hazir");
     let why = watch(&mut input, &mut rtc, &mut counts);
     counts.write(&mut report);
     report.save();
 
-    let mut pins = input.into_pins();
-    if !sleep::wait_power_up(&pins.power, RELEASE_WAIT, || rtc.rwdt.feed()) {
-        let _ = writeln!(report, "guc birakilmadi");
-    }
     let rails = Rails {
-        touch_power,
-        sd_power: Output::new(peripherals.GPIO5, Level::High, OutputConfig::default()),
-        panel_reset: Output::new(peripherals.GPIO14, Level::High, OutputConfig::default()),
+        touch_power: touch.supply,
+        sd_power: Output::new(board.card.supply, Level::High, OutputConfig::default()),
+        panel_reset: Output::new(board.panel.rst, Level::High, OutputConfig::default()),
     };
-    test_image::report_and_sleep(
+    test_image::sleep_when_released(
         &mut report,
         why,
         &mut rtc,
-        &mut pins.power,
+        input.into_pins().power,
         rails,
-        LowPower::new(peripherals.LPWR),
+        LowPower::new(board.low_power),
         TEST_SLEEP,
     )
 }

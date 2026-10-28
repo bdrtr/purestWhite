@@ -5,8 +5,9 @@
 //! gives what changed; the caller polls it every `POLL_MS`, from an Embassy task or a plain loop,
 //! as nothing in it waits but the I2C transfers.
 
+use crate::board::ButtonParts;
 use embedded_hal_async::i2c::I2c;
-use esp_hal::gpio::{Flex, Input as Pin, Level, Output};
+use esp_hal::gpio::{Flex, Input as Pin, InputConfig, Level, Output, Pull};
 use purestwhite_buttons::{Buttons, Change, PowerHold};
 use purestwhite_gt911::{Reading, ResetPins};
 use purestwhite_touch::{Events, Point, Touch};
@@ -64,6 +65,19 @@ pub struct ButtonPins<'d> {
     pub left: Pin<'d>,
     pub right: Pin<'d>,
     pub power: Pin<'d>,
+}
+
+impl ButtonPins<'static> {
+    /// The X4 Pro's buttons, with the SDK's internal pull-ups.
+    #[must_use]
+    pub fn new(parts: ButtonParts) -> Self {
+        let pulled_up = InputConfig::default().with_pull(Pull::Up);
+        ButtonPins {
+            left: Pin::new(parts.left, pulled_up),
+            right: Pin::new(parts.right, pulled_up),
+            power: Pin::new(parts.power, pulled_up),
+        }
+    }
 }
 
 impl ButtonPins<'_> {

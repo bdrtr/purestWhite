@@ -21,12 +21,12 @@ use esp_backtrace as _;
 use esp_hal::gpio::{Event, Input, InputConfig, Level, Output, OutputConfig, Pull, WakeupConfig};
 use esp_hal::peripherals::{Interrupt, LPWR};
 use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
-use esp_hal::rtc_cntl::{RwdtStage, RwdtStageAction, WakeupSource, wakeup_cause};
+use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction, WakeupSource, wakeup_cause};
 use esp_hal::system::Cpu;
 use esp_hal::time::{Duration, Instant};
-use purestwhite_firmware::hold_power_latch;
+use purestwhite_firmware::board::Board;
 use purestwhite_firmware::sleep::{self, Rails};
-use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
+use purestwhite_firmware::test_image::{Report, Started, start};
 use purestwhite_firmware::test_image::{WATCHDOG_KEY, watchdog_through_sleep};
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -84,28 +84,9 @@ fn watchdog_note() {
     regs.wdtwprotect().write(|w| unsafe { w.bits(0) });
 }
 
-#[esp_hal::main]
-fn main() -> ! {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
-    let mut rtc = arm_watchdog(peripherals.RTC_TIMER);
-    let _latch = hold_power_latch(peripherals.GPIO1);
-    let mut report = Report::default();
-    let _ = writeln!(report, "purestWhite bare-metal uyku denemesi");
-    report.save();
-    match hand_back(peripherals.FLASH, peripherals.CPU_CTRL) {
-        Ok(_) => {
-            let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
-        }
-        Err(e) => {
-            // The way back rests on the bootloader alone now: touch nothing more.
-            let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
-            report.save();
-            esp_hal::system::software_reset()
-        }
-    }
-    report.save();
-
-    // From here on a hang, awake or asleep, resets into the C++ firmware (see `WATCHDOG_NOTE`).
+/// Sets the watchdog's stages for every step from here on (see `WATCHDOG_NOTE`): a hang, awake
+/// or asleep, resets into the C++ firmware.
+fn watch_every_step(rtc: &mut Rtc<'_>) {
     // esp-hal 1.2.2 halves every stage's time on the S3, though only stage 0 counts twice as long
     // in hardware (ESP-IDF halves stage 0 alone, in hal/esp32s3's rwdt_ll.h): the later stages get
     // twice the time meant.
@@ -129,32 +110,30 @@ fn main() -> ! {
     rtc.rwdt.listen();
     watchdog_through_sleep();
     rtc.rwdt.feed();
+}
 
-    let mut low_power = LowPower::new(peripherals.LPWR);
-
-    // 1. A light sleep on the timer. Each sleep's line goes in first: if the sleep never ends, the
-    // report ends with it, and the C++ firmware adds what reset the chip.
-    let _ = writeln!(report, "uyku: hafif 3 s");
+/// A light sleep of at most `length`, between two report lines: `uyku: {what}` before it, so
+/// that a sleep that never ends is the report's last line (the C++ firmware then adds what reset
+/// the chip), and after it what ended it and how long it lasted.
+fn light_sleep(report: &mut Report, low_power: &mut LowPower<'_>, what: &str, length: Duration) {
+    let _ = writeln!(report, "uyku: {what}");
     report.save();
     let start = Instant::now();
-    low_power.set_wakeup_deadline(start + LIGHT_TIMER);
+    low_power.set_wakeup_deadline(start + length);
     low_power.sleep_light(RtcSleepConfig::default());
     low_power.clear_wakeup_deadline();
     let _ = writeln!(
         report,
-        "hafif 3 s: {}, {} ms",
+        "{what}: {}, {} ms",
         cause(),
         start.elapsed().as_millis()
     );
     report.save();
-    rtc.rwdt.feed();
+}
 
-    // 2. A light sleep that Power ends, through the low-power path, with the timer behind it.
-    // Power is active low, with the SDK's pull-up.
-    let mut power = Input::new(
-        peripherals.GPIO3,
-        InputConfig::default().with_pull(Pull::Up),
-    );
+/// Lets Power, pressed, end a light sleep through the low-power path a deep sleep wakes on; notes
+/// it in the report when that cannot be set up.
+fn wake_on_power(report: &mut Report, power: &mut Input<'_>) {
     power.listen(Event::LowLevel);
     // The low-power path wakes the chip without the pin's interrupt reaching the CPU, and nothing
     // here handles it (eink-qemu 0.9.2 also fails on GPIO interrupts).
@@ -163,20 +142,34 @@ fn main() -> ! {
     if let Err(e) = power.apply_wakeup_config(&low_power_path) {
         let _ = writeln!(report, "guc kurulamadi ({e:?})");
     }
-    let _ = writeln!(report, "uyku: hafif guc");
-    report.save();
-    esp_println::println!("uyku: guc bekleniyor");
-    let start = Instant::now();
-    low_power.set_wakeup_deadline(start + LIGHT_POWER);
-    low_power.sleep_light(RtcSleepConfig::default());
-    low_power.clear_wakeup_deadline();
-    let _ = writeln!(
-        report,
-        "hafif guc: {}, {} ms",
-        cause(),
-        start.elapsed().as_millis()
+}
+
+#[esp_hal::main]
+fn main() -> ! {
+    let board = Board::take(esp_hal::init(esp_hal::Config::default()));
+    let Started {
+        mut rtc,
+        latch: _latch,
+        mut report,
+        ..
+    } = start("purestWhite bare-metal uyku denemesi", board.boot);
+
+    watch_every_step(&mut rtc);
+    let mut low_power = LowPower::new(board.low_power);
+
+    // 1. A light sleep on the timer.
+    light_sleep(&mut report, &mut low_power, "hafif 3 s", LIGHT_TIMER);
+    rtc.rwdt.feed();
+
+    // 2. A light sleep that Power ends, through the low-power path, with the timer behind it.
+    // Power is active low, with the SDK's pull-up.
+    let mut power = Input::new(
+        board.buttons.power,
+        InputConfig::default().with_pull(Pull::Up),
     );
-    report.save();
+    wake_on_power(&mut report, &mut power);
+    esp_println::println!("uyku: guc bekleniyor");
+    light_sleep(&mut report, &mut low_power, "hafif guc", LIGHT_POWER);
     rtc.rwdt.feed();
 
     // 3. Power up first: a wake pad at its wake level ends the sleep at once.
@@ -186,9 +179,9 @@ fn main() -> ! {
     }
     // The rails as the SDK leaves them for a deep sleep (see `sleep::deep_sleep`).
     let rails = Rails {
-        touch_power: Output::new(peripherals.GPIO2, Level::High, OutputConfig::default()),
-        sd_power: Output::new(peripherals.GPIO5, Level::High, OutputConfig::default()),
-        panel_reset: Output::new(peripherals.GPIO14, Level::High, OutputConfig::default()),
+        touch_power: Output::new(board.i2c.supply, Level::High, OutputConfig::default()),
+        sd_power: Output::new(board.card.supply, Level::High, OutputConfig::default()),
+        panel_reset: Output::new(board.panel.rst, Level::High, OutputConfig::default()),
     };
     let _ = writeln!(report, "uyku: derin, guc ya da 15 s");
     esp_println::println!("{}", report.as_str());

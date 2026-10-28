@@ -71,9 +71,9 @@ pub enum Step {
 /// doc), then the deep sleep. `on_step` hears of each step.
 ///
 /// Power must be up first (see `wait_power_up`): a wake pin at its wake level ends the sleep at
-/// once. The power latch (GPIO1) must already be held high (`crate::hold_power_latch`). The C++
-/// firmware releases these holds at boot. Returns only when Power cannot be armed and there is no
-/// timer, as nothing would end the sleep then: why.
+/// once. The power latch (GPIO1) must already be held high (`crate::board::hold_power_latch`). The
+/// C++ firmware releases these holds at boot. Returns only when Power cannot be armed and there is
+/// no timer, as nothing would end the sleep then: why.
 pub fn deep_sleep(
     mut low_power: LowPower<'_>,
     power: &mut Input<'_>,

@@ -25,9 +25,10 @@ use esp_hal::time::{Duration, Instant};
 use purestwhite_epd::probe::{Controller, Probe, Verdict};
 use purestwhite_epd::uc8179::GrayMode;
 use purestwhite_epd::uc8279x4::Refresh;
-use purestwhite_firmware::hold_power_latch;
-use purestwhite_firmware::panel::{Panel, PanelPins, finish_by};
-use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
+use purestwhite_firmware::board::Board;
+use purestwhite_firmware::board::PanelParts;
+use purestwhite_firmware::panel::{self, Lines, OpenError, Panel, finish_by};
+use purestwhite_firmware::test_image::{Report, Started, start};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -129,111 +130,128 @@ fn outcome(ok: bool) -> &'static str {
     if ok { "tamam" } else { "hata" }
 }
 
-#[esp_hal::main]
-fn main() -> ! {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
-    let _rtc = arm_watchdog(peripherals.RTC_TIMER);
-    let started = Instant::now();
-    let _latch = hold_power_latch(peripherals.GPIO1);
-    let mut report = Report::default();
-    let _ = writeln!(report, "purestWhite bare-metal ekran denemesi");
-    report.save();
-    match hand_back(peripherals.FLASH, peripherals.CPU_CTRL) {
-        Ok(_) => {
-            let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
-        }
-        Err(e) => {
-            // The way back rests on the bootloader alone now: touch nothing more.
-            let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
+/// The panel's controller, probed with the panel lines as GPIOs for a moment, and its driver over
+/// the lines as SPI; the controller noted in the report. Resets when there is no driver for it
+/// (nothing more goes to it) or a step fails.
+fn open_panel(report: &mut Report, parts: PanelParts) -> (Panel, Lines<'static>) {
+    let base = |c| {
+        matches!(c, Controller::Uc8179(_))
+            .then(lasting_frame)
+            .flatten()
+    };
+    let error = match panel::open(parts, base) {
+        Ok(opened) => {
+            note(report, &opened.probe);
             report.save();
-            esp_hal::system::software_reset()
+            return (opened.panel, opened.lines);
         }
+        Err(error) => error,
+    };
+    if let Some(found) = error.probe() {
+        note(report, found);
+        report.save();
+    }
+    let line = match error {
+        OpenError::Probe => "panel: yoklanamadi",
+        OpenError::NoDriver(_) => "ekran: atlandi",
+        OpenError::Spi(_) => "ekran: spi kurulamadi",
+    };
+    let _ = writeln!(report, "{line}");
+    if matches!(error, OpenError::NoDriver(_)) {
+        let _ = writeln!(report, "bitti");
+        esp_println::println!("{}", report.as_str());
     }
     report.save();
+    esp_hal::system::software_reset()
+}
+
+/// The test pattern with a full refresh, held 2 s, then with the block moved and a fast one,
+/// held 3 s; whether both worked.
+fn show_patterns(
+    report: &mut Report,
+    panel: &mut Panel,
+    bus: &mut Lines<'_>,
+    frame: &mut [u8],
+) -> bool {
+    let delay = Delay::new();
+    pattern(frame, 10);
+    let full = panel.begin(bus) && panel.display(bus, frame, Refresh::Full, false);
+    let _ = writeln!(report, "ekran tam: {}", outcome(full));
+    report.save();
+    esp_println::println!("ekran tam: {full}");
+    if !full {
+        return false;
+    }
+    delay.delay_millis(2000);
+    pattern(frame, 60);
+    let fast = panel.display(bus, frame, Refresh::Fast, true);
+    let _ = writeln!(report, "ekran hizli: {}", outcome(fast));
+    report.save();
+    esp_println::println!("ekran hizli: {fast}");
+    if fast {
+        delay.delay_millis(3000);
+    }
+    fast
+}
+
+/// The gray bands of `GRAY_STEPS`, each held 3 s, on one report line with a word per step;
+/// whether every step worked (the steps stop at the first that fails).
+fn show_grays(
+    report: &mut Report,
+    panel: &mut Panel,
+    bus: &mut Lines<'_>,
+    frame: &mut [u8],
+) -> bool {
+    let delay = Delay::new();
+    let label = if panel.has_gray_base() {
+        "gri"
+    } else {
+        "gri tabansiz"
+    };
+    let _ = write!(report, "{label}:");
+    let mut held = true;
+    for (mode, levels, name) in GRAY_STEPS {
+        held = panel.gray(bus, frame, mode, |f, plane| {
+            bands(f, levels, mode, plane);
+        });
+        let _ = write!(report, " {}", outcome(held));
+        report.save();
+        esp_println::println!("{name}: {held}");
+        if !held {
+            break;
+        }
+        delay.delay_millis(3000);
+    }
+    let _ = writeln!(report);
+    held
+}
+
+#[esp_hal::main]
+fn main() -> ! {
+    let board = Board::take(esp_hal::init(esp_hal::Config::default()));
+    let started = Instant::now();
+    let Started {
+        rtc: _rtc,
+        latch: _latch,
+        mut report,
+        ..
+    } = start("purestWhite bare-metal ekran denemesi", board.boot);
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
     // Room for the UC8179's grayscale base (the SDK's PSRAM copy) beside the frame.
     esp_alloc::heap_allocator!(size: 50 * 1024);
 
-    // Which controller: the panel lines as GPIOs for a moment, then as SPI below.
-    let mut pins = PanelPins {
-        spi: peripherals.SPI2,
-        sclk: peripherals.GPIO12,
-        mosi: peripherals.GPIO11,
-        cs: peripherals.GPIO13,
-        dc: peripherals.GPIO18,
-        rst: peripherals.GPIO14,
-        busy: peripherals.GPIO6,
-    };
-    let Some(found) = pins.probe() else {
-        let _ = writeln!(report, "panel: yoklanamadi");
-        report.save();
-        esp_hal::system::software_reset()
-    };
-    note(&mut report, &found);
-    report.save();
-    let base = matches!(found.controller(), Controller::Uc8179(_))
-        .then(lasting_frame)
-        .flatten();
-    let Some(mut panel) = Panel::for_controller(found.controller(), base) else {
-        // No driver for this controller yet: nothing more goes to it.
-        let _ = writeln!(report, "ekran: atlandi");
-        let _ = writeln!(report, "bitti");
-        esp_println::println!("{}", report.as_str());
-        report.save();
-        esp_hal::system::software_reset()
-    };
-    let Some(mut bus) = pins.open() else {
-        let _ = writeln!(report, "ekran: spi kurulamadi");
-        report.save();
-        esp_hal::system::software_reset()
-    };
+    let pins = board.panel;
+    let (mut panel, mut bus) = open_panel(&mut report, pins);
     // Well before the 60 s watchdog, however slowly each call finishes.
     finish_by(&mut bus, started + Duration::from_secs(50));
-
     let mut frame = vec![0xFFu8; FRAME_BYTES];
-    let delay = Delay::new();
-    pattern(&mut frame, 10);
-    let full = panel.begin(&mut bus) && panel.display(&mut bus, &frame, Refresh::Full, false);
-    let _ = writeln!(report, "ekran tam: {}", outcome(full));
-    report.save();
-    esp_println::println!("ekran tam: {full}");
-    if full {
-        delay.delay_millis(2000);
-        pattern(&mut frame, 60);
-        let fast = panel.display(&mut bus, &frame, Refresh::Fast, true);
-        let _ = writeln!(report, "ekran hizli: {}", outcome(fast));
-        report.save();
-        esp_println::println!("ekran hizli: {fast}");
-        if fast {
-            delay.delay_millis(3000);
-            let mut held = true;
-            if matches!(panel, Panel::Uc8179(_)) {
-                // One line, a word per step in `GRAY_STEPS`' order.
-                let label = if panel.has_gray_base() {
-                    "gri"
-                } else {
-                    "gri tabansiz"
-                };
-                let _ = write!(report, "{label}:");
-                for (mode, levels, name) in GRAY_STEPS {
-                    held = panel.gray(&mut bus, &mut frame, mode, |f, plane| {
-                        bands(f, levels, mode, plane);
-                    });
-                    let _ = write!(report, " {}", outcome(held));
-                    report.save();
-                    esp_println::println!("{name}: {held}");
-                    if !held {
-                        break;
-                    }
-                    delay.delay_millis(3000);
-                }
-                let _ = writeln!(report);
-            }
-            if held {
-                let slept = panel.deep_sleep(&mut bus);
-                let _ = writeln!(report, "ekran uyku: {}", outcome(slept));
-            }
-        }
+    let mut held = show_patterns(&mut report, &mut panel, &mut bus, &mut frame);
+    if held && matches!(panel, Panel::Uc8179(_)) {
+        held = show_grays(&mut report, &mut panel, &mut bus, &mut frame);
+    }
+    if held {
+        let slept = panel.deep_sleep(&mut bus);
+        let _ = writeln!(report, "ekran uyku: {}", outcome(slept));
     }
     let _ = writeln!(report, "bitti");
     esp_println::println!("{}", report.as_str());

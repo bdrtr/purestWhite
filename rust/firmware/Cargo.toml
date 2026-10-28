@@ -1,6 +1,6 @@
-# The bare-metal firmware (esp-hal + Embassy), phase 2 of rust/README.md's plan. For now a smoke
-# test for the second OTA slot: see src/bin/main.rs. Its own workspace: it builds only for the
-# ESP32-S3, the parent workspace's crates also for the host.
+# The bare-metal firmware (esp-hal + Embassy), phase 2 of rust/README.md's plan. For now test
+# images for the second OTA slot (src/bin/), the real firmware's main still to come. Its own
+# workspace: it builds only for the ESP32-S3, the parent workspace's crates also for the host.
 [workspace]
 
 [package]
@@ -12,8 +12,8 @@ license      = "MIT"
 publish      = false
 
 [[bin]]
-name = "purestwhite-firmware"
-path = "./src/bin/main.rs"
+name = "smoke-check"
+path = "./src/bin/smoke_check.rs"
 test = false
 bench = false
 
@@ -61,7 +61,7 @@ bench = false
 
 [[bin]]
 name = "feedback-check"
-path = "./src/bin/feedback_check.rs"
+path = "./src/bin/feedback_check/main.rs"
 test = false
 bench = false
 

@@ -13,8 +13,8 @@ use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::time::{Duration, Instant};
 use purestwhite_buttons::Buttons;
-use purestwhite_firmware::hold_power_latch;
-use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
+use purestwhite_firmware::board::Board;
+use purestwhite_firmware::test_image::{Report, Started, start};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -46,59 +46,75 @@ fn millis() -> u32 {
     Instant::now().duration_since_epoch().as_millis() as u32
 }
 
-#[esp_hal::main]
-fn main() -> ! {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
-    let _rtc = arm_watchdog(peripherals.RTC_TIMER);
-    let _latch = hold_power_latch(peripherals.GPIO1);
-    let mut report = Report::default();
-    let _ = writeln!(report, "purestWhite bare-metal dugme denemesi");
-    report.save();
-    match hand_back(peripherals.FLASH, peripherals.CPU_CTRL) {
-        Ok(_) => {
-            let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
-        }
-        Err(e) => {
-            // The way back rests on the bootloader alone now: touch nothing more.
-            let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
-            report.save();
-            esp_hal::system::software_reset()
-        }
+/// The three buttons, active low with the SDK's internal pull-ups.
+struct Keys<'d> {
+    up: Input<'d>,
+    down: Input<'d>,
+    power: Input<'d>,
+}
+
+impl Keys<'_> {
+    /// The buttons held now, as `UP`, `DOWN` and `POWER` bits.
+    fn sample(&self) -> u8 {
+        let held = |input: &Input<'_>, bit: u8| if input.is_low() { bit } else { 0 };
+        held(&self.up, UP) | held(&self.down, DOWN) | held(&self.power, POWER)
     }
-    report.save();
+}
 
-    // Active low, with the SDK's internal pull-ups. Up is GPIO0, a boot strap: held through a
-    // reset it starts the ROM's download mode, so the count never resets the chip.
-    let pulled_up = InputConfig::default().with_pull(Pull::Up);
-    let up = Input::new(peripherals.GPIO0, pulled_up);
-    let down = Input::new(peripherals.GPIO7, pulled_up);
-    let power = Input::new(peripherals.GPIO3, pulled_up);
-    let held = |input: &Input<'_>, bit: u8| if input.is_low() { bit } else { 0 };
-    let sample = |up: &Input<'_>, down: &Input<'_>, power: &Input<'_>| {
-        held(up, UP) | held(down, DOWN) | held(power, POWER)
-    };
-
+/// Each button's presses, debounced, for up to `WINDOW`, and whether Power was held for
+/// `LONG_MS`, which ends the count early.
+fn count_presses(keys: &Keys<'_>) -> ([u32; 3], bool) {
     let delay = Delay::new();
     let mut buttons = Buttons::new(POWER_BIT);
     let mut presses = [0u32; 3];
     let start = Instant::now();
-    let mut long = false;
-    esp_println::println!("dugmeler: hazir");
     while start.elapsed() < WINDOW {
         let now = millis();
-        let change = buttons.update(now, sample(&up, &down, &power));
+        let change = buttons.update(now, keys.sample());
         for (bit, count) in presses.iter_mut().enumerate() {
             if change.pressed & (1 << bit) != 0 {
                 *count += 1;
             }
         }
         if buttons.state() & POWER != 0 && buttons.power_held_ms(now) >= LONG_MS {
-            long = true;
-            break;
+            return (presses, true);
         }
         delay.delay_millis(1);
     }
-    let [ups, downs, powers] = presses;
+    (presses, false)
+}
+
+/// Waits up to `RELEASE_WAIT` for Power to be up again, so that the C++ firmware does not start
+/// with it held; whether it is.
+fn wait_power_up(power: &Input<'_>) -> bool {
+    let delay = Delay::new();
+    let released = Instant::now();
+    while power.is_low() && released.elapsed() < RELEASE_WAIT {
+        delay.delay_millis(10);
+    }
+    !power.is_low()
+}
+
+#[esp_hal::main]
+fn main() -> ! {
+    let board = Board::take(esp_hal::init(esp_hal::Config::default()));
+    let Started {
+        rtc: _rtc,
+        latch: _latch,
+        mut report,
+        ..
+    } = start("purestWhite bare-metal dugme denemesi", board.boot);
+
+    // Up is GPIO0, a boot strap: held through a reset it starts the ROM's download mode, so the
+    // count never resets the chip.
+    let pulled_up = InputConfig::default().with_pull(Pull::Up);
+    let keys = Keys {
+        up: Input::new(board.buttons.left, pulled_up),
+        down: Input::new(board.buttons.right, pulled_up),
+        power: Input::new(board.buttons.power, pulled_up),
+    };
+    esp_println::println!("dugmeler: hazir");
+    let ([ups, downs, powers], long) = count_presses(&keys);
     let _ = writeln!(report, "dugme: sol {ups}, sag {downs}, guc {powers}");
     let _ = writeln!(
         report,
@@ -106,13 +122,7 @@ fn main() -> ! {
         if long { "evet" } else { "yok, 40 s doldu" }
     );
     report.save();
-
-    // Power up again before the reset, so the C++ firmware does not start with it held.
-    let released = Instant::now();
-    while power.is_low() && released.elapsed() < RELEASE_WAIT {
-        delay.delay_millis(10);
-    }
-    if power.is_low() {
+    if !wait_power_up(&keys.power) {
         let _ = writeln!(report, "guc birakilmadi");
     }
     let _ = writeln!(report, "bitti");

@@ -34,9 +34,9 @@ use esp_hal::sdmmc::{Config as SdConfig, SdHostController, SlotConfig};
 use esp_hal::timer::systimer::SystemTimer;
 use purestwhite_buttons::Buttons;
 use purestwhite_fat::{Error, Volume};
-use purestwhite_firmware::hold_power_latch;
+use purestwhite_firmware::board::{Board, CardParts};
 use purestwhite_firmware::sd::{self, AsyncBus, AsyncCard, CardBlocks};
-use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
+use purestwhite_firmware::test_image::{Report, Started, start};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -219,71 +219,31 @@ async fn read_card(mut card: AsyncCard<'static>, mut enable: Output<'static>) ->
     )
 }
 
-#[esp_rtos::main]
-async fn main(spawner: Spawner) -> ! {
-    let peripherals = esp_hal::init(esp_hal::Config::default().with_cpu_clock(CpuClock::max()));
-    let _rtc = arm_watchdog(peripherals.RTC_TIMER);
-    let _latch = hold_power_latch(peripherals.GPIO1);
-    let mut report = Report::default();
-    let _ = writeln!(report, "purestWhite bare-metal gorev denemesi");
-    report.save();
-    match hand_back(peripherals.FLASH, peripherals.CPU_CTRL) {
-        Ok(_) => {
-            let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
-        }
-        Err(e) => {
-            // The way back rests on the bootloader alone now: touch nothing more.
-            let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
-            report.save();
-            esp_hal::system::software_reset()
-        }
-    }
-    report.save();
-
-    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
-    let systimer = SystemTimer::new(peripherals.SYSTIMER);
-    esp_rtos::start(systimer.alarm0, peripherals.FROM_CPU_INTR0);
-
-    // Active low, with the SDK's internal pull-ups. Left is GPIO0, a boot strap, which only a
-    // power-on or system reset samples: the core resets here leave it alone.
-    let pulled_up = InputConfig::default().with_pull(Pull::Up);
-    let up = Input::new(peripherals.GPIO0, pulled_up);
-    let down = Input::new(peripherals.GPIO7, pulled_up);
-    let power = Input::new(peripherals.GPIO3, pulled_up);
-    spawner.spawn(buttons(up, down, power).unwrap());
-    spawner.spawn(heartbeat().unwrap());
-
-    // The card off until its first try.
-    let enable = Output::new(peripherals.GPIO5, Level::High, OutputConfig::default());
+/// The card task on SDMMC slot 1, the card off until its first try; without the slot, the card's
+/// line says so at once.
+fn spawn_card(spawner: Spawner, card: CardParts) {
+    let enable = Output::new(card.supply, Level::High, OutputConfig::default());
     // The task's slot borrows the controller, which lives as long as the image, on the heap.
-    let slot = SdHostController::new(peripherals.SDHOST, SdConfig::default())
+    let slot = SdHostController::new(card.sdhost, SdConfig::default())
         .ok()
         .map(|controller| &*Box::leak(Box::new(controller)))
         .and_then(|controller| controller.slot::<1>(SlotConfig::default()).ok());
     match slot {
         Some(slot) => {
             let slot = slot
-                .with_clk(peripherals.GPIO41)
-                .with_cmd(peripherals.GPIO42)
-                .with_data0(peripherals.GPIO40)
+                .with_clk(card.clk)
+                .with_cmd(card.cmd)
+                .with_data0(card.dat0)
                 .into_async();
             let card_on = AsyncCard::new_uninit(AsyncBus::new(slot), Delay);
             spawner.spawn(self::card(card_on, enable).unwrap());
         }
         None => SD_DONE.signal(String::from("sd: yuva kurulamadi")),
     }
-    esp_println::println!("gorevler: basladi");
+}
 
-    let start = Instant::now();
-    while start.elapsed() < WINDOW && !LONG.load(Ordering::Relaxed) {
-        Timer::after_millis(50).await;
-    }
-    STOP.store(true, Ordering::Relaxed);
-    let sd_line = match select(SD_DONE.wait(), Timer::after(SD_WAIT)).await {
-        Either::First(line) => line,
-        Either::Second(()) => String::from("sd: bitmedi"),
-    };
-    let _ = writeln!(report, "{sd_line}");
+/// The buttons' and the heartbeat's counts, in the report.
+fn write_counts(report: &mut Report) {
     let [ups, downs, powers] = PRESSES.each_ref().map(|c| c.load(Ordering::Relaxed));
     let long = if LONG.load(Ordering::Relaxed) {
         "evet"
@@ -302,14 +262,60 @@ async fn main(spawner: Spawner) -> ! {
         BEATS.load(Ordering::Relaxed),
         LATEST_US.load(Ordering::Relaxed)
     );
-    report.save();
+}
 
-    // Power up again before the reset, so the C++ firmware does not start with it held.
+/// Waits up to `RELEASE_WAIT` for Power to be up again, so that the C++ firmware does not start
+/// with it held; whether it is.
+async fn power_up() -> bool {
     let released = Instant::now();
     while POWER_DOWN.load(Ordering::Relaxed) && released.elapsed() < RELEASE_WAIT {
         Timer::after_millis(10).await;
     }
-    if POWER_DOWN.load(Ordering::Relaxed) {
+    !POWER_DOWN.load(Ordering::Relaxed)
+}
+
+#[esp_rtos::main]
+async fn main(spawner: Spawner) -> ! {
+    let board = Board::take(esp_hal::init(
+        esp_hal::Config::default().with_cpu_clock(CpuClock::max()),
+    ));
+    let Started {
+        rtc: _rtc,
+        latch: _latch,
+        mut report,
+        ..
+    } = start("purestWhite bare-metal gorev denemesi", board.boot);
+
+    esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
+    let systimer = SystemTimer::new(board.rtos.systimer);
+    esp_rtos::start(systimer.alarm0, board.rtos.interrupt);
+
+    // Active low, with the SDK's internal pull-ups. Left is GPIO0, a boot strap, which only a
+    // power-on or system reset samples: the core resets here leave it alone.
+    let pulled_up = InputConfig::default().with_pull(Pull::Up);
+    let up = Input::new(board.buttons.left, pulled_up);
+    let down = Input::new(board.buttons.right, pulled_up);
+    let power = Input::new(board.buttons.power, pulled_up);
+    spawner.spawn(buttons(up, down, power).unwrap());
+    spawner.spawn(heartbeat().unwrap());
+
+    spawn_card(spawner, board.card);
+    esp_println::println!("gorevler: basladi");
+
+    let start = Instant::now();
+    while start.elapsed() < WINDOW && !LONG.load(Ordering::Relaxed) {
+        Timer::after_millis(50).await;
+    }
+    STOP.store(true, Ordering::Relaxed);
+    let sd_line = match select(SD_DONE.wait(), Timer::after(SD_WAIT)).await {
+        Either::First(line) => line,
+        Either::Second(()) => String::from("sd: bitmedi"),
+    };
+    let _ = writeln!(report, "{sd_line}");
+    write_counts(&mut report);
+    report.save();
+
+    if !power_up().await {
         let _ = writeln!(report, "guc birakilmadi");
     }
     let _ = writeln!(report, "bitti");

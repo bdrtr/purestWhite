@@ -8,7 +8,7 @@
 
 use core::fmt::Write as _;
 use esp_backtrace as _;
-use purestwhite_firmware::hold_power_latch;
+use purestwhite_firmware::board::{Board, hold_power_latch};
 use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -27,14 +27,14 @@ pub fn custom_halt() -> ! {
 
 #[esp_hal::main]
 fn main() -> ! {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
-    let _rtc = arm_watchdog(peripherals.RTC_TIMER);
-    let _latch = hold_power_latch(peripherals.GPIO1);
+    let board = Board::take(esp_hal::init(esp_hal::Config::default()));
+    let _rtc = arm_watchdog(board.boot.rtc_timer);
+    let _latch = hold_power_latch(board.boot.latch);
     // A report at once, so a panic from here on is not added to an older one.
     let mut report = Report::default();
     let _ = writeln!(report, "purestWhite bare-metal geri donus denemesi");
     report.save();
-    let handed_back = hand_back(peripherals.FLASH, peripherals.CPU_CTRL);
+    let handed_back = hand_back(board.boot.flash, board.boot.cpu);
     match handed_back {
         Ok(found) => {
             let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
