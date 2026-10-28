@@ -1,4 +1,4 @@
 add_executable(JpegDecoderCorpusTest JpegDecoderCorpusTest.cpp)
-target_compile_definitions(JpegDecoderCorpusTest PRIVATE JPEG_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/corpus")
+target_compile_definitions(JpegDecoderCorpusTest PRIVATE JPEG_CORPUS_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../rust/crates/bembeyaz-jpeg/testdata/corpus")
 target_link_libraries(JpegDecoderCorpusTest PRIVATE crosspoint_test_common GTest::gtest_main)
 gtest_discover_tests(JpegDecoderCorpusTest)

@@ -33,7 +33,7 @@ impl Rng {
 
 macro_rules! corpus {
     ($name:literal) => {
-        include_bytes!(concat!("../../../../test/jpeg_decoder/corpus/", $name))
+        include_bytes!(concat!("../testdata/corpus/", $name))
     };
 }
 

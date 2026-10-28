@@ -139,11 +139,11 @@ mod tests {
     use super::*;
     use std::vec::Vec;
 
-    /// The emulator's SD card font: Liberation Serif at 14 px, Latin with its extensions.
+    /// Noto Serif at 14 px, Latin with its extensions (testdata/README.md).
     fn font() -> Vec<u8> {
         std::fs::read(concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../../emu/books/LiberationSerif_14.cpfont"
+            "/testdata/noto-serif-14.cpfont"
         ))
         .unwrap()
     }

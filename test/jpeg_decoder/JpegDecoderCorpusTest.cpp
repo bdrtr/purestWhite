@@ -1,12 +1,12 @@
 // What the JPEG decoder hands JpegToFramebufferConverter and JpegToBmpConverter for the files in
-// corpus/ (make_corpus.py) and for each one cut short: the result of opening it (size, baseline or
-// progressive, error), and, for files the converters go on to decode, every block it draws at each
-// scale they ask for (position, size, the 8-bit gray pixels in use) and the result of the decode.
-// Files are decoded only when the converters would decode them: a size within their limits.
-// The reports hash to a value recorded from JPEGDEC (the commit platformio.ini pinned, with
-// CrossPoint's three patches, built as the firmware built it: a 32-bit bit buffer, no unaligned
-// reads, no SIMD), the decoder the firmware used before bembeyaz-jpeg. Rerun with
-// JPEG_CORPUS_PRINT=1 to list the cases. The hash freezes the corpus.
+// rust/crates/bembeyaz-jpeg/testdata/corpus/ (make_corpus.py) and for each one cut short: the
+// result of opening it (size, baseline or progressive, error), and, for files the converters go on
+// to decode, every block it draws at each scale they ask for (position, size, the 8-bit gray pixels
+// in use) and the result of the decode. Files are decoded only when the converters would decode
+// them: a size within their limits. The reports hash to a value recorded from JPEGDEC (the commit
+// platformio.ini pinned, with CrossPoint's three patches, built as the firmware built it: a 32-bit
+// bit buffer, no unaligned reads, no SIMD), the decoder the firmware used before bembeyaz-jpeg.
+// Rerun with JPEG_CORPUS_PRINT=1 to list the cases. The hash freezes the corpus.
 //
 // Left out, because JPEGDEC's output there is not a behaviour to keep: a sampling factor of 3, on
 // which it divided by zero (a crash on the device too), and a frame of more than four components,

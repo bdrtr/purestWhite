@@ -3,7 +3,7 @@
 tables, restart intervals, progressive scans, four-component (CMYK) files, metadata segments
 (EXIF, ICC, comments), large and wide images, and broken markers, segment lengths and data.
 
-    python3 test/jpeg_decoder/make_corpus.py test/jpeg_decoder/corpus
+    python3 test/jpeg_decoder/make_corpus.py rust/crates/bembeyaz-jpeg/testdata/corpus
 
 The files are committed. The test's hash was recorded from JPEGDEC, which is no longer built:
 changing the corpus loses that check."""
