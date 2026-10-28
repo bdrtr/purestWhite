@@ -25,8 +25,8 @@ use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction, WakeupSource, wakeup_ca
 use esp_hal::system::Cpu;
 use esp_hal::time::{Duration, Instant};
 use purestwhite_firmware::board::Board;
+use purestwhite_firmware::boot::{Report, Started, start};
 use purestwhite_firmware::sleep::{self, Rails};
-use purestwhite_firmware::test_image::{Report, Started, start};
 use purestwhite_firmware::test_image::{WATCHDOG_KEY, watchdog_through_sleep};
 
 esp_bootloader_esp_idf::esp_app_desc!();

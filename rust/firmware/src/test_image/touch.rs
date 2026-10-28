@@ -1,7 +1,7 @@
 //! The touch panel for images without an executor.
 
-use super::Report;
 use crate::board::{I2cParts, TouchParts};
+use crate::boot::Report;
 use crate::input::{ReadyI2c, TOUCH, TouchPins};
 use core::fmt::Write as _;
 use esp_hal::Blocking;

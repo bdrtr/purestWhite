@@ -1,8 +1,8 @@
 //! The bare-metal firmware's device layers: the X4 Pro's wiring (`board`), the buttons and touch
 //! panel (`input`), deep sleep (`sleep`), and for now the panel (`panel`) and the SD card (`sd`)
-//! through blocking calls. What only the test images for the second OTA slot use (their common
-//! start, handing the next boot back to the C++ firmware, their report, their watchdog) is in
-//! `test_image`, out of the real firmware's way.
+//! through blocking calls. The start every image shares while the C++ firmware is the known-good
+//! one (the watchdog, the next boot handed back to it, the report) is in `boot`; what only the
+//! test images use is in `test_image`, out of the real firmware's way.
 #![no_std]
 #![warn(clippy::pedantic)]
 
@@ -11,6 +11,7 @@
 use esp_alloc as _;
 
 pub mod board;
+pub mod boot;
 pub mod input;
 pub mod panel;
 pub mod sd;

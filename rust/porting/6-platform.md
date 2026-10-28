@@ -199,12 +199,13 @@ no floating point in the bare-metal path, because eink-qemu 0.9.2 crashes on flo
 operations ("[Digital Signature] Invalid padding"). `emu/baremetal-feedback.txt`: passed in the
 emulator (63 steps, the marks under the finger, the 16th refresh a half one).
 
-The helpers that only the test images use (handing the next boot back to C++, the report, the
-watchdog that counts in sleep too, the touch setup without an executor) are in `rust/firmware`'s
-`test_image` module, away from the real firmware's path. It now also holds the start that every
-image shares (`start`) and the sleep marked on the report's last line (`report_and_sleep`,
-`sleep_when_released`). The otadata choice behind handing back is in the `purestwhite-ota` crate,
-tested on the host.
+The start every phase-2 image shares (`start`: the watchdog armed, the latch held, the report
+begun, the next boot handed back to C++) and the report are in `rust/firmware`'s `boot` module,
+which the real firmware's image uses too while the C++ firmware is the known-good one. What only
+the test images use (the watchdog that counts in sleep too, the sleep marked on the report's last
+line, the touch setup without an executor) is in its `test_image` module, away from the real
+firmware's path. The otadata choice behind handing back is in the `purestwhite-ota` crate, tested
+on the host.
 
 Text in the SD card's font (D2): `bembeyaz-font`'s new `face` module reads one style of a `.cpfont`
 directly from the file (the header and the style's interval table once; each glyph's record and

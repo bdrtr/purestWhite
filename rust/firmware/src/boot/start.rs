@@ -1,4 +1,4 @@
-//! A test image's first steps, the same in every image.
+//! An image's first steps, the same in every image while it hands the next boot back.
 
 use super::{HandBack, Report, arm_watchdog, hand_back};
 use crate::board::{Boot, hold_power_latch};
@@ -6,7 +6,7 @@ use core::fmt::Write as _;
 use esp_hal::gpio::Output;
 use esp_hal::rtc_cntl::Rtc;
 
-/// What `start` leaves a test image. Keep the RTC driver and the latch for the rest of the run.
+/// What `start` leaves an image. Keep the RTC driver and the latch for the rest of the run.
 pub struct Started<'d> {
     pub rtc: Rtc<'d>,
     pub latch: Output<'d>,

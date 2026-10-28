@@ -1,6 +1,7 @@
 //! A test image's deep sleep, each step marked on the report's last line as it is taken.
 
-use super::{Report, watch_sleep};
+use super::watch_sleep;
+use crate::boot::Report;
 use crate::sleep::{Rails, Step, deep_sleep, wait_power_up};
 use core::fmt::Write as _;
 use esp_hal::gpio::Input;

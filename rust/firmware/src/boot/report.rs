@@ -1,4 +1,4 @@
-//! The report a test image leaves the C++ firmware in RTC slow memory.
+//! The report an image leaves the C++ firmware in RTC slow memory.
 
 /// Where the report goes: the last 256 bytes of RTC slow memory, which the C++ firmware leaves
 /// unused (it checks that at boot). lib/hal/HalSystem.cpp reads it with the same layout: magic,

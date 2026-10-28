@@ -4,7 +4,7 @@
 //! white after (on a UC8279 or UC8179, with purestwhite-epd), then leaves a text report in RTC slow
 //! memory and resets.
 //!
-//! First it does what every test image does first (`test_image::start`): arms the RTC watchdog,
+//! First it does what every test image does first (`boot::start`): arms the RTC watchdog,
 //! holds the power latch and hands the next boot back to the C++ firmware, which then saves the
 //! report to the SD card. The report is saved after every stage, and a panic adds a line to it and
 //! resets.
@@ -27,9 +27,10 @@ use log::info;
 use purestwhite_epd::uc8279x4::Refresh;
 use purestwhite_firmware::board::Board;
 use purestwhite_firmware::board::{I2cParts, PanelParts, TouchParts};
+use purestwhite_firmware::boot::{Report, Started, start};
 use purestwhite_firmware::input::{TOUCH, TouchPins};
 use purestwhite_firmware::panel::{self, Lines, OpenError, Opened, Panel};
-use purestwhite_firmware::test_image::{Report, Started, note_touch, start};
+use purestwhite_firmware::test_image::note_touch;
 use purestwhite_gt911::Reading;
 
 extern crate alloc;

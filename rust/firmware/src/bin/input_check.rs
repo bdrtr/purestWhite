@@ -23,11 +23,11 @@ use esp_hal::rtc_cntl::Rtc;
 use esp_hal::rtc_cntl::sleep::LowPower;
 use esp_hal::time::{Duration, Instant};
 use purestwhite_firmware::board::Board;
+use purestwhite_firmware::boot::{Report, Started, start};
 use purestwhite_firmware::input::{self, ButtonPins, Input, Polled};
 use purestwhite_firmware::ready;
 use purestwhite_firmware::sleep::Rails;
 use purestwhite_firmware::test_image::{self, TestSleep};
-use purestwhite_firmware::test_image::{Report, Started, start};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

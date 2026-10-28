@@ -6,8 +6,8 @@ use alloc::string::String;
 use bembeyaz_gfx::Canvas;
 use core::fmt::Write as _;
 use purestwhite_epd::uc8279x4::Refresh;
+use purestwhite_firmware::boot::Report;
 use purestwhite_firmware::input::Polled;
-use purestwhite_firmware::test_image::Report;
 use purestwhite_touch::Point;
 
 /// After this many fast refreshes, a half refresh clears what they left behind.

@@ -15,7 +15,7 @@ use esp_backtrace as _;
 use esp_hal::psram::Psram;
 use esp_hal::time::Instant;
 use purestwhite_firmware::board::{Board, PSRAM_MHZ, psram_config};
-use purestwhite_firmware::test_image::{Report, Started, start};
+use purestwhite_firmware::boot::{Report, Started, start};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

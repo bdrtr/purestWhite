@@ -47,6 +47,7 @@ run in the emulator, so an image without one drives their async calls over block
 - `storage`: `load_whole` reads a file from the card whole into memory from a given allocator
   (PSRAM through esp-alloc's `ExternalMemory` for a large file), for data that is read often and
   never changed, such as a font.
+- `boot`: the start every image shares while the C++ firmware is the known-good one (below).
 - `test_image`: what only the test images use, out of the real firmware's way (below).
 
 What does not touch hardware is in `rust/crates`, where it builds and is tested on the host:
@@ -55,7 +56,7 @@ What does not touch hardware is in `rust/crates`, where it builds and is tested 
 traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit together, and the
 [host simulator](#run-in-the-host-simulator) runs them on a PC.
 
-### test_image
+### boot
 
 - `start`: the start every image shares. It arms the RTC watchdog (60 s, then a core reset) before
   anything that could hang, holds the power latch, begins the report with the image's title and
@@ -69,9 +70,12 @@ traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit
 - `Report`: the report in the last 256 bytes of RTC slow memory (magic "PWBT", length, then up to
   248 bytes of text), saved again after every stage. Text past its room is dropped and the last
   byte becomes `~`. After a panic, every image adds `PANIC` to the saved report and resets.
-- `arm_watchdog`, `watch_sleep`: the RTC watchdog; `watch_sleep` keeps it counting through a test
-  image's deep sleep (a core reset, which keeps the latch and the report, then a system reset).
-  The real firmware must not call it, as its sleeps last hours.
+- `arm_watchdog`: the RTC watchdog, 60 s, then a core reset, which keeps the latch and the report.
+
+### test_image
+
+- `watch_sleep`: keeps the RTC watchdog counting through a test image's deep sleep (a core reset,
+  then a system reset). The real firmware must not call it, as its sleeps last hours.
 - `report_and_sleep`, `sleep_when_released`: the sleep line `sleep: deep, <why>` at the end of the
   report, with a mark for each step of the sleep, so that a sleep that never ends shows its step;
   `sleep_when_released` first waits for Power to be up (or notes `power held`).

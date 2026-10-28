@@ -1,7 +1,7 @@
 //! The X4 Pro's deep sleep, as the C++ firmware enters it (`HalPowerManager::startDeepSleep`):
 //! the rails it leaves held, and a wake on Power through the low-power path. A deep sleep's wake
 //! resets the chip, and the bootloader then starts the app that otadata selects (see
-//! `crate::test_image::hand_back`, which also drops the bootloader's record of this image).
+//! `crate::boot::hand_back`, which also drops the bootloader's record of this image).
 //!
 //! On the device, with esp-hal 1.2.2, a deep sleep that is the first sleep since boot did not
 //! end: neither Power nor its timer woke the chip, which most likely never entered the sleep

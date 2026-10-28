@@ -27,8 +27,8 @@ use purestwhite_epd::uc8179::GrayMode;
 use purestwhite_epd::uc8279x4::Refresh;
 use purestwhite_firmware::board::Board;
 use purestwhite_firmware::board::PanelParts;
+use purestwhite_firmware::boot::{Report, Started, start};
 use purestwhite_firmware::panel::{self, Lines, OpenError, Panel, finish_by};
-use purestwhite_firmware::test_image::{Report, Started, start};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

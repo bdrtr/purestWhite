@@ -35,8 +35,8 @@ use esp_hal::timer::systimer::SystemTimer;
 use purestwhite_buttons::Buttons;
 use purestwhite_fat::{Error, Volume};
 use purestwhite_firmware::board::{Board, CardParts};
+use purestwhite_firmware::boot::{Report, Started, start};
 use purestwhite_firmware::sd::{self, AsyncBus, AsyncCard, CardBlocks};
-use purestwhite_firmware::test_image::{Report, Started, start};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

@@ -41,10 +41,11 @@ use esp_hal::sdmmc::{Config as SdConfig, SdHostController};
 use esp_hal::time::{Duration, Instant};
 use font::{Font, add_psram, open_font};
 use purestwhite_firmware::board::{Board, CardParts, PanelParts};
+use purestwhite_firmware::boot::{Report, Started, start};
 use purestwhite_firmware::input::{self, ButtonPins, Input};
 use purestwhite_firmware::ready;
 use purestwhite_firmware::sleep::Rails;
-use purestwhite_firmware::test_image::{self, Report, Started, TestSleep, start};
+use purestwhite_firmware::test_image::{self, TestSleep};
 use screen::{Screen, open_screen};
 
 esp_bootloader_esp_idf::esp_app_desc!();

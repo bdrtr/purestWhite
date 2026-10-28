@@ -18,9 +18,9 @@ use esp_hal::sdmmc::{Config as SdConfig, SdHostController, SlotConfig};
 use esp_hal::time::Instant;
 use purestwhite_fat::{Error, File, Kind, Name, Volume};
 use purestwhite_firmware::board::Board;
+use purestwhite_firmware::boot::{Report, Started, start};
 use purestwhite_firmware::ready;
 use purestwhite_firmware::sd::{self, BlockingBus, Card, CardBlocks, SpinDelay};
-use purestwhite_firmware::test_image::{Report, Started, start};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
