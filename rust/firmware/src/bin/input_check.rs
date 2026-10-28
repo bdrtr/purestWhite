@@ -1,7 +1,7 @@
 //! The X4 Pro's input and sleep from the bare-metal firmware: hands the next boot back to the C++
 //! firmware, starts the touch panel, then polls the buttons and the panel every 15 ms
 //! (`purestwhite_firmware::input`) and counts what they give, until the C++ firmware would sleep:
-//! Power held longer than 400 ms, or 20 s without input (the C++ firmware waits its setting,
+//! Power held longer than 400 ms, or 60 s without input (the C++ firmware waits its setting,
 //! 10 minutes by default), or at the latest after 3 minutes. Then, once Power is up, it reports
 //! and sleeps deeply (`purestwhite_firmware::sleep`) until Power is pressed, or for at most 60 s;
 //! the wake boots the C++ firmware, which adds what woke the chip and what reset it. The RTC
@@ -44,7 +44,7 @@ pub fn custom_halt() -> ! {
 }
 
 /// How long without input puts the device to sleep, and how long it runs at most.
-const IDLE: Duration = Duration::from_secs(20);
+const IDLE: Duration = Duration::from_secs(60);
 const MOST: Duration = Duration::from_secs(180);
 /// How long Power may stay down before the sleep starts anyway.
 const RELEASE_WAIT: Duration = Duration::from_secs(10);
@@ -130,7 +130,7 @@ fn watch<B: embedded_hal_async::i2c::I2c>(
             return "guc";
         }
         if last_activity.elapsed() >= IDLE {
-            return "bos 20 s";
+            return "bos 60 s";
         }
         if start.elapsed() >= MOST {
             return "sure doldu";

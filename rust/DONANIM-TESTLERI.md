@@ -2669,7 +2669,7 @@ deneme"dekiyle aynıdır.
 Bare-metal firmware düğmeleri ve dokunma panelini C++ firmware gibi 15 ms'de bir okuyor ve C++'ın
 kurallarıyla uykuya giriyor. `input-check` imajı Sol, Sağ ve Güç basmalarını, ekrana dokunuşları
 (kısa dokunuş, uzun dokunuş, kaydırma) ve Home tuşunu sayar. Güç'ü yarım saniyeden uzun basılı
-tutup bırakınca, ya da 20 saniye hiçbir şeye dokunmazsanız, derin uykuya girer. Güç'e basınca
+tutup bırakınca, ya da 60 saniye hiçbir şeye dokunmazsanız, derin uykuya girer. Güç'e basınca
 uyanır ve C++ firmware açılır; o da raporun sonuna uyanma ve sıfırlama nedenini yazar. Güç'e hiç
 basmazsanız cihaz 60 saniye sonra kendisi uyanır. İmaj ekrana çizmez (ekran güncelleme sayfasında
 kalır, bu normaldir), karta yazmaz. Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır. Emülatörde
@@ -2677,10 +2677,10 @@ sayımlar, uyku ve Güç ile uyanış çalışıyor (`emu/baremetal-input.txt`).
 
 Dikkat: uyandırırken Sağ'ı basılı tutmayın.
 
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-giris-4.bin`'i
+- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-giris-5.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) kartın köküne koyun; Ayarlar → System → SD
   Karttan Firmware Güncelleme → dosyayı seçin → Onayla. Güncelleme bitince ekran donar (normal).
-  5 saniye bekleyin. Sonra, aralarında 20 saniyeden uzun ara vermeden: Sol'a 2 kez, Sağ'a 2 kez
+  5 saniye bekleyin. Sonra, aralarında 60 saniyeden uzun ara vermeden: Sol'a 2 kez, Sağ'a 2 kez
   kısaca basın; ekrana bir kez kısaca dokunun; bir yere parmağınızı 1 saniye basılı tutup kaldırın;
   ekranda parmağınızı hızlıca bir yana kaydırın; Home tuşuna bir kez kısaca dokunun. En son Güç'ü 1
   saniye basılı tutup bırakın: cihaz uykuya girer (ekran değişmez).
@@ -2691,8 +2691,8 @@ Dikkat: uyandırırken Sağ'ı basılı tutmayın.
 - [ ] Raporda şunlar bekleniyor: "dokunma: 0x5d" (ya da 0x14), "dugme: sol 2 sag 2 guc 1",
   "dokunus: 3, dokun 1, kaydir 1, uzun 1" (her dokunuş, uzun dokunuş ve kaydırma bir "dokunus"
   sayılır), "home: dokun 1, uzun 0", "uyku: derin, guc" (ardından "i…", "p…", "a", "r", "s" gibi adım
-  izleri gelir, bunlar normaldir), "uyanma: dugme" ve "sifirlama: DEEPSLEEP". Güç'e basmadan beklediyseniz "uyanma: zamanlayici" yazar. Bir şeyi atlayıp 20 saniye
-  beklediyseniz "uyku: derin, bos 20 s" yazar; bu da olur. Sayılar bastıklarınızdan farklıysa,
+  izleri gelir, bunlar normaldir), "uyanma: dugme" ve "sifirlama: DEEPSLEEP". Güç'e basmadan beklediyseniz "uyanma: zamanlayici" yazar. Bir şeyi atlayıp 60 saniye
+  beklediyseniz "uyku: derin, bos 60 s" yazar; bu da olur. Sayılar bastıklarınızdan farklıysa,
   "dokunma: yok", "guc birakilmadi", "hazir degil" ya da "PANIK" çıkarsa, ya da uyku satırından
   sonra "uyanma:" satırı yoksa ve "sifirlama: WDT (other)" geliyorsa raporun
   tamamını bana iletin.
@@ -2718,3 +2718,9 @@ Dikkat: uyandırırken Sağ'ı basılı tutmayın.
     önce tutulmayan dijital pinleri, flaşınkiler dahil, devreden çıkarıyor ve ardından çalışan kod
     önbellekte değilse çip takılıyor; bunu yalnızca otomatik tutma açıkken yapıyor
     (`sleep::deep_sleep` artık kapatıyor). Rapor `firmware-arsiv/cihaz-raporlari/giris-4.txt`.
+  - Tekrar (2026-10-28, c0d0d870'in imajı `purestwhite-baremetal-giris-4.bin`): "dugme: sol 0 sag
+    0 guc 0", "dokunus: 0, ...", "uyku: derin, bos 20 s i28000 p10000880 a r s", "uyanma: dugme",
+    "sifirlama: DEEPSLEEP". Hiçbir giriş sayılmadı: ekran donuk kaldığı için imajın ne zaman
+    dinlemeye başladığı görülmüyor, basışlar 20 saniyelik bekleme bittikten sonra geldi. Boşta
+    uyuma ve Güç ile uyanma da cihazda çalıştı. Bekleme bundan sonra 60 saniye
+    (`purestwhite-baremetal-giris-5.bin`). Rapor `firmware-arsiv/cihaz-raporlari/giris-4b-bos.txt`.
