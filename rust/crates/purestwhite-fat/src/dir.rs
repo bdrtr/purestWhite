@@ -89,6 +89,25 @@ pub struct Entry {
 }
 
 impl Entry {
+    /// The file or directory short entry `raw`, at `index` in `parent`, as if it had no long name.
+    fn read(kind: Kind, raw: &[u8; ENTRY], parent: Dir, index: u32) -> Self {
+        let mut short_name = [0u8; 11];
+        short_name.copy_from_slice(raw.get(..11).unwrap_or(&[0; 11]));
+        let high = match kind {
+            Kind::Fat16 => 0,
+            Kind::Fat32 => u32::from(u16_at(raw, 20)) << 16,
+        };
+        Entry {
+            attributes: byte_at(raw, 11),
+            cluster: high | u32::from(u16_at(raw, 26)),
+            size: u32_at(raw, 28),
+            short_name,
+            parent,
+            index,
+            first: index,
+        }
+    }
+
     #[must_use]
     pub fn is_dir(&self) -> bool {
         self.attributes & ATTR_DIRECTORY != 0
@@ -399,27 +418,13 @@ impl<D: BlockDevice> Volume<D> {
                 long.reset();
                 continue;
             }
-            let mut short = [0u8; 11];
-            short.copy_from_slice(raw.get(..11).unwrap_or(&[0; 11]));
-            let first = if long.finish(checksum(&short), name) {
-                long_start
+            let mut entry = Entry::read(self.layout.kind, &raw, cursor.dir, index);
+            if long.finish(checksum(&entry.short_name), name) {
+                entry.first = long_start;
             } else {
-                short_name(&short, byte_at(&raw, 12), name);
-                index
-            };
-            let high = match self.layout.kind {
-                Kind::Fat16 => 0,
-                Kind::Fat32 => u32::from(u16_at(&raw, 20)) << 16,
-            };
-            return Ok(Some(Entry {
-                attributes,
-                cluster: high | u32::from(u16_at(&raw, 26)),
-                size: u32_at(&raw, 28),
-                short_name: short,
-                parent: cursor.dir,
-                index,
-                first,
-            }));
+                short_name(&entry.short_name, byte_at(&raw, 12), name);
+            }
+            return Ok(Some(entry));
         }
         Ok(None)
     }

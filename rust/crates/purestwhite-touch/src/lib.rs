@@ -22,7 +22,7 @@
 #[cfg(test)]
 mod tests;
 
-use purestwhite_gt911::{MAX_CONTACTS, Reading};
+use purestwhite_gt911::{Frame, MAX_CONTACTS, Reading};
 
 /// How far a contact may move and still be held in place, for a long press, in panel pixels:
 /// the SDK's `TOUCH_TAP_SLOP_PX`. Farther counts once it is more than this on an axis.
@@ -187,6 +187,18 @@ impl Touch {
             Reading::ContactsFailed { home_key } => (*home_key, None),
         };
         self.time_home(now);
+        self.home_edges(now, home_key);
+        // A frame whose contacts could not be read keeps the contact as it was. As in the SDK,
+        // the count the controller reports decides.
+        match frame {
+            None => {}
+            Some(frame) if frame.reported == 0 => self.lift(now),
+            Some(frame) => self.contact(now, frame),
+        }
+    }
+
+    /// The Home key's press and tap, from a new frame's key state.
+    fn home_edges(&mut self, now: u32, home_key: bool) {
         if home_key && !self.home_down {
             self.home_pressed_edge = true;
             self.home_down_at = now;
@@ -195,54 +207,57 @@ impl Touch {
             self.home_tapped_edge = true;
         }
         self.home_down = home_key;
+    }
 
-        // A frame whose contacts could not be read keeps the contact as it was.
-        let Some(frame) = frame else { return };
-        // As in the SDK, the count the controller reports decides; when it is above 0, `read` has
-        // stored at least one contact.
+    /// A frame without contacts: every finger lifted.
+    fn lift(&mut self, now: u32) {
+        if self.pressed {
+            self.released_edge = true;
+            self.held_ms = now.wrapping_sub(self.down_at);
+        }
+        self.pressed = false;
+    }
+
+    /// A frame with contacts: the first one, as the SDK follows it; `read` has stored at least
+    /// one when the controller reports any.
+    fn contact(&mut self, now: u32, frame: &Frame) {
+        let several = frame.reported > 1;
+        if several {
+            self.second_finger(frame.reported);
+        }
         let first = frame.contacts.first().copied().unwrap_or_default();
-        if frame.reported == 0 {
-            if self.pressed {
-                self.released_edge = true;
-                self.held_ms = now.wrapping_sub(self.down_at);
-            }
-            self.pressed = false;
-            return;
-        }
-        // A second finger makes the contact a multi-contact sequence, which no single-contact
-        // gesture follows.
-        if frame.reported > 1 {
-            if !self.gesture || usize::from(frame.reported) > MAX_CONTACTS {
-                self.multi = true;
-                self.long_press_done = true;
-            }
-            self.gesture = true;
-        }
         let point = Point {
             x: first.x,
             y: first.y,
         };
         if !self.pressed {
-            self.contact = self.contact.wrapping_add(1);
-            self.pressed_edge = true;
-            self.down = point;
-            self.down_at = now;
-            self.moved = false;
-            self.moved_far = false;
+            self.touch_down(now, point);
         }
         self.last = point;
         let (dx, dy) = self.down.distance(point);
-        if dx > TAP_SLOP || dy > TAP_SLOP {
-            self.moved = true;
-        }
-        if dx > TAP_RELEASE_SLOP || dy > TAP_RELEASE_SLOP {
-            self.moved_far = true;
-        }
-        if frame.reported > 1 {
-            self.moved = true;
-            self.moved_far = true;
-        }
+        self.moved |= several || dx > TAP_SLOP || dy > TAP_SLOP;
+        self.moved_far |= several || dx > TAP_RELEASE_SLOP || dy > TAP_RELEASE_SLOP;
         self.pressed = true;
+    }
+
+    /// A second finger makes the contact a multi-contact sequence, which no single-contact
+    /// gesture follows (but see `gesture`).
+    fn second_finger(&mut self, reported: u8) {
+        if !self.gesture || usize::from(reported) > MAX_CONTACTS {
+            self.multi = true;
+            self.long_press_done = true;
+        }
+        self.gesture = true;
+    }
+
+    /// A new contact's first frame.
+    fn touch_down(&mut self, now: u32, point: Point) {
+        self.contact = self.contact.wrapping_add(1);
+        self.pressed_edge = true;
+        self.down = point;
+        self.down_at = now;
+        self.moved = false;
+        self.moved_far = false;
     }
 
     /// The Home key's long press, from the key's state and the time: a key held still gives no

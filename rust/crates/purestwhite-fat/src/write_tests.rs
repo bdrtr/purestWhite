@@ -45,6 +45,44 @@ fn check(host: &Host, image: &mut Image, files: &BTreeMap<String, Vec<u8>>) {
     }
 }
 
+/// The files `files_written_are_read_back_by_fsck_and_mtools` writes: path, length and the
+/// size of each write, around block and cluster edges.
+fn sample_files(cluster_bytes: usize) -> [(&'static str, usize, usize); 10] {
+    [
+        ("README.TXT", 100, 100),
+        ("notlar.txt", 511, 7),
+        ("Uzun bir kitap adı — Cilt 1.epub", 70_000, 4096),
+        ("kısa.txt", 512, 512),
+        ("a.b.c.d", 513, 1000),
+        ("+artı.txt", cluster_bytes - 1, 333),
+        (".gizli", cluster_bytes, cluster_bytes),
+        ("boş dosya.bin", 0, 1),
+        (
+            "Kitaplar/İçindekiler ve özet.md",
+            3 * cluster_bytes + 1,
+            1500,
+        ),
+        ("Kitaplar/b.txt", cluster_bytes + 1, 70_000),
+    ]
+}
+
+/// The sample files' entries carry the time set (2026-12-31 23:59:59), and an 8.3 name in upper
+/// case is only a short name while the others keep their long one.
+fn assert_sample_entries(vol: &mut Volume<&mut Image>) {
+    let entry = block_on(vol.find("notlar.txt")).unwrap();
+    let raw = block_on(vol.read_slot(entry.parent, entry.index)).unwrap();
+    let date = ((2026 - 1980) << 9) | (12 << 5) | 31;
+    // 59 seconds is kept as 58, in two-second steps.
+    let time = (23 << 11) | (59 << 5) | 0x1D;
+    assert_eq!(u16::from_le_bytes([raw[24], raw[25]]), date);
+    assert_eq!(u16::from_le_bytes([raw[22], raw[23]]), time);
+    assert_eq!(raw[11], 0x20);
+    assert_eq!(entry.short_name, *b"NOTLAR  TXT");
+    assert_eq!(entry.first + 1, entry.index);
+    let readme = block_on(vol.find("README.TXT")).unwrap();
+    assert_eq!(readme.first, readme.index);
+}
+
 #[test]
 fn files_written_are_read_back_by_fsck_and_mtools() {
     if !tools() {
@@ -70,43 +108,12 @@ fn files_written_are_read_back_by_fsck_and_mtools() {
                 minute: 59,
                 second: 59,
             });
-            for (i, (path, len, chunk)) in [
-                ("README.TXT", 100, 100),
-                ("notlar.txt", 511, 7),
-                ("Uzun bir kitap adı — Cilt 1.epub", 70_000, 4096),
-                ("kısa.txt", 512, 512),
-                ("a.b.c.d", 513, 1000),
-                ("+artı.txt", cluster_bytes - 1, 333),
-                (".gizli", cluster_bytes, cluster_bytes),
-                ("boş dosya.bin", 0, 1),
-                (
-                    "Kitaplar/İçindekiler ve özet.md",
-                    3 * cluster_bytes + 1,
-                    1500,
-                ),
-                ("Kitaplar/b.txt", cluster_bytes + 1, 70_000),
-            ]
-            .into_iter()
-            .enumerate()
-            {
+            for (i, (path, len, chunk)) in sample_files(cluster_bytes).into_iter().enumerate() {
                 let bytes = content(100 + i as u32, len);
                 write_file(&mut vol, path, &bytes, chunk);
                 files.insert(path.to_string(), bytes);
             }
-            // The entry carries the time set.
-            let entry = block_on(vol.find("notlar.txt")).unwrap();
-            let raw = block_on(vol.read_slot(entry.parent, entry.index)).unwrap();
-            let date = ((2026 - 1980) << 9) | (12 << 5) | 31;
-            // 59 seconds is kept as 58, in two-second steps.
-            let time = (23 << 11) | (59 << 5) | 0x1D;
-            assert_eq!(u16::from_le_bytes([raw[24], raw[25]]), date);
-            assert_eq!(u16::from_le_bytes([raw[22], raw[23]]), time);
-            assert_eq!(raw[11], 0x20);
-            // An 8.3 name in upper case is only a short name; the others keep their long one.
-            assert_eq!(entry.short_name, *b"NOTLAR  TXT");
-            assert_eq!(entry.first + 1, entry.index);
-            let readme = block_on(vol.find("README.TXT")).unwrap();
-            assert_eq!(readme.first, readme.index);
+            assert_sample_entries(&mut vol);
             assert_eq!(listed(&mut vol, "Kitaplar").len(), 2);
         }
         check(&host, &mut image, &files);
@@ -828,6 +835,25 @@ fn directories_made_here_are_seen_by_fsck_and_mtools() {
     }
 }
 
+/// After `renames_and_moves`'s first moves: a clash, a missing source and a directory moved into
+/// itself are refused.
+fn assert_renames_refused(vol: &mut Volume<&mut Image>) {
+    assert!(matches!(
+        block_on(vol.rename("yeni ad.txt", "Notlar.TXT")),
+        Err(Error::Exists)
+    ));
+    assert!(matches!(
+        block_on(vol.rename("yok.txt", "var.txt")),
+        Err(Error::NotFound)
+    ));
+    for into in ["Üst/Taşınan dizin/Üst", "Üst/kendisi"] {
+        assert!(
+            matches!(block_on(vol.rename("Üst", into)), Err(Error::IntoItself)),
+            "{into}"
+        );
+    }
+}
+
 #[test]
 fn renames_and_moves() {
     if !tools() {
@@ -860,22 +886,7 @@ fn renames_and_moves() {
         let moved = block_on(vol.open_dir("Üst/Taşınan dizin")).unwrap();
         let ust = block_on(vol.open_dir("Üst")).unwrap();
         assert_eq!(dot_cluster(&mut vol, moved, 1), ust.cluster);
-        assert!(matches!(
-            block_on(vol.rename("yeni ad.txt", "Notlar.TXT")),
-            Err(Error::Exists)
-        ));
-        assert!(matches!(
-            block_on(vol.rename("yok.txt", "var.txt")),
-            Err(Error::NotFound)
-        ));
-        assert!(matches!(
-            block_on(vol.rename("Üst", "Üst/Taşınan dizin/Üst")),
-            Err(Error::IntoItself)
-        ));
-        assert!(matches!(
-            block_on(vol.rename("Üst", "Üst/kendisi")),
-            Err(Error::IntoItself)
-        ));
+        assert_renames_refused(&mut vol);
         // Back to the root: ".." is 0 again.
         block_on(vol.rename("Üst/Taşınan dizin", "Geri")).unwrap();
         let back = block_on(vol.open_dir("Geri")).unwrap();

@@ -23,52 +23,64 @@ fn short_char(c: u8) -> bool {
     c.is_ascii_uppercase() || c.is_ascii_digit() || b"!#$%&'()-@^_`{}~".contains(&c)
 }
 
+/// What a long name lost on its way into 8.3: characters that became `_` (`lossy`), and
+/// characters left out or past the room (`cut`).
+#[derive(Default)]
+struct Loss {
+    lossy: bool,
+    cut: bool,
+}
+
+/// `c` as a short-name byte: upper-cased ASCII, or `_` when it may not stand there.
+fn short_byte(c: char, loss: &mut Loss) -> u8 {
+    if c.is_ascii() {
+        let b = c.to_ascii_uppercase() as u8;
+        if short_char(b) {
+            return b;
+        }
+    }
+    loss.lossy = true;
+    b'_'
+}
+
+/// Puts `part` into `to` as short-name bytes, leaving out spaces, and dots when `drop_dots`;
+/// how many bytes it put.
+fn put(part: &str, to: &mut [u8], drop_dots: bool, loss: &mut Loss) -> usize {
+    let mut len = 0;
+    for c in part.chars() {
+        if c == ' ' || (drop_dots && c == '.') {
+            loss.cut = true;
+            continue;
+        }
+        let b = short_byte(c, loss);
+        match to.get_mut(len) {
+            Some(slot) => {
+                *slot = b;
+                len += 1;
+            }
+            None => loss.cut = true,
+        }
+    }
+    len
+}
+
 /// The basis of `long`, a valid long name (see `valid_long`).
 pub(crate) fn basis(long: &str) -> Basis {
     let mut name = [b' '; 11];
-    let (mut lossy, mut fits) = (false, true);
+    let mut loss = Loss::default();
     // The extension is what follows the last dot, unless the name starts with its only dot.
     let body = long.trim_start_matches('.');
     if body.len() != long.len() {
-        fits = false;
+        loss.cut = true;
     }
     let (base, ext) = match body.rsplit_once('.') {
         Some((base, ext)) => (base, Some(ext)),
         None => (body, None),
     };
-    let mut put = |part: &str, to: &mut [u8], drop_dots: bool| -> usize {
-        let mut len = 0;
-        for c in part.chars() {
-            if c == ' ' || (drop_dots && c == '.') {
-                fits = false;
-                continue;
-            }
-            let b = if c.is_ascii() {
-                let b = c.to_ascii_uppercase() as u8;
-                if short_char(b) {
-                    b
-                } else {
-                    lossy = true;
-                    b'_'
-                }
-            } else {
-                lossy = true;
-                b'_'
-            };
-            match to.get_mut(len) {
-                Some(slot) => {
-                    *slot = b;
-                    len += 1;
-                }
-                None => fits = false,
-            }
-        }
-        len
-    };
     let (base_part, ext_part) = name.split_at_mut(BASE);
-    let mut base_len = put(base, base_part, true);
+    let mut base_len = put(base, base_part, true, &mut loss);
     if let Some(ext) = ext {
-        put(ext, ext_part, false);
+        put(ext, ext_part, false, &mut loss);
     }
     if base_len == 0 {
         // Nothing left of the base, as in "+.txt": one `_`.
@@ -76,14 +88,14 @@ pub(crate) fn basis(long: &str) -> Basis {
             *first = b'_';
         }
         base_len = 1;
-        lossy = true;
+        loss.lossy = true;
     }
-    let exact = !lossy && fits && is_written(&name, long);
+    let exact = !loss.lossy && !loss.cut && is_written(&name, long);
     Basis {
         name,
         base_len,
         exact,
-        tail: lossy || !fits,
+        tail: loss.lossy || loss.cut,
     }
 }
 

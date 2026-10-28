@@ -107,14 +107,12 @@ impl<D: BlockDevice> Volume<D> {
         buf: &mut [u8],
     ) -> Result<usize, Error<D::Error>> {
         let cluster_bytes = self.layout.cluster_bytes();
-        let cluster_blocks = self.layout.cluster_blocks;
         // A buffer past 4 GiB reads no more than a file can hold.
         let room = u32::try_from(buf.len()).unwrap_or(u32::MAX);
         let mut done = 0u32;
         while done < room && file.pos < file.size {
             let left = (room - done).min(file.size - file.pos);
-            let ordinal = file.pos / cluster_bytes;
-            self.locate(file, ordinal).await?;
+            self.locate(file, file.pos / cluster_bytes).await?;
             let offset = file.pos % cluster_bytes;
             let block = self.layout.cluster_block(file.cluster) + offset / BLOCK_BYTES;
             let in_block = offset % BLOCK_BYTES;
@@ -122,31 +120,7 @@ impl<D: BlockDevice> Volume<D> {
                 .get_mut(done as usize..(done + left) as usize)
                 .ok_or(Error::Corrupt)?;
             let taken = if in_block == 0 && left >= BLOCK_BYTES {
-                // Whole blocks: to the end of this cluster and on through the clusters right
-                // after it, as long as the chain goes there.
-                let wanted = left / BLOCK_BYTES;
-                let mut run = cluster_blocks - offset / BLOCK_BYTES;
-                let mut last = file.cluster;
-                while run < wanted {
-                    match self.next_cluster(last).await? {
-                        Some(next) if next == last + 1 => {
-                            last = next;
-                            run += cluster_blocks;
-                        }
-                        _ => break,
-                    }
-                }
-                let bytes = run.min(wanted) * BLOCK_BYTES;
-                let (chunks, _) = out
-                    .get_mut(..bytes as usize)
-                    .ok_or(Error::Corrupt)?
-                    .as_chunks_mut::<BLOCK>();
-                self.read_blocks(block, chunks).await?;
-                // The read ended in the run's clusters, which follow each other.
-                let end_ordinal = (file.pos + bytes - 1) / cluster_bytes;
-                file.cluster += end_ordinal - ordinal;
-                file.ordinal = end_ordinal;
-                bytes
+                self.read_run(file, out, block, left).await?
             } else {
                 let data = self.data_block(block).await?;
                 let n = left.min(BLOCK_BYTES - in_block);
@@ -160,5 +134,44 @@ impl<D: BlockDevice> Volume<D> {
             file.pos += taken;
         }
         Ok(done as usize)
+    }
+
+    /// Reads as many whole blocks as `left` bytes hold into `out`, from `block`, at a block
+    /// boundary of `file`'s position: to the end of this cluster and on through the clusters right
+    /// after it, as long as the chain goes there. It leaves `file` at the cluster the read ended in
+    /// (the caller moves its position). The bytes read.
+    async fn read_run(
+        &mut self,
+        file: &mut File,
+        out: &mut [u8],
+        block: u32,
+        left: u32,
+    ) -> Result<u32, Error<D::Error>> {
+        let cluster_bytes = self.layout.cluster_bytes();
+        let cluster_blocks = self.layout.cluster_blocks;
+        let ordinal = file.pos / cluster_bytes;
+        let wanted = left / BLOCK_BYTES;
+        let mut run = cluster_blocks - (file.pos % cluster_bytes) / BLOCK_BYTES;
+        let mut last = file.cluster;
+        while run < wanted {
+            match self.next_cluster(last).await? {
+                Some(next) if next == last + 1 => {
+                    last = next;
+                    run += cluster_blocks;
+                }
+                _ => break,
+            }
+        }
+        let bytes = run.min(wanted) * BLOCK_BYTES;
+        let (chunks, _) = out
+            .get_mut(..bytes as usize)
+            .ok_or(Error::Corrupt)?
+            .as_chunks_mut::<BLOCK>();
+        self.read_blocks(block, chunks).await?;
+        // The read ended in the run's clusters, which follow each other.
+        let end_ordinal = (file.pos + bytes - 1) / cluster_bytes;
+        file.cluster += end_ordinal - ordinal;
+        file.ordinal = end_ordinal;
+        Ok(bytes)
     }
 }
