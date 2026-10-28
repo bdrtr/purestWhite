@@ -97,7 +97,10 @@ QEMU çöker (sinyal 11). Zamanlayıcı olarak TIMG0 yerine SYSTIMER verilince d
 sürümler: esp-hal 1.2.2, esp-rtos 0.4.0); esp-rtos'un S3'te kullandığı CPU-içi Software0 kesmesinin
 (1. seviye) emülasyonundaki bir eksiklik olabilir. Embassy kullanan her şey bu düzelene kadar
 yalnızca cihazda denenebilir. esp-hal'in SDMMC yuvası kesmeli (async) kipte de çöker, başka
-biçimde: QEMU'nun dijital imza (DS) modeli "Invalid padding/digest" der ve QEMU sinyal 8 ile çıkar.
+biçimde: QEMU'nun dijital imza (DS) modeli "Invalid padding/digest" der ve QEMU sinyal 8 ile çıkar. Bare-metal
+imajdaki kayan nokta işlemleri de aynı iletiyle çöktürür (`feedback-check`'te dokunma noktasının
+`f32` ile çevrilmesi; tamsayılı `Canvas::panel_to_logical` ile geçiyor): bare-metal yolunda kayan
+nokta kullanılmaz, cihazda esp-hal kayan nokta birimini açık tutar (`float-save-restore`).
 Yuvanın kesmesiz (blocking) çağrılarıyla çalışır: `emu/baremetal-sd.txt` bare-metal `sd-check`
 imajıyla kartı bağlar, FAT bölümünü açar, kökü uzun adlarıyla listeler ve
 `.crosspoint/onyukleyici.txt`'yi okur. SD modelinde veri zaman aşımı yok: yanıtsız kalan bir veri

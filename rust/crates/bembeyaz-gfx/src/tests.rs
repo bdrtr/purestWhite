@@ -932,3 +932,45 @@ fn mini_fuzz() {
         }
     }
 }
+
+#[test]
+#[allow(clippy::cast_precision_loss)]
+fn a_touch_maps_back_to_the_logical_point_drawn_there() {
+    let mut buf = panel();
+    for orientation in [
+        Orientation::Portrait,
+        Orientation::LandscapeClockwise,
+        Orientation::PortraitInverted,
+        Orientation::LandscapeCounterClockwise,
+    ] {
+        let c = canvas(&mut buf, orientation);
+        let (sw, sh) = c.screen_size();
+        for y in 0..sh {
+            for x in 0..sw {
+                let (px, py) = c.to_panel(x, y);
+                // The middle of the panel pixel, as a fraction of the panel.
+                let nx = (px as f32 + 0.5) / 16.0;
+                let ny = (py as f32 + 0.5) / 8.0;
+                assert_eq!(c.tap_to_logical(nx, ny), (x, y), "{orientation:?} {x},{y}");
+                assert_eq!(
+                    c.panel_to_logical(px, py),
+                    (x, y),
+                    "{orientation:?} {x},{y}"
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn a_touch_off_the_panel_lands_on_its_edge() {
+    let mut buf = panel();
+    let c = canvas(&mut buf, Orientation::LandscapeCounterClockwise);
+    assert_eq!(c.tap_to_logical(-0.5, 2.0), (0, 7));
+    assert_eq!(c.tap_to_logical(1.0, 1.0), (15, 7));
+    assert_eq!(c.tap_to_logical(f32::NAN, 0.0), (0, 0));
+    let p = canvas(&mut buf, Orientation::Portrait);
+    assert_eq!(p.tap_to_logical(0.0, 0.0), (7, 0));
+    assert_eq!(p.tap_to_logical(1.0, 1.0), (0, 15));
+    assert_eq!(p.panel_to_logical(-3, 40), (0, 0));
+}

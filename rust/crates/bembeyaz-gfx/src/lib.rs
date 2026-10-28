@@ -97,6 +97,39 @@ impl Canvas<'_> {
         }
     }
 
+    /// The logical position of a touch at (`nx`, `ny`), fractions of the panel's width and height
+    /// (lib/GfxRenderer's `tapToLogical`): the panel pixel under it, clamped to the panel, mapped
+    /// back as `to_panel` maps it forward.
+    #[must_use]
+    #[allow(
+        clippy::cast_possible_truncation,
+        clippy::cast_precision_loss,
+        reason = "as the C++ casts: panel sizes fit an f32, and the product truncates toward zero"
+    )]
+    pub fn tap_to_logical(&self, nx: f32, ny: f32) -> (i32, i32) {
+        let (w, h) = (self.panel_width, self.panel_height);
+        self.panel_to_logical((nx * w as f32) as i32, (ny * h as f32) as i32)
+    }
+
+    /// The logical position of panel pixel (`x`, `y`), clamped to the panel first: the inverse
+    /// of `to_panel`, and `tap_to_logical` without floats (eink-qemu 0.9.2 fails on them).
+    #[must_use]
+    pub fn panel_to_logical(&self, x: i32, y: i32) -> (i32, i32) {
+        let (w, h) = (self.panel_width, self.panel_height);
+        // The C++'s order: first not below 0, then not past the last pixel.
+        let x = x.max(0).min(w.wrapping_sub(1));
+        let y = y.max(0).min(h.wrapping_sub(1));
+        match self.orientation {
+            Orientation::Portrait => (h.wrapping_sub(1).wrapping_sub(y), x),
+            Orientation::PortraitInverted => (y, w.wrapping_sub(1).wrapping_sub(x)),
+            Orientation::LandscapeClockwise => (
+                w.wrapping_sub(1).wrapping_sub(x),
+                h.wrapping_sub(1).wrapping_sub(y),
+            ),
+            Orientation::LandscapeCounterClockwise => (x, y),
+        }
+    }
+
     /// Sets logical (`x`, `y`) to black or white; false only when it falls off the panel, true
     /// when drawn, clipped away or outside the strip.
     pub fn pixel(&mut self, x: i32, y: i32, black: bool) -> bool {
