@@ -3,7 +3,10 @@
 //! panel, draws four key boxes (Left, Right, Power, Home), then polls the input every 15 ms
 //! (`purestwhite_firmware::input`) and draws what it gives with a fast refresh: a tick under a
 //! key's box for each press (for Home, each tap), a dot where a tap touched down, a ring where a
-//! contact was held, a line with a dot at its end for a swipe. Until the C++ firmware would sleep:
+//! contact was held, a line with a dot at its end for a swipe. With the SD card's `FONT` (read
+//! by `purestwhite_firmware::text`), each box has its name under it, the counts of taps, swipes
+//! and long presses stand at the bottom after the first input, and "İyi geceler" is written under
+//! the moon; without a card or the font, only the shapes. Until the C++ firmware would sleep:
 //! Power held longer than 400 ms, or 60 s without input, or at the latest after 5 minutes. Then it
 //! reports what it counted, draws a crescent moon with a full refresh, puts the panel to sleep,
 //! and sleeps deeply until Power is pressed or for at most 60 s (`test_image::report_and_sleep`); the
@@ -17,21 +20,26 @@
 
 extern crate alloc;
 
-use alloc::vec;
+use alloc::{format, vec};
 use bembeyaz_gfx::{Canvas, Clip, Corners, Fill, Orientation};
 use core::fmt::Write as _;
 use esp_backtrace as _;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input as Pin, InputConfig, Level, Output, OutputConfig, Pull};
+use esp_hal::peripherals::{CPU_CTRL, FLASH, GPIO40, GPIO41, GPIO42};
 use esp_hal::rtc_cntl::Rtc;
 use esp_hal::rtc_cntl::sleep::LowPower;
+use esp_hal::sdmmc::{Config as SdConfig, SdHostController, SlotConfig};
 use esp_hal::time::{Duration, Instant};
 use purestwhite_epd::uc8279x4::Refresh;
+use purestwhite_fat::{File, Volume};
 use purestwhite_firmware::input::{self, ButtonPins, Input, Polled};
 use purestwhite_firmware::panel::{Lines, Panel, PanelPins};
+use purestwhite_firmware::sd::{self, BlockingBus, Card, CardBlocks, SpinDelay};
 use purestwhite_firmware::sleep::{self, Rails};
 use purestwhite_firmware::test_image::{self, TestSleep};
 use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
+use purestwhite_firmware::text::{FontFile, Writer};
 use purestwhite_firmware::{hold_power_latch, ready};
 use purestwhite_touch::Point;
 
@@ -84,6 +92,39 @@ fn key_left(key: usize) -> i32 {
     let key = key as i32;
     15 + key * 115
 }
+/// The boxes' names, under them in the card's font when it is there.
+const LABELS: [&str; KEYS] = ["Sol", "Sağ", "Güç", "Home"];
+const LABEL_TOP: i32 = KEY_TOP + KEY_HEIGHT + 4;
+/// The counts' line at the bottom, in the card's font.
+const STATUS_TOP: i32 = HEIGHT - 40;
+/// The font, at the same place on the owner's card and the emulator's.
+const FONT: &str = ".fonts/LiberationSerif/LiberationSerif_14.cpfont";
+/// The card's font, with the volume and the file it is read from.
+struct Font<'t, 'd> {
+    volume: Volume<CardBlocks<BlockingBus<'d>, SpinDelay>>,
+    file: File,
+    writer: Writer<'t>,
+}
+
+impl Font<'_, '_> {
+    fn width(&mut self, text: &str) -> i32 {
+        let Font {
+            volume,
+            file,
+            writer,
+        } = self;
+        writer.width(&mut FontFile { volume, file }, text)
+    }
+
+    fn draw(&mut self, c: &mut Canvas<'_>, x: i32, y: i32, text: &str) -> i32 {
+        let Font {
+            volume,
+            file,
+            writer,
+        } = self;
+        writer.draw(&mut FontFile { volume, file }, c, x, y, text)
+    }
+}
 /// Ticks under a box: in rows of `TICKS_PER_ROW`, `TICK_ROWS` of them, then they wrap.
 const TICK: i32 = 10;
 const TICK_STEP: i32 = 14;
@@ -120,8 +161,15 @@ fn disc(c: &mut Canvas<'_>, x: i32, y: i32, r: i32, fill: Fill) {
     c.fill_rounded_rect(x - r, y - r, 2 * r, 2 * r, r, Corners::ALL, fill);
 }
 
-/// The four boxes, each with its sign: an arrow left, an arrow right, a ring, a house.
-fn draw_keys(c: &mut Canvas<'_>) {
+/// The four boxes, each with its sign (an arrow left, an arrow right, a ring, a house) and, in
+/// `font`, its name under it.
+fn draw_keys(c: &mut Canvas<'_>, font: &mut Option<Font<'_, '_>>) {
+    if let Some(font) = font {
+        for (key, label) in LABELS.iter().enumerate() {
+            let width = font.width(label);
+            font.draw(c, key_left(key) + (KEY_WIDTH - width) / 2, LABEL_TOP, label);
+        }
+    }
     for key in 0..KEYS {
         let left = key_left(key);
         c.rect(left, KEY_TOP, KEY_WIDTH, KEY_HEIGHT, 3, true);
@@ -158,7 +206,7 @@ fn draw_keys(c: &mut Canvas<'_>) {
 fn draw_tick(c: &mut Canvas<'_>, key: usize, n: u32) {
     let n = n % (TICKS_PER_ROW * TICK_ROWS);
     let left = key_left(key);
-    let top = KEY_TOP + KEY_HEIGHT + 8;
+    let top = KEY_TOP + KEY_HEIGHT + 34;
     if n == 0 {
         #[allow(clippy::cast_possible_wrap, reason = "3")]
         c.fill_rect(
@@ -180,11 +228,62 @@ fn draw_tick(c: &mut Canvas<'_>, key: usize, n: u32) {
     );
 }
 
-/// The crescent moon of the sleep screen.
-fn draw_moon(c: &mut Canvas<'_>) {
+/// The crescent moon of the sleep screen, with a good night under it in `font`.
+fn draw_moon(c: &mut Canvas<'_>, font: &mut Option<Font<'_, '_>>) {
     c.fill_rect(0, 0, WIDTH, HEIGHT, Fill::White);
     disc(c, WIDTH / 2, HEIGHT / 2, 90, Fill::Black);
     disc(c, WIDTH / 2 + 40, HEIGHT / 2 - 25, 80, Fill::White);
+    if let Some(font) = font {
+        let text = "İyi geceler";
+        let width = font.width(text);
+        font.draw(c, (WIDTH - width) / 2, HEIGHT / 2 + 120, text);
+    }
+}
+
+/// The counts of the gestures, at the bottom in `font`.
+fn draw_status(c: &mut Canvas<'_>, font: &mut Option<Font<'_, '_>>, counts: &Counts) {
+    if let Some(font) = font {
+        c.fill_rect(0, STATUS_TOP, WIDTH, HEIGHT - STATUS_TOP, Fill::White);
+        let text = format!(
+            "dokun {}   kaydır {}   uzun {}",
+            counts.taps, counts.swipes, counts.long_presses
+        );
+        font.draw(c, 15, STATUS_TOP + 8, &text);
+    }
+}
+
+/// The card on SDMMC slot 1 (CLK 41, CMD 42, DAT0 40, `enable` its supply) and the font on it
+/// (`FONT`, its interval table in `table`); `None` without a card or a font. `feed` runs before
+/// each try at the card, which a card that stalls can make long.
+fn open_font<'t, 'd>(
+    controller: &'d SdHostController<'_>,
+    pins: (GPIO41<'d>, GPIO42<'d>, GPIO40<'d>),
+    enable: &mut Output<'_>,
+    table: &'t mut [u8],
+    mut feed: impl FnMut(),
+) -> Option<Font<'t, 'd>> {
+    let (clk, cmd, dat0) = pins;
+    let slot = controller
+        .slot::<1>(SlotConfig::default())
+        .ok()?
+        .with_clk(clk)
+        .with_cmd(cmd)
+        .with_data0(dat0);
+    let mut card: Card<'d> = Card::new_uninit(BlockingBus::new(slot), SpinDelay(Delay::new()));
+    sd::mount(&mut card, enable, |_| feed())?;
+    let mut volume = ready(Volume::mount(CardBlocks::new(card)))?.ok()?;
+    let entry = ready(volume.find(FONT))?.ok()?;
+    let mut file = volume.open(&entry).ok()?;
+    let src = &mut FontFile {
+        volume: &mut volume,
+        file: &mut file,
+    };
+    let writer = Writer::open(src, 0, table).ok()?;
+    Some(Font {
+        volume,
+        file,
+        writer,
+    })
 }
 
 /// What the run did, for the report.
@@ -330,6 +429,7 @@ fn watch<B: embedded_hal_async::i2c::I2c>(
     input: &mut Input<'_, B>,
     screen: &mut Screen<'_>,
     frame: &mut [u8],
+    font: &mut Option<Font<'_, '_>>,
     counts: &mut Counts,
     rtc: &mut Rtc<'_>,
 ) -> &'static str {
@@ -351,6 +451,7 @@ fn watch<B: embedded_hal_async::i2c::I2c>(
             return "guc";
         }
         if counts.draw(&polled, &mut canvas(frame)) {
+            draw_status(&mut canvas(frame), font, counts);
             screen.show(frame, counts, false);
         }
         if last_activity.elapsed() >= IDLE {
@@ -364,15 +465,14 @@ fn watch<B: embedded_hal_async::i2c::I2c>(
     }
 }
 
-#[esp_hal::main]
-fn main() -> ! {
-    let peripherals = esp_hal::init(esp_hal::Config::default());
-    let mut rtc = arm_watchdog(peripherals.RTC_TIMER);
-    let _latch = hold_power_latch(peripherals.GPIO1);
+/// The report's first lines, saved, after the next boot is handed back to the C++ firmware;
+/// when that fails, a reset into whatever the bootloader starts.
+fn begin(flash: FLASH<'_>, cpu: CPU_CTRL<'_>) -> Report {
     let mut report = Report::default();
-    let _ = writeln!(report, "purestWhite bare-metal geri bildirim");
+    // Short, as the other lines: the report has 248 bytes.
+    let _ = writeln!(report, "purestWhite geri bildirim");
     report.save();
-    match hand_back(peripherals.FLASH, peripherals.CPU_CTRL) {
+    match hand_back(flash, cpu) {
         Ok(_) => {
             let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
         }
@@ -384,6 +484,15 @@ fn main() -> ! {
         }
     }
     report.save();
+    report
+}
+
+#[esp_hal::main]
+fn main() -> ! {
+    let peripherals = esp_hal::init(esp_hal::Config::default());
+    let mut rtc = arm_watchdog(peripherals.RTC_TIMER);
+    let _latch = hold_power_latch(peripherals.GPIO1);
+    let mut report = begin(peripherals.FLASH, peripherals.CPU_CTRL);
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
 
     let pins = PanelPins {
@@ -401,9 +510,18 @@ fn main() -> ! {
         report.save();
         esp_hal::system::software_reset()
     };
+    rtc.rwdt.feed();
+    // The card, for the font; off until its first try (`sd::mount`).
+    let mut sd_power = Output::new(peripherals.GPIO5, Level::High, OutputConfig::default());
+    let controller = SdHostController::new(peripherals.SDHOST, SdConfig::default()).ok();
+    let mut table = [0u8; 2048];
+    let mut font = controller.as_ref().and_then(|c| {
+        let pins = (peripherals.GPIO41, peripherals.GPIO42, peripherals.GPIO40);
+        open_font(c, pins, &mut sd_power, &mut table, || rtc.rwdt.feed())
+    });
     let mut frame = vec![0xFFu8; FRAME_BYTES];
     let mut counts = Counts::default();
-    draw_keys(&mut canvas(&mut frame));
+    draw_keys(&mut canvas(&mut frame), &mut font);
     screen.show(&frame, &mut counts, true);
     rtc.rwdt.feed();
 
@@ -421,8 +539,9 @@ fn main() -> ! {
     let touch_note = touch.as_ref().map_or(0, |(_, addr)| *addr);
     let _ = writeln!(
         report,
-        "ekran {name} {}, dokunma {touch_note:#04x}",
-        if screen.working { "tamam" } else { "hata" }
+        "ekran {name} {}, dokunma {touch_note:#04x}, yazi {}",
+        if screen.working { "tamam" } else { "hata" },
+        if font.is_some() { "var" } else { "yok" }
     );
     report.save();
 
@@ -437,12 +556,19 @@ fn main() -> ! {
         input::POWER_HOLD_MS,
     );
     esp_println::println!("geri bildirim: hazir");
-    let why = watch(&mut input, &mut screen, &mut frame, &mut counts, &mut rtc);
+    let why = watch(
+        &mut input,
+        &mut screen,
+        &mut frame,
+        &mut font,
+        &mut counts,
+        &mut rtc,
+    );
     counts.write(&mut report);
     report.save();
 
     // The sleep screen, then the panel asleep, as the C++ firmware leaves it.
-    draw_moon(&mut canvas(&mut frame));
+    draw_moon(&mut canvas(&mut frame), &mut font);
     rtc.rwdt.feed();
     screen.show(&frame, &mut counts, true);
     let asleep = screen.working && screen.panel.deep_sleep(&mut screen.lines);
@@ -457,7 +583,7 @@ fn main() -> ! {
     }
     let rails = Rails {
         touch_power,
-        sd_power: Output::new(peripherals.GPIO5, Level::High, OutputConfig::default()),
+        sd_power,
         panel_reset: screen.lines.rst,
     };
     test_image::report_and_sleep(

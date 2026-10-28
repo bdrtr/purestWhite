@@ -6,6 +6,7 @@
 pub mod advance;
 pub mod compressed;
 pub mod cpfont;
+pub mod face;
 pub mod glyph;
 pub mod intervals;
 pub mod kern;

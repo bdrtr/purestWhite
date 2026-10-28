@@ -2748,7 +2748,11 @@ Bare-metal firmware girdiye ilk kez ekranda yanıt veriyor. `feedback-check` ima
 dört kutu çizer: Sol (←), Sağ (→), Güç (○) ve Home (ev). Sol, Sağ ya da Güç'e her basışta, Home'a
 her kısa dokunuşta o kutunun altına küçük bir kare eklenir. Ekrana kısa dokunursanız parmağınızın
 değdiği yerde bir nokta, parmağınızı bir saniye basılı tutarsanız bir halka, kaydırırsanız sonu
-noktalı bir çizgi çıkar. Her değişikliğin görünmesi yaklaşık bir saniye sürer; ekran yenilenirken
+noktalı bir çizgi çıkar. Kartta `/.fonts/LiberationSerif/LiberationSerif_14.cpfont` varsa (sizin
+kartınızda var) kutuların altında adları (Sol, Sağ, Güç, Home) yazar, karelere adların altında
+yer açılır; ilk işaretten sonra ekranın en altında "dokun … kaydır … uzun …" sayıları, uykudan
+önce hilalin altında "İyi geceler" çıkar. Yazı tipi okunamazsa imaj yalnızca şekilleri çizer. Her
+değişikliğin görünmesi yaklaşık bir saniye sürer; ekran yenilenirken
 yapılan kısa bir basma ya da dokunuş okunmaz, bu yüzden her işaretin çıkmasını bekleyip sonrakine
 geçin. Güç'ü bir saniye basılı tutup bırakınca ekranda bir hilal çıkar ve cihaz derin uykuya girer;
 Güç'le uyanır, C++ firmware açılır ve raporun sonuna uyanma ve sıfırlama nedenini yazar. Bir dakika
@@ -2758,20 +2762,24 @@ karta yazmaz. Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır. Emülatör
 
 Dikkat: uyandırırken Sağ'ı basılı tutmayın.
 
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-geri-bildirim.bin`'i
+- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-geri-bildirim-2.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) kartın köküne koyun; Ayarlar → System → SD
   Karttan Firmware Güncelleme → dosyayı seçin → Onayla. Birkaç saniye içinde ekran yenilenip
-  üstte dört kutu (←, →, ○, ev) gösterir. Cihazı dik tutun.
+  üstte dört kutu (←, →, ○, ev) ve altlarında adlarını (Sol, Sağ, Güç, Home) gösterir. Cihazı dik
+  tutun.
 - [ ] Her işaretin çıkmasını bekleyerek: Sol'a 3 kez, Sağ'a 2 kez, Home'a 1 kez kısaca basın (her
-  birinde kutusunun altına bir kare). Ekrana bir kez kısaca dokunun (nokta), bir yere parmağınızı
+  birinde kutunun adının altına bir kare). Ekrana bir kez kısaca dokunun (nokta), bir yere parmağınızı
   1 saniye basılı tutup kaldırın (halka), parmağınızı ekranda hızlıca bir yana kaydırın (sonu
-  noktalı çizgi). İşaretler parmağınızın altında mı, bakın; mümkünse ekranın fotoğrafını çekin.
+  noktalı çizgi). İşaretler parmağınızın altında mı, bakın; en alttaki sayılar her dokunuş, uzun basma ve
+  kaydırmayla artmalı; yazıdaki Türkçe harfler (ğ, ü, ç, ı, İ) doğru mu, bakın; mümkünse ekranın
+  fotoğrafını çekin.
 - [ ] Güç'ü 1 saniye basılı tutup bırakın: Güç kutusunun altına bir kare, sonra tam ekran bir
-  hilal çıkar; cihaz uyur. Birkaç saniye sonra Güç'e C++'ta uyandırırken yaptığınız gibi basın
+  hilal ve altında "İyi geceler" çıkar; cihaz uyur. Birkaç saniye sonra Güç'e C++'ta uyandırırken yaptığınız gibi basın
   (bir an basılı tutun). C++ ana ekranı gelmeli. 2 dakika içinde gelmezse Güç'e uzun basıp açın ve
   bana söyleyin.
-- [ ] Raporda şunlar bekleniyor: "ekran UC8279 tamam, dokunma 0x5d" (panele göre UC8179,
-  dokunmaya göre 0x14 da olabilir); "hizli N yarim M hata 0 T ms" (T en uzun yenileme,
+- [ ] Raporda şunlar bekleniyor: "purestWhite geri bildirim", "ekran UC8279 tamam, dokunma
+  0x5d, yazi var" (panele göre UC8179, dokunmaya göre 0x14 da olabilir; "yazi yok" yazı tipinin
+  okunamadığını söyler, kartta dosya olsa da bana söyleyin); "hizli N yarim M hata 0 T ms" (T en uzun yenileme,
   açılıştaki tam yenileme, birkaç saniyeye kadar); "tus 3/2/1/1 dokun 1 kaydir 1 uzun 1" (Sol,
   Sağ, Güç, Home; Güç uyku için yaptığınız basmayı da sayar); "uyku: derin, guc i… p… a r s";
   "uyanma: dugme" ve "sifirlama: DEEPSLEEP". Raporun tamamını ve fotoğrafı bana iletin. Özellikle
