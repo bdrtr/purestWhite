@@ -19,6 +19,7 @@ use embassy_futures::block_on;
 use embassy_futures::select::{Either4, select4};
 use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
+use embassy_time::Duration;
 use purestwhite_app::{App, Refresh};
 use purestwhite_render::{FRAME_BYTES, FaceError, Text};
 use purestwhite_services::{Frame, Links, Screen, ScreenError, run_app, run_draw, run_panel};
@@ -27,6 +28,8 @@ pub use shots::{clear_shots, shot_name, write_png};
 
 /// How many turns of the loops a run may take to settle after an event.
 const TURNS: usize = 10_000;
+/// How long the simulated panel may take over a call: it takes none.
+const PANEL_LIMIT: Duration = Duration::from_secs(1);
 
 /// A frame the panel showed, and how.
 #[derive(Clone, Debug)]
@@ -39,7 +42,7 @@ pub struct Shot {
 #[derive(Debug, Default)]
 pub struct Run {
     pub shots: Vec<Shot>,
-    /// Whether the application asked to sleep.
+    /// Whether the application asked to sleep and the panel was put to rest.
     pub slept: bool,
 }
 
@@ -72,12 +75,18 @@ impl Screen for Panel {
         });
         Ok(())
     }
+
+    #[allow(clippy::unused_async_trait_impl, reason = "simulated: asleep at once")]
+    async fn sleep(&mut self) -> Result<(), ScreenError> {
+        Ok(())
+    }
 }
 
 /// Runs `script` with text in the font `font` (a `.cpfont`, style 0) when given. The first
 /// screen is shown, then the events go in one by one, each once the loops have settled (nothing
-/// left to handle, draw or show). The run ends after the last event, or as soon as the
-/// application asks to sleep: later events are not sent.
+/// left to handle, draw or show). The run ends after the last event, or once the application has
+/// asked to sleep and the panel was put to rest, as the power loop does: later events are not
+/// sent.
 ///
 /// # Errors
 /// The font cannot be read, or the loops do not settle.
@@ -91,35 +100,23 @@ pub fn run(script: &Script, font: Option<&[u8]>) -> Result<Run, RunError> {
     links.give_frames(core::array::from_fn(|_| frame()));
     let mut app = App::new();
     let mut panel = Panel::default();
-    let driven = block_on(async {
-        let loops = (
-            run_app(
-                &mut app,
-                links.events.dyn_receiver(),
-                &links.views,
-                &links.sleep,
-            ),
-            run_draw(
-                &links.views,
-                links.empty.dyn_receiver(),
-                links.drawn.dyn_sender(),
-                links.drawn.dyn_receiver(),
-                text.as_mut(),
-            ),
-            run_panel(
-                &mut panel,
-                links.drawn.dyn_receiver(),
-                links.empty.dyn_sender(),
-                links.events.dyn_sender(),
-            ),
-        );
-        match select4(loops.0, loops.1, loops.2, drive(script, &links)).await {
-            Either4::Fourth(driven) => driven,
+    let slept = block_on(async {
+        match select4(
+            run_app(&mut app, links.app_links()),
+            run_draw(links.draw_links(), text.as_mut()),
+            run_panel(&mut panel, links.panel_links(), PANEL_LIMIT),
+            drive(script, &links),
+        )
+        .await
+        {
+            Either4::First(never) | Either4::Second(never) => match never {},
+            Either4::Third(rested) => Ok(rested.is_ok()),
+            Either4::Fourth(driven) => driven.map(|()| false),
         }
-    });
+    })?;
     Ok(Run {
         shots: panel.shots,
-        slept: driven?,
+        slept,
     })
 }
 
@@ -132,9 +129,9 @@ fn frame() -> Frame {
     Box::leak(Box::new([0xFF; FRAME_BYTES]))
 }
 
-/// Lets the first screen show, then sends the script's events, settling after each; whether the
-/// application asked to sleep.
-async fn drive(script: &Script, links: &Links<NoopRawMutex>) -> Result<bool, RunError> {
+/// Lets the first screen show, then sends the script's events, settling after each. Once the
+/// application asks to sleep, asks the panel to rest and waits for the panel loop to end the run.
+async fn drive(script: &Script, links: &Links<NoopRawMutex>) -> Result<(), RunError> {
     settle(links).await.ok_or(RunError::Stuck(None))?;
     for (index, &event) in script.events().iter().enumerate() {
         if links.sleep.signaled() {
@@ -143,7 +140,11 @@ async fn drive(script: &Script, links: &Links<NoopRawMutex>) -> Result<bool, Run
         links.events.send(event).await;
         settle(links).await.ok_or(RunError::Stuck(Some(index)))?;
     }
-    Ok(links.sleep.signaled())
+    if links.sleep.signaled() {
+        links.panel_rest.signal(());
+        core::future::pending::<()>().await;
+    }
+    Ok(())
 }
 
 /// Waits until the loops are idle; `None` if they are not within `TURNS` turns.

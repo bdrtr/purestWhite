@@ -1,11 +1,11 @@
 //! The bare-metal firmware's services: the loops that run the application (`purestwhite-app`)
-//! on devices, connected by `embassy-sync` channels. Each loop owns its part, is handed only the
-//! ends of the channels it uses, and never ends:
+//! on devices, connected by `embassy-sync` channels. Each loop owns its part and is handed only
+//! the ends of the channels it uses (`Links::app_links`, ...):
 //!
 //! - [`run_app`]: events in; views to draw and the sleep signal out;
 //! - [`run_draw`]: draws the latest view into a free frame (`purestwhite-render`);
 //! - [`run_panel`]: shows each drawn frame on a [`Screen`], hands the frame back, and tells the
-//!   application whether the panel showed it.
+//!   application whether the panel showed it; when asked to rest, puts the panel to sleep.
 //!
 //! The loops are generic over the devices and over the channels' mutex, so the firmware can run
 //! them in Embassy tasks over the X4 Pro's drivers (step 2), and the host simulator and the tests
@@ -23,12 +23,12 @@ mod panel;
 mod tests;
 mod views;
 
-pub use app::run_app;
-pub use draw::run_draw;
+pub use app::{AppLinks, run_app};
+pub use draw::{DrawLinks, run_draw};
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
-pub use panel::{Screen, ScreenError, run_panel};
+pub use panel::{PanelLinks, Screen, ScreenError, run_panel};
 use purestwhite_app::{Event, Refresh};
 use purestwhite_render::FRAME_BYTES;
 pub use views::Views;
@@ -66,6 +66,10 @@ pub struct Links<M: RawMutex> {
     /// Set by the application when the device is to sleep. One loop listens (power), and asks
     /// each service in turn to quiesce.
     pub sleep: Signal<M, ()>,
+    /// Set by the power loop: the panel is to rest (`run_panel`).
+    pub panel_rest: Signal<M, ()>,
+    /// Set by the power loop: the key loop is to rest (it is the firmware's: it reads the pins).
+    pub keys_rest: Signal<M, ()>,
 }
 
 impl<M: RawMutex> Links<M> {
@@ -77,6 +81,40 @@ impl<M: RawMutex> Links<M> {
             drawn: Channel::new(),
             empty: Channel::new(),
             sleep: Signal::new(),
+            panel_rest: Signal::new(),
+            keys_rest: Signal::new(),
+        }
+    }
+
+    /// The application loop's ends.
+    #[must_use]
+    pub fn app_links(&self) -> AppLinks<'_, M> {
+        AppLinks {
+            events: self.events.dyn_receiver(),
+            views: &self.views,
+            sleep: &self.sleep,
+        }
+    }
+
+    /// The drawing loop's ends.
+    #[must_use]
+    pub fn draw_links(&self) -> DrawLinks<'_, M> {
+        DrawLinks {
+            views: &self.views,
+            empty: self.empty.dyn_receiver(),
+            drawn: self.drawn.dyn_sender(),
+            unshown: self.drawn.dyn_receiver(),
+        }
+    }
+
+    /// The panel loop's ends.
+    #[must_use]
+    pub fn panel_links(&self) -> PanelLinks<'_, M> {
+        PanelLinks {
+            drawn: self.drawn.dyn_receiver(),
+            empty: self.empty.dyn_sender(),
+            events: self.events.dyn_sender(),
+            rest: &self.panel_rest,
         }
     }
 

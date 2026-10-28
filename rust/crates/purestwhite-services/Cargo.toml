@@ -6,9 +6,12 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+embassy-futures = "=0.1.2"
 embassy-sync = "=0.8.0"
+# Without a time driver: the firmware's comes from esp-rtos, the host's from `std` (below).
+embassy-time = "=0.5.1"
 purestwhite-app = { path = "../purestwhite-app" }
 purestwhite-render = { path = "../purestwhite-render" }
 
 [dev-dependencies]
-embassy-futures = "=0.1.2"
+embassy-time = { version = "=0.5.1", features = ["std", "generic-queue-8"] }
