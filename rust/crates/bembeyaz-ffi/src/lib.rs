@@ -47,6 +47,8 @@ mod png_cover;
 mod rtc;
 mod section;
 mod toc;
+#[cfg(not(target_os = "none"))]
+mod touch;
 mod utf8;
 mod xml;
 mod xtc;

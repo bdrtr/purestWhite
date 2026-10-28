@@ -47,7 +47,8 @@ embedded-hal = "=1.0.0"
 embedded-hal-async = "=1.0.0"
 purestwhite-rtc = { path = "../purestwhite-rtc" }
 
-# The drivers behind test-only ABIs (src/epd.rs, src/gt911.rs): host builds only.
+# The drivers behind test-only ABIs (src/epd.rs, src/gt911.rs, src/touch.rs): host builds only.
 [target.'cfg(not(target_os = "none"))'.dependencies]
 purestwhite-epd = { path = "../purestwhite-epd" }
 purestwhite-gt911 = { path = "../purestwhite-gt911" }
+purestwhite-touch = { path = "../purestwhite-touch" }

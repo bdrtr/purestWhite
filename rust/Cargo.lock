@@ -105,6 +105,7 @@ dependencies = [
  "purestwhite-gauge",
  "purestwhite-gt911",
  "purestwhite-rtc",
+ "purestwhite-touch",
 ]
 
 [[package]]
@@ -391,6 +392,13 @@ name = "purestwhite-rtc"
 version = "0.1.0"
 dependencies = [
  "embedded-hal",
+]
+
+[[package]]
+name = "purestwhite-touch"
+version = "0.1.0"
+dependencies = [
+ "purestwhite-gt911",
 ]
 
 [[package]]

@@ -5,10 +5,14 @@
 #include <BoardConfig.h>
 #include <gtest/gtest.h>
 #include <purestwhite/gt911.h>
+#include <purestwhite/touch.h>
 
+#include <algorithm>
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <cstring>
+#include <map>
 #include <random>
 #include <string>
 #include <vector>
@@ -23,6 +27,9 @@
 static_assert(sizeof(pw_gt911_config) == 14 && alignof(pw_gt911_config) == 2, "pw_gt911_config layout");
 static_assert(sizeof(pw_gt911_contact) == 6 && sizeof(pw_gt911_frame) == 28, "pw_gt911_frame layout");
 static_assert(sizeof(pw_gt911_pins) == 4 * sizeof(void*), "pw_gt911_pins layout");
+// And touch.rs's.
+static_assert(sizeof(pw_touch_point) == 4 && sizeof(pw_touch_events) == 30 && offsetof(pw_touch_events, activity) == 28,
+              "pw_touch_events layout");
 
 namespace {
 
@@ -377,6 +384,214 @@ TEST_F(Gt911TouchTest, PollsMatchWithDegenerateRanges) {
   t.rawMaxY = 400;
   t.flipX = true;
   session(13);
+}
+
+// purestwhite-touch against InputManager's touch classifiers: one model controller each, both fed
+// the same fingers. Fingers touch down, hold, creep or flick and lift; a second or third finger
+// joins now and then, sometimes with more contacts reported than the controller keeps; the Home
+// key is tapped and held; polls find no new frame or fail; a caller suppresses a contact after a
+// long press or at random, after reading the poll's events. After every poll each side's queries
+// must give the same events, at the same normalized points.
+void gestures(uint32_t seed) {
+  std::mt19937 rng(seed);
+  Gt911 sdkChip(seed), ourChip(seed);
+  InputManager sdk;
+  sdk.gt911Addr = 0x5D;
+  sdk.touchDataEnabled = true;
+  pw_touch* ours = pw_touch_new();
+  const pw_gt911_config config = ourConfig();
+  const auto& t = BoardConfig::ACTIVE.touch;
+  const int offset = t.gt911CoordsAtByte0 ? 0 : 1;
+
+  // Each finger in raw controller coordinates, inside the raw ranges and a little beyond.
+  struct Finger {
+    int a, b, va, vb;
+  };
+  std::array<Finger, 3> fingers{};
+  int down = 0;   // fingers on the panel
+  int phase = 0;  // polls until the fingers' motion changes
+  bool home = false;
+  int homeLeft = 0;  // polls until the Home key changes
+  bool changed = false;
+  std::map<std::string, int> seen;
+  unsigned long now = 5000;
+  const auto place = [&](Finger& f) {
+    f.a = static_cast<int>(rng() % 520) - 20;
+    f.b = static_cast<int>(rng() % 840) - 20;
+  };
+  const auto speed = [&](Finger& f) {
+    switch (rng() % 4) {
+      case 0:
+      case 1:  // still
+        f.va = f.vb = 0;
+        break;
+      case 2:  // creeping
+        f.va = static_cast<int>(rng() % 5) - 2;
+        f.vb = static_cast<int>(rng() % 5) - 2;
+        break;
+      default:  // flicking
+        f.va = static_cast<int>(rng() % 41) - 20;
+        f.vb = static_cast<int>(rng() % 41) - 20;
+    }
+  };
+  for (int poll = 0; poll < 200000; ++poll) {
+    now += 4 + rng() % 30;
+    hostMillis = now;
+
+    if (--phase <= 0) {
+      phase = 1 + static_cast<int>(rng() % 60);
+      const int before = down;
+      if (down == 0) {
+        down = rng() % 3 == 0 ? 0 : (rng() % 8 == 0 ? 2 : 1);
+      } else {
+        const int r = rng() % 6;
+        down = r < 3 ? 0 : (r == 3 ? std::min(down + 1, 3) : (r == 4 ? std::max(down - 1, 0) : down));
+      }
+      for (int i = before; i < down; ++i) place(fingers[i]);
+      for (int i = 0; i < down; ++i) speed(fingers[i]);
+      changed |= down != before;
+    }
+    for (int i = 0; i < down; ++i) {
+      if (fingers[i].va || fingers[i].vb) {
+        fingers[i].a += fingers[i].va;
+        fingers[i].b += fingers[i].vb;
+        changed = true;
+      }
+    }
+    if (--homeLeft <= 0) {
+      home = !home && rng() % 3 == 0;
+      // Short taps and holds past the long press.
+      homeLeft = home ? 1 + static_cast<int>(rng() % 70) : 20 + static_cast<int>(rng() % 200);
+      changed = true;
+    }
+    // The controller sets a new frame for a change, but not always by the next poll.
+    if (changed && rng() % 5 != 0) {
+      changed = false;
+      std::array<uint8_t, 15 * 8> points{};
+      for (int i = 0; i < down; ++i) {
+        const uint16_t x = static_cast<uint16_t>(std::clamp(fingers[i].a, 0, 1200));
+        const uint16_t y = static_cast<uint16_t>(std::clamp(fingers[i].b, 0, 1200));
+        uint8_t* record = points.data() + i * 8;
+        record[0] = static_cast<uint8_t>(i + 1);
+        record[offset] = x & 0xFF;
+        record[offset + 1] = x >> 8;
+        record[offset + 2] = y & 0xFF;
+        record[offset + 3] = y >> 8;
+      }
+      // Now and then more contacts reported than the controller keeps.
+      const uint8_t count = down == 3 && rng() % 4 == 0 ? 6 : static_cast<uint8_t>(down);
+      const uint8_t status = 0x80 | (home ? 0x10 : 0) | count;
+      for (Gt911* c : {&sdkChip, &ourChip}) {
+        c->status = status;
+        c->points = points;
+      }
+    }
+    const int failPercent = rng() % 20 == 0 ? 50 : 0;
+    for (Gt911* c : {&sdkChip, &ourChip}) {
+      c->failPercent = failPercent;
+      c->events.clear();
+    }
+
+    active = &sdkChip;
+    sdk.update();
+    active = &ourChip;
+    const pw_i2c bus = wireBus(Wire);
+    pw_gt911_frame frame{};
+    const uint8_t kind = pw_gt911_read(&bus, 0x5D, &config, &frame);
+    pw_touch_events e{};
+    pw_touch_update(ours, static_cast<uint32_t>(now), kind, &frame, &e);
+    ASSERT_EQ(sdkChip.status, ourChip.status) << "poll " << poll;
+
+    const std::string where = "poll " + std::to_string(poll);
+    float nx = 0, ny = 0, mx = 0, my = 0, ex = 0, ey = 0, fx = 0, fy = 0;
+    // A point of ours, normalized by the SDK.
+    const auto norm = [&](const pw_touch_point& p, float& x, float& y) { sdk.normalizeTouchPoint(p.x, p.y, x, y); };
+    const auto check = [&](const char* name, bool sdkHas, bool ourHas) {
+      ASSERT_EQ(sdkHas, ourHas) << where << " " << name;
+      if (ourHas) ++seen[name];
+    };
+
+    ASSERT_NO_FATAL_FAILURE(check("pressed", sdk.wasTouchPressed(), e.pressed));
+    if (sdk.wasTouchPressedAt(nx, ny)) {
+      ASSERT_TRUE(e.pressed) << where;
+      norm(e.pressed_at, mx, my);
+      ASSERT_EQ(nx, mx) << where;
+      ASSERT_EQ(ny, my) << where;
+    }
+    ASSERT_NO_FATAL_FAILURE(check("released", sdk.wasTouchReleased(), e.released));
+    ASSERT_NO_FATAL_FAILURE(check("tap", sdk.wasTouchTap(nx, ny), e.tap));
+    if (e.tap) {
+      norm(e.tap_at, mx, my);
+      ASSERT_EQ(nx, mx) << where;
+      ASSERT_EQ(ny, my) << where;
+    }
+    ASSERT_NO_FATAL_FAILURE(check("swipe", sdk.wasSwipe(nx, ny, ex, ey), e.swipe));
+    if (e.swipe) {
+      norm(e.swipe_start, mx, my);
+      norm(e.swipe_end, fx, fy);
+      ASSERT_EQ(nx, mx) << where;
+      ASSERT_EQ(ny, my) << where;
+      ASSERT_EQ(ex, fx) << where;
+      ASSERT_EQ(ey, fy) << where;
+    }
+    ASSERT_NO_FATAL_FAILURE(check("long press", sdk.wasTouchLongPress(nx, ny), e.long_press));
+    if (e.long_press) {
+      norm(e.long_press_at, mx, my);
+      ASSERT_EQ(nx, mx) << where;
+      ASSERT_EQ(ny, my) << where;
+    }
+    ASSERT_NO_FATAL_FAILURE(check("home pressed", sdk.wasHomeKeyPressed(), e.home_pressed));
+    ASSERT_NO_FATAL_FAILURE(check("home tapped", sdk.wasHomeKeyTapped(), e.home_tapped));
+    ASSERT_NO_FATAL_FAILURE(check("home long press", sdk.wasHomeKeyLongPressed(), e.home_long_press));
+    ASSERT_NO_FATAL_FAILURE(check("activity", sdk.wasTouchActivity(), e.activity));
+    ASSERT_NO_FATAL_FAILURE(check("down", sdk.isTouchPressed(), pw_touch_is_pressed(ours)));
+    unsigned long sdkHeld = 0;
+    uint32_t ourHeld = 0;
+    pw_touch_point at{};
+    ASSERT_NO_FATAL_FAILURE(check("tap candidate", sdk.isTouchTapCandidate(nx, ny, sdkHeld),
+                                  pw_touch_tap_candidate(ours, static_cast<uint32_t>(now), &at, &ourHeld)));
+    if (sdk.isTouchTapCandidate(nx, ny, sdkHeld)) {
+      norm(at, mx, my);
+      ASSERT_EQ(nx, mx) << where;
+      ASSERT_EQ(ny, my) << where;
+      ASSERT_EQ(sdkHeld, ourHeld) << where;
+    }
+    ASSERT_NO_FATAL_FAILURE(check("held", sdk.isTouchHeldAt(nx, ny), pw_touch_held_at(ours, &at)));
+    if (sdk.isTouchHeldAt(nx, ny)) {
+      norm(at, mx, my);
+      ASSERT_EQ(nx, mx) << where;
+      ASSERT_EQ(ny, my) << where;
+    }
+    ASSERT_EQ(sdk.lastTouchHeldMs(), pw_touch_last_held_ms(ours)) << where;
+    if (sdk.touchMultiContactSequence) ++seen["multi"];
+
+    // A caller acting on what it saw, now and then: after a long press as an app would, and at
+    // random.
+    if ((e.long_press && rng() % 2 == 0) || rng() % 300 == 0) {
+      sdk.suppressTouchContact();
+      pw_touch_suppress(ours);
+      ++seen["suppress"];
+    }
+  }
+  pw_touch_free(ours);
+  for (const char* name : {"pressed", "released", "tap", "swipe", "long press", "home pressed", "home tapped",
+                           "home long press", "activity", "down", "tap candidate", "held", "multi", "suppress"}) {
+    EXPECT_GT(seen[name], 50) << name;
+  }
+}
+
+TEST_F(Gt911TouchTest, GesturesMatchOnTheX4Pro) { gestures(17); }
+
+TEST_F(Gt911TouchTest, GesturesMatchWithIdsFlipsAndOffsetRanges) {
+  auto& t = BoardConfig::ACTIVE.touch;
+  t.gt911CoordsAtByte0 = false;
+  t.swapXY = false;
+  t.flipX = true;
+  t.rawMinX = 30;
+  t.rawMaxX = 1030;
+  t.rawMinY = 200;
+  t.rawMaxY = 900;
+  gestures(19);
 }
 
 }  // namespace
