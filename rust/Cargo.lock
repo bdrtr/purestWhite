@@ -388,6 +388,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "purestwhite-ota"
+version = "0.1.0"
+
+[[package]]
 name = "purestwhite-rtc"
 version = "0.1.0"
 dependencies = [
