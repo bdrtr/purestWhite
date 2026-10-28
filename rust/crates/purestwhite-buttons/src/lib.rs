@@ -180,3 +180,38 @@ impl PowerHold {
         sleep
     }
 }
+
+impl PowerHold {
+    /// The time by which a caller woken only by pin changes must call `update` again, so that a
+    /// hold under way asks on time: once the power button has been held past the hold time.
+    /// `None` when no hold under way can ask (the button up, this press already asked, the
+    /// button not up once since the start, or a blocker down: its release is a pin change). It
+    /// wraps like the time.
+    #[must_use]
+    pub fn deadline(&self, buttons: &Buttons) -> Option<u32> {
+        let state = buttons.state();
+        let can_ask =
+            state & buttons.power != 0 && self.was_up && !self.asked && state & self.blockers == 0;
+        can_ask.then(|| {
+            buttons
+                .power_start
+                .wrapping_add(self.hold_ms.wrapping_add(1))
+        })
+    }
+}
+
+/// For a caller woken only by pin changes, after `buttons.update` and `hold.update` at `now`: in
+/// how many milliseconds it must sample again (a debounce ends, or a power hold reaches its
+/// time), 0 when that time has come; `None` when only a pin change can change anything.
+#[must_use]
+pub fn sample_in(buttons: &Buttons, hold: &PowerHold, now: u32) -> Option<u32> {
+    [buttons.deadline(), hold.deadline(buttons)]
+        .into_iter()
+        .flatten()
+        // A time up to half the clock's range behind `now` has passed.
+        .map(|at| {
+            let ahead = at.wrapping_sub(now);
+            if ahead > u32::MAX / 2 { 0 } else { ahead }
+        })
+        .min()
+}

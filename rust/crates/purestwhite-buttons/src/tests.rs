@@ -193,3 +193,69 @@ fn a_power_hold_times_through_the_wrap() {
     }
     assert_eq!(asked, [17]);
 }
+
+/// A caller woken only by pin changes (`changes`: when the sampled state becomes what) and by
+/// `sample_in`: when its power hold asked.
+fn event_driven(hold_ms: u32, blockers: u8, changes: &[(u32, u8)], until: u32) -> Vec<u32> {
+    let mut b = Buttons::new(2);
+    let mut h = PowerHold::new(hold_ms, blockers);
+    let mut asked = Vec::new();
+    let (mut now, mut sampled, mut next_change) = (0, 0, 0);
+    while now <= until {
+        while let Some(&(at, state)) = changes.get(next_change) {
+            if at > now {
+                break;
+            }
+            sampled = state;
+            next_change += 1;
+        }
+        b.update(now, sampled);
+        if h.update(&b, sampled, now) {
+            asked.push(now);
+        }
+        let pin = changes.get(next_change).map(|&(at, _)| at);
+        let timer = sample_in(&b, &h, now).map(|ms| now + ms.max(1));
+        now = match (pin, timer) {
+            (Some(p), Some(t)) => p.min(t),
+            (Some(at), None) | (None, Some(at)) => at,
+            (None, None) => break,
+        };
+    }
+    asked
+}
+
+#[test]
+fn woken_only_by_pins_and_deadlines_a_power_hold_asks_when_polling_would() {
+    // As `a_power_hold_asks_once_past_its_time`: polled every millisecond it asks at 507.
+    assert_eq!(event_driven(400, DOWN, &[(100, POWER)], 3000), [507]);
+    // Released before its time: never.
+    assert!(event_driven(400, DOWN, &[(100, POWER), (300, 0)], 3000).is_empty());
+    // A blocker held, then let go: the release is a pin change, then the request.
+    assert_eq!(
+        event_driven(400, DOWN, &[(100, POWER | DOWN), (1001, POWER)], 3000),
+        [1007]
+    );
+}
+
+#[test]
+fn nothing_to_wait_for_without_a_debounce_or_a_hold() {
+    let mut b = Buttons::new(2);
+    let mut h = PowerHold::new(400, DOWN);
+    b.update(0, 0);
+    h.update(&b, 0, 0);
+    assert_eq!(sample_in(&b, &h, 0), None);
+    b.update(10, UP);
+    h.update(&b, UP, 10);
+    // The debounce: once more than 5 ms have passed, at 16.
+    assert_eq!(sample_in(&b, &h, 10), Some(6));
+    assert_eq!(sample_in(&b, &h, 20), Some(0));
+}
+
+#[test]
+fn the_press_that_woke_the_device_sets_no_hold_deadline() {
+    let mut b = Buttons::new(2);
+    let h = PowerHold::new(400, DOWN);
+    b.update(0, POWER);
+    b.update(10, POWER);
+    assert_eq!(h.deadline(&b), None);
+}
