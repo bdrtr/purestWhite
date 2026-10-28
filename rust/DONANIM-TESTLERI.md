@@ -2642,15 +2642,22 @@ yazmaz, ekrana çizmez (ekran güncelleme sayfasında kalır, bu normaldir). Em�
 (eink-qemu bu kesmelerde çöküyor), bu yüzden ilk sınaması cihazda. Geri dönüş "Bare-metal ilk
 deneme"dekiyle aynıdır.
 
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-gorev.bin`'i
+- [x] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-gorev.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) kartın köküne tam bu adla koyun (başka adla
   rapor "imaj yok" der); Ayarlar → System → SD Karttan Firmware Güncelleme → dosyayı seçin →
   Onayla. Ekran donar. 30 saniye içinde Sol'a ve Sağ'a birkaç kez basın, sonra Güç'ü 2 saniye
   basılı tutup bırakın (hiçbir şeye basmazsanız 30 saniye sonra kendiliğinden biter). Birkaç saniye
   içinde C++ ana ekranı gelmeli. Bir dakika içinde gelmezse Güç'e uzun basıp açın ve bana söyleyin.
-- [ ] Raporda "sd: N gecis, ... KB/s, fnv ..., farkli 0", "dugme: sol X sag Y guc Z uzun evet, pin
+- [x] Raporda "sd: N gecis, ... KB/s, fnv ..., farkli 0", "dugme: sol X sag Y guc Z uzun evet, pin
   P sure S" (X ve Y bastığınız sayılar), "kalp: ... vurus, en gec ... us" (30 saniyede yaklaşık
   3000 vuruş, Güç'le erken bitince daha az) ve "bitti" bekleniyor; fnv'yi dosyanınkiyle ben
   karşılaştırırım. "farkli" sıfırdan büyükse ya da "sd: baglanamadi", "yuva kurulamadi", "fat
   acilamadi", "imaj bulunamadi", "imaj acilamadi", "okunamadi", "sd: bitmedi", "guc birakilmadi"
   ya da "PANIK" çıkarsa raporun tamamını bana iletin.
+  - Sonuç (2026-10-28, f71f09f1'in imajı, cihaz): "sd: 240 gecis, 158 KB, 2006 KB/s, fnv 9858b7ee,
+    farkli 0", "dugme: sol 7 sag 7 guc 1 uzun evet, pin 29 sure 30", "kalp: 1973 vurus, en gec
+    1253 us", "bitti". Sağlama bilgisayardaki dosyanınkiyle aynı ve 240 geçişte hiç değişmedi.
+    Kesmeli SD okuması öteki görevlerle birlikte yaklaşık 2,0 MB/s, engelleyici yoldan (1,8 MB/s)
+    yavaş değil. Düğmeler yalnızca pin değişiminde ve titreşim süzmesi bitince uyandı (her
+    basışta iki pin, iki süre uyanması). Güç'le yaklaşık 20 saniyede bitti; kalp atışı en çok
+    1,3 ms geç kaldı, yani görevler yürütücüyü aç bırakmıyor. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
