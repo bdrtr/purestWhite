@@ -2762,18 +2762,18 @@ karta yazmaz. Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır. Emülatör
 
 Dikkat: uyandırırken Sağ'ı basılı tutmayın.
 
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-geri-bildirim-2.bin`'i
+- [x] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-geri-bildirim-2.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) kartın köküne koyun; Ayarlar → System → SD
   Karttan Firmware Güncelleme → dosyayı seçin → Onayla. Birkaç saniye içinde ekran yenilenip
   üstte dört kutu (←, →, ○, ev) ve altlarında adlarını (Sol, Sağ, Güç, Home) gösterir. Cihazı dik
   tutun.
-- [ ] Her işaretin çıkmasını bekleyerek: Sol'a 3 kez, Sağ'a 2 kez, Home'a 1 kez kısaca basın (her
+- [x] Her işaretin çıkmasını bekleyerek: Sol'a 3 kez, Sağ'a 2 kez, Home'a 1 kez kısaca basın (her
   birinde kutunun adının altına bir kare). Ekrana bir kez kısaca dokunun (nokta), bir yere parmağınızı
   1 saniye basılı tutup kaldırın (halka), parmağınızı ekranda hızlıca bir yana kaydırın (sonu
   noktalı çizgi). İşaretler parmağınızın altında mı, bakın; en alttaki sayılar her dokunuş, uzun basma ve
   kaydırmayla artmalı; yazıdaki Türkçe harfler (ğ, ü, ç, ı, İ) doğru mu, bakın; mümkünse ekranın
   fotoğrafını çekin.
-- [ ] Güç'ü 1 saniye basılı tutup bırakın: Güç kutusunun altına bir kare, sonra tam ekran bir
+- [x] Güç'ü 1 saniye basılı tutup bırakın: Güç kutusunun altına bir kare, sonra tam ekran bir
   hilal ve altında "İyi geceler" çıkar; cihaz uyur. Birkaç saniye sonra Güç'e C++'ta uyandırırken yaptığınız gibi basın
   (bir an basılı tutun). C++ ana ekranı gelmeli. 2 dakika içinde gelmezse Güç'e uzun basıp açın ve
   bana söyleyin.
@@ -2786,3 +2786,12 @@ Dikkat: uyandırırken Sağ'ı basılı tutmayın.
   "hata" sıfırdan büyükse, "ekran …: kullanilamadi", "ekran uyumadi", "dokunma 0x00", "guc
   birakilmadi", "hazir degil" ya da "PANIK" çıkarsa, işaretler parmağınızdan uzakta çıktıysa ya da
   sayılar bastıklarınızdan farklıysa söyleyin.
+  - Sonuç (2026-10-28, bcb3a30c'nin imajı `purestwhite-baremetal-geri-bildirim-2.bin`, cihaz,
+    pilde): "purestWhite geri bildirim", "ekran UC8179 tamam, dokunma 0x5d, yazi var", "hizli 10
+    yarim 0 hata 0 1846 ms", "tus 0/0/1/0 dokun 6 kaydir 1 uzun 2", "uyku: derin, guc i28000
+    p10000880 a r s", "uyanma: dugme", "sifirlama: DEEPSLEEP". Sahibi: "her şey çalışıyor".
+    UC8179 panelde çizim ve hızlı yenileme hatasız (en uzun 1,8 s, açılıştaki tam yenileme);
+    karttaki yazı tipiyle Türkçe etiketler, sayılar ve "İyi geceler" çizildi; dokunuş, kaydırma ve
+    uzun basma işaretleri çıktı; Güç ile uyku ve uyanma çalıştı. Sol, Sağ ve Home bu denemede
+    sayılmadı (basılmadıysa beklenen; düğmeler `input-check`'te cihazda geçti). Rapor
+    `firmware-arsiv/cihaz-raporlari/geri-bildirim-2.txt`.
