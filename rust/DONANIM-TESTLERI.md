@@ -2602,9 +2602,11 @@ kalır), karta yazmaz. Emülatörde üç adım da çalışıyor (`emu/baremetal-
     zamanlayici, 3001 ms", "uyku: hafif guc", "hafif guc: dugme, 14875 ms", "uyku: derin, guc ya da
     15 s", "uyanma: dugme", "sifirlama: DEEPSLEEP". Üç adım da cihazda çalıştı: hafif uyku
     zamanlayıcıyla ve Güç ile, derin uyku Güç ile (ext1) uyandı; bekçiye gerek kalmadı ("uyku:
-    girilmedi" yok). Uyku kodu ilk denemedekiyle aynı; fark bekçide: ilk imajın tek aşamalı sistem
-    sıfırlaması güç mandalını bırakıyordu, cihazın kapanıp raporun kaybolması büyük olasılıkla
-    bundandı. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
+    girilmedi" yok). Uyku kodu ilk denemedekiyle aynı; fark, burada derin uykudan önce iki hafif
+    uyku olması. İlk imajın derin uykusu açılıştan sonraki ilk uykuydu ve cihazda öyle bir derin
+    uyku bitmiyor ("Bare-metal giriş ve uyku", Sonuç 2). İlk imaj bekçiyi uykudan önce kapatıyordu;
+    rapor, sahibi cihazı Güç'e uzun basarak yeniden başlattığı için kayboldu. Rapor
+    `firmware-arsiv/cihaz-raporlari/`'nda.
 
 ## Bare-metal PSRAM ("rust: the PSRAM in the bare-metal firmware")
 
@@ -2675,7 +2677,7 @@ sayımlar, uyku ve Güç ile uyanış çalışıyor (`emu/baremetal-input.txt`).
 
 Dikkat: uyandırırken Sağ'ı basılı tutmayın.
 
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-giris.bin`'i
+- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-giris-4.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) kartın köküne koyun; Ayarlar → System → SD
   Karttan Firmware Güncelleme → dosyayı seçin → Onayla. Güncelleme bitince ekran donar (normal).
   5 saniye bekleyin. Sonra, aralarında 20 saniyeden uzun ara vermeden: Sol'a 2 kez, Sağ'a 2 kez
@@ -2688,8 +2690,31 @@ Dikkat: uyandırırken Sağ'ı basılı tutmayın.
   dakika içinde C++ gelmezse Güç'e uzun basıp açın ve bana söyleyin.
 - [ ] Raporda şunlar bekleniyor: "dokunma: 0x5d" (ya da 0x14), "dugme: sol 2 sag 2 guc 1",
   "dokunus: 3, dokun 1, kaydir 1, uzun 1" (her dokunuş, uzun dokunuş ve kaydırma bir "dokunus"
-  sayılır), "home: dokun 1, uzun 0", "uyku: derin, guc", "uyanma: dugme" ve "sifirlama:
-  DEEPSLEEP". Güç'e basmadan beklediyseniz "uyanma: zamanlayici" yazar. Bir şeyi atlayıp 20 saniye
+  sayılır), "home: dokun 1, uzun 0", "uyku: derin, guc" (ardından "i…", "p…", "a", "r", "s" gibi adım
+  izleri gelir, bunlar normaldir), "uyanma: dugme" ve "sifirlama: DEEPSLEEP". Güç'e basmadan beklediyseniz "uyanma: zamanlayici" yazar. Bir şeyi atlayıp 20 saniye
   beklediyseniz "uyku: derin, bos 20 s" yazar; bu da olur. Sayılar bastıklarınızdan farklıysa,
-  "dokunma: yok", "guc birakilmadi", "hazir degil", "uyku: girilmedi" ya da "PANIK" çıkarsa raporun
+  "dokunma: yok", "guc birakilmadi", "hazir degil" ya da "PANIK" çıkarsa, ya da uyku satırından
+  sonra "uyanma:" satırı yoksa ve "sifirlama: WDT (other)" geliyorsa raporun
   tamamını bana iletin.
+  - Sonuç 1 (2026-10-28, 3fa3167e'nin imajı `purestwhite-baremetal-giris.bin`, cihaz, pilde):
+    "dokunma: 0x5d", "dugme: sol 3 sag 2 guc 1", "dokunus: 4, dokun 2, kaydir 1, uzun 1", "home:
+    dokun 1, uzun 0", "uyku: derin, guc", sonra uyanma satırı yok ve "sifirlama: WDT (other)".
+    Sayımlar çalıştı, ama derin uyku bitmedi (büyük olasılıkla hiç başlamadı): Güç de 60 saniyelik
+    zamanlayıcı da uyandırmadı,
+    C++'ı 90 saniyedeki bekçi sıfırlaması getirdi.
+  - Kontrol (aynı gün, `purestwhite-baremetal-uyku.bin`, 0249e415'in imajı, sağlama toplamı 1f668a3e…, pilde): hafif uykular ve Güç
+    ile derin uykudan uyanma yine geçti ("uyanma: dugme", "sifirlama: DEEPSLEEP"). Ortam sağlam.
+  - Sonuç 2 (tanı imajı `purestwhite-baremetal-giris-2.bin`, sağlama toplamı b79098b2…: derin uykudan önce 1 s'lik
+    hafif uyku, uyku satırında adım izleri): "uyku: derin, guc i28000 hz1001 a r s", "uyanma:
+    dugme", "sifirlama: DEEPSLEEP". Eski bir uyanma ya da reddetme bayrağı yok (0x28000'de bit 0 ve 1 boş), hafif uyku
+    zamanlayıcıyla 1001 ms'de bitti, derin uyku başladı ve Güç uyandırdı. Açılıştan sonraki ilk
+    uyku derin uyku olunca bitmiyor; önce bir hafif uyku yapılınca bitiyor. Raporlar `firmware-arsiv/cihaz-raporlari/`'nda (giris-1, uyku-2-kontrol,
+    giris-2).
+  - Sonuç 3 (deney imajı `purestwhite-baremetal-giris-4.bin`, sağlama toplamı a9337bca…: hafif
+    uyku yok, uyku isteğinden hemen önce dijital pinlerin otomatik tutması kapatılıyor; uyku
+    satırına `p` ile o ayarın bulunan değeri yazılıyor): "uyku: derin, guc i28000 p10000880 a r s",
+    "uyanma: dugme", "sifirlama: DEEPSLEEP". Otomatik tutma (bit 11, 0x800) açık bulundu;
+    kapatılınca hafif uykusuz ilk derin uyku Güç ile uyandı. Neden: esp-hal uyku isteğinden hemen
+    önce tutulmayan dijital pinleri, flaşınkiler dahil, devreden çıkarıyor ve ardından çalışan kod
+    önbellekte değilse çip takılıyor; bunu yalnızca otomatik tutma açıkken yapıyor
+    (`sleep::deep_sleep` artık kapatıyor). Rapor `firmware-arsiv/cihaz-raporlari/giris-4.txt`.

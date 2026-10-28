@@ -286,6 +286,22 @@ impl core::fmt::Write for Report {
 }
 
 impl Report {
+    /// The bytes written so far.
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    /// Drops what was written after the first `len` bytes, to write it again.
+    pub fn truncate(&mut self, len: usize) {
+        self.len = self.len.min(len);
+    }
+
     #[must_use]
     pub fn as_str(&self) -> &str {
         core::str::from_utf8(self.text.get(..self.len).unwrap_or_default()).unwrap_or("")

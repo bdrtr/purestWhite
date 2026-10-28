@@ -4,7 +4,7 @@
 //! 2. sleeps lightly until Power is pressed, through the low-power path a deep sleep wakes on,
 //!    or for 20 s;
 //! 3. with Power up again, sleeps deeply until Power is pressed or for 15 s, the pins held as the
-//!    SDK holds them for its own sleep.
+//!    SDK holds them for its own sleep (`sleep::deep_sleep`).
 //!
 //! A light sleep returns here, and the report says what ended it and how long it lasted. The deep
 //! sleep's wake resets into the C++ firmware, which adds what woke the chip and what reset it. The
@@ -193,6 +193,6 @@ fn main() -> ! {
     report.save();
     rtc.rwdt.feed();
     // With a timer it does not return.
-    let _ = sleep::deep_sleep(low_power, &mut power, rails, Some(DEEP));
+    let _ = sleep::deep_sleep(low_power, &mut power, rails, Some(DEEP), |_| {});
     esp_hal::system::software_reset()
 }

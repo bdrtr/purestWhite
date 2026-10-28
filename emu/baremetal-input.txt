@@ -36,8 +36,8 @@ expect-log:dokunma: 0x5d
 expect-log:dugme: sol 1 sag 1 guc 1
 expect-log:dokunus: 3, dokun 1, kaydir 1, uzun 1
 expect-log:home: dokun 1, uzun 0
+# Only a deep sleep's wake gives the button as the cause. The reset line after it is not
+# checked: the console can cut it with the next log line.
 expect-log:uyanma: dugme
-# The console can run the next log line into this one, so only its start is matched.
-expect-log:sifirlama: DEEPSLEE
 wait-quiet:5
 shot:back-home

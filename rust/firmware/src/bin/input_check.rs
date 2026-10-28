@@ -8,6 +8,11 @@
 //! watchdog counts through the sleep: a sleep that never ends resets the chip after 90 s, and
 //! after 30 s more resets it fully (on battery the device then turns off). Without esp-rtos, so it
 //! runs in the emulator too.
+//!
+//! The report's sleep line gets a mark before each step of the sleep, so that a sleep that never
+//! ends shows its step (`sleep::Step`): `i` and the sleep interrupt flags found, `p` and the
+//! digital pads' isolation and hold settings found (bit 11 is the auto-hold `sleep::deep_sleep`
+//! disables), `a` arming Power (`!` if that failed), `r` holding the rails, `s` the deep sleep.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![no_main]
@@ -17,11 +22,12 @@ use esp_backtrace as _;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Flex, Input as Pin, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::i2c::master::{Config as I2cConfig, I2c, SoftwareTimeout};
+use esp_hal::peripherals::LPWR;
 use esp_hal::rtc_cntl::Rtc;
 use esp_hal::rtc_cntl::sleep::LowPower;
 use esp_hal::time::{Duration, Instant, Rate};
 use purestwhite_firmware::input::{self, ButtonPins, Input, Polled, ReadyI2c, TouchPins};
-use purestwhite_firmware::sleep::{self, Rails};
+use purestwhite_firmware::sleep::{self, Rails, Step};
 use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch, ready};
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -217,24 +223,74 @@ fn main() -> ! {
     if !sleep::wait_power_up(&pins.power, RELEASE_WAIT, || rtc.rwdt.feed()) {
         let _ = writeln!(report, "guc birakilmadi");
     }
-    // The last line, which the C++ firmware looks for to add what woke and reset the chip.
-    let _ = writeln!(report, "uyku: derin, {why}");
-    esp_println::println!("{}", report.as_str());
-    report.save();
-    sleep::watch_sleep(&mut rtc, WATCHDOG_CORE, WATCHDOG_SYSTEM);
     let rails = Rails {
         touch_power,
         sd_power: Output::new(peripherals.GPIO5, Level::High, OutputConfig::default()),
         panel_reset: Output::new(peripherals.GPIO14, Level::High, OutputConfig::default()),
     };
-    // With a timer it does not return; without, only when Power cannot wake the chip.
-    let why = sleep::deep_sleep(
-        LowPower::new(peripherals.LPWR),
+    sleep_reporting(
+        &mut report,
+        why,
+        &mut rtc,
         &mut pins.power,
         rails,
-        Some(SLEEP_AT_MOST),
-    );
-    Report::append_saved("uyku: girilmedi\n");
-    esp_println::println!("uyku: girilmedi ({why:?})");
+        LowPower::new(peripherals.LPWR),
+    )
+}
+
+/// Ends the report with the sleep's line, which the C++ firmware looks for to add what woke and
+/// reset the chip, and sleeps deeply, marking each step on that line.
+fn sleep_reporting(
+    report: &mut Report,
+    why: &str,
+    rtc: &mut Rtc<'_>,
+    power: &mut Pin<'_>,
+    rails: Rails<'_>,
+    low_power: LowPower<'_>,
+) -> ! {
+    // It starts with the sleep's interrupt flags and the pads' settings as the run found them.
+    let _ = write!(report, "uyku: derin, {why}");
+    let mut line = SleepLine::new(report);
+    let regs = LPWR::regs();
+    line.mark(format_args!(
+        " i{:x} p{:x}",
+        regs.int_raw().read().bits(),
+        regs.dig_iso().read().bits()
+    ));
+    esp_println::println!("{}", line.report.as_str());
+    sleep::watch_sleep(rtc, WATCHDOG_CORE, WATCHDOG_SYSTEM);
+    // With a timer it does not return.
+    let _ = sleep::deep_sleep(low_power, power, rails, Some(SLEEP_AT_MOST), |step| {
+        line.mark(match step {
+            Step::Arm => format_args!(" a"),
+            Step::ArmFailed => format_args!("!"),
+            Step::Rails => format_args!(" r"),
+            Step::Sleep => format_args!(" s"),
+        });
+    });
     esp_hal::system::software_reset()
+}
+
+/// The report's last line, the sleep's, saved again with a mark before each step of the sleep: a
+/// sleep that never ends shows the step it stopped at.
+struct SleepLine<'r> {
+    report: &'r mut Report,
+    /// Where the line's text ends, before its newline.
+    end: usize,
+}
+
+impl<'r> SleepLine<'r> {
+    /// The line written last, without its newline yet.
+    fn new(report: &'r mut Report) -> Self {
+        let end = report.len();
+        SleepLine { report, end }
+    }
+
+    fn mark(&mut self, text: core::fmt::Arguments<'_>) {
+        self.report.truncate(self.end);
+        let _ = self.report.write_fmt(text);
+        self.end = self.report.len();
+        let _ = writeln!(self.report);
+        self.report.save();
+    }
 }
