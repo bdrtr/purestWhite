@@ -596,7 +596,7 @@ Note: do not hold Right while waking the device.
     Power worked. Left, Right and Home were not counted in this test: the owner only touched the
     screen in this test (the buttons passed on the device in `input-check`). The report is
     `firmware-arsiv/cihaz-raporlari/geri-bildirim-2.txt`.
-- [ ] Font in PSRAM (D3), with the cleanup below: delete the old report on the card, put
+- [x] Font in PSRAM (D3), with the cleanup below: delete the old report on the card, put
   `purestwhite-baremetal-feedback-4.bin` in the root and install it from SD; then do the steps
   above. It replaces `purestwhite-baremetal-geri-bildirim-3.bin` (built before the reports were in
   English: skip that one). The screen and the text should look the same as with `geri-bildirim-2`;
@@ -604,6 +604,8 @@ Note: do not hold Right while waking the device.
   Expected in the report: "panel UC8179 ok, touch 0x5d, font 363 KB T ms" (T is the load time in
   milliseconds; expected under one second). If "font none" shows up (the font could not be read,
   or it did not fit in PSRAM), send me the whole report.
+  - Result (2026-10-29, device, on battery): "panel UC8179 ok, touch 0x5d, font 363 KB 202 ms":
+    the font loaded into PSRAM in 0.2 s. Report: `firmware-arsiv/cihaz-raporlari/feedback-4.txt`.
 
 ## Cleanup and English reports ("rust: a 50-line function limit; split FAT's layout and touch polling", "purestwhite-epd: an Interface trait; the UC8179 driver in modules", "firmware: board wiring in one place; test images split by job", "purestwhite-ota: the otadata choice, tested on the host", "firmware: device reports in English")
 
@@ -614,15 +616,28 @@ the C++ firmware moved into the host-tested `purestwhite-ota` crate. The report 
 are now in English, and the C++ firmware looks for a last line starting with "sleep:" (it was
 "uyku:") before it adds "wake: …" and "reset: …".
 
-- [ ] Flash the C++ firmware of this commit first: an image's "wake:" and "reset:" lines need it.
+- [x] Flash the C++ firmware of this commit first: an image's "wake:" and "reset:" lines need it.
   An older C++ firmware still saves the report, only without those two lines.
-- [ ] After the first boot of this C++ firmware, `/.crosspoint/bootloader.txt` is on the card with
+- [x] After the first boot of this C++ firmware, `/.crosspoint/bootloader.txt` is on the card with
   "bootloader rollback: YES (slot app0, state 2)" (or `app1`, by the slot it runs in). The old
   `onyukleyici.txt` next to it can be deleted.
-- [ ] `feedback-check` (`purestwhite-baremetal-feedback-4.bin`, the item above) runs the shared
+  - Result (2026-10-29): "bootloader rollback: YES (slot app0, state 2)" (the C++ firmware of
+    a8764dbb in `app0`). The old `onyukleyici.txt` was deleted.
+- [x] `feedback-check` (`purestwhite-baremetal-feedback-4.bin`, the item above) runs the shared
   start (`test_image::start`), the hand-back through `purestwhite-ota`, `Board::take`,
   `panel::open`, the touch opening and the sleep: expected as in the item above, in English, with
   "next boot: C++ firmware" as the second line.
+  - Result (2026-10-29, device): "purestWhite feedback", "next boot: C++ firmware", "panel UC8179
+    ok, touch 0x5d, font 363 KB 202 ms", "fast 5 half 0 failed 0 1846 ms", "keys 2/2/1/0 tap 0
+    swipe 0 long 0", "sleep: deep, power i28000 p10000880 a r s", "wake: button", "reset:
+    DEEPSLEEP". Every refactored path ran: the hand-back, the panel, the touch controller (found
+    at 0x5d), the buttons, the sleep and the wake into the C++ firmware with its new "wake:" and
+    "reset:" lines. No touch gestures were counted: the owner did not touch the screen in this run
+    (the touch marks passed on the device with `geri-bildirim-2`).
+  - The owner noted that after the sleep one short press of Power does not wake the device. That
+    is the C++ firmware's ghost-wake check (`HalGPIO::verifyPowerButtonWakeup`): after a deep
+    sleep it boots back into sleep unless Power is still held, so Power has to be held for about a
+    second. Settings > Short Power Button Click > Sleep makes one click wake it.
 
 ## PSRAM at 80 MHz without tuning ("firmware: a psram-80mhz feature for a PSRAM test image")
 
