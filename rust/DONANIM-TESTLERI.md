@@ -2688,7 +2688,7 @@ Dikkat: uyandırırken Sağ'ı basılı tutmayın.
   tutun; çok kısa basarsanız C++ bunu yanlışlıkla uyanma sayıp yeniden uyur, o zaman bir daha
   basın). C++ ana ekranı gelmeli. Hiçbir şeye basmazsanız cihaz 60 saniye sonra kendisi uyanır. 2
   dakika içinde C++ gelmezse Güç'e uzun basıp açın ve bana söyleyin.
-- [ ] Kaydırma: `purestwhite-baremetal-giris-6.bin` ile aynı yükleme; 5 saniye sonra ekranda tek
+- [x] Kaydırma: `purestwhite-baremetal-giris-6.bin` ile aynı yükleme; 5 saniye sonra ekranda tek
   parmakla, normal hızda 5 kez kaydırın (sola, sağa, yukarı, aşağı, sola), sonra ekrana 1 kez kısa
   dokunun, en son Güç'ü 1 saniye basılı tutup bırakın; birkaç saniye sonra Güç'le uyandırın.
   Raporda "dokunus 6 dokun 1 kaydir 5 uzun 0 home 0/0" ve "birak 6 yavas 0 diger 0 hata 0"
@@ -2733,3 +2733,11 @@ Dikkat: uyandırırken Sağ'ı basılı tutmayın.
     kaydırma çalışıyor. giris-1'de bir kaydırma sayılmıştı. Nedenini ayırmak için `giris-6`
     bırakılan temasları, kaydırma için fazla uzun sürenleri ve okunamayan dokunma durumlarını da
     sayıyor. Rapor `firmware-arsiv/cihaz-raporlari/giris-5.txt`.
+  - Kaydırma denemesi (2026-10-28, 474e0b73'ün imajı `purestwhite-baremetal-giris-6.bin`):
+    "dokunus 6 dokun 1 kaydir 4 uzun 0 home 0/0", "birak 6 yavas 1 diger 0 hata 0", "dugme: sol 0
+    sag 0 guc 2", "uyku: derin, guc i28000 p10000880 a r s", "uyanma: dugme", "sifirlama:
+    DEEPSLEEP". Altı temasın hepsi okundu, okuma hatası yok; beş kaydırmanın dördü kaydırma
+    sayıldı, biri 700 ms'den uzun sürdüğü için sayılmadı ("yavas"): SDK'nın `TOUCH_SWIPE_MAX_MS`
+    kuralı, C++ uygulaması da `wasSwipe` ile aynısını kullanıyor. giris-5'te görülmeyen temas
+    tekrarlanmadı, nedeni bilinmiyor. Giriş ve uyku cihazda geçti. Rapor
+    `firmware-arsiv/cihaz-raporlari/giris-6.txt`.
