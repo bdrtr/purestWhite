@@ -103,14 +103,17 @@ emu/compare.sh                               # side by side with unmodified Cros
 
 `emu/compare.sh` runs a reading scenario on [eink-qemu](https://github.com/serialx/eink-qemu)
 for both this tree and an unmodified CrossPoint build, and compares screenshots, heap use
-and render times. Hardware tests collect in [`rust/DONANIM-TESTLERI.md`](rust/DONANIM-TESTLERI.md)
-(in Turkish) and are run on a real X4 Pro before a release.
+and render times. Hardware tests collect by subject in
+[`rust/hardware-tests/`](rust/hardware-tests/README.md) and are run on a real X4 Pro before a
+release.
 
 ## Documentation
 
 - [User guide](USER_GUIDE.md): controls, reading, sync, settings (shared with CrossPoint).
-- [Rust migration](rust/README.md): method, build and emulator notes (in Turkish).
-- [Hardware test list](rust/DONANIM-TESTLERI.md): what to try on the device for each change.
+- [Rust migration](rust/README.md): method, build and emulator notes, and the porting order.
+- [Bare-metal firmware](rust/firmware/README.md): the Rust firmware for the second OTA slot.
+- [Hardware tests](rust/hardware-tests/README.md): what to try on the device for each change, by
+  subject.
 - [CrossPoint documentation](docs/): file formats, fonts, dictionaries, internals.
 
 ## Türkçe özet

@@ -1,111 +1,114 @@
-# Emülatör ve HAL envanteri
+# Emulator and HAL inventory
 
-Aşama 6'nın (HAL ve SDK sürücüleri Rust'a) güvenlik ağı `emu/compare.sh` olacak: aynı senaryoyu
-eski ve yeni yapıda eink-qemu'da koşturup ekranları karşılaştırır. Bu belge HAL'in her parçası için
-emülatörün neyi gerçekten modellediğini, neyin eksik olduğunu ve neyin her zaman cihazda
-denenmesi gerektiğini tutar (2026-10-25).
+The safety net of [stage 6](porting/6-platform.md) (the HAL and the SDK drivers into Rust) will be
+`emu/compare.sh`: it runs the same scenario on the old and the new build in eink-qemu and compares
+the screens. For each part of the HAL, this document records what the emulator really models, what
+is missing, and what must always be tried on the device (2026-10-25).
 
-eink-qemu üçüncü taraf bir projedir: `serialx/eink-qemu` (GPLv2, QEMU 11.1.2 tabanlı), biz
-yalnızca sürüm arşivlerini kullanıyoruz (`../tools/eink-qemu-0.7.0`). Kendi kuralı "donanımı
-veri sayfasından ve karttan modelle, tek bir yazılımın sürücüsünden değil"dir; bu yüzden
-eklenecek bir model bizim sürücümüzü değil, X4 Pro'nun donanımını taklit etmelidir.
+eink-qemu is a third-party project: `serialx/eink-qemu` (GPLv2, based on QEMU 11.1.2); we only use
+its release archives (`../tools/eink-qemu-0.7.0`). Its own rule is "model the hardware from the
+datasheets and the board, not from one firmware's driver"; so a model we add must imitate the X4
+Pro's hardware, not our driver.
 
-## Parça parça
+## Part by part
 
-| HAL parçası | X4 Pro donanımı | eink-qemu'da | Bizim senaryolarımız | HAL taşıması için eksik |
+| HAL part | X4 Pro hardware | In eink-qemu | Our scenarios | Missing for the HAL port |
 | --- | --- | --- | --- | --- |
-| `HalDisplay` | UC8279 (0x68) panel, GPSPI2 + GDMA, BUSY | Var: panel komutları, kısmi pencere (0x90), BUSY süresi, yenileme sayısı (`refreshes`, `refresh-ns`); hayalet görüntü isteğe bağlı | Hepsi (her `shot`) | Yok. Dalga biçimi ve hayalet görüntünün görünüşü cihazda |
-| `HalGPIO`: düğmeler | Yukarı GPIO0, Aşağı GPIO7, Güç GPIO3 | Var (`press:up/down/power`, uzun basış) | `reading`, `sleep`, `open-book`... | Yok |
-| `HalGPIO`: dokunma | GT911 (I2C 0x5D, INT GPIO10, güç GPIO2), kapasitif Home | Var (`touch`, `swipe`, `press:home`); çoklu dokunma yok | `ble-settings`, `settings`, `library` | Yok (çoklu dokunma kullanılmıyor) |
-| `HalStorage` | SDMMC 1 bit, GPIO5 güç | Var: FAT32 kart, okuma ve yazma; hız X3'te ölçülmüş | Kitap ve kart kopyalayan her senaryo | Kart hatası (okuma hatası, çıkarılan kart, bozuk FAT) üretilemiyor |
-| `HalPowerManager`: uyku | Derin uyku, ext0/ext1 düğme ile uyanma, RTC belleği | Var: derin ve hafif uyku, zamanlayıcı ve pin uyanması, RTC belleği korunur | `sleep` | Yok. Uyanma gecikmesi ve akım cihazda |
-| `HalPowerManager`: pil | CW2017 yakıt göstergesi (I2C 0x63) | Var: yüzde ve gerilim, `hmp:qom-set /machine/cw2017 soc N` ile çalışırken değişir | `battery` (%80 → %42 → %100) | Yok |
-| `HalPowerManager`: şarj | STAT GPIO21 (yüksek = şarj oluyor) | **Yok**: pin hep 1 okunur ("şarjda") | Yok | Şarj durumu değişmiyor; şarjda/değil ayrımı denenemiyor |
-| `HalClock` | BM8563 RTC (I2C 0x51) | Var: ana makinenin saati ya da `--rtc` (varsayılan 2026-01-01 09:00) | `clock` (başlık ve durum çubuğu saati); hepsi `--rtc` sabit | Yok |
-| `HalFrontlight` | LEDC PWM, soğuk GPIO8 (kanal 4), sıcak GPIO9 (kanal 5) | **Yok** (üst projede "open") | Yok | Parlaklık ve renk sıcaklığının görev oranı okunamıyor |
-| `HalHaptics` | Motor yok (yalnızca Metalio'da) | Gerekmez | — | HAL'in boş yolu ana makine testiyle |
-| `HalTiltSensor` | IMU yok (`ImuType::None`) | Gerekmez | — | HAL'in boş yolu ana makine testiyle |
-| `HalMemory`, `HalSystem` | PSRAM 8 MB, panik dökümü | PSRAM var (60–90 % hızlı modellenmiş); yığın yürüyüşü (`heap`) | `clipping-large` | Yok. Mutlak zamanlama cihazda |
-| Wi-Fi (SDK) | ESP32-S3 Wi-Fi | Sahte açık erişim noktası (`PICSimLabWifi`), NAT ya da köprü; WPA ve sinyal yok | Yok | Senaryo yok (web sunucusu, WebDAV, OPDS, KOSync yapılabilir); WPA ve gerçek ağ cihazda |
-| BLE sayfa çevirici (SDK) | NimBLE + Espressif'in kapalı denetleyicisi | Radyo açılır, tarama hiçbir şey bulmaz; bağlantı katmanı yok (üst projede yapım aşamasında) | `ble-settings` | Eşleşme ve sayfa çevirme hiçbir zaman emülatörde değil, cihazda |
-| USB | USB-CDC günlük | Günlük var; USB depolama yok | — | Kullanılmıyor |
+| `HalDisplay` | UC8279 (0x68) panel, GPSPI2 + GDMA, BUSY | Yes: panel commands, partial window (0x90), BUSY time, refresh count (`refreshes`, `refresh-ns`); ghosting optional | All (every `shot`) | Nothing. The waveform and how ghosting looks: on the device |
+| `HalGPIO`: buttons | Left GPIO0 (the SDK's Up), Right GPIO7 (the SDK's Down), Power GPIO3 | Yes (`press:up/down/power`, long press) | `reading`, `sleep`, `open-book`... | Nothing |
+| `HalGPIO`: touch | GT911 (I2C 0x5D, INT GPIO10, power GPIO2), capacitive Home | Yes (`touch`, `swipe`, `press:home`); no multi-touch | `ble-settings`, `settings`, `library` | Nothing (multi-touch is not used) |
+| `HalStorage` | SDMMC 1-bit, GPIO5 power | Yes: FAT32 card, read and write; speed measured on the X3 | Every scenario that copies books and the card | Card errors (a read error, a removed card, a broken FAT) cannot be produced |
+| `HalPowerManager`: sleep | Deep sleep, ext0/ext1 wake-up by a button, RTC memory | Yes: deep and light sleep, timer and pin wake-up, RTC memory is kept | `sleep` | Nothing. Wake-up latency and current: on the device |
+| `HalPowerManager`: battery | CW2017 fuel gauge (I2C 0x63) | Yes: percentage and voltage, changed at run time with `hmp:qom-set /machine/cw2017 soc N` | `battery` (80% → 42% → 100%) | Nothing |
+| `HalPowerManager`: charging | STAT GPIO21 (high = charging) | **No**: the pin always reads 1 ("charging") | None | The charge state does not change; charging and not charging cannot be told apart in a test |
+| `HalClock` | BM8563 RTC (I2C 0x51) | Yes: the host's clock or `--rtc` (default 2026-01-01 09:00) | `clock` (the clock in the header and in the status bar); all with a fixed `--rtc` | Nothing |
+| `HalFrontlight` | LEDC PWM, cool GPIO8 (channel 4), warm GPIO9 (channel 5) | **No** ("open" in the upstream project) | None | The duty cycle of brightness and color temperature cannot be read |
+| `HalHaptics` | No motor (only on the Metalio) | Not needed | — | The HAL's empty path, with a host test |
+| `HalTiltSensor` | No IMU (`ImuType::None`) | Not needed | — | The HAL's empty path, with a host test |
+| `HalMemory`, `HalSystem` | PSRAM 8 MB, panic dump | PSRAM present (modelled 60–90 % fast); heap walk (`heap`) | `clipping-large` | Nothing. Absolute timing: on the device |
+| Wi-Fi (SDK) | ESP32-S3 Wi-Fi | A fake open access point (`PICSimLabWifi`), NAT or bridge; no WPA and no signal | None | No scenario (web server, WebDAV, OPDS, KOSync are possible); WPA and a real network: on the device |
+| BLE page turner (SDK) | NimBLE + Espressif's closed controller | The radio turns on, a scan finds nothing; no link layer (in progress in the upstream project) | `ble-settings` | Pairing and page turning are never in the emulator, only on the device |
+| USB | USB-CDC log | Log present; no USB storage | — | Not used |
 
-## Bilinen emülatör sınırları ve sürüm
+## Known emulator limits and the version
 
-`emu/compare.sh` 0.9.2'yi kullanır (`../tools/eink-qemu-0.9.2`; 0.7.0 yanında duruyor).
-Aradaki sürümler HAL işi için önemli:
+`emu/compare.sh` uses 0.9.2 (`../tools/eink-qemu-0.9.2`; 0.7.0 stays next to it). The releases in
+between matter for the HAL work:
 
-- **0.9.1**: X4 Pro'da OTA yuvası değiştikten sonraki yeniden başlatma aynı oturumda açılıyor
-  (yalnızca CPU'yu sıfırlayan yeniden başlatmalar diğer çekirdeği ve paylaşılan çevre birimlerini
-  koruyor). 0.7.0'da `ESP.restart` her zaman takılıyordu; güncelleme ve "Diğer yazılımı başlat"
-  akışları emülatörde denenemiyordu. Denendi: Wi-Fi oturumundan çıkıştaki `silentRestart`
-  (`RTC_SW_CPU_RST`) 0.7.0'da ROM'da döngüye giriyor, 0.9.2'de Home'a açılıyor
-  (`emu/restart.txt`).
-- **0.9.0**: betikli koşularda `--sleep off` varsayılan: konuk boştayken saati bir sonraki
-  zamanlayıcıya atlar. Bu kipte `swipe` konuk zamanında uzar ve ürün yazılımı onu kaydırma saymaz
-  (sayfa çevrilmez); `compare.sh` bu yüzden `--sleep on` geçer.
-- **0.8.0**: Wi-Fi'de NAT ve köprü arasında açık seçim.
+- **0.9.1**: on the X4 Pro, the restart after the OTA slot changes boots in the same session
+  (restarts that reset only the CPU keep the other core and the shared peripherals). In 0.7.0
+  `ESP.restart` always hung; the update and "Start Other Firmware" flows could not be tried in the
+  emulator. Tried: `silentRestart` (`RTC_SW_CPU_RST`) on leaving the Wi-Fi session loops in the ROM
+  in 0.7.0, and opens Home in 0.9.2 (`emu/restart.txt`).
+- **0.9.0**: in scripted runs `--sleep off` is the default: when the guest is idle, the emulator
+  jumps the clock to the next timer. In this mode a `swipe` gets longer in guest time and the
+  firmware does not count it as a swipe (the page is not turned); so `compare.sh` passes
+  `--sleep on`.
+- **0.8.0**: an explicit choice between NAT and bridge for Wi-Fi.
 
-## Her zaman cihazda
+## Always on the device
 
-Emülatör bunları hiçbir zaman tam doğru vermez; HAL taşımasında da `DONANIM-TESTLERI.md`'ye cihaz
-testi olarak girerler:
+The emulator never gives these fully right; in the HAL port they also go into
+[the hardware tests](hardware-tests/README.md) as device tests:
 
-- Mutlak zamanlama: e-ink yenileme süreleri, PSRAM'a dayanan yollar, derin uykudan uyanma gecikmesi.
-- Güç: pil tüketimi, uyku akımı, şarj.
-- Gerçek SD kart davranışı: yavaş ya da bozuk kartlar, takıp çıkarma.
-- Ön ışığın görünüşü, hayalet görüntünün görünüşü.
-- Gerçek Wi-Fi (WPA, zayıf sinyal, kopma) ve BLE eşleşmesi.
+- Absolute timing: e-ink refresh times, paths that depend on PSRAM, wake-up latency from deep
+  sleep.
+- Power: battery drain, sleep current, charging.
+- Real SD card behavior: slow or broken cards, inserting and removing a card.
+- How the front light looks, how ghosting looks.
+- Real Wi-Fi (WPA, a weak signal, dropped connections) and BLE pairing.
 
-## Önerilen sıra
+## Suggested order
 
-HAL'i taşıma sırasına göre (önce emülatörde tam görülenler):
+In the order of porting the HAL (first the parts the emulator shows fully):
 
-1. **eink-qemu'yu 0.9.2'ye yükseltmek ✅**: 23 senaryo iki yapıda da geçiyor ve ekranları aynı;
-   yeniden başlatan akış `emu/restart.txt` ile senaryoya girdi.
-2. **Saf parçalar** (`HalClock` ✅ `purestwhite-rtc`): emülatör yeterli. `HalMemory` (ESP-IDF'in
-   yığın işlevleri) ve `HalSystem` (IRAM'deki panik yakalayıcı) taşınmaz: bare-metal firmware'de
-   yerlerini esp-hal'in ayırıcısı ve hata izleme araçları alır.
-3. **`HalStorage`**: emülatör mutlu yolu tam gösterir; hata yolları ana makine testleriyle
-   (sahte dosya sistemi), çünkü emülatörde kart hatası üretmek QEMU'nun SD modelini değiştirmeyi
-   gerektirir.
-4. **`HalGPIO`** (düğmeler, dokunma) ve **`HalDisplay`**: emülatör tam.
-5. **`HalPowerManager`**: uyku ve pil emülatörde (pil göstergesi ✅ `purestwhite-gauge`); şarj pini
-   için emülatöre bir model eklemek gerekir (küçük: GPIO21'i dışarıdan sürülebilir yapmak).
-6. **`HalFrontlight`**: emülatöre LEDC modeli eklemek gerekir (orta büyüklükte: iki kanalın görev
-   oranını okunur bir özellik olarak vermek), yoksa yalnızca cihazda.
-7. **Wi-Fi ve BLE** (SDK'nın parçaları): Wi-Fi için sahte erişim noktasıyla web senaryoları
-   yazılabilir; BLE yalnızca cihazda.
+1. **Upgrade eink-qemu to 0.9.2 ✅**: 23 scenarios pass on both builds and their screens are the
+   same; the flow that restarts became a scenario with `emu/restart.txt`.
+2. **Pure parts** (`HalClock` ✅ `purestwhite-rtc`): the emulator is enough. `HalMemory`
+   (ESP-IDF's heap functions) and `HalSystem` (the panic handler in IRAM) are not ported: in the
+   bare-metal firmware, esp-hal's allocator and error tracing tools take their place.
+3. **`HalStorage`**: the emulator shows the happy path fully; the error paths are covered with host
+   tests (a fake file system), because producing a card error in the emulator needs a change to
+   QEMU's SD model.
+4. **`HalGPIO`** (buttons, touch) and **`HalDisplay`**: the emulator is complete.
+5. **`HalPowerManager`**: sleep and battery in the emulator (fuel gauge ✅ `purestwhite-gauge`);
+   the charge pin needs a model added to the emulator (small: make GPIO21 drivable from outside).
+6. **`HalFrontlight`**: needs an LEDC model added to the emulator (medium-sized: give the duty
+   cycle of the two channels as a readable property); otherwise only on the device.
+7. **Wi-Fi and BLE** (parts of the SDK): for Wi-Fi, web scenarios can be written with the fake
+   access point; BLE only on the device.
 
-Şarj pini ve LEDC için emülatöre ekleme, eink-qemu'nun kaynağından kendi yapımızı derlemeyi (ya da
-üst projeye katkı vermeyi) gerektirir. Bu, sahibinin kararıdır.
+Adding the charge pin and LEDC to the emulator needs our own build of eink-qemu from its source
+(or a contribution to the upstream project). This is the owner's decision.
 
-## Bare-metal firmware (2. aşama)
+## The bare-metal firmware (stage 2)
 
-`rust/firmware`'in imajları eink-qemu'da C++ derlemesinin önyükleyicisi ve bölüm tablosuyla açılır;
-`esp_hal::init`, en yüksek saat hızı, `esp-alloc`, flash okuma ve yazma (`esp-storage`) çalışır.
-`emu/baremetal-handback.txt` SD güncellemesiyle ikinci yuvaya geçişi ve C++ firmware'e dönüşü baştan
-sona sınar; `emu/baremetal-handback-slot1.txt` aynısını C++ firmware ota_1'deyken.
-`emu/baremetal-display.txt` bare-metal UC8279 ve UC8179 sürücülerinin tam ve hızlı yenilemesini
-ekran görüntüsüyle gösterir, `emu/baremetal-display-gray.txt` de UC8179'un dört gri geçişini
-(`display-check`, esp-rtos'suz; imaj önce denetleyiciyi yoklar; UC8179 için `eink-qemu compare ...
---panel uc8179`; eink-qemu'nun X4 Pro için SSD1677 modeli yok, yanıt
-vermeyen veriyolu yalnızca `test/epd_probe`'un modelinde sınanır). **esp-rtos ise eink-qemu 0.9.2'de
-çalışmaz**: `esp_rtos::start`'taki ilk görev değişiminde yığın işaretçisi çevre birimi alanına
-(0x6002_9xxx) kayar, kesme girişleri yazmaç pencerelerini SDMMC ve DS kayıtlarının üstüne döker ve
-QEMU çöker (sinyal 11). Zamanlayıcı olarak TIMG0 yerine SYSTIMER verilince de aynı (denenen
-sürümler: esp-hal 1.2.2, esp-rtos 0.4.0); esp-rtos'un S3'te kullandığı CPU-içi Software0 kesmesinin
-(1. seviye) emülasyonundaki bir eksiklik olabilir. Embassy kullanan her şey bu düzelene kadar
-yalnızca cihazda denenebilir. esp-hal'in SDMMC yuvası kesmeli (async) kipte de çöker, başka
-biçimde: QEMU'nun dijital imza (DS) modeli "Invalid padding/digest" der ve QEMU sinyal 8 ile çıkar. Bare-metal
-imajdaki kayan nokta işlemleri de aynı iletiyle çöktürür (`feedback-check`'te dokunma noktasının
-`f32` ile çevrilmesi; tamsayılı `Canvas::panel_to_logical` ile geçiyor): bare-metal yolunda kayan
-nokta kullanılmaz, cihazda esp-hal kayan nokta birimini açık tutar (`float-save-restore`).
-Yuvanın kesmesiz (blocking) çağrılarıyla çalışır: `emu/baremetal-sd.txt` bare-metal `sd-check`
-imajıyla kartı bağlar, FAT bölümünü açar, kökü uzun adlarıyla listeler ve
-`.crosspoint/onyukleyici.txt`'yi okur. SD modelinde veri zaman aşımı yok: yanıtsız kalan bir veri
-okuması (ör. kartın dışındaki bir blok) emülatörü sonsuza dek bekletir; cihazda denetleyicinin
-zaman aşımıyla biter.
+The images of `rust/firmware` boot in eink-qemu with the C++ build's bootloader and partition
+table; `esp_hal::init`, the highest clock speed, `esp-alloc`, and flash read and write
+(`esp-storage`) work. `emu/baremetal-handback.txt` tests from start to end the switch to the second
+slot with an SD update and the return to the C++ firmware; `emu/baremetal-handback-slot1.txt` does
+the same while the C++ firmware is in ota_1. `emu/baremetal-display.txt` shows the full and the
+fast refresh of the bare-metal UC8279 and UC8179 drivers with screenshots, and
+`emu/baremetal-display-gray.txt` the UC8179's four gray passes (`display-check`, without esp-rtos;
+the image first probes the controller; for the UC8179, `eink-qemu compare ... --panel uc8179`;
+eink-qemu has no SSD1677 model for the X4 Pro, so a bus that does not answer is tested only in
+`test/epd_probe`'s model). **But esp-rtos does not run in eink-qemu 0.9.2**: at the first task
+switch in `esp_rtos::start`, the stack pointer slides into the peripheral area (0x6002_9xxx), the
+interrupt entries spill the register windows over the SDMMC and DS registers, and QEMU crashes
+(signal 11). The same happens when SYSTIMER is given as the timer instead of TIMG0 (versions tried:
+esp-hal 1.2.2, esp-rtos 0.4.0); it may be a gap in the emulation of the in-CPU Software0 interrupt
+(level 1) that esp-rtos uses on the S3. Until this is fixed, everything that uses Embassy can only
+be tried on the device. esp-hal's SDMMC slot also crashes in interrupt-driven (async) mode, in a
+different way: QEMU's digital signature (DS) model says "Invalid padding/digest" and QEMU exits
+with signal 8. Floating-point operations in a bare-metal image crash it with the same message too
+(in `feedback-check`, converting the touch point with `f32`; it passes with the integer
+`Canvas::panel_to_logical`): the bare-metal path does not use floating point; on the device,
+esp-hal keeps the floating-point unit on (`float-save-restore`). The slot works with its blocking
+calls: `emu/baremetal-sd.txt` mounts the card with the bare-metal `sd-check` image, opens the FAT
+partition, lists the root with its long names and reads `.crosspoint/bootloader.txt`. The SD model
+has no data timeout: a data read that gets no answer (e.g. a block outside the card) makes the
+emulator wait forever; on the device it ends with the controller's timeout.
 
-eink-qemu'nun RTC_CNTL modelinde RTC bekçisi (RWDT) ve güç mandalı yok: bekçinin sıfırlaması da,
-pildeyken GPIO1 boşa düşünce cihazın kapanması da emülatörde görülmez, yalnızca cihazda.
+eink-qemu's RTC_CNTL model has no RTC watchdog (RWDT) and no power latch: neither the watchdog's
+reset nor the device turning off when GPIO1 is released on battery shows in the emulator; they
+show only on the device.
