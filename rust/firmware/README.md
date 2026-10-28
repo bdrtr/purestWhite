@@ -4,11 +4,12 @@
 Embassy. It is phase 2 of the platform plan (see [Stage 6: the platform](../porting/6-platform.md)):
 a separate firmware, tried in the second OTA slot beside the C++ firmware.
 
-For now it is a set of test images (`src/bin/`); the real firmware's `main` is still to come (see
-the [roadmap](ROADMAP.md): what comes next, and what must be true before the C++ firmware is left
-behind). A test image runs once from the second OTA slot. First it hands the next boot back to the
-C++ firmware; then it does its check, leaves a report in RTC slow memory and resets (or sleeps, and
-the wake boots the C++ firmware). The C++ firmware saves the report to the SD card.
+Besides a set of test images (`src/bin/`), it has the [purestwhite image](#the-purestwhite-image),
+the start of the real firmware's `main` (see the [roadmap](ROADMAP.md): what comes next, and what
+must be true before the C++ firmware is left behind). A test image runs once from the second OTA
+slot. First it hands the next boot back to the C++ firmware; then it does its check, leaves a report
+in RTC slow memory and resets (or sleeps, and the wake boots the C++ firmware). The C++ firmware
+saves the report to the SD card.
 
 It is its own Cargo workspace and builds only for the ESP32-S3 (`xtensa-esp32s3-none-elf`, with the
 `esp` toolchain from `rust-toolchain.toml` and `build-std` for `core` and `alloc`). The crates in
@@ -91,8 +92,40 @@ traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit
   `sleep_when_released` first waits for Power to be up (or notes `power held`).
 
 ### test_image
+
 - `open_touch`, `note_touch`: the touch panel through blocking calls, for images without an
   executor, and its report line (`touch: 0x5d` or `touch: none`).
+
+## The purestwhite image
+
+`purestwhite` (`src/bin/purestwhite/`) is the Embassy main of [DESIGN.md](DESIGN.md), the image that
+grows into the real firmware. During phase 2 it starts as every test image does (`boot::start`: the
+next boot handed back to the C++ firmware first). It runs the application through the services'
+loops as Embassy tasks (`tasks.rs`: app, draw, panel, keys), with the two frames in the PSRAM heap:
+the home screen, and when Power is held longer than 400 ms (`POWER_HOLD_MS`, with Right up) the
+sleep screen. Then `power.rs` runs the sleep handshake: the panel rests (its deep sleep) and hands
+back its reset line, the keys rest and hand back their pins, it waits up to 10 s for Power to be
+released, and the chip sleeps deeply until Power, whose wake boots the C++ firmware. Until then it
+feeds the watchdog every 10 s, so a stuck executor resets into the C++ firmware. During phase 2 it
+also comes back to the C++ firmware on its own: the backstop task (`backstop.rs`) asks for the sleep
+after 10 minutes and resets if the sleep has not begun a minute later; a loop that does not rest
+within about a minute resets too; and the sleep is `boot`'s bounded one (`report_and_sleep`): it
+ends after 10 minutes at most, and the watchdog resets the chip if it has not woken 2 minutes after
+that. There is no font, battery or clock yet: the screens show their shapes only. Its report:
+
+```
+purestWhite
+next boot: C++ firmware
+psram 8192 KB, frames ok
+panel UC8179
+panel: 3 ok, 0 failed, 0 given up, longest N ms, asleep
+sleep: deep, power i<hex> p<hex> a r s
+```
+
+`panel:` counts the panel's calls (the home screen, the sleep screen, its own sleep); calls given
+up, or a longest frame near the panel loop's 20 s, mean BUSY's interrupt did not wake the task. The
+sleep line says `time up` when the backstop asked for it; the C++ firmware adds what woke and reset
+the chip. Needs esp-rtos: device only.
 
 ## Test images
 

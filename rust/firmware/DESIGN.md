@@ -55,7 +55,9 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
 | panel | `Screen`, the panel's lines and reset | drawn frames | the frame back, "shown" |
 | input | `Keys`, `TouchPanel`, the Power pin | sleep requests | key and touch events |
 | storage | the `Card`, the FAT volume, the SD supply | jobs | results by handle |
-| power | `Gauge`, `Clock`, the watchdog | sleep, timers | battery level, timers |
+| power | the watchdog, the deep sleep, the supplies no task uses | sleep | rest requests |
+| backstop (phase 2) | nothing | time | a sleep request, a reset |
+| gauge and clock (step 4) | `Gauge`, `Clock` | timers | battery level, time |
 
 - **Frames**: two frames of 48,000 bytes move as `&'static mut [u8; FRAME_BYTES]` between draw
   and panel through channels (draw → panel, panel → draw after the refresh), which also gives
@@ -73,8 +75,9 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
   the full refresh unless the panel shows a later one first. The `Screen` implementation brings
   the panel back (the drivers' `begin`) first. The drivers also flash the first refresh after
   `begin`; the app's own full refresh is kept on purpose, so that its refresh cycle and the
-  simulator see it. On a dead panel each attempt costs up to the driver's time limit (8 s), so
-  step 2 decides whether the app stops trying after the retries until a key is pressed.
+  simulator see it. On a dead panel each attempt costs up to the panel loop's limit (20 s in the
+  `purestwhite` image); whether the app stops trying after the retries until a key is pressed
+  is still open.
 - **Executor**: the loops' futures are not `Send` (the channel ends are not), so they run on the
   thread-mode executor; the second core stays parked.
 - **Storage jobs**: the reader's parsers (`bembeyaz_io::Source`, zip, the chapter parser, the
@@ -108,20 +111,25 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
   only once the panel has answered for it (shown, or failed: a broken panel does not keep the
   device awake). The signal has one listener, the power task, which asks each service in turn
   to quiesce (the panel's deep sleep, the volume flushed, input stopped, no I2C transfer in
-  flight); each answers, handing back the pin it holds for the rails. Then the power task holds
-  the rails, arms Power and sleeps.
-- Since sleep waits for the panel's answer, every `Screen::show` must end. Step 2 bounds it in
-  the panel loop itself (a timeout through `embassy-time` turns into `ScreenFailed`), not only in
-  each `Screen` implementation (today the firmware's 8 s limit per driver call).
+  flight); each answers, handing back the pin it holds for the rails. Then the power task arms
+  Power, holds the rails and sleeps.
+- Since sleep waits for the panel's answer, every `Screen::show` must end: the panel loop bounds
+  each call to the panel itself (a timeout through `embassy-time` turns into `ScreenFailed`, and
+  the next call begins the panel again), not each `Screen` implementation.
 - Light sleep (esp-rtos's idle hook) needs the input task to stop polling when idle: it polls
   every 15 ms only while a button or a touch is active (the `Buttons` and `Touch` deadlines) and
   otherwise waits on the pins. Wake sources go through the low-power path: Power (GPIO3), the
   touch INT (GPIO10), BUSY (GPIO6). esp-hal's low-power wake is level-based, so a short GT911 INT
   pulse may be missed: the INT mode is checked on the device, with a slow fallback poll.
-  `ESP_RTOS_CONFIG_LIGHT_SLEEP_MIN_US` is raised from 1000 µs, and BUSY is awaited as an edge.
+  `ESP_RTOS_CONFIG_LIGHT_SLEEP_MIN_US` is raised from 1000 µs. Not yet: the `purestwhite`
+  image runs without light sleep, and awaits BUSY and the buttons as levels (a level wait has no
+  race between the read and the wait; whether it wakes from light sleep is checked then).
 - The watchdog: armed first, fed by the power task on a period that proves the executor runs;
   esp-hal pauses it in sleep, so it counts awake time. The real main uses core resets only
   (`ResetCore`), never a reset of the RTC domain, which would release the power latch on battery.
+  During phase 2 the image's deep sleep is the exception (`boot::watch_sleep`): the watchdog
+  counts through it, and a system reset is the last resort for a chip stuck asleep; it goes away
+  in phase 3, with the bounded sleep.
 - The second core is parked at start in every image: esp-rtos counts a core outside the
   scheduler as idle, and flash writes need it parked.
 
@@ -190,14 +198,14 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
 
 ## The host simulator (`rust/sim`)
 
-Step 1: the script's lines (`battery`, `time`, `press`, `sleep`) go straight to the app as
-events; `Screen` is the only device trait so far. These words stand for events the services have
-already classified; when the classifiers come, words for raw samples are added beside them. The
-loops run in one `block_on` (`embassy-futures`). After the first screen and after each event,
-the run waits until nothing is left to handle, draw or show (`Links::is_idle`), and fails if that
-does not happen within 10,000 turns of the loops; it ends after the last event, or right after the app asks to sleep (later lines
-are not sent). Embassy's `std` executor comes when the app needs timers; the rest of this section
-comes with the step that needs it.
+Step 1: the script's lines (`battery`, `time`, `press`, `sleep`) go straight to the app as events;
+`Screen` is the only device trait so far. These words stand for events the services have already
+classified; when the classifiers come, words for raw samples are added beside them. The loops run in
+one `block_on` (`embassy-futures`). After the first screen and after each event, the run waits until
+nothing is left to handle, draw or show (`Links::is_idle`), and fails if that does not happen within
+10,000 turns of the loops; it ends after the last event, or once the app has asked to sleep and the
+panel loop has put the panel to rest (later lines are not sent). Embassy's `std` executor comes when
+the app needs timers; the rest of this section comes with the step that needs it.
 
 Embassy's `std` executor runs the app, draw and service loops over a simulated board:
 
@@ -224,10 +232,21 @@ hand-back).
    panel's answers and the first half of the sleep handshake; `pw-sim` with
    `rust/sim/scenarios/`. The other traits come with the steps that use them.
 2. The firmware board and the `purestwhite` image (hands back first) showing the screen on the
-   device; the input loop that stops polling when idle; the sleep handshake.
+   device; the input loop that stops polling when idle; the sleep handshake. Written, for the
+   device test: the image with the app, draw, panel and key tasks, frames in a PSRAM heap of
+   their own, the panel's calls bounded by a time limit in the panel loop, the panel and the keys
+   resting before the deep sleep, and a phase-2 backstop task (it asks for the sleep after 10
+   minutes; the sleep itself is bounded by a timer and the watchdog). The key loop is in the
+   firmware lib (`keys`), on the pins, not a service over a `Keys` trait: the simulator does not
+   run it, and its timing is host-tested in `purestwhite-buttons` (`sample_in`). The `Keys` trait
+   comes when the simulator needs raw samples. Touch, the font, the battery and the clock come
+   later; health (step 3) and the battery log (step 4) get tasks of their own rather than growing
+   the power task.
 3. The update gate: the boot counter, the recovery mode with the phase-2 limits, the scratch-flash
    proof on the device.
-4. The battery page loop and its RTC log; the two-firmware measurement.
+4. The battery page loop and its RTC log; the two-firmware measurement. Before it, who owns the
+   report: now the power task does, and the phase-2 backstop writes it once, just before a
+   reset; a battery log in its own task needs a shared report in `boot` or an RTC area of its own.
 
 Each step: host tests, sim scenarios, `cargo clippy` with the 50-line limit, the emulator's
 hand-back scenarios, and the reviews the project's rules ask for (memory, build and flash

@@ -12,6 +12,12 @@ license      = "MIT"
 publish      = false
 
 [[bin]]
+name = "purestwhite"
+path = "./src/bin/purestwhite/main.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "smoke-check"
 path = "./src/bin/smoke_check.rs"
 test = false

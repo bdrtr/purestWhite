@@ -660,3 +660,49 @@ passes it (`emu/baremetal-psram.txt`), but does not model the timing: only the d
     copying frames or reading a font may gain more. The cold run and a run after an hour are still
     to come. Report: `firmware-arsiv/cihaz-raporlari/2026-10-29-psram80-warm.txt`.
 
+## The Embassy main ("firmware: the purestwhite image, the Embassy main's first device run")
+
+The `purestwhite` image (`rust/firmware/src/bin/purestwhite/`) is the start of the real bare-metal
+firmware, not a test image: the application, drawing, the panel and the buttons run as Embassy
+tasks side by side, and the panel refreshes without stopping the others. There is no font yet, so
+the screens show shapes only: the home screen is white with one black line near the top; the
+sleep screen is a crescent. The buttons do nothing yet except Power held longer than 0.4 s, which
+puts the device to sleep. Like every test image it hands the next boot back to the C++ firmware
+first, and it comes back to the C++ firmware on its own: after 10 minutes it puts itself to sleep,
+and its sleep ends after 10 minutes at most. On the device only (the emulator does not run
+esp-rtos).
+
+Run it on battery, with USB unplugged. Hold the device upright. Do not hold Right while waking
+the device (that opens the C++ recovery mode). If the C++ home screen has not come back 27 minutes
+after Confirm (or 13 minutes after the crescent), long-press Power to restart (a full power cycle:
+the report is then lost) and tell me. Do not long-press before that.
+
+- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put
+  `purestwhite-baremetal-main-1.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`) in
+  the card's root; Settings > System > SD Card Firmware Update > choose the file > Confirm. Within
+  a few seconds the screen should flash, then settle white with one black line near the top. Note
+  roughly how many seconds it takes from Confirm. If the screen does not change within 30 seconds
+  (it stays on the update page), or flashes again about every 20 seconds, the panel's BUSY line
+  did not wake the image: hold Power for a second (it still goes to sleep, within about 30
+  seconds), wake it as below and send me the report.
+- [ ] Press Left, Right and Power briefly a few times: nothing should change on the screen, and
+  the device should not sleep.
+- [ ] Hold Power for about a second and release it: within about 3 seconds a crescent should show
+  with a full refresh, then the device sleeps. If no crescent comes within 30 seconds, the device
+  still sleeps by itself; wake it and send me the report.
+- [ ] A few seconds later wake it as you wake the C++ firmware: hold Power for about a second (a
+  short press does not wake it). The C++ home screen should come. There, check that touch, the
+  card and a page refresh work as usual.
+- [ ] Expected in the report, in this order: "purestWhite", "next boot: C++ firmware", "psram
+  8192 KB, frames ok", "panel UC8179" (or UC8279), "panel: 3 ok, 0 failed, 0 given up, longest
+  N ms, asleep" (N a few thousand at most), "sleep: deep, power i… p… a r s", then from the C++
+  firmware "wake: button" and "reset: DEEPSLEEP". "PANIC", "NOT SET", "NONE", "unusable", "NOT
+  asleep", "did not rest", "no sleep", "power held", a "given up" above 0, a "!" in the sleep
+  line, or a missing line: send me the report.
+- [ ] Optional, the keys during a refresh: delete the report, install it again, and hold Power
+  while the home screen is still flashing. The crescent should follow right after the home screen;
+  then wake it as above. Expected: the same report.
+- [ ] Optional, the way back on its own: delete the report, install it again, and touch nothing.
+  About 10 minutes after the white screen the crescent should come by itself, and about 10
+  minutes later the C++ firmware should start without a press. Expected: "panel: … asleep",
+  "sleep: deep, time up i… p… a r s", "wake: timer", "reset: DEEPSLEEP".
