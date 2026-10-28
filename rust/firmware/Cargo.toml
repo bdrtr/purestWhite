@@ -104,6 +104,7 @@ purestwhite-fat = { path = "../crates/purestwhite-fat" }
 purestwhite-gauge = { path = "../crates/purestwhite-gauge" }
 purestwhite-gt911 = { path = "../crates/purestwhite-gt911" }
 purestwhite-ota = { path = "../crates/purestwhite-ota" }
+purestwhite-render = { path = "../crates/purestwhite-render" }
 purestwhite-rtc = { path = "../crates/purestwhite-rtc" }
 purestwhite-touch = { path = "../crates/purestwhite-touch" }
 

@@ -214,10 +214,10 @@ kerning, ligatures and combining marks are not there (book text must be laid out
 character missing from the font is skipped (C++ draws a filled box instead). The host tests use the
 emulator's `LiberationSerif_14.cpfont`.
 
-In the firmware's `text` module, `Writer` holds only the style; the font's bytes come from a
-`Source` at each call (the card volume stays with the caller). `FontFile` reads the file from the
-FAT volume through blocking calls (after D3, only for callers that want to read straight from the
-file). Glyphs are drawn upright with `bembeyaz-gfx`.
+`Writer` (now in `purestwhite-render`'s `text` module) holds only the style; the font's bytes come
+from a `Source` at each call. The firmware loads the font whole into memory and draws it through
+`bembeyaz_font::Memory`, which it passes to `Writer` at each call. Glyphs are drawn upright with
+`bembeyaz-gfx`.
 
 When the card has `/.fonts/LiberationSerif/LiberationSerif_14.cpfont`, `feedback-check` writes the
 boxes' names under them (Sol, Sağ, Güç, Home), the counts "dokun … kaydır … uzun …" at the bottom,

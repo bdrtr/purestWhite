@@ -15,7 +15,7 @@ use purestwhite_firmware::board::psram_config;
 use purestwhite_firmware::ready;
 use purestwhite_firmware::sd::{self, BlockingBus, Card, CardBlocks, SpinDelay};
 use purestwhite_firmware::storage::load_whole;
-use purestwhite_firmware::text::Writer;
+use purestwhite_render::Writer;
 
 /// The font, at the same place on the owner's card and the emulator's.
 const FONT: &str = ".fonts/LiberationSerif/LiberationSerif_14.cpfont";

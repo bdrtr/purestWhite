@@ -1345,6 +1345,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "purestwhite-app"
+version = "0.1.0"
+
+[[package]]
 name = "purestwhite-buttons"
 version = "0.1.0"
 
@@ -1388,6 +1392,7 @@ dependencies = [
  "purestwhite-gauge",
  "purestwhite-gt911",
  "purestwhite-ota",
+ "purestwhite-render",
  "purestwhite-rtc",
  "purestwhite-touch",
  "sdio",
@@ -1411,6 +1416,15 @@ dependencies = [
 [[package]]
 name = "purestwhite-ota"
 version = "0.1.0"
+
+[[package]]
+name = "purestwhite-render"
+version = "0.1.0"
+dependencies = [
+ "bembeyaz-font",
+ "bembeyaz-gfx",
+ "purestwhite-app",
+]
 
 [[package]]
 name = "purestwhite-rtc"

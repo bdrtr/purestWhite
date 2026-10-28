@@ -1,40 +1,15 @@
-//! Text on the panel in a font from the SD card: one style of a `.cpfont`
-//! (`bembeyaz_font::face`), its glyphs drawn with `bembeyaz_gfx`. A [`Writer`] holds only the
-//! style; the font's bytes come from a `bembeyaz_font::Source` at each call: the font loaded whole
-//! into memory (`crate::storage::load_whole`, then `bembeyaz_font::Memory`), so that drawing reads
-//! nothing from the card, or a file on the volume ([`FontFile`], through blocking calls,
-//! `crate::ready`, as `sd::BlockingBus` gives them).
+//! Text in one style of a `.cpfont` (`bembeyaz_font::face`), its glyphs drawn with `bembeyaz_gfx`.
+//! A [`Writer`] holds only the style; the font's bytes come from a `bembeyaz_font::Source` at each
+//! call, so the caller keeps the font where it likes: whole in memory (`bembeyaz_font::Memory`,
+//! as [`Text`] does) or any other `bembeyaz_font::Source`.
 
-use crate::ready;
-use bembeyaz_font::Source;
-use bembeyaz_font::face::{Error as FaceError, Face};
+pub use bembeyaz_font::face::Error as FaceError;
+use bembeyaz_font::face::Face;
+use bembeyaz_font::{Memory, Source};
 use bembeyaz_gfx::{Bitmap, Canvas, Frame, Plane};
-use purestwhite_fat::{BlockDevice, File, Volume};
 
 /// Bytes a glyph's bitmap may take: a 14 px font's take a few dozen.
 pub const SCRATCH: usize = 1024;
-
-/// A file on the volume as the font's reader sees it, for one call.
-pub struct FontFile<'v, D> {
-    pub volume: &'v mut Volume<D>,
-    pub file: &'v mut File,
-}
-
-impl<D: BlockDevice> Source for FontFile<'_, D> {
-    fn read(&mut self, buf: &mut [u8]) -> usize {
-        // A read that fails, or is not done at once (the blocking bus always is), reads nothing:
-        // the font's reader takes that as the file's end and fails the text.
-        match ready(self.volume.read(self.file, buf)) {
-            Some(Ok(n)) => n,
-            _ => 0,
-        }
-    }
-
-    fn seek(&mut self, position: u32) -> bool {
-        self.file.seek(position);
-        self.file.position() == position
-    }
-}
 
 /// One style of a font, ready to draw.
 pub struct Writer<'t> {
@@ -107,5 +82,46 @@ impl<'t> Writer<'t> {
                 canvas.glyph(&bitmap, &frame, Plane::Bw, true);
             })
             .unwrap_or(0)
+    }
+}
+
+/// A font whole in memory, and one of its styles ready to draw.
+pub struct Text<'t> {
+    bytes: &'t [u8],
+    writer: Writer<'t>,
+}
+
+impl<'t> Text<'t> {
+    /// Style `style_id` (0 regular) of the font in `bytes`, its interval table in `table`.
+    ///
+    /// # Errors
+    /// The font cannot be read or is not sane.
+    pub fn open(bytes: &'t [u8], style_id: u8, table: &'t mut [u8]) -> Result<Self, FaceError> {
+        let writer = Writer::open(&mut Memory::new(bytes), style_id, table)?;
+        Ok(Text { bytes, writer })
+    }
+
+    /// The distance from one line to the next, in pixels.
+    #[must_use]
+    pub fn line_height(&self) -> i32 {
+        self.writer.line_height()
+    }
+
+    /// How wide `text` is, in pixels.
+    pub fn width(&mut self, text: &str) -> i32 {
+        self.writer.width(&mut Memory::new(self.bytes), text)
+    }
+
+    /// Draws `text` with its line's top at (`x`, `y`); its width.
+    pub fn draw(&mut self, canvas: &mut Canvas<'_>, x: i32, y: i32, text: &str) -> i32 {
+        self.writer
+            .draw(&mut Memory::new(self.bytes), canvas, x, y, text)
+    }
+
+    /// Draws `text` centered on the canvas's width, with its line's top at `y`.
+    pub fn draw_centered(&mut self, canvas: &mut Canvas<'_>, y: i32, text: &str) {
+        let width = self.width(text);
+        let x = (canvas.screen_size().0 - width) / 2;
+        self.draw(canvas, x, y, text);
     }
 }

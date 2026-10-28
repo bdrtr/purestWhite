@@ -17,7 +17,6 @@ pub mod sd;
 pub mod sleep;
 pub mod storage;
 pub mod test_image;
-pub mod text;
 
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};

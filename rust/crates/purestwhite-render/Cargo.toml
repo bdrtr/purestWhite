@@ -1,0 +1,11 @@
+[package]
+name = "purestwhite-render"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+bembeyaz-font = { path = "../bembeyaz-font" }
+bembeyaz-gfx = { path = "../bembeyaz-gfx" }
+purestwhite-app = { path = "../purestwhite-app" }
