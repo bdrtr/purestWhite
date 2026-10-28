@@ -80,7 +80,10 @@ Steps:
    S3's octal PSRAM into esp-hal, as a pull request: write a pattern through SPI1, try each
    sampling setting, take the middle of the settings that read back right.
 3. Until then, 80 MHz only as an experiment: `psram-check` built with the `psram-80mhz` feature
-   (80 MHz, `core_clock` 160 MHz), run cold and warm; the real firmware stays at 40 MHz.
+   (80 MHz, `core_clock` 160 MHz), run cold and warm; the real firmware stays at 40 MHz. First
+   result (2026-10-29, slightly warm): no errors; writing 8 MB 14% faster and reading 6% faster
+   than at 40 MHz in a test bound by the CPU's loop. Whether 80 MHz is worth the tuning work is
+   measured again on real work (frames, fonts) in the Embassy main.
 
 ## Emulator
 

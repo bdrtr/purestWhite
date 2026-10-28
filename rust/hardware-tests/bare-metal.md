@@ -653,4 +653,10 @@ passes it (`emu/baremetal-psram.txt`), but does not model the timing: only the d
   write and read times shorter than at 40 MHz (send them: they show the speed gained).
 - [ ] Warm: the same after an hour of reading or charging. Any error count above zero, a missing
   "memory" line or "PANIC" means 80 MHz is not safe without tuning on this device: tell me.
+  - Result, slightly warm (2026-10-29, device): "psram: 8192 KB, 80 MHz, at 0x3c020000", "heap:
+    8128 KB, in PSRAM", "memory: errors 0, write 406 ms, read 647 ms", the same inverted. At 40 MHz
+    (2026-10-28) the same test took 474 ms to write and 689 ms to read: 14% and 6% faster. The test
+    computes a pattern for every word, so it measures the CPU's loop more than the PSRAM's bus;
+    copying frames or reading a font may gain more. The cold run and a run after an hour are still
+    to come. Report: `firmware-arsiv/cihaz-raporlari/2026-10-29-psram80-warm.txt`.
 
