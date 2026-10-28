@@ -2616,12 +2616,16 @@ firmware'e döner. Uyumaz, karta yazmaz, ekrana çizmez (ekran güncelleme sayfa
 normaldir). Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır. Emülatörde 8192 KB bulunuyor ve iki
 geçiş de hatasız (`emu/baremetal-psram.txt`).
 
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-psram.bin`'i
+- [x] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-psram.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) koyun; Ayarlar → System → SD Karttan
   Firmware Güncelleme → dosyayı seçin → Onayla. Ekran donar; hiçbir şeye dokunmayın.
   Birkaç saniye içinde C++ ana ekranı gelmeli. Bir dakika içinde gelmezse Güç'e uzun basıp açın ve
   bana söyleyin.
-- [ ] Raporda "psram: 8192 KB, 40 MHz, ...", "yigin: 8128 KB, psram'de", "bellek: hata 0, ..." ve "bellek
+- [x] Raporda "psram: 8192 KB, 40 MHz, ...", "yigin: 8128 KB, psram'de", "bellek: hata 0, ..." ve "bellek
   ters: hata 0, ..." ile "bitti" bekleniyor. "hata" sıfırdan büyükse ya da "psram: bulunamadi",
   "yigin: ... ayrilamadi", "PSRAM DISINDA" ya da "PANIK" çıkarsa raporun tamamını bana iletin.
-
+  - Sonuç (2026-10-28, a1559020'in imajı, cihaz): "psram: 8192 KB, 40 MHz, adres 0x3c020000",
+    "yigin: 8128 KB, psram'de", "bellek: hata 0, yazma 474 ms, okuma 689 ms", "bellek ters: hata 0,
+    yazma 474 ms, okuma 689 ms", "bitti". PSRAM bare-metal firmware'de 40 MHz'de hatasız: yazma
+    yaklaşık 17 MB/s, okuma ve karşılaştırma yaklaşık 12 MB/s. Rapor
+    `firmware-arsiv/cihaz-raporlari/`'nda.
