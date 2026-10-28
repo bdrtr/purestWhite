@@ -6,7 +6,8 @@
 #   cd rust/firmware; cargo build --release; cd ../..
 #   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/feedback-check build/baremetal/feedback-check.bin
 #   emu/compare.sh emu/baremetal-feedback.txt x4pro build/baremetal/feedback-check.bin emu/books/LiberationSerif_14.cpfont=/.fonts/LiberationSerif
-# The font on the card names the boxes and writes the counts and a good night.
+# The font on the card, loaded whole into PSRAM, names the boxes and writes the counts and a good
+# night.
 # The base side fails at its first wait for the image's output: the unmodified base firmware
 # never starts the image.
 ready
@@ -67,7 +68,7 @@ wait-log:uyku: derin, guc
 wait:3
 press:power:2000
 ready
-expect-log:dokunma 0x5d, yazi var
+expect-log:dokunma 0x5d, yazi 3[0-9][0-9] KB
 expect-log:hizli 17 yarim 1 hata 0
 expect-log:tus 12/1/1/1 dokun 1 kaydir 1 uzun 1
 # The ROM's boot line shows the deep sleep's wake (its timer is 60 s, so the press woke it).

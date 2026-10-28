@@ -1,8 +1,9 @@
 //! Text on the panel in a font from the SD card: one style of a `.cpfont`
 //! (`bembeyaz_font::face`), its glyphs drawn with `bembeyaz_gfx`. A [`Writer`] holds only the
-//! style; the font's bytes come from a `bembeyaz_font::Source` at each call, so the caller keeps
-//! the volume for its other files. [`FontFile`] reads a file on the volume through blocking calls
-//! (`crate::ready`), as `sd::BlockingBus` gives them.
+//! style; the font's bytes come from a `bembeyaz_font::Source` at each call: the font loaded whole
+//! into memory (`crate::storage::load_whole`, then `bembeyaz_font::Memory`), so that drawing reads
+//! nothing from the card, or a file on the volume ([`FontFile`], through blocking calls,
+//! `crate::ready`, as `sd::BlockingBus` gives them).
 
 use crate::ready;
 use bembeyaz_font::Source;

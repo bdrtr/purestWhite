@@ -2793,5 +2793,12 @@ Dikkat: uyandırırken Sağ'ı basılı tutmayın.
     UC8179 panelde çizim ve hızlı yenileme hatasız (en uzun 1,8 s, açılıştaki tam yenileme);
     karttaki yazı tipiyle Türkçe etiketler, sayılar ve "İyi geceler" çizildi; dokunuş, kaydırma ve
     uzun basma işaretleri çıktı; Güç ile uyku ve uyanma çalıştı. Sol, Sağ ve Home bu denemede
-    sayılmadı (basılmadıysa beklenen; düğmeler `input-check`'te cihazda geçti). Rapor
+    sayılmadı: sahibi bu denemede yalnızca ekrana dokundu (düğmeler `input-check`'te cihazda
+    geçti). Rapor
     `firmware-arsiv/cihaz-raporlari/geri-bildirim-2.txt`.
+- [ ] Yazı tipi PSRAM'de (D3): kartta eski raporu silin, `purestwhite-baremetal-geri-bildirim-3.bin`'i
+  köke koyup SD'den kurun; sonra yukarıdaki adımlar. Ekran ve yazılar `geri-bildirim-2` ile aynı
+  görünmeli; bu sürüm yazı tipini açılışta bir kez PSRAM'e okur ve sonra karta hiç dokunmaz.
+  Raporda "ekran UC8179 tamam, dokunma 0x5d, yazi 363 KB T ms" bekleniyor (T yükleme süresi,
+  milisaniye; bir saniyenin altında beklenir). "yazi yok" çıkarsa (yazı tipi okunamadı ya da
+  PSRAM'e sığmadı) raporun tamamını bana iletin.

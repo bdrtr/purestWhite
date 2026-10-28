@@ -1365,6 +1365,7 @@ name = "purestwhite-firmware"
 version = "0.1.0"
 dependencies = [
  "aligned",
+ "allocator-api2",
  "bembeyaz-font",
  "bembeyaz-gfx",
  "block-device-driver",

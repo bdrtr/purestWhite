@@ -6,10 +6,15 @@
 #![no_std]
 #![warn(clippy::pedantic)]
 
+// esp-alloc's global allocator, in every image: `storage` builds on `alloc` (through
+// allocator-api2), which needs one even where nothing allocates.
+use esp_alloc as _;
+
 pub mod input;
 pub mod panel;
 pub mod sd;
 pub mod sleep;
+pub mod storage;
 pub mod test_image;
 pub mod text;
 

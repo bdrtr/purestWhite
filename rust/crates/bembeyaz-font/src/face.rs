@@ -228,6 +228,28 @@ mod tests {
     }
 
     #[test]
+    fn a_font_in_memory_lays_out_as_its_file() {
+        let bytes = font();
+        let mut memory = crate::Memory::new(&bytes);
+        let mut f = file();
+        let (mut t1, mut t2) = ([0u8; 4096], [0u8; 4096]);
+        let in_memory = Face::open(&mut memory, 0, &mut t1).unwrap();
+        let from_file = Face::open(&mut f, 0, &mut t2).unwrap();
+        let mut scratch = [0u8; 2048];
+        let text = "İyi geceler, Sağ Güç";
+        let (mut a, mut b) = (Vec::new(), Vec::new());
+        let wa = in_memory.line(&mut memory, text, &mut scratch, |pen, g, bits| {
+            a.push((pen, *g, bits.to_vec()));
+        });
+        let wb = from_file.line(&mut f, text, &mut scratch, |pen, g, bits| {
+            b.push((pen, *g, bits.to_vec()));
+        });
+        assert_eq!(wa.unwrap(), wb.unwrap());
+        assert!(!a.is_empty());
+        assert_eq!(a, b);
+    }
+
+    #[test]
     fn a_missing_letter_is_left_out() {
         let mut f = file();
         let mut table = [0u8; 4096];

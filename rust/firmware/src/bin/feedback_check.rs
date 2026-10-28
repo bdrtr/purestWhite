@@ -3,14 +3,15 @@
 //! panel, draws four key boxes (Left, Right, Power, Home), then polls the input every 15 ms
 //! (`purestwhite_firmware::input`) and draws what it gives with a fast refresh: a tick under a
 //! key's box for each press (for Home, each tap), a dot where a tap touched down, a ring where a
-//! contact was held, a line with a dot at its end for a swipe. With the SD card's `FONT` (read
-//! by `purestwhite_firmware::text`), each box has its name under it, the counts of taps, swipes
-//! and long presses stand at the bottom after the first input, and "İyi geceler" is written under
-//! the moon; without a card or the font, only the shapes. Until the C++ firmware would sleep:
-//! Power held longer than 400 ms, or 60 s without input, or at the latest after 5 minutes. Then it
-//! reports what it counted, draws a crescent moon with a full refresh, puts the panel to sleep,
-//! and sleeps deeply until Power is pressed or for at most 60 s (`test_image::report_and_sleep`); the
-//! wake boots the C++ firmware.
+//! contact was held, a line with a dot at its end for a swipe. With the SD card's `FONT`,
+//! loaded whole into PSRAM at the start (`purestwhite_firmware::storage::load_whole`) so that
+//! drawing never reads the card, each box has its name under it, the counts of taps, swipes and
+//! long presses stand at the bottom after the first input, and "İyi geceler" is written under the
+//! moon; without a card, the font or room in PSRAM, only the shapes. Until the C++ firmware would
+//! sleep: Power held longer than 400 ms, or 60 s without input, or at the latest after 5 minutes.
+//! Then it reports what it counted, draws a crescent moon with a full refresh, puts the panel to
+//! sleep, and sleeps deeply until Power is pressed or for at most 60 s
+//! (`test_image::report_and_sleep`); the wake boots the C++ firmware.
 //!
 //! The refreshes block: input during one is not read until it ends. Without esp-rtos, so it runs
 //! in the emulator too.
@@ -20,27 +21,33 @@
 
 extern crate alloc;
 
+use alloc::string::String;
 use alloc::{format, vec};
+use allocator_api2::vec::Vec;
+use bembeyaz_font::Memory;
 use bembeyaz_gfx::{Canvas, Clip, Corners, Fill, Orientation};
 use core::fmt::Write as _;
+use esp_alloc::ExternalMemory;
 use esp_backtrace as _;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input as Pin, InputConfig, Level, Output, OutputConfig, Pull};
-use esp_hal::peripherals::{CPU_CTRL, FLASH, GPIO40, GPIO41, GPIO42};
+use esp_hal::peripherals::{CPU_CTRL, FLASH, GPIO40, GPIO41, GPIO42, PSRAM};
+use esp_hal::psram::Psram;
 use esp_hal::rtc_cntl::Rtc;
 use esp_hal::rtc_cntl::sleep::LowPower;
 use esp_hal::sdmmc::{Config as SdConfig, SdHostController, SlotConfig};
 use esp_hal::time::{Duration, Instant};
 use purestwhite_epd::uc8279x4::Refresh;
-use purestwhite_fat::{File, Volume};
+use purestwhite_fat::Volume;
 use purestwhite_firmware::input::{self, ButtonPins, Input, Polled};
 use purestwhite_firmware::panel::{Lines, Panel, PanelPins};
 use purestwhite_firmware::sd::{self, BlockingBus, Card, CardBlocks, SpinDelay};
 use purestwhite_firmware::sleep::{self, Rails};
+use purestwhite_firmware::storage::load_whole;
 use purestwhite_firmware::test_image::{self, TestSleep};
 use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
-use purestwhite_firmware::text::{FontFile, Writer};
-use purestwhite_firmware::{hold_power_latch, ready};
+use purestwhite_firmware::text::Writer;
+use purestwhite_firmware::{hold_power_latch, psram_config, ready};
 use purestwhite_touch::Point;
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -99,32 +106,25 @@ const LABEL_TOP: i32 = KEY_TOP + KEY_HEIGHT + 4;
 const STATUS_TOP: i32 = HEIGHT - 40;
 /// The font, at the same place on the owner's card and the emulator's.
 const FONT: &str = ".fonts/LiberationSerif/LiberationSerif_14.cpfont";
-/// The card's font, with the volume and the file it is read from.
-struct Font<'t, 'd> {
-    volume: Volume<CardBlocks<BlockingBus<'d>, SpinDelay>>,
-    file: File,
+/// The card's font, loaded whole into PSRAM: drawing reads nothing from the card.
+struct Font<'t> {
+    bytes: Vec<u8, ExternalMemory>,
     writer: Writer<'t>,
+    /// How long the load took, in milliseconds, for the report.
+    load_ms: u64,
 }
 
-impl Font<'_, '_> {
+impl Font<'_> {
     fn width(&mut self, text: &str) -> i32 {
-        let Font {
-            volume,
-            file,
-            writer,
-        } = self;
-        writer.width(&mut FontFile { volume, file }, text)
+        self.writer.width(&mut Memory::new(&self.bytes), text)
     }
 
     fn draw(&mut self, c: &mut Canvas<'_>, x: i32, y: i32, text: &str) -> i32 {
-        let Font {
-            volume,
-            file,
-            writer,
-        } = self;
-        writer.draw(&mut FontFile { volume, file }, c, x, y, text)
+        self.writer
+            .draw(&mut Memory::new(&self.bytes), c, x, y, text)
     }
 }
+
 /// Ticks under a box: in rows of `TICKS_PER_ROW`, `TICK_ROWS` of them, then they wrap.
 const TICK: i32 = 10;
 const TICK_STEP: i32 = 14;
@@ -163,7 +163,7 @@ fn disc(c: &mut Canvas<'_>, x: i32, y: i32, r: i32, fill: Fill) {
 
 /// The four boxes, each with its sign (an arrow left, an arrow right, a ring, a house) and, in
 /// `font`, its name under it.
-fn draw_keys(c: &mut Canvas<'_>, font: &mut Option<Font<'_, '_>>) {
+fn draw_keys(c: &mut Canvas<'_>, font: &mut Option<Font<'_>>) {
     if let Some(font) = font {
         for (key, label) in LABELS.iter().enumerate() {
             let width = font.width(label);
@@ -229,7 +229,7 @@ fn draw_tick(c: &mut Canvas<'_>, key: usize, n: u32) {
 }
 
 /// The crescent moon of the sleep screen, with a good night under it in `font`.
-fn draw_moon(c: &mut Canvas<'_>, font: &mut Option<Font<'_, '_>>) {
+fn draw_moon(c: &mut Canvas<'_>, font: &mut Option<Font<'_>>) {
     c.fill_rect(0, 0, WIDTH, HEIGHT, Fill::White);
     disc(c, WIDTH / 2, HEIGHT / 2, 90, Fill::Black);
     disc(c, WIDTH / 2 + 40, HEIGHT / 2 - 25, 80, Fill::White);
@@ -241,7 +241,7 @@ fn draw_moon(c: &mut Canvas<'_>, font: &mut Option<Font<'_, '_>>) {
 }
 
 /// The counts of the gestures, at the bottom in `font`.
-fn draw_status(c: &mut Canvas<'_>, font: &mut Option<Font<'_, '_>>, counts: &Counts) {
+fn draw_status(c: &mut Canvas<'_>, font: &mut Option<Font<'_>>, counts: &Counts) {
     if let Some(font) = font {
         c.fill_rect(0, STATUS_TOP, WIDTH, HEIGHT - STATUS_TOP, Fill::White);
         let text = format!(
@@ -253,15 +253,16 @@ fn draw_status(c: &mut Canvas<'_>, font: &mut Option<Font<'_, '_>>, counts: &Cou
 }
 
 /// The card on SDMMC slot 1 (CLK 41, CMD 42, DAT0 40, `enable` its supply) and the font on it
-/// (`FONT`, its interval table in `table`); `None` without a card or a font. `feed` runs before
-/// each try at the card, which a card that stalls can make long.
+/// (`FONT`, loaded whole into PSRAM, its interval table in `table`); `None` without a card, the
+/// font or the PSRAM's room. `feed` runs before each try at the card, which a card that stalls can
+/// make long. The card is not read again after.
 fn open_font<'t, 'd>(
     controller: &'d SdHostController<'_>,
     pins: (GPIO41<'d>, GPIO42<'d>, GPIO40<'d>),
     enable: &mut Output<'_>,
     table: &'t mut [u8],
     mut feed: impl FnMut(),
-) -> Option<Font<'t, 'd>> {
+) -> Option<Font<'t>> {
     let (clk, cmd, dat0) = pins;
     let slot = controller
         .slot::<1>(SlotConfig::default())
@@ -272,17 +273,14 @@ fn open_font<'t, 'd>(
     let mut card: Card<'d> = Card::new_uninit(BlockingBus::new(slot), SpinDelay(Delay::new()));
     sd::mount(&mut card, enable, |_| feed())?;
     let mut volume = ready(Volume::mount(CardBlocks::new(card)))?.ok()?;
-    let entry = ready(volume.find(FONT))?.ok()?;
-    let mut file = volume.open(&entry).ok()?;
-    let src = &mut FontFile {
-        volume: &mut volume,
-        file: &mut file,
-    };
-    let writer = Writer::open(src, 0, table).ok()?;
+    let start = Instant::now();
+    let bytes = ready(load_whole(&mut volume, FONT, ExternalMemory))?.ok()?;
+    let load_ms = start.elapsed().as_millis();
+    let writer = Writer::open(&mut Memory::new(&bytes), 0, table).ok()?;
     Some(Font {
-        volume,
-        file,
+        bytes,
         writer,
+        load_ms,
     })
 }
 
@@ -429,7 +427,7 @@ fn watch<B: embedded_hal_async::i2c::I2c>(
     input: &mut Input<'_, B>,
     screen: &mut Screen<'_>,
     frame: &mut [u8],
-    font: &mut Option<Font<'_, '_>>,
+    font: &mut Option<Font<'_>>,
     counts: &mut Counts,
     rtc: &mut Rtc<'_>,
 ) -> &'static str {
@@ -487,6 +485,29 @@ fn begin(flash: FLASH<'_>, cpu: CPU_CTRL<'_>) -> Report {
     report
 }
 
+/// The PSRAM, added to the heap for the font: after the internal heap, which ordinary allocations
+/// take first; those the internal heap has no room for go to the PSRAM too. Keep it for the run.
+fn add_psram(psram: PSRAM<'static>) -> Psram {
+    let psram = Psram::new(psram, psram_config());
+    if psram.raw_parts().1 > 0 {
+        esp_alloc::psram_allocator!(&psram);
+    }
+    psram
+}
+
+/// The report's line on what started: the panel's controller and whether it works, the touch
+/// controller's address (0 when not found), and the font's size and load time.
+fn note_start(report: &mut Report, panel: &str, working: bool, touch: u8, font: Option<&Font<'_>>) {
+    let font = font.map_or(String::from("yok"), |f| {
+        format!("{} KB {} ms", f.bytes.len() / 1024, f.load_ms)
+    });
+    let state = if working { "tamam" } else { "hata" };
+    let _ = writeln!(
+        report,
+        "ekran {panel} {state}, dokunma {touch:#04x}, yazi {font}"
+    );
+}
+
 #[esp_hal::main]
 fn main() -> ! {
     let peripherals = esp_hal::init(esp_hal::Config::default());
@@ -494,6 +515,7 @@ fn main() -> ! {
     let _latch = hold_power_latch(peripherals.GPIO1);
     let mut report = begin(peripherals.FLASH, peripherals.CPU_CTRL);
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
+    let _psram = add_psram(peripherals.PSRAM);
 
     let pins = PanelPins {
         spi: peripherals.SPI2,
@@ -537,12 +559,7 @@ fn main() -> ! {
         peripherals.GPIO10,
     );
     let touch_note = touch.as_ref().map_or(0, |(_, addr)| *addr);
-    let _ = writeln!(
-        report,
-        "ekran {name} {}, dokunma {touch_note:#04x}, yazi {}",
-        if screen.working { "tamam" } else { "hata" },
-        if font.is_some() { "var" } else { "yok" }
-    );
+    note_start(&mut report, name, screen.working, touch_note, font.as_ref());
     report.save();
 
     let pulled_up = InputConfig::default().with_pull(Pull::Up);
