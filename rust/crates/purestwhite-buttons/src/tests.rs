@@ -111,3 +111,23 @@ fn a_new_set_has_nothing_pressed() {
     assert!(c.update(3, DOWN).is_empty());
     assert_eq!(c.update(9, DOWN), pressed(DOWN));
 }
+
+#[test]
+fn the_deadline_is_when_a_waiting_state_commits() {
+    let mut b = Buttons::new(2);
+    assert_eq!(b.deadline(), None);
+    b.update(100, UP);
+    assert_eq!(b.deadline(), Some(106));
+    // Sampled again at the deadline, it commits; nothing waits after.
+    assert_eq!(b.update(106, UP), pressed(UP));
+    assert_eq!(b.deadline(), None);
+    // A bounce moves the deadline; going back to the committed state clears it.
+    b.update(200, 0);
+    assert_eq!(b.deadline(), Some(206));
+    b.update(203, UP);
+    assert_eq!(b.deadline(), None);
+    // It wraps like the time.
+    let mut w = Buttons::new(2);
+    w.update(u32::MAX - 1, DOWN);
+    assert_eq!(w.deadline(), Some(4));
+}

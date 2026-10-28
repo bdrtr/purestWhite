@@ -2629,3 +2629,28 @@ geçiş de hatasız (`emu/baremetal-psram.txt`).
     yazma 474 ms, okuma 689 ms", "bitti". PSRAM bare-metal firmware'de 40 MHz'de hatasız: yazma
     yaklaşık 17 MB/s, okuma ve karşılaştırma yaklaşık 12 MB/s. Rapor
     `firmware-arsiv/cihaz-raporlari/`'nda.
+
+## Bare-metal Embassy görevleri ("rust: Embassy tasks in the bare-metal firmware")
+
+Bare-metal firmware birkaç işi aynı anda, kesmelerle uyanarak yürütebiliyor mu? `tasks-check` imajı
+esp-rtos'u başlatır ve 30 saniye boyunca üç görevi yan yana çalıştırır: düğmeler (Sol, Sağ, Güç;
+pin değişince ya da titreşim süzmesi bitince uyanır), SD kart (kesmeli veriyoluyla bağlanır ve
+imajın kendi dosyasını tekrar tekrar okuyup her geçişin sağlamasını alır) ve 10 ms'de bir atan bir
+kalp atışı (ne kadar geç uyandığını ölçer). Güç'ü bir saniye basılı tutmak 30 saniyeyi erken
+bitirir. Sonra raporu yazar, Güç bırakılınca (ya da 10 saniye sonra) C++ firmware'e döner. Karta
+yazmaz, ekrana çizmez (ekran güncelleme sayfasında kalır, bu normaldir). Emülatörde çalışmaz
+(eink-qemu bu kesmelerde çöküyor), bu yüzden ilk sınaması cihazda. Geri dönüş "Bare-metal ilk
+deneme"dekiyle aynıdır.
+
+- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-gorev.bin`'i
+  (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) kartın köküne tam bu adla koyun (başka adla
+  rapor "imaj yok" der); Ayarlar → System → SD Karttan Firmware Güncelleme → dosyayı seçin →
+  Onayla. Ekran donar. 30 saniye içinde Sol'a ve Sağ'a birkaç kez basın, sonra Güç'ü 2 saniye
+  basılı tutup bırakın (hiçbir şeye basmazsanız 30 saniye sonra kendiliğinden biter). Birkaç saniye
+  içinde C++ ana ekranı gelmeli. Bir dakika içinde gelmezse Güç'e uzun basıp açın ve bana söyleyin.
+- [ ] Raporda "sd: N gecis, ... KB/s, fnv ..., farkli 0", "dugme: sol X sag Y guc Z uzun evet, pin
+  P sure S" (X ve Y bastığınız sayılar), "kalp: ... vurus, en gec ... us" (30 saniyede yaklaşık
+  3000 vuruş, Güç'le erken bitince daha az) ve "bitti" bekleniyor; fnv'yi dosyanınkiyle ben
+  karşılaştırırım. "farkli" sıfırdan büyükse ya da "sd: baglanamadi", "yuva kurulamadi", "fat
+  acilamadi", "imaj bulunamadi", "imaj acilamadi", "okunamadi", "sd: bitmedi", "guc birakilmadi"
+  ya da "PANIK" çıkarsa raporun tamamını bana iletin.

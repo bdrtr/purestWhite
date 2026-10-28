@@ -34,6 +34,9 @@ pub fn custom_halt() -> ! {
     esp_hal::system::software_reset()
 }
 
+/// The card as the file system reads it here.
+type Blocks<'d> = CardBlocks<BlockingBus<'d>, SpinDelay>;
+
 /// The directory the C++ firmware writes into, and the files in it read, the first found.
 const DIR: &str = ".crosspoint";
 const READ: [&str; 2] = ["onyukleyici.txt", "state.json"];
@@ -134,7 +137,7 @@ fn main() -> ! {
 
 /// Opens the FAT volume, counts the root's entries, reads a file in `DIR` and times reading this
 /// image, noting each in the report; then finishes.
-fn browse(card: CardBlocks<'_>, report: &mut Report) -> ! {
+fn browse(card: Blocks<'_>, report: &mut Report) -> ! {
     let mut volume = match ready(Volume::mount(card)) {
         Some(Ok(v)) => v,
         e => {
@@ -174,7 +177,7 @@ fn browse(card: CardBlocks<'_>, report: &mut Report) -> ! {
 
 /// Reads the start of the first of `READ` in `DIR`, a long-named directory, found by long names;
 /// any error but a missing directory or file ends the test.
-fn read_state(volume: &mut Volume<CardBlocks<'_>>, report: &mut Report) {
+fn read_state(volume: &mut Volume<Blocks<'_>>, report: &mut Report) {
     let dir = match ready(volume.open_dir(DIR)) {
         Some(Ok(dir)) => dir,
         Some(Err(Error::NotFound)) => {
@@ -221,7 +224,7 @@ fn read_state(volume: &mut Volume<CardBlocks<'_>>, report: &mut Report) {
 
 /// Reads this image's file whole twice, one block per card command and then up to `sd::RUN`, and notes
 /// its size, both times and the hash of what came (or that the two differ).
-fn time_image(volume: &mut Volume<CardBlocks<'_>>, report: &mut Report) {
+fn time_image(volume: &mut Volume<Blocks<'_>>, report: &mut Report) {
     let mut found = None;
     for path in IMAGE {
         match ready(volume.find(path)) {
@@ -264,7 +267,7 @@ fn time_image(volume: &mut Volume<CardBlocks<'_>>, report: &mut Report) {
 /// Reads `file` whole from its start through `buf`, at most `run` blocks a card read: the time it
 /// took in milliseconds and the FNV-1a hash of its bytes. A failed read ends the test.
 fn read_whole(
-    volume: &mut Volume<CardBlocks<'_>>,
+    volume: &mut Volume<Blocks<'_>>,
     file: &mut File,
     buf: &mut [u8],
     run: usize,

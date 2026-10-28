@@ -96,6 +96,15 @@ impl Buttons {
         change
     }
 
+    /// The time by which a caller woken only by pin changes must sample again, so that a state
+    /// differing from the committed one is committed once it has held past `DEBOUNCE_MS` (the
+    /// SDK's `isDebouncePending`). `None` when the sampled state is the committed one. It wraps
+    /// like the time: subtract from it the `now` just passed to `update`.
+    #[must_use]
+    pub fn deadline(&self) -> Option<u32> {
+        (self.sampled != self.state).then(|| self.sampled_at.wrapping_add(DEBOUNCE_MS + 1))
+    }
+
     /// The committed state.
     #[must_use]
     pub fn state(&self) -> u8 {
