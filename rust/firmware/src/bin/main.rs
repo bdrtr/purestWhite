@@ -23,9 +23,10 @@ use esp_hal::time::{Duration, Rate};
 use esp_hal::timer::systimer::SystemTimer;
 use log::info;
 use purestwhite_epd::uc8279x4::Refresh;
+use purestwhite_firmware::hold_power_latch;
 use purestwhite_firmware::input::{TOUCH, TouchPins};
 use purestwhite_firmware::panel::{Lines, Panel, PanelPins};
-use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
+use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
 use purestwhite_gt911::Reading;
 
 extern crate alloc;

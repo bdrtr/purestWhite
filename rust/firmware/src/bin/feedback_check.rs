@@ -6,7 +6,7 @@
 //! contact was held, a line with a dot at its end for a swipe. Until the C++ firmware would sleep:
 //! Power held longer than 400 ms, or 60 s without input, or at the latest after 5 minutes. Then it
 //! reports what it counted, draws a crescent moon with a full refresh, puts the panel to sleep,
-//! and sleeps deeply until Power is pressed or for at most 60 s (`sleep::report_and_sleep`); the
+//! and sleeps deeply until Power is pressed or for at most 60 s (`test_image::report_and_sleep`); the
 //! wake boots the C++ firmware.
 //!
 //! The refreshes block: input during one is not read until it ends. Without esp-rtos, so it runs
@@ -29,8 +29,10 @@ use esp_hal::time::{Duration, Instant};
 use purestwhite_epd::uc8279x4::Refresh;
 use purestwhite_firmware::input::{self, ButtonPins, Input, Polled};
 use purestwhite_firmware::panel::{Lines, Panel, PanelPins};
-use purestwhite_firmware::sleep::{self, Rails, TestSleep};
-use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch, ready};
+use purestwhite_firmware::sleep::{self, Rails};
+use purestwhite_firmware::test_image::{self, TestSleep};
+use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
+use purestwhite_firmware::{hold_power_latch, ready};
 use purestwhite_touch::Point;
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -409,7 +411,7 @@ fn main() -> ! {
     let delay = Delay::new();
     let touch_power = Output::new(peripherals.GPIO2, Level::Low, OutputConfig::default());
     delay.delay_millis(50);
-    let (touch, _touch_pins) = input::open_touch(
+    let (touch, _touch_pins) = test_image::open_touch(
         peripherals.I2C0,
         peripherals.GPIO39,
         peripherals.GPIO38,
@@ -458,7 +460,7 @@ fn main() -> ! {
         sd_power: Output::new(peripherals.GPIO5, Level::High, OutputConfig::default()),
         panel_reset: screen.lines.rst,
     };
-    sleep::report_and_sleep(
+    test_image::report_and_sleep(
         &mut report,
         why,
         &mut rtc,

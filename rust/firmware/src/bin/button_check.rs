@@ -13,7 +13,8 @@ use esp_hal::delay::Delay;
 use esp_hal::gpio::{Input, InputConfig, Pull};
 use esp_hal::time::{Duration, Instant};
 use purestwhite_buttons::Buttons;
-use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
+use purestwhite_firmware::hold_power_latch;
+use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

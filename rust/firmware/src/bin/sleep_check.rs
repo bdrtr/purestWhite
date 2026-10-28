@@ -24,8 +24,10 @@ use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
 use esp_hal::rtc_cntl::{RwdtStage, RwdtStageAction, WakeupSource, wakeup_cause};
 use esp_hal::system::Cpu;
 use esp_hal::time::{Duration, Instant};
-use purestwhite_firmware::sleep::{self, Rails, WATCHDOG_KEY, watchdog_through_sleep};
-use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
+use purestwhite_firmware::hold_power_latch;
+use purestwhite_firmware::sleep::{self, Rails};
+use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
+use purestwhite_firmware::test_image::{WATCHDOG_KEY, watchdog_through_sleep};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

@@ -10,7 +10,7 @@
 //! runs in the emulator too.
 //!
 //! The report's sleep line gets a mark before each step of the sleep, so that a sleep that never
-//! ends shows its step (see `sleep::report_and_sleep`).
+//! ends shows its step (see `test_image::report_and_sleep`).
 #![no_std]
 #![warn(clippy::pedantic)]
 #![no_main]
@@ -23,8 +23,10 @@ use esp_hal::rtc_cntl::Rtc;
 use esp_hal::rtc_cntl::sleep::LowPower;
 use esp_hal::time::{Duration, Instant};
 use purestwhite_firmware::input::{self, ButtonPins, Input, Polled};
-use purestwhite_firmware::sleep::{self, Rails, TestSleep};
-use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch, ready};
+use purestwhite_firmware::sleep::{self, Rails};
+use purestwhite_firmware::test_image::{self, TestSleep};
+use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
+use purestwhite_firmware::{hold_power_latch, ready};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -187,7 +189,7 @@ fn main() -> ! {
     let delay = Delay::new();
     let touch_power = Output::new(peripherals.GPIO2, Level::Low, OutputConfig::default());
     delay.delay_millis(50);
-    let (touch, _touch_pins) = input::open_touch(
+    let (touch, _touch_pins) = test_image::open_touch(
         peripherals.I2C0,
         peripherals.GPIO39,
         peripherals.GPIO38,
@@ -226,7 +228,7 @@ fn main() -> ! {
         sd_power: Output::new(peripherals.GPIO5, Level::High, OutputConfig::default()),
         panel_reset: Output::new(peripherals.GPIO14, Level::High, OutputConfig::default()),
     };
-    sleep::report_and_sleep(
+    test_image::report_and_sleep(
         &mut report,
         why,
         &mut rtc,

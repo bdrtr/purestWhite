@@ -17,9 +17,10 @@ use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::sdmmc::{Config as SdConfig, SdHostController, SlotConfig};
 use esp_hal::time::Instant;
 use purestwhite_fat::{Error, File, Kind, Name, Volume};
+use purestwhite_firmware::hold_power_latch;
 use purestwhite_firmware::ready;
 use purestwhite_firmware::sd::{self, BlockingBus, Card, CardBlocks, SpinDelay};
-use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
+use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

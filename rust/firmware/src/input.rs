@@ -6,12 +6,7 @@
 //! as nothing in it waits but the I2C transfers.
 
 use embedded_hal_async::i2c::I2c;
-use esp_hal::Blocking;
-use esp_hal::delay::Delay;
-use esp_hal::gpio::{Flex, Input as Pin, Level, Output, OutputConfig};
-use esp_hal::i2c::master::{Config as I2cConfig, I2c as I2cBus, SoftwareTimeout};
-use esp_hal::peripherals::{GPIO4, GPIO10, GPIO38, GPIO39, I2C0};
-use esp_hal::time::{Duration, Rate};
+use esp_hal::gpio::{Flex, Input as Pin, Level, Output};
 use purestwhite_buttons::{Buttons, Change, PowerHold};
 use purestwhite_gt911::{Reading, ResetPins};
 use purestwhite_touch::{Events, Point, Touch};
@@ -196,47 +191,4 @@ impl<T: embedded_hal::i2c::I2c> I2c for ReadyI2c<T> {
     ) -> Result<(), Self::Error> {
         self.0.transaction(address, operations)
     }
-}
-
-/// The touch panel's bus through blocking calls.
-pub type BlockingTouchBus<'d> = ReadyI2c<I2cBus<'d, Blocking>>;
-
-/// The touch panel through blocking calls, for images without an executor: I2C0 (SDA GPIO39,
-/// SCL GPIO38) at 400 kHz, a transfer failing after 50 ms rather than hanging, and the controller
-/// reset and found as the SDK does (`purestwhite_gt911::begin`, RST GPIO4, INT GPIO10). Its supply
-/// (GPIO2, active low) must have been on for 50 ms. The bus and address, or `None`; and the
-/// reset pins, to keep for the rest of the run.
-#[must_use = "keep the reset pins for the rest of the run"]
-pub fn open_touch<'d>(
-    i2c: I2C0<'d>,
-    sda: GPIO39<'d>,
-    scl: GPIO38<'d>,
-    reset: GPIO4<'d>,
-    int: GPIO10<'d>,
-) -> (Option<(BlockingTouchBus<'d>, u8)>, TouchPins<'d>) {
-    let mut pins = TouchPins {
-        // In reset until the address is selected, as the SDK's pinMode(OUTPUT) leaves it.
-        reset: Output::new(reset, Level::Low, OutputConfig::default()),
-        int: Flex::new(int),
-    };
-    pins.int.apply_output_config(&OutputConfig::default());
-    let bus = I2cBus::new(
-        i2c,
-        I2cConfig::default()
-            .with_frequency(Rate::from_khz(400))
-            .with_software_timeout(SoftwareTimeout::Transaction(Duration::from_millis(50))),
-    )
-    .ok()
-    .map(|i2c| ReadyI2c(i2c.with_sda(sda).with_scl(scl)));
-    let touch = bus.and_then(|mut bus| {
-        crate::ready(purestwhite_gt911::begin(
-            &mut bus,
-            &mut crate::sd::SpinDelay(Delay::new()),
-            Some(&mut pins),
-            &TOUCH,
-        ))
-        .flatten()
-        .map(|addr| (bus, addr))
-    });
-    (touch, pins)
 }

@@ -34,8 +34,9 @@ use esp_hal::sdmmc::{Config as SdConfig, SdHostController, SlotConfig};
 use esp_hal::timer::systimer::SystemTimer;
 use purestwhite_buttons::Buttons;
 use purestwhite_fat::{Error, Volume};
+use purestwhite_firmware::hold_power_latch;
 use purestwhite_firmware::sd::{self, AsyncBus, AsyncCard, CardBlocks};
-use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
+use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

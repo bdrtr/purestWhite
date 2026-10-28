@@ -15,9 +15,8 @@ use core::fmt::Write as _;
 use esp_backtrace as _;
 use esp_hal::psram::Psram;
 use esp_hal::time::Instant;
-use purestwhite_firmware::{
-    PSRAM_MHZ, Report, arm_watchdog, hand_back, hold_power_latch, psram_config,
-};
+use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
+use purestwhite_firmware::{PSRAM_MHZ, hold_power_latch, psram_config};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

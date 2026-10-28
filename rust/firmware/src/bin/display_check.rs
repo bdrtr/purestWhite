@@ -25,8 +25,9 @@ use esp_hal::time::{Duration, Instant};
 use purestwhite_epd::probe::{Controller, Probe, Verdict};
 use purestwhite_epd::uc8179::GrayMode;
 use purestwhite_epd::uc8279x4::Refresh;
+use purestwhite_firmware::hold_power_latch;
 use purestwhite_firmware::panel::{Panel, PanelPins, finish_by};
-use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
+use purestwhite_firmware::test_image::{Report, arm_watchdog, hand_back};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 

@@ -1,7 +1,7 @@
 //! The X4 Pro's deep sleep, as the C++ firmware enters it (`HalPowerManager::startDeepSleep`):
 //! the rails it leaves held, and a wake on Power through the low-power path. A deep sleep's wake
 //! resets the chip, and the bootloader then starts the app that otadata selects (see
-//! `crate::hand_back`, which also drops the bootloader's record of this image).
+//! `crate::test_image::hand_back`, which also drops the bootloader's record of this image).
 //!
 //! On the device, with esp-hal 1.2.2, a deep sleep that is the first sleep since boot did not
 //! end: neither Power nor its timer woke the chip, which most likely never entered the sleep
@@ -20,13 +20,10 @@
 //! auto-hold enabled, and with it disabled its first sleep, a deep one, woke on Power. eink-qemu
 //! models no flash pads and sleeps either way.
 
-use crate::Report;
-use core::fmt::Write as _;
 use esp_hal::delay::Delay;
 use esp_hal::gpio::{Event, Input, Level, Output, WakeConfigError, WakeupConfig};
 use esp_hal::peripherals::{Interrupt, LPWR};
 use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
-use esp_hal::rtc_cntl::{Rtc, RwdtStage, RwdtStageAction};
 use esp_hal::system::Cpu;
 use esp_hal::time::{Duration, Instant};
 
@@ -38,41 +35,6 @@ pub struct Rails<'d> {
     pub sd_power: Output<'d>,
     /// The panel's reset (GPIO14).
     pub panel_reset: Output<'d>,
-}
-
-/// The key that unlocks the RTC watchdog's registers, as esp-hal's `Rwdt` writes it.
-pub const WATCHDOG_KEY: u32 = 0x50D8_3AA1;
-
-/// Lets the RTC watchdog count on in sleep, which esp-hal's `enable` pauses it in, so that a
-/// sleep that never ends still resets the chip.
-pub fn watchdog_through_sleep() {
-    let regs = LPWR::regs();
-    // SAFETY: the key that unlocks the watchdog's registers, and 0 to lock them again, as esp-hal's
-    // own `Rwdt` writes them; nothing else touches them meanwhile.
-    regs.wdtwprotect()
-        .write(|w| unsafe { w.bits(WATCHDOG_KEY) });
-    regs.wdtconfig0()
-        .modify(|_, w| w.wdt_pause_in_slp().clear_bit());
-    regs.wdtwprotect().write(|w| unsafe { w.bits(0) });
-}
-
-/// Sets the RTC watchdog (`crate::arm_watchdog`'s) for a deep sleep that might never end: a core
-/// reset after `core`, which keeps the power latch's hold and the report, then a system reset
-/// after `system` more, which releases the latch (on battery the device turns off) but ends a
-/// chip stuck asleep; counting through the sleep. For test images, whose sleeps have a timer
-/// shorter than `core`: the real firmware must not call it, as its sleeps last hours.
-pub fn watch_sleep(rtc: &mut Rtc<'_>, core: Duration, system: Duration) {
-    // esp-hal 1.2.2 halves every stage's time on the S3, though only stage 0 counts twice as long
-    // in hardware (ESP-IDF halves stage 0 alone, in hal/esp32s3's rwdt_ll.h): stage 1 gets twice
-    // the time meant.
-    rtc.rwdt.set_timeout(RwdtStage::Stage0, core);
-    rtc.rwdt
-        .set_stage_action(RwdtStage::Stage0, RwdtStageAction::ResetCore);
-    rtc.rwdt.set_timeout(RwdtStage::Stage1, system * 2);
-    rtc.rwdt
-        .set_stage_action(RwdtStage::Stage1, RwdtStageAction::ResetSystem);
-    watchdog_through_sleep();
-    rtc.rwdt.feed();
 }
 
 /// Waits until Power (`power`, active low) is up, for at most `most`, calling `between` every
@@ -153,72 +115,4 @@ pub fn deep_sleep(
         low_power.set_wakeup_deadline(Instant::now() + timer);
     }
     low_power.sleep_deep(RtcSleepConfig::deep())
-}
-
-/// A test image's deep sleep: its timer, and the watchdog's stages past it (see `watch_sleep`).
-#[derive(Clone, Copy, Debug)]
-pub struct TestSleep {
-    pub timer: Duration,
-    pub core: Duration,
-    pub system: Duration,
-}
-
-/// For test images: ends `report` with the sleep's line, `uyku: derin, ` and `why`, which the C++
-/// firmware looks for to add what woke and reset the chip, then sleeps deeply as `sleep` says,
-/// marking on that line first the sleep interrupt flags (`i`) and the digital pads' isolation and
-/// hold settings (`p`, bit 11 being the auto-hold `deep_sleep` disables) as found, then a letter
-/// before each step: `a` arming Power (`!` if that failed), `r` holding the rails, `s` the deep
-/// sleep. A sleep that never ends shows its step.
-pub fn report_and_sleep(
-    report: &mut Report,
-    why: &str,
-    rtc: &mut Rtc<'_>,
-    power: &mut Input<'_>,
-    rails: Rails<'_>,
-    low_power: LowPower<'_>,
-    sleep: TestSleep,
-) -> ! {
-    let _ = write!(report, "uyku: derin, {why}");
-    let mut line = SleepLine::new(report);
-    let regs = LPWR::regs();
-    line.mark(format_args!(
-        " i{:x} p{:x}",
-        regs.int_raw().read().bits(),
-        regs.dig_iso().read().bits()
-    ));
-    esp_println::println!("{}", line.report.as_str());
-    watch_sleep(rtc, sleep.core, sleep.system);
-    // With a timer it does not return.
-    let _ = deep_sleep(low_power, power, rails, Some(sleep.timer), |step| {
-        line.mark(match step {
-            Step::Arm => format_args!(" a"),
-            Step::ArmFailed => format_args!("!"),
-            Step::Rails => format_args!(" r"),
-            Step::Sleep => format_args!(" s"),
-        });
-    });
-    esp_hal::system::software_reset()
-}
-
-/// The report's last line, saved again with a mark added each time.
-struct SleepLine<'r> {
-    report: &'r mut Report,
-    /// Where the line's text ends, before its newline.
-    end: usize,
-}
-
-impl<'r> SleepLine<'r> {
-    /// The line written last, without its newline yet.
-    fn new(report: &'r mut Report) -> Self {
-        let end = report.len();
-        SleepLine { report, end }
-    }
-
-    fn mark(&mut self, text: core::fmt::Arguments<'_>) {
-        self.report.truncate(self.end);
-        let _ = self.report.write_fmt(text);
-        self.end = self.report.len();
-        let _ = writeln!(self.report);
-        self.report.save();
-    }
 }
