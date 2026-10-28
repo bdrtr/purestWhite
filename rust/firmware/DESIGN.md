@@ -165,16 +165,19 @@ is not running holds the C++ firmware: the known-good one, with the proven SD up
 
 Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or network.
 
-- **Phase 2: it may install only the C++ firmware's own release image**, checked by its
-  `esp_app_desc` project name and version and by the SHA-256 of the release `.bin` (listed in the
-  image), and refuses any other file. Writing the C++ firmware over itself with a proven-identical
+- **Phase 2: it may install only the C++ firmware's own release image**, recognised by the
+  SHA-256 that ESP-IDF appends to it, which the Rust image carries for each known release, and
+  refuses any other file. The app descriptor cannot tell it: the C++ image's names the Arduino
+  framework that built it (`arduino-lib-builder`, `ee57070` for 0.0.3), not the firmware, whose
+  own name is the `purestWhite-firmware:` string `OtherFirmware.cpp` finds by scanning. Writing the C++ firmware over itself with a proven-identical
   image is the only write it can make to the known-good slot.
 - Before that is ever done on the device, the erase, write and verify path is proven on scratch
   flash: the `spiffs` partition at 0xC90000 (`partitions.csv`), after a device test has read it
   and confirmed the C++ firmware does not use it (its sources do not open it).
 - Checks before writing: the appended SHA-256, the chip id (9, ESP32-S3), the app descriptor's
   magic, and that the image measured from its segments fits the 0x640000 slot; the battery not
-  low. The watchdog is fed between flash chunks (erasing and writing 6.4 MB can take longer than
+  low. `purestwhite_ota::image::ImageCheck` checks the image as it streams in (the digest itself
+  is the caller's, with the chip's SHA unit); it passes every release in the archive. The watchdog is fed between flash chunks (erasing and writing 6.4 MB can take longer than
   its 60 s; esp-storage runs each operation with interrupts off).
 - The write goes to the slot that is not running, is read back and checked, and only then is
   otadata changed (`purestwhite-ota`); a failure at any step leaves otadata as it was.

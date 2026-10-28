@@ -6,6 +6,8 @@
 //! already selected and valid. Nothing here touches the flash: the caller reads the two entries,
 //! one at the start of each of otadata's two sectors, and writes the one [`select_other`] gives.
 //!
+//! [`image`] checks an app image as it streams in, before it is written to a slot.
+//!
 //! The bootloader takes, of the two entries whose CRC holds and whose state is neither INVALID nor
 //! ABORTED, the one with the higher sequence number; sequence number `seq` selects slot
 //! `(seq - 1) % 2`.
@@ -14,6 +16,7 @@
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 
+pub mod image;
 #[cfg(test)]
 mod tests;
 
