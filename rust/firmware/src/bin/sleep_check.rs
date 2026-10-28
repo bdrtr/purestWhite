@@ -38,7 +38,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[unsafe(no_mangle)]
 pub fn custom_halt() -> ! {
-    Report::append_saved("PANIK\n");
+    Report::append_saved("PANIC\n");
     esp_hal::system::software_reset()
 }
 
@@ -60,13 +60,13 @@ const WATCHDOG_SYSTEM: Duration = Duration::from_secs(30);
 fn cause() -> &'static str {
     let reason = wakeup_cause();
     if reason.contains(WakeupSource::Ext1) {
-        "dugme"
+        "button"
     } else if reason.contains(WakeupSource::Timer) {
-        "zamanlayici"
+        "timer"
     } else if reason.is_empty() {
-        "yok"
+        "none"
     } else {
-        "diger"
+        "other"
     }
 }
 
@@ -74,7 +74,7 @@ fn cause() -> &'static str {
 /// a sleep should. Noted last in the report, where the C++ firmware looks for a sleep line.
 #[esp_hal::handler]
 fn watchdog_note() {
-    Report::append_saved("uyku: girilmedi\n");
+    Report::append_saved("sleep: not entered\n");
     let regs = LPWR::regs();
     // SAFETY: as in `watchdog_through_sleep`; this clears the stage's interrupt, which the next
     // stage does not need.
@@ -112,11 +112,11 @@ fn watch_every_step(rtc: &mut Rtc<'_>) {
     rtc.rwdt.feed();
 }
 
-/// A light sleep of at most `length`, between two report lines: `uyku: {what}` before it, so
+/// A light sleep of at most `length`, between two report lines: `sleep: {what}` before it, so
 /// that a sleep that never ends is the report's last line (the C++ firmware then adds what reset
 /// the chip), and after it what ended it and how long it lasted.
 fn light_sleep(report: &mut Report, low_power: &mut LowPower<'_>, what: &str, length: Duration) {
-    let _ = writeln!(report, "uyku: {what}");
+    let _ = writeln!(report, "sleep: {what}");
     report.save();
     let start = Instant::now();
     low_power.set_wakeup_deadline(start + length);
@@ -140,7 +140,7 @@ fn wake_on_power(report: &mut Report, power: &mut Input<'_>) {
     esp_hal::interrupt::disable(Cpu::ProCpu, Interrupt::GPIO);
     let low_power_path = WakeupConfig::default().with_low_power_path(true);
     if let Err(e) = power.apply_wakeup_config(&low_power_path) {
-        let _ = writeln!(report, "guc kurulamadi ({e:?})");
+        let _ = writeln!(report, "power wake failed ({e:?})");
     }
 }
 
@@ -152,13 +152,13 @@ fn main() -> ! {
         latch: _latch,
         mut report,
         ..
-    } = start("purestWhite bare-metal uyku denemesi", board.boot);
+    } = start("purestWhite bare-metal sleep check", board.boot);
 
     watch_every_step(&mut rtc);
     let mut low_power = LowPower::new(board.low_power);
 
     // 1. A light sleep on the timer.
-    light_sleep(&mut report, &mut low_power, "hafif 3 s", LIGHT_TIMER);
+    light_sleep(&mut report, &mut low_power, "light 3 s", LIGHT_TIMER);
     rtc.rwdt.feed();
 
     // 2. A light sleep that Power ends, through the low-power path, with the timer behind it.
@@ -168,14 +168,14 @@ fn main() -> ! {
         InputConfig::default().with_pull(Pull::Up),
     );
     wake_on_power(&mut report, &mut power);
-    esp_println::println!("uyku: guc bekleniyor");
-    light_sleep(&mut report, &mut low_power, "hafif guc", LIGHT_POWER);
+    esp_println::println!("sleep: waiting for power");
+    light_sleep(&mut report, &mut low_power, "light power", LIGHT_POWER);
     rtc.rwdt.feed();
 
     // 3. Power up first: a wake pad at its wake level ends the sleep at once.
     if !sleep::wait_power_up(&power, RELEASE_WAIT, || {}) {
         // The sleep then ends at once, on Power.
-        let _ = writeln!(report, "guc birakilmadi");
+        let _ = writeln!(report, "power held");
     }
     // The rails as the SDK leaves them for a deep sleep (see `sleep::deep_sleep`).
     let rails = Rails {
@@ -183,7 +183,7 @@ fn main() -> ! {
         sd_power: Output::new(board.card.supply, Level::High, OutputConfig::default()),
         panel_reset: Output::new(board.panel.rst, Level::High, OutputConfig::default()),
     };
-    let _ = writeln!(report, "uyku: derin, guc ya da 15 s");
+    let _ = writeln!(report, "sleep: deep, power or 15 s");
     esp_println::println!("{}", report.as_str());
     report.save();
     rtc.rwdt.feed();

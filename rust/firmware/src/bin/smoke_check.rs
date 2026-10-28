@@ -44,7 +44,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[unsafe(no_mangle)]
 pub fn custom_halt() -> ! {
-    Report::append_saved("PANIK\n");
+    Report::append_saved("PANIC\n");
     esp_hal::system::software_reset()
 }
 
@@ -115,15 +115,15 @@ fn open_screen(parts: PanelParts, report: &mut Report) -> Option<Screen> {
             return None;
         }
     };
-    let _ = write!(report, "ekran {}: ", probe.controller().name());
+    let _ = write!(report, "panel {}: ", probe.controller().name());
     let mut frame = Vec::new();
     if frame.try_reserve_exact(FRAME_BYTES).is_err() {
-        let _ = writeln!(report, "bellek yok");
+        let _ = writeln!(report, "no memory");
         return None;
     }
     frame.resize(FRAME_BYTES, 0xFF);
     if !panel.begin(&mut lines) {
-        let _ = writeln!(report, "baslatilamadi");
+        let _ = writeln!(report, "begin failed");
         return None;
     }
     Some(Screen {
@@ -136,20 +136,20 @@ fn open_screen(parts: PanelParts, report: &mut Report) -> Option<Screen> {
 /// Why the panel cannot be used, in the report.
 fn note_unusable(report: &mut Report, error: &OpenError) {
     let Some(found) = error.probe() else {
-        let _ = writeln!(report, "ekran: yoklanamadi");
+        let _ = writeln!(report, "panel: probe failed");
         return;
     };
     let why = match error {
-        OpenError::Spi(_) => "spi yok",
+        OpenError::Spi(_) => "no spi",
         // No driver for this controller yet: nothing more goes to it.
-        OpenError::NoDriver(_) | OpenError::Probe => "atlandi",
+        OpenError::NoDriver(_) | OpenError::Probe => "skipped",
     };
-    let _ = writeln!(report, "ekran {}: {why}", found.controller().name());
+    let _ = writeln!(report, "panel {}: {why}", found.controller().name());
 }
 
-/// "tamam" or "hata", for the report.
+/// "ok" or "failed", for the report.
 fn outcome(ok: bool) -> &'static str {
-    if ok { "tamam" } else { "hata" }
+    if ok { "ok" } else { "failed" }
 }
 
 /// Whole seconds and tenths since `start`, for the report.
@@ -200,7 +200,7 @@ impl Touches {
         let ((fx, fy), (lx, ly)) = (point(self.first), point(self.last));
         let _ = writeln!(
             report,
-            "kare {} cok {} ilk {fx},{fy} son {lx},{ly} home {} hata {}",
+            "frames {} most {} first {fx},{fy} last {lx},{ly} home {} failed {}",
             self.frames, self.most, self.home_presses, self.failed
         );
     }
@@ -223,7 +223,7 @@ async fn open_i2c(
         .map(|i2c| i2c.with_sda(parts.sda).with_scl(parts.scl).into_async())
         .ok();
     if bus.is_none() {
-        let _ = writeln!(report, "i2c: kurulamadi");
+        let _ = writeln!(report, "i2c: not set up");
     }
     (bus, supply)
 }
@@ -261,22 +261,22 @@ where
 /// The clock's time, or why there is none, in the report.
 fn note_clock<B: embedded_hal::i2c::I2c>(report: &mut Report, bus: &mut B) {
     if !purestwhite_rtc::begin(bus, &mut Delay, RTC_ADDR) {
-        let _ = writeln!(report, "saat: bulunamadi");
+        let _ = writeln!(report, "clock: not found");
         return;
     }
     let _ = match purestwhite_rtc::now(bus, RTC_ADDR) {
         Some(t) => writeln!(
             report,
-            "saat: {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
+            "clock: {:04}-{:02}-{:02} {:02}:{:02}:{:02} UTC",
             t.year, t.month, t.day, t.hour, t.minute, t.second
         ),
         // Why: the read failed, or the chip says its time is not reliable.
         None => match clock_raw(bus) {
             Some([seconds, ..]) if seconds & 0x80 != 0 => {
-                writeln!(report, "saat: ayarlanmamis (VL biti)")
+                writeln!(report, "clock: not set (VL bit)")
             }
-            Some(_) => writeln!(report, "saat: okundu, gecersiz"),
-            None => writeln!(report, "saat: okuma hatasi"),
+            Some(_) => writeln!(report, "clock: read, invalid"),
+            None => writeln!(report, "clock: read failed"),
         },
     };
 }
@@ -298,8 +298,8 @@ async fn note_battery<B: embedded_hal_async::i2c::I2c>(report: &mut Report, bus:
         }
     }
     let _ = match soc {
-        Some(soc) => writeln!(report, "pil: %{soc}"),
-        None => writeln!(report, "pil: okunamadi"),
+        Some(soc) => writeln!(report, "battery: {soc}%"),
+        None => writeln!(report, "battery: read failed"),
     };
 }
 
@@ -310,22 +310,22 @@ fn paint_black(report: &mut Report, screen: Option<Screen>) -> Option<Screen> {
     let start = Instant::now();
     let black = s.paint(0x00);
     let (secs, tenths) = took(start);
-    let _ = writeln!(report, "siyah {} {secs}.{tenths} s", outcome(black));
+    let _ = writeln!(report, "black {} {secs}.{tenths} s", outcome(black));
     black.then_some(s)
 }
 
 /// The screen white again, then the panel asleep.
 fn paint_white(report: &mut Report, s: &mut Screen) {
-    let _ = write!(report, "beyaz ");
+    let _ = write!(report, "white ");
     report.save();
     let start = Instant::now();
     let white = s.paint(0xFF);
     let (secs, tenths) = took(start);
     let slept = white && s.panel.deep_sleep(&mut s.lines);
     let _ = match (white, slept) {
-        (true, true) => writeln!(report, "tamam {secs}.{tenths} s"),
-        (true, false) => writeln!(report, "tamam {secs}.{tenths} s, uyku hata"),
-        (false, _) => writeln!(report, "hata {secs}.{tenths} s"),
+        (true, true) => writeln!(report, "ok {secs}.{tenths} s"),
+        (true, false) => writeln!(report, "ok {secs}.{tenths} s, sleep failed"),
+        (false, _) => writeln!(report, "failed {secs}.{tenths} s"),
     };
 }
 
@@ -341,7 +341,7 @@ async fn main(spawner: Spawner) -> ! {
         latch: _latch,
         mut report,
         ..
-    } = start("purestWhite bare-metal deneme", board.boot);
+    } = start("purestWhite bare-metal smoke check", board.boot);
     esp_println::logger::init_logger_from_env();
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
@@ -374,7 +374,7 @@ async fn main(spawner: Spawner) -> ! {
     if let Some(s) = screen.as_mut() {
         paint_white(&mut report, s);
     }
-    let _ = writeln!(report, "bitti");
+    let _ = writeln!(report, "done");
 
     info!("{}", report.as_str());
     report.save();

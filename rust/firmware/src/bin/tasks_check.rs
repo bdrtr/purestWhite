@@ -47,7 +47,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[unsafe(no_mangle)]
 pub fn custom_halt() -> ! {
-    Report::append_saved("PANIK\n");
+    Report::append_saved("PANIC\n");
     esp_hal::system::software_reset()
 }
 
@@ -66,7 +66,7 @@ const DOWN: u8 = 1 << 1;
 const POWER_BIT: u8 = 2;
 const POWER: u8 = 1 << POWER_BIT;
 /// This image's file, read whole: its name on the owner's card.
-const IMAGE: &str = "purestwhite-baremetal-gorev.bin";
+const IMAGE: &str = "purestwhite-baremetal-tasks.bin";
 /// FNV-1a's 32-bit offset basis and prime.
 const FNV_BASIS: u32 = 0x811C_9DC5;
 const FNV_PRIME: u32 = 0x0100_0193;
@@ -173,20 +173,20 @@ async fn card(card: AsyncCard<'static>, enable: Output<'static>) {
 )]
 async fn read_card(mut card: AsyncCard<'static>, mut enable: Output<'static>) -> String {
     let Some(attempt) = sd::mount_with(&mut card, &mut enable, &mut Delay, |_| {}).await else {
-        return String::from("sd: baglanamadi");
+        return String::from("sd: not mounted");
     };
     let mut volume = match Volume::mount(CardBlocks::new(card)).await {
         Ok(v) => v,
-        Err(e) => return format!("sd: deneme {attempt}, fat acilamadi ({e:?})"),
+        Err(e) => return format!("sd: try {attempt}, fat failed ({e:?})"),
     };
     let entry = match volume.find(IMAGE).await {
         Ok(entry) => entry,
-        Err(Error::NotFound) => return format!("sd: deneme {attempt}, imaj yok"),
-        Err(e) => return format!("sd: deneme {attempt}, imaj bulunamadi ({e:?})"),
+        Err(Error::NotFound) => return format!("sd: try {attempt}, no image"),
+        Err(e) => return format!("sd: try {attempt}, image not found ({e:?})"),
     };
     let mut file = match volume.open(&entry) {
         Ok(file) => file,
-        Err(e) => return format!("sd: imaj acilamadi ({e:?})"),
+        Err(e) => return format!("sd: image not opened ({e:?})"),
     };
     let mut buf = [0u8; sd::RUN * 512];
     let (mut passes, mut differed, mut first) = (0u32, 0u32, None);
@@ -202,7 +202,7 @@ async fn read_card(mut card: AsyncCard<'static>, mut enable: Output<'static>) ->
                         hash = (hash ^ u32::from(b)).wrapping_mul(FNV_PRIME);
                     }
                 }
-                Err(e) => return format!("sd: {passes} geciste okunamadi ({e:?})"),
+                Err(e) => return format!("sd: read failed in {passes} passes ({e:?})"),
             }
         }
         passes += 1;
@@ -213,7 +213,7 @@ async fn read_card(mut card: AsyncCard<'static>, mut enable: Output<'static>) ->
     let ms = start.elapsed().as_millis().max(1);
     let kb_s = u64::from(passes) * u64::from(file.size()) / ms;
     format!(
-        "sd: {passes} gecis, {} KB, {kb_s} KB/s, fnv {:08x}, farkli {differed}",
+        "sd: {passes} passes, {} KB, {kb_s} KB/s, fnv {:08x}, differed {differed}",
         file.size() / 1024,
         first.unwrap_or(0)
     )
@@ -238,7 +238,7 @@ fn spawn_card(spawner: Spawner, card: CardParts) {
             let card_on = AsyncCard::new_uninit(AsyncBus::new(slot), Delay);
             spawner.spawn(self::card(card_on, enable).unwrap());
         }
-        None => SD_DONE.signal(String::from("sd: yuva kurulamadi")),
+        None => SD_DONE.signal(String::from("sd: no slot")),
     }
 }
 
@@ -246,19 +246,19 @@ fn spawn_card(spawner: Spawner, card: CardParts) {
 fn write_counts(report: &mut Report) {
     let [ups, downs, powers] = PRESSES.each_ref().map(|c| c.load(Ordering::Relaxed));
     let long = if LONG.load(Ordering::Relaxed) {
-        "evet"
+        "yes"
     } else {
-        "yok"
+        "no"
     };
     let _ = writeln!(
         report,
-        "dugme: sol {ups} sag {downs} guc {powers} uzun {long}, pin {} sure {}",
+        "keys: left {ups} right {downs} power {powers} long {long}, pin {} timer {}",
         PIN_WAKES.load(Ordering::Relaxed),
         TIMER_WAKES.load(Ordering::Relaxed)
     );
     let _ = writeln!(
         report,
-        "kalp: {} vurus, en gec {} us",
+        "heart: {} beats, latest {} us",
         BEATS.load(Ordering::Relaxed),
         LATEST_US.load(Ordering::Relaxed)
     );
@@ -284,7 +284,7 @@ async fn main(spawner: Spawner) -> ! {
         latch: _latch,
         mut report,
         ..
-    } = start("purestWhite bare-metal gorev denemesi", board.boot);
+    } = start("purestWhite bare-metal task check", board.boot);
 
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
     let systimer = SystemTimer::new(board.rtos.systimer);
@@ -300,7 +300,7 @@ async fn main(spawner: Spawner) -> ! {
     spawner.spawn(heartbeat().unwrap());
 
     spawn_card(spawner, board.card);
-    esp_println::println!("gorevler: basladi");
+    esp_println::println!("tasks: started");
 
     let start = Instant::now();
     while start.elapsed() < WINDOW && !LONG.load(Ordering::Relaxed) {
@@ -309,16 +309,16 @@ async fn main(spawner: Spawner) -> ! {
     STOP.store(true, Ordering::Relaxed);
     let sd_line = match select(SD_DONE.wait(), Timer::after(SD_WAIT)).await {
         Either::First(line) => line,
-        Either::Second(()) => String::from("sd: bitmedi"),
+        Either::Second(()) => String::from("sd: not done"),
     };
     let _ = writeln!(report, "{sd_line}");
     write_counts(&mut report);
     report.save();
 
     if !power_up().await {
-        let _ = writeln!(report, "guc birakilmadi");
+        let _ = writeln!(report, "power held");
     }
-    let _ = writeln!(report, "bitti");
+    let _ = writeln!(report, "done");
     esp_println::println!("{}", report.as_str());
     report.save();
     Timer::after_millis(100).await;

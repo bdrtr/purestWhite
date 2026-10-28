@@ -72,8 +72,8 @@ pub fn open_touch(touch: TouchParts, bus: I2cParts) -> TouchStart<'static> {
 /// The report's line on the touch controller: its address, or that none answered.
 pub fn note_touch(report: &mut Report, addr: Option<u8>) {
     let _ = match addr {
-        Some(addr) => writeln!(report, "dokunma: {addr:#04x}"),
-        None => writeln!(report, "dokunma: yok"),
+        Some(addr) => writeln!(report, "touch: {addr:#04x}"),
+        None => writeln!(report, "touch: none"),
     };
     report.save();
 }

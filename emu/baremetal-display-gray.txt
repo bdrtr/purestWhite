@@ -17,19 +17,19 @@ touch:240,138
 wait-quiet:3
 touch:240,472
 timeout:180
-wait-log:ekran tam: true
+wait-log:panel full: true
 shot:full
-wait-log:ekran hizli: true
+wait-log:panel fast: true
 shot:fast
-wait-log:gri yazi 1: true
+wait-log:gray text 1: true
 shot:gray-reader-1
-wait-log:gri yazi 2: true
+wait-log:gray text 2: true
 shot:gray-reader-2
-wait-log:gri resim: true
+wait-log:gray image: true
 shot:gray-image
-wait-log:gri dogrudan: true
+wait-log:gray direct: true
 shot:gray-direct
-wait-log:ekran uyku: tamam
+wait-log:panel sleep: ok
 wait-log:Bare-metal report
 wait-quiet:5
 shot:back-home

@@ -19,9 +19,9 @@ touch:240,138
 wait-quiet:3
 touch:240,472
 timeout:180
-wait-log:sd: deneme [0-9 ]+, tamam
-wait-log:okundu: 
-wait-log:imaj: [0-9]+ B, tek
+wait-log:sd: try [0-9 ]+, ok
+wait-log:read: 
+wait-log:image: [0-9]+ B, one
 wait-log:Bare-metal report
 wait-quiet:5
 shot:back-home

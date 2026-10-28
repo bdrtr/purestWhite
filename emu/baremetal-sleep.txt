@@ -18,16 +18,16 @@ touch:240,138
 wait-quiet:3
 touch:240,472
 timeout:180
-wait-log:uyku: guc bekleniyor
+wait-log:sleep: waiting for power
 press:power
-wait-log:uyku: derin
+wait-log:sleep: deep
 wait:3
 press:power:2000
 ready
-expect-log:hafif 3 s: zamanlayici
-expect-log:hafif guc: dugme
-expect-log:uyanma: dugme
+expect-log:light 3 s: timer
+expect-log:light power: button
+expect-log:wake: button
 # The console can run the next log line into this one, so only its start is matched.
-expect-log:sifirlama: DEEPSLEE
+expect-log:reset: DEEPSLEE
 wait-quiet:5
 shot:back-home

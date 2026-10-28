@@ -39,7 +39,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[unsafe(no_mangle)]
 pub fn custom_halt() -> ! {
-    Report::append_saved("PANIK\n");
+    Report::append_saved("PANIC\n");
     esp_hal::system::software_reset()
 }
 
@@ -94,10 +94,10 @@ const FRAME_BYTES: usize = 100 * 480;
 /// The grayscale steps on a UC8179: the pass, the bands' levels from the start of each row (0
 /// black to 3 white), and the step's name on the serial port.
 const GRAY_STEPS: [(GrayMode, [u8; 4], &str); 4] = [
-    (GrayMode::Overlay, [0, 1, 2, 3], "gri yazi 1"),
-    (GrayMode::Overlay, [3, 2, 1, 0], "gri yazi 2"),
-    (GrayMode::Absolute, [0, 1, 2, 3], "gri resim"),
-    (GrayMode::Direct, [0, 1, 2, 3], "gri dogrudan"),
+    (GrayMode::Overlay, [0, 1, 2, 3], "gray text 1"),
+    (GrayMode::Overlay, [3, 2, 1, 0], "gray text 2"),
+    (GrayMode::Absolute, [0, 1, 2, 3], "gray image"),
+    (GrayMode::Direct, [0, 1, 2, 3], "gray direct"),
 ];
 
 /// Four bands across each row, 200 pixels each, of `levels`, as CrossPoint encodes them: the base
@@ -125,9 +125,9 @@ fn lasting_frame() -> Option<&'static mut [u8]> {
     Some(v.leak())
 }
 
-/// "tamam" or "hata".
+/// "ok" or "failed".
 fn outcome(ok: bool) -> &'static str {
-    if ok { "tamam" } else { "hata" }
+    if ok { "ok" } else { "failed" }
 }
 
 /// The panel's controller, probed with the panel lines as GPIOs for a moment, and its driver over
@@ -152,13 +152,13 @@ fn open_panel(report: &mut Report, parts: PanelParts) -> (Panel, Lines<'static>)
         report.save();
     }
     let line = match error {
-        OpenError::Probe => "panel: yoklanamadi",
-        OpenError::NoDriver(_) => "ekran: atlandi",
-        OpenError::Spi(_) => "ekran: spi kurulamadi",
+        OpenError::Probe => "panel: probe failed",
+        OpenError::NoDriver(_) => "panel: skipped",
+        OpenError::Spi(_) => "panel: no spi",
     };
     let _ = writeln!(report, "{line}");
     if matches!(error, OpenError::NoDriver(_)) {
-        let _ = writeln!(report, "bitti");
+        let _ = writeln!(report, "done");
         esp_println::println!("{}", report.as_str());
     }
     report.save();
@@ -176,18 +176,18 @@ fn show_patterns(
     let delay = Delay::new();
     pattern(frame, 10);
     let full = panel.begin(bus) && panel.display(bus, frame, Refresh::Full, false);
-    let _ = writeln!(report, "ekran tam: {}", outcome(full));
+    let _ = writeln!(report, "panel full: {}", outcome(full));
     report.save();
-    esp_println::println!("ekran tam: {full}");
+    esp_println::println!("panel full: {full}");
     if !full {
         return false;
     }
     delay.delay_millis(2000);
     pattern(frame, 60);
     let fast = panel.display(bus, frame, Refresh::Fast, true);
-    let _ = writeln!(report, "ekran hizli: {}", outcome(fast));
+    let _ = writeln!(report, "panel fast: {}", outcome(fast));
     report.save();
-    esp_println::println!("ekran hizli: {fast}");
+    esp_println::println!("panel fast: {fast}");
     if fast {
         delay.delay_millis(3000);
     }
@@ -204,9 +204,9 @@ fn show_grays(
 ) -> bool {
     let delay = Delay::new();
     let label = if panel.has_gray_base() {
-        "gri"
+        "gray"
     } else {
-        "gri tabansiz"
+        "gray no base"
     };
     let _ = write!(report, "{label}:");
     let mut held = true;
@@ -235,7 +235,7 @@ fn main() -> ! {
         latch: _latch,
         mut report,
         ..
-    } = start("purestWhite bare-metal ekran denemesi", board.boot);
+    } = start("purestWhite bare-metal display check", board.boot);
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
     // Room for the UC8179's grayscale base (the SDK's PSRAM copy) beside the frame.
     esp_alloc::heap_allocator!(size: 50 * 1024);
@@ -251,9 +251,9 @@ fn main() -> ! {
     }
     if held {
         let slept = panel.deep_sleep(&mut bus);
-        let _ = writeln!(report, "ekran uyku: {}", outcome(slept));
+        let _ = writeln!(report, "panel sleep: {}", outcome(slept));
     }
-    let _ = writeln!(report, "bitti");
+    let _ = writeln!(report, "done");
     esp_println::println!("{}", report.as_str());
     report.save();
     esp_hal::system::software_reset()

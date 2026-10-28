@@ -26,7 +26,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[unsafe(no_mangle)]
 pub fn custom_halt() -> ! {
-    Report::append_saved("PANIK\n");
+    Report::append_saved("PANIC\n");
     esp_hal::system::software_reset()
 }
 
@@ -35,7 +35,7 @@ const SPARE: usize = 64 * 1024;
 
 /// Saves the report with its last line and resets into the C++ firmware.
 fn finish(report: &mut Report) -> ! {
-    let _ = writeln!(report, "bitti");
+    let _ = writeln!(report, "done");
     esp_println::println!("{}", report.as_str());
     report.save();
     esp_hal::system::software_reset()
@@ -74,7 +74,7 @@ fn reserve_words(report: &mut Report, start: *mut u8, size: usize) -> Vec<u32> {
     let count = size.saturating_sub(SPARE) / 4;
     let mut words: Vec<u32> = Vec::new();
     if words.try_reserve_exact(count).is_err() {
-        let _ = writeln!(report, "yigin: {} KB ayrilamadi", count * 4 / 1024);
+        let _ = writeln!(report, "heap: {} KB not allocated", count * 4 / 1024);
         finish(report)
     }
     words.resize(count, 0);
@@ -82,9 +82,9 @@ fn reserve_words(report: &mut Report, start: *mut u8, size: usize) -> Vec<u32> {
     let inside = (start as usize..start as usize + size).contains(&at);
     let _ = writeln!(
         report,
-        "yigin: {} KB, {}",
+        "heap: {} KB, {}",
         count * 4 / 1024,
-        if inside { "psram'de" } else { "PSRAM DISINDA" }
+        if inside { "in PSRAM" } else { "OUTSIDE PSRAM" }
     );
     report.save();
     words
@@ -98,7 +98,7 @@ fn main() -> ! {
         latch: _latch,
         mut report,
         ..
-    } = start("purestWhite bare-metal PSRAM denemesi", board.boot);
+    } = start("purestWhite bare-metal PSRAM check", board.boot);
     // The internal heap, as the other images take it: the RAM the ROM bootloader used, which is
     // free once the app runs.
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
@@ -106,12 +106,12 @@ fn main() -> ! {
     let psram = Psram::new(board.psram, psram_config());
     let (start, size) = psram.raw_parts();
     if size == 0 {
-        let _ = writeln!(report, "psram: bulunamadi");
+        let _ = writeln!(report, "psram: not found");
         finish(&mut report)
     }
     let _ = writeln!(
         report,
-        "psram: {} KB, {PSRAM_MHZ} MHz, adres {start:p}",
+        "psram: {} KB, {PSRAM_MHZ} MHz, at {start:p}",
         size / 1024
     );
     report.save();
@@ -122,8 +122,8 @@ fn main() -> ! {
         let (errors, written, read) = pass(&mut words, invert);
         let _ = writeln!(
             report,
-            "bellek{}: hata {errors}, yazma {written} ms, okuma {read} ms",
-            if invert { " ters" } else { "" }
+            "memory{}: errors {errors}, write {written} ms, read {read} ms",
+            if invert { " inverted" } else { "" }
         );
         report.save();
     }

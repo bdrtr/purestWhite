@@ -21,9 +21,9 @@ touch:240,138
 wait-quiet:3
 touch:240,472
 timeout:180
-wait-log:ekran tam: true
+wait-log:panel full: true
 shot:full
-wait-log:ekran hizli: true
+wait-log:panel fast: true
 shot:fast
 wait-log:Bare-metal report
 wait-quiet:5

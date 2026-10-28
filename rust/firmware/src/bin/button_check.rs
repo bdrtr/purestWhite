@@ -25,7 +25,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[unsafe(no_mangle)]
 pub fn custom_halt() -> ! {
-    Report::append_saved("PANIK\n");
+    Report::append_saved("PANIC\n");
     esp_hal::system::software_reset()
 }
 
@@ -103,7 +103,7 @@ fn main() -> ! {
         latch: _latch,
         mut report,
         ..
-    } = start("purestWhite bare-metal dugme denemesi", board.boot);
+    } = start("purestWhite bare-metal button check", board.boot);
 
     // Up is GPIO0, a boot strap: held through a reset it starts the ROM's download mode, so the
     // count never resets the chip.
@@ -113,19 +113,19 @@ fn main() -> ! {
         down: Input::new(board.buttons.right, pulled_up),
         power: Input::new(board.buttons.power, pulled_up),
     };
-    esp_println::println!("dugmeler: hazir");
+    esp_println::println!("buttons: ready");
     let ([ups, downs, powers], long) = count_presses(&keys);
-    let _ = writeln!(report, "dugme: sol {ups}, sag {downs}, guc {powers}");
+    let _ = writeln!(report, "keys: left {ups}, right {downs}, power {powers}");
     let _ = writeln!(
         report,
-        "guc uzun: {}",
-        if long { "evet" } else { "yok, 40 s doldu" }
+        "power long: {}",
+        if long { "yes" } else { "no, 40 s passed" }
     );
     report.save();
     if !wait_power_up(&keys.power) {
-        let _ = writeln!(report, "guc birakilmadi");
+        let _ = writeln!(report, "power held");
     }
-    let _ = writeln!(report, "bitti");
+    let _ = writeln!(report, "done");
     esp_println::println!("{}", report.as_str());
     report.save();
     esp_hal::system::software_reset()

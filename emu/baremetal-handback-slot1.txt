@@ -31,7 +31,7 @@ wait-quiet:3
 shot:confirm
 touch:240,472
 timeout:180
-wait-log:sonraki acilis: C\+\+ yazilimi
+wait-log:next boot: C\+\+ firmware
 wait-log:Bare-metal report
 wait-quiet:5
 shot:back-home

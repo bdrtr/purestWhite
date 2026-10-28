@@ -31,7 +31,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[unsafe(no_mangle)]
 pub fn custom_halt() -> ! {
-    Report::append_saved("PANIK\n");
+    Report::append_saved("PANIC\n");
     esp_hal::system::software_reset()
 }
 
@@ -40,7 +40,7 @@ type Blocks<'d> = CardBlocks<BlockingBus<'d>, SpinDelay>;
 
 /// The directory the C++ firmware writes into, and the files in it read, the first found.
 const DIR: &str = ".crosspoint";
-const READ: [&str; 2] = ["onyukleyici.txt", "state.json"];
+const READ: [&str; 2] = ["bootloader.txt", "state.json"];
 /// This image's file, read whole: its name on the owner's card, and in the emulator's.
 const IMAGE: [&str; 2] = ["purestwhite-baremetal-sd.bin", "sd-check.bin"];
 /// FNV-1a's 32-bit offset basis and prime.
@@ -49,7 +49,7 @@ const FNV_PRIME: u32 = 0x0100_0193;
 
 /// Saves the report with its last line and resets into the C++ firmware.
 fn finish(report: &mut Report) -> ! {
-    let _ = writeln!(report, "bitti");
+    let _ = writeln!(report, "done");
     esp_println::println!("{}", report.as_str());
     report.save();
     esp_hal::system::software_reset()
@@ -63,7 +63,7 @@ impl<T, E: core::fmt::Debug> core::fmt::Display for Why<'_, T, E> {
         match self.0 {
             Some(Err(e)) => write!(f, "{e:?}"),
             Some(Ok(_)) => f.write_str("?"),
-            None => f.write_str("hazir degil"),
+            None => f.write_str("not ready"),
         }
     }
 }
@@ -85,17 +85,17 @@ fn main() -> ! {
         latch: _latch,
         mut report,
         ..
-    } = start("purestWhite bare-metal SD denemesi", board.boot);
+    } = start("purestWhite bare-metal SD check", board.boot);
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
 
     // The card off until its first try.
     let mut enable = Output::new(board.card.supply, Level::High, OutputConfig::default());
     let Ok(controller) = SdHostController::new(board.card.sdhost, SdConfig::default()) else {
-        let _ = writeln!(report, "sd: denetleyici kurulamadi");
+        let _ = writeln!(report, "sd: no controller");
         finish(&mut report)
     };
     let Ok(slot) = controller.slot::<1>(SlotConfig::default()) else {
-        let _ = writeln!(report, "sd: yuva kurulamadi");
+        let _ = writeln!(report, "sd: no slot");
         finish(&mut report)
     };
     let slot = slot
@@ -104,22 +104,18 @@ fn main() -> ! {
         .with_data0(board.card.dat0);
     let mut card: Card<'_> = Card::new_uninit(BlockingBus::new(slot), SpinDelay(Delay::new()));
     // A word per try, saved before it starts: a try the watchdog cuts short still shows.
-    let _ = write!(report, "sd: deneme");
+    let _ = write!(report, "sd: try");
     let mounted = sd::mount(&mut card, &mut enable, |attempt| {
         let _ = write!(report, " {attempt}");
         report.save();
     });
     if mounted.is_none() {
-        let _ = writeln!(report, ", baglanamadi");
+        let _ = writeln!(report, ", not mounted");
         finish(&mut report)
     }
     let card = CardBlocks::new(card);
-    let cmd23 = if card.takes_cmd23() { "var" } else { "yok" };
-    let _ = writeln!(
-        report,
-        ", tamam, {} MB, cmd23 {cmd23}",
-        card.blocks() / 2048
-    );
+    let cmd23 = if card.takes_cmd23() { "yes" } else { "no" };
+    let _ = writeln!(report, ", ok, {} MB, cmd23 {cmd23}", card.blocks() / 2048);
     report.save();
 
     browse(card, &mut report)
@@ -131,7 +127,7 @@ fn browse(card: Blocks<'_>, report: &mut Report) -> ! {
     let mut volume = match ready(Volume::mount(card)) {
         Some(Ok(v)) => v,
         e => {
-            let _ = writeln!(report, "fat: acilamadi ({})", Why(&e));
+            let _ = writeln!(report, "fat: failed ({})", Why(&e));
             finish(report)
         }
     };
@@ -139,7 +135,7 @@ fn browse(card: Blocks<'_>, report: &mut Report) -> ! {
         Kind::Fat16 => "FAT16",
         Kind::Fat32 => "FAT32",
     };
-    let _ = writeln!(report, "fat: {kind}, kume {} B", volume.cluster_bytes());
+    let _ = writeln!(report, "fat: {kind}, cluster {} B", volume.cluster_bytes());
     report.save();
 
     let root = volume.root();
@@ -151,12 +147,16 @@ fn browse(card: Blocks<'_>, report: &mut Report) -> ! {
             Some(Ok(Some(_))) => total += 1,
             Some(Ok(None)) => break,
             e => {
-                let _ = writeln!(report, "kok: {total} ogeden sonra okunamadi ({})", Why(&e));
+                let _ = writeln!(
+                    report,
+                    "root: read failed after {total} entries ({})",
+                    Why(&e)
+                );
                 finish(report)
             }
         }
     }
-    let _ = writeln!(report, "kok: {total} oge");
+    let _ = writeln!(report, "root: {total} entries");
     report.save();
 
     read_state(&mut volume, report);
@@ -171,11 +171,11 @@ fn read_state(volume: &mut Volume<Blocks<'_>>, report: &mut Report) {
     let dir = match ready(volume.open_dir(DIR)) {
         Some(Ok(dir)) => dir,
         Some(Err(Error::NotFound)) => {
-            let _ = writeln!(report, "{DIR} yok");
+            let _ = writeln!(report, "{DIR} missing");
             return;
         }
         e => {
-            let _ = writeln!(report, "{DIR} acilamadi ({})", Why(&e));
+            let _ = writeln!(report, "{DIR} not opened ({})", Why(&e));
             finish(report)
         }
     };
@@ -184,14 +184,14 @@ fn read_state(volume: &mut Volume<Blocks<'_>>, report: &mut Report) {
             Some(Ok(entry)) => entry,
             Some(Err(Error::NotFound)) => continue,
             e => {
-                let _ = writeln!(report, "bulunamadi: {path} ({})", Why(&e));
+                let _ = writeln!(report, "not found: {path} ({})", Why(&e));
                 finish(report)
             }
         };
         let mut file = match volume.open(&entry) {
             Ok(file) => file,
             Err(e) => {
-                let _ = writeln!(report, "acilamadi: {path} ({e:?})");
+                let _ = writeln!(report, "not opened: {path} ({e:?})");
                 finish(report)
             }
         };
@@ -199,17 +199,19 @@ fn read_state(volume: &mut Volume<Blocks<'_>>, report: &mut Report) {
         match ready(volume.read(&mut file, &mut text)) {
             Some(Ok(n)) => {
                 let read = core::str::from_utf8(text.get(..n).unwrap_or_default()).unwrap_or("?");
-                // Its first words: "onyukleyici geri alma: VAR" or "YOK".
-                let _ = writeln!(report, "okundu: {}", cut(read.trim_end(), 26));
+                // Its first line up to any detail in brackets: "bootloader rollback: YES", for one.
+                let line = read.lines().next().unwrap_or_default();
+                let line = line.split(" (").next().unwrap_or_default();
+                let _ = writeln!(report, "read: {}", cut(line, 28));
             }
             e => {
-                let _ = writeln!(report, "okunamadi: {path} ({})", Why(&e));
+                let _ = writeln!(report, "read failed: {path} ({})", Why(&e));
                 finish(report)
             }
         }
         return;
     }
-    let _ = writeln!(report, "{DIR} icinde okunacak dosya yok");
+    let _ = writeln!(report, "nothing to read in {DIR}");
 }
 
 /// Reads this image's file whole twice, one block per card command and then up to `sd::RUN`, and notes
@@ -224,33 +226,33 @@ fn time_image(volume: &mut Volume<Blocks<'_>>, report: &mut Report) {
             }
             Some(Err(Error::NotFound)) => {}
             e => {
-                let _ = writeln!(report, "imaj: bulunamadi ({})", Why(&e));
+                let _ = writeln!(report, "image: not found ({})", Why(&e));
                 finish(report)
             }
         }
     }
     let Some(entry) = found else {
-        let _ = writeln!(report, "imaj: yok");
+        let _ = writeln!(report, "image: none");
         return;
     };
     let mut file = match volume.open(&entry) {
         Ok(file) => file,
         Err(e) => {
-            let _ = writeln!(report, "imaj: acilamadi ({e:?})");
+            let _ = writeln!(report, "image: not opened ({e:?})");
             finish(report)
         }
     };
     let mut buf = [0u8; sd::RUN * 512];
-    let (one_ms, one) = read_whole(volume, &mut file, &mut buf, 1, "tek", report);
-    let (many_ms, many) = read_whole(volume, &mut file, &mut buf, sd::RUN, "cok", report);
+    let (one_ms, one) = read_whole(volume, &mut file, &mut buf, 1, "one", report);
+    let (many_ms, many) = read_whole(volume, &mut file, &mut buf, sd::RUN, "many", report);
     if one == many {
         let _ = writeln!(
             report,
-            "imaj: {} B, tek {one_ms} ms, cok {many_ms} ms, fnv {one:08x}",
+            "image: {} B, one {one_ms} ms, many {many_ms} ms, fnv {one:08x}",
             file.size()
         );
     } else {
-        let _ = writeln!(report, "imaj: FARKLI, tek {one:08x}, cok {many:08x}");
+        let _ = writeln!(report, "image: DIFFERENT, one {one:08x}, many {many:08x}");
     }
 }
 
@@ -277,7 +279,7 @@ fn read_whole(
                 }
             }
             e => {
-                let _ = writeln!(report, "imaj: {pass} okunamadi ({})", Why(&e));
+                let _ = writeln!(report, "image: {pass} read failed ({})", Why(&e));
                 finish(report)
             }
         }

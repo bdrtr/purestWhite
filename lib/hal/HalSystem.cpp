@@ -200,8 +200,8 @@ std::string getPanicInfo(bool full) {
 }
 
 void saveBareMetalReport() {
-  // As rust/firmware/src/lib.rs writes it: magic, length, then the text, in the last 256 bytes of
-  // RTC slow memory, past everything this firmware keeps there.
+  // As rust/firmware/src/test_image/report.rs writes it: magic, length, then the text, in the last
+  // 256 bytes of RTC slow memory, past everything this firmware keeps there.
   constexpr uintptr_t REPORT_ADDR = 0x50001F00;
   constexpr uint32_t REPORT_MAGIC = 0x50574254;  // "PWBT"
   constexpr uint32_t REPORT_TEXT = 248;
@@ -226,23 +226,23 @@ void saveBareMetalReport() {
   String saved(text);
   // A test image whose report ends in a sleep line: what woke the chip, after a deep sleep.
   const int lastLine = saved.lastIndexOf('\n', saved.length() >= 2 ? saved.length() - 2 : 0);
-  const bool sleptLast = saved.substring(lastLine + 1).startsWith("uyku:");
+  const bool sleptLast = saved.substring(lastLine + 1).startsWith("sleep:");
   switch (sleptLast ? esp_sleep_get_wakeup_cause() : ESP_SLEEP_WAKEUP_UNDEFINED) {
     case ESP_SLEEP_WAKEUP_UNDEFINED:
       break;
     case ESP_SLEEP_WAKEUP_EXT1:
-      saved += "uyanma: dugme\n";
+      saved += "wake: button\n";
       break;
     case ESP_SLEEP_WAKEUP_TIMER:
-      saved += "uyanma: zamanlayici\n";
+      saved += "wake: timer\n";
       break;
     default:
-      saved += "uyanma: diger (" + String(static_cast<int>(esp_sleep_get_wakeup_cause())) + ")\n";
+      saved += "wake: other (" + String(static_cast<int>(esp_sleep_get_wakeup_cause())) + ")\n";
       break;
   }
   // And what reset the chip: a sleep that did not wake ends in a watchdog reset.
   if (sleptLast) {
-    saved += "sifirlama: " + String(resetReasonName(esp_reset_reason())) + "\n";
+    saved += "reset: " + String(resetReasonName(esp_reset_reason())) + "\n";
   }
   LOG_INF("SYS", "Bare-metal report:\n%s", saved.c_str());
   // Kept for the next boot until it is on the card.
@@ -255,16 +255,16 @@ void saveBareMetalReport() {
 
 void saveBootloaderRollback() {
   // Hidden, so it does not show up among the books.
-  constexpr const char* PATH = "/.crosspoint/onyukleyici.txt";
+  constexpr const char* PATH = "/.crosspoint/bootloader.txt";
   const esp_partition_t* running = esp_ota_get_running_partition();
   esp_ota_img_states_t state;
   if (running == nullptr || esp_ota_get_state_partition(running, &state) != ESP_OK) {
     LOG_INF("SYS", "Bootloader rollback: unknown (no otadata entry for this image)");
     return;
   }
-  const char* verdict = state == ESP_OTA_IMG_VALID ? "VAR" : state == ESP_OTA_IMG_NEW ? "YOK" : "BILINMIYOR";
+  const char* verdict = state == ESP_OTA_IMG_VALID ? "YES" : state == ESP_OTA_IMG_NEW ? "NO" : "UNKNOWN";
   char text[96];
-  snprintf(text, sizeof(text), "onyukleyici geri alma: %s (yuva %s, durum %u)\n", verdict, running->label,
+  snprintf(text, sizeof(text), "bootloader rollback: %s (slot %s, state %u)\n", verdict, running->label,
            static_cast<unsigned>(state));
   LOG_INF("SYS", "%s", text);
   if (Storage.exists(PATH)) return;

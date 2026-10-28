@@ -20,7 +20,8 @@ pub const KEYS: usize = 4;
 const KEY_TOP: i32 = 20;
 const KEY_WIDTH: i32 = 100;
 const KEY_HEIGHT: i32 = 80;
-/// The boxes' names, under them in the card's font when it is there.
+/// The boxes' names, under them in the card's font when it is there; in Turkish (see
+/// `Counts::status`).
 const LABELS: [&str; KEYS] = ["Sol", "Sağ", "Güç", "Home"];
 const LABEL_TOP: i32 = KEY_TOP + KEY_HEIGHT + 4;
 /// The counts' line at the bottom, in the card's font.

@@ -21,7 +21,7 @@ touch:240,138
 wait-quiet:3
 touch:240,472
 timeout:180
-wait-log:geri bildirim: hazir
+wait-log:feedback: ready
 wait-screen
 shot:keys
 press:up
@@ -61,16 +61,16 @@ wait-screen
 press:up
 wait-screen
 press:power:1500
-wait-log:geri bildirim: ay
+wait-log:feedback: moon
 wait-screen
 shot:moon
-wait-log:uyku: derin, guc
+wait-log:sleep: deep, power
 wait:3
 press:power:2000
 ready
-expect-log:dokunma 0x5d, yazi 3[0-9][0-9] KB
-expect-log:hizli 17 yarim 1 hata 0
-expect-log:tus 12/1/1/1 dokun 1 kaydir 1 uzun 1
+expect-log:touch 0x5d, font 3[0-9][0-9] KB
+expect-log:fast 17 half 1 failed 0
+expect-log:keys 12/1/1/1 tap 1 swipe 1 long 1
 # The ROM's boot line shows the deep sleep's wake (its timer is 60 s, so the press woke it).
 expect-log:rst:0x5 \(DSLEEP\)
 wait-quiet:5

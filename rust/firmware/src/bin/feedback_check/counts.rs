@@ -74,7 +74,9 @@ impl Counts {
         true
     }
 
-    /// The counts of the gestures, for the line at the bottom of the screen.
+    /// The counts of the gestures, for the line at the bottom of the screen. On screen the image
+    /// speaks the owner's language, Turkish, which also exercises the font's Turkish letters (as
+    /// the key names and the good night in `draw` do); the report stays English.
     pub fn status(&self) -> String {
         format!(
             "dokun {}   kaydır {}   uzun {}",
@@ -113,13 +115,13 @@ impl Counts {
         // Short, so that the sleep line's marks keep their room in the report's 248 bytes.
         let _ = writeln!(
             report,
-            "hizli {} yarim {} hata {} {} ms",
+            "fast {} half {} failed {} {} ms",
             self.fast, self.half, self.failed, self.slowest_ms
         );
         let [left, right, power, home] = self.keys;
         let _ = writeln!(
             report,
-            "tus {left}/{right}/{power}/{home} dokun {} kaydir {} uzun {}",
+            "keys {left}/{right}/{power}/{home} tap {} swipe {} long {}",
             self.taps, self.swipes, self.long_presses
         );
     }

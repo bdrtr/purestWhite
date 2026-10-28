@@ -19,12 +19,12 @@ touch:240,138
 wait-quiet:3
 touch:240,472
 timeout:180
-wait-log:dugmeler: hazir
+wait-log:buttons: ready
 press:up
 press:up
 press:down
 press:power:1500
-wait-log:dugme: sol 2, sag 1, guc 1
+wait-log:keys: left 2, right 1, power 1
 wait-log:Bare-metal report
 wait-quiet:5
 shot:back-home

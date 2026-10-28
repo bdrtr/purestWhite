@@ -38,7 +38,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[unsafe(no_mangle)]
 pub fn custom_halt() -> ! {
-    Report::append_saved("PANIK\n");
+    Report::append_saved("PANIC\n");
     esp_hal::system::software_reset()
 }
 
@@ -108,10 +108,10 @@ impl Counts {
 
     fn write(&self, report: &mut Report) {
         let [left, right, power] = self.presses;
-        let _ = writeln!(report, "dugme: sol {left} sag {right} guc {power}");
+        let _ = writeln!(report, "keys: left {left} right {right} power {power}");
         let _ = writeln!(
             report,
-            "dokunus {} dokun {} kaydir {} uzun {} home {}/{}",
+            "down {} tap {} swipe {} long {} home {}/{}",
             self.touches,
             self.taps,
             self.swipes,
@@ -121,7 +121,7 @@ impl Counts {
         );
         let _ = writeln!(
             report,
-            "birak {} yavas {} diger {} hata {}",
+            "lift {} slow {} other {} failed {}",
             self.releases, self.slow, self.other, self.failed_reads
         );
     }
@@ -139,7 +139,7 @@ fn watch<B: embedded_hal_async::i2c::I2c>(
     let mut last_activity = start;
     loop {
         let Some(polled) = ready(input.poll(millis())) else {
-            return "hazir degil";
+            return "not ready";
         };
         counts.add(&polled, input.last_touch_held_ms());
         if polled.touch.long_press.is_some() {
@@ -150,13 +150,13 @@ fn watch<B: embedded_hal_async::i2c::I2c>(
             last_activity = Instant::now();
         }
         if polled.sleep {
-            return "guc";
+            return "power";
         }
         if last_activity.elapsed() >= IDLE {
-            return "bos 60 s";
+            return "idle 60 s";
         }
         if start.elapsed() >= MOST {
-            return "sure doldu";
+            return "time up";
         }
         rtc.rwdt.feed();
         delay.delay_millis(input::POLL_MS);
@@ -171,14 +171,14 @@ fn main() -> ! {
         latch: _latch,
         mut report,
         ..
-    } = start("purestWhite bare-metal giris denemesi", board.boot);
+    } = start("purestWhite bare-metal input check", board.boot);
 
     let touch = test_image::open_touch(board.touch, board.i2c);
     test_image::note_touch(&mut report, touch.found.as_ref().map(|&(_, addr)| addr));
     let pins = ButtonPins::new(board.buttons);
     let mut input = Input::new(pins, touch.found, input::POWER_HOLD_MS);
     let mut counts = Counts::default();
-    esp_println::println!("giris: hazir");
+    esp_println::println!("input: ready");
     let why = watch(&mut input, &mut rtc, &mut counts);
     counts.write(&mut report);
     report.save();

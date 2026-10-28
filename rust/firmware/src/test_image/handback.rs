@@ -72,9 +72,9 @@ pub fn hand_back(flash: FLASH<'_>, cpu: CPU_CTRL<'_>) -> Result<HandBack, &'stat
         .into_iter()
         .zip(&mut entries)
     {
-        storage.read(at, entry).map_err(|_| "otadata okunamadi")?;
+        storage.read(at, entry).map_err(|_| "otadata read failed")?;
     }
-    let selection = ota::select_other(&entries, booted).map_err(|_| "otadata sira sayisi tasti")?;
+    let selection = ota::select_other(&entries, booted).map_err(|_| "otadata sequence ran out")?;
     if let Some(write) = selection.write {
         write_entry(
             &mut storage,
@@ -91,7 +91,7 @@ pub fn hand_back(flash: FLASH<'_>, cpu: CPU_CTRL<'_>) -> Result<HandBack, &'stat
 /// has exactly `ota_0` and `ota_1`, once each.
 fn ota_partitions(storage: &mut FlashStorage<'_>) -> Result<(u32, Slot), &'static str> {
     let mut table = [0u8; PARTITION_TABLE_MAX_LEN];
-    let table = read_partition_table(storage, &mut table).map_err(|_| "bolum tablosu")?;
+    let table = read_partition_table(storage, &mut table).map_err(|_| "partition table")?;
     let (mut slots, mut seen) = (0u32, 0u32);
     let mut otadata = None;
     for p in table.iter() {
@@ -103,9 +103,9 @@ fn ota_partitions(storage: &mut FlashStorage<'_>) -> Result<(u32, Slot), &'stati
         }
     }
     if slots != 2 || seen != 0b11 {
-        return Err("iki OTA yuvasi yok");
+        return Err("not two OTA slots");
     }
-    let otadata = otadata.ok_or("otadata yok")?;
+    let otadata = otadata.ok_or("no otadata")?;
     // The image the bootloader mapped, from the MMU.
     let booted = table
         .booted_partition()
@@ -114,7 +114,7 @@ fn ota_partitions(storage: &mut FlashStorage<'_>) -> Result<(u32, Slot), &'stati
         .as_ref()
         .and_then(ota_slot)
         .and_then(Slot::from_index)
-        .ok_or("calisan yuva bilinmiyor")?;
+        .ok_or("running slot unknown")?;
     Ok((otadata, booted))
 }
 
@@ -124,13 +124,15 @@ fn write_entry(
     at: u32,
     entry: &ota::Entry,
 ) -> Result<(), &'static str> {
-    storage.write(at, entry).map_err(|_| "otadata yazilamadi")?;
+    storage
+        .write(at, entry)
+        .map_err(|_| "otadata write failed")?;
     let mut back = [0u8; ota::ENTRY];
     storage
         .read(at, &mut back)
-        .map_err(|_| "otadata okunamadi")?;
+        .map_err(|_| "otadata read failed")?;
     if back != *entry {
-        return Err("otadata dogrulanamadi");
+        return Err("otadata check failed");
     }
     Ok(())
 }

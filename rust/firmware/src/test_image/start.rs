@@ -29,12 +29,12 @@ pub fn start(title: &str, boot: Boot) -> Started<'static> {
     let found = match hand_back(boot.flash, boot.cpu) {
         Ok(found) => found,
         Err(e) => {
-            let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
+            let _ = writeln!(report, "next boot: NOT SET ({e})");
             report.save();
             esp_hal::system::software_reset()
         }
     };
-    let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
+    let _ = writeln!(report, "next boot: C++ firmware");
     report.save();
     Started {
         rtc,

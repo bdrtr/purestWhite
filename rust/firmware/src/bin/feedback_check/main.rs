@@ -56,7 +56,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[unsafe(no_mangle)]
 pub fn custom_halt() -> ! {
-    Report::append_saved("PANIK\n");
+    Report::append_saved("PANIC\n");
     esp_hal::system::software_reset()
 }
 
@@ -112,7 +112,7 @@ impl<'t> Feedback<'t> {
         let mut last_activity = start;
         loop {
             let Some(polled) = ready(input.poll(millis())) else {
-                return "hazir degil";
+                return "not ready";
             };
             if polled.touch.long_press.is_some() {
                 // As the C++ firmware's callers: the lift of a long press does not also tap.
@@ -122,7 +122,7 @@ impl<'t> Feedback<'t> {
                 last_activity = Instant::now();
             }
             if polled.sleep {
-                return "guc";
+                return "power";
             }
             if self.counts.draw(&polled, &mut canvas(&mut self.frame)) {
                 let counts = &self.counts;
@@ -132,10 +132,10 @@ impl<'t> Feedback<'t> {
                 self.screen.show(&self.frame, &mut self.counts, false);
             }
             if last_activity.elapsed() >= IDLE {
-                return "bos 60 s";
+                return "idle 60 s";
             }
             if start.elapsed() >= MOST {
-                return "sure doldu";
+                return "time up";
             }
             rtc.rwdt.feed();
             delay.delay_millis(input::POLL_MS);
@@ -174,8 +174,8 @@ fn open_display(report: &mut Report, parts: PanelParts) -> Screen {
     open_screen(parts).unwrap_or_else(|error| {
         let name = error
             .probe()
-            .map_or("yok", |found| found.controller().name());
-        let _ = writeln!(report, "ekran {name}: kullanilamadi");
+            .map_or("none", |found| found.controller().name());
+        let _ = writeln!(report, "panel {name}: unusable");
         report.save();
         esp_hal::system::software_reset()
     })
@@ -184,14 +184,14 @@ fn open_display(report: &mut Report, parts: PanelParts) -> Screen {
 /// The report's line on what started: the panel's controller and whether it works, the touch
 /// controller's address (0 when not found), and the font's size and load time.
 fn note_start(report: &mut Report, run: &Feedback<'_>, touch: Option<u8>) {
-    let font = run.font.as_ref().map_or(String::from("yok"), |f| {
+    let font = run.font.as_ref().map_or(String::from("none"), |f| {
         format!("{} KB {} ms", f.bytes.len() / 1024, f.load_ms)
     });
-    let state = if run.screen.working { "tamam" } else { "hata" };
+    let state = if run.screen.working { "ok" } else { "failed" };
     let touch = touch.unwrap_or(0);
     let _ = writeln!(
         report,
-        "ekran {} {state}, dokunma {touch:#04x}, yazi {font}",
+        "panel {} {state}, touch {touch:#04x}, font {font}",
         run.screen.name
     );
     report.save();
@@ -206,7 +206,7 @@ fn main() -> ! {
         latch: _latch,
         mut report,
         ..
-    } = start("purestWhite geri bildirim", board.boot);
+    } = start("purestWhite feedback", board.boot);
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
     let _psram = add_psram(board.psram);
 
@@ -225,14 +225,14 @@ fn main() -> ! {
         touch.found,
         input::POWER_HOLD_MS,
     );
-    esp_println::println!("geri bildirim: hazir");
+    esp_println::println!("feedback: ready");
     let why = run.watch(&mut input, &mut rtc);
     run.counts.write(&mut report);
     report.save();
     if !run.good_night(&mut rtc) {
-        let _ = writeln!(report, "ekran uyumadi");
+        let _ = writeln!(report, "panel did not sleep");
     }
-    esp_println::println!("geri bildirim: ay");
+    esp_println::println!("feedback: moon");
 
     let rails = Rails {
         touch_power: touch.supply,

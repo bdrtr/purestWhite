@@ -32,12 +32,12 @@ pub fn sleep_when_released(
     sleep: TestSleep,
 ) -> ! {
     if !wait_power_up(&power, sleep.release, || rtc.rwdt.feed()) {
-        let _ = writeln!(report, "guc birakilmadi");
+        let _ = writeln!(report, "power held");
     }
     report_and_sleep(report, why, rtc, &mut power, rails, low_power, sleep)
 }
 
-/// For test images: ends `report` with the sleep's line, `uyku: derin, ` and `why`, which the C++
+/// For test images: ends `report` with the sleep's line, `sleep: deep, ` and `why`, which the C++
 /// firmware looks for to add what woke and reset the chip, then sleeps deeply as `sleep` says,
 /// marking on that line first the sleep interrupt flags (`i`) and the digital pads' isolation and
 /// hold settings (`p`, bit 11 being the auto-hold `deep_sleep` disables) as found, then a letter
@@ -52,7 +52,7 @@ pub fn report_and_sleep(
     low_power: LowPower<'_>,
     sleep: TestSleep,
 ) -> ! {
-    let _ = write!(report, "uyku: derin, {why}");
+    let _ = write!(report, "sleep: deep, {why}");
     let mut line = SleepLine::new(report);
     let regs = LPWR::regs();
     line.mark(format_args!(

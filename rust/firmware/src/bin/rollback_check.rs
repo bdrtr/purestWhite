@@ -21,7 +21,7 @@ esp_bootloader_esp_idf::esp_app_desc!();
 )]
 #[unsafe(no_mangle)]
 pub fn custom_halt() -> ! {
-    Report::append_saved("PANIK\n");
+    Report::append_saved("PANIC\n");
     esp_hal::system::software_reset()
 }
 
@@ -32,26 +32,26 @@ fn main() -> ! {
     let _latch = hold_power_latch(board.boot.latch);
     // A report at once, so a panic from here on is not added to an older one.
     let mut report = Report::default();
-    let _ = writeln!(report, "purestWhite bare-metal geri donus denemesi");
+    let _ = writeln!(report, "purestWhite bare-metal rollback check");
     report.save();
     let handed_back = hand_back(board.boot.flash, board.boot.cpu);
     match handed_back {
         Ok(found) => {
-            let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
+            let _ = writeln!(report, "next boot: C++ firmware");
             match found.booted_state {
                 Some(state) => {
-                    let _ = writeln!(report, "onyukleyici durumu: {state}");
+                    let _ = writeln!(report, "bootloader state: {state}");
                 }
                 None => {
-                    let _ = writeln!(report, "onyukleyici durumu: kayit yok");
+                    let _ = writeln!(report, "bootloader state: no entry");
                 }
             }
         }
         Err(e) => {
-            let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
+            let _ = writeln!(report, "next boot: NOT SET ({e})");
         }
     }
-    let _ = writeln!(report, "bitti");
+    let _ = writeln!(report, "done");
     esp_println::println!("{}", report.as_str());
     report.save();
     esp_hal::system::software_reset()

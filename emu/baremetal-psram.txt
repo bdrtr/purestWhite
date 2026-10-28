@@ -18,9 +18,9 @@ touch:240,138
 wait-quiet:3
 touch:240,472
 timeout:180
-wait-log:bellek ters: hata
+wait-log:memory inverted: errors
 wait-log:Bare-metal report
-expect-log:bellek: hata 0,
-expect-log:bellek ters: hata 0,
+expect-log:memory: errors 0,
+expect-log:memory inverted: errors 0,
 wait-quiet:5
 shot:back-home
