@@ -1,7 +1,7 @@
-//! A test image's deep sleep, each step marked on the report's last line as it is taken.
+//! A phase-2 image's deep sleep, bounded by a timer and the watchdog, each step marked on the
+//! report's last line as it is taken.
 
-use super::watch_sleep;
-use crate::boot::Report;
+use super::{Report, watch_sleep};
 use crate::sleep::{Rails, Step, deep_sleep, wait_power_up};
 use core::fmt::Write as _;
 use esp_hal::gpio::Input;
@@ -10,10 +10,10 @@ use esp_hal::rtc_cntl::Rtc;
 use esp_hal::rtc_cntl::sleep::LowPower;
 use esp_hal::time::Duration;
 
-/// A test image's deep sleep: its timer, and the watchdog's stages past it (see `watch_sleep`);
+/// A phase-2 image's deep sleep: its timer, and the watchdog's stages past it (see `watch_sleep`);
 /// and how long Power may stay down before it starts anyway (`sleep_when_released`).
 #[derive(Clone, Copy, Debug)]
-pub struct TestSleep {
+pub struct BoundedSleep {
     pub timer: Duration,
     pub core: Duration,
     pub system: Duration,
@@ -30,7 +30,7 @@ pub fn sleep_when_released(
     mut power: Input<'_>,
     rails: Rails<'_>,
     low_power: LowPower<'_>,
-    sleep: TestSleep,
+    sleep: BoundedSleep,
 ) -> ! {
     if !wait_power_up(&power, sleep.release, || rtc.rwdt.feed()) {
         let _ = writeln!(report, "power held");
@@ -38,7 +38,7 @@ pub fn sleep_when_released(
     report_and_sleep(report, why, rtc, &mut power, rails, low_power, sleep)
 }
 
-/// For test images: ends `report` with the sleep's line, `sleep: deep, ` and `why`, which the C++
+/// Ends `report` with the sleep's line, `sleep: deep, ` and `why`, which the C++
 /// firmware looks for to add what woke and reset the chip, then sleeps deeply as `sleep` says,
 /// marking on that line first the sleep interrupt flags (`i`) and the digital pads' isolation and
 /// hold settings (`p`, bit 11 being the auto-hold `deep_sleep` disables) as found, then a letter
@@ -51,7 +51,7 @@ pub fn report_and_sleep(
     power: &mut Input<'_>,
     rails: Rails<'_>,
     low_power: LowPower<'_>,
-    sleep: TestSleep,
+    sleep: BoundedSleep,
 ) -> ! {
     let _ = write!(report, "sleep: deep, {why}");
     let mut line = SleepLine::new(report);

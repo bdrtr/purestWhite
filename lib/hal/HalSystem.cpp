@@ -200,7 +200,7 @@ std::string getPanicInfo(bool full) {
 }
 
 void saveBareMetalReport() {
-  // As rust/firmware/src/test_image/report.rs writes it: magic, length, then the text, in the last
+  // As rust/firmware/src/boot/report.rs writes it: magic, length, then the text, in the last
   // 256 bytes of RTC slow memory, past everything this firmware keeps there.
   constexpr uintptr_t REPORT_ADDR = 0x50001F00;
   constexpr uint32_t REPORT_MAGIC = 0x50574254;  // "PWBT"
@@ -224,7 +224,7 @@ void saveBareMetalReport() {
   for (uint32_t i = 0; i < len; ++i) text[i] = bytes[i];
   text[len] = '\0';
   String saved(text);
-  // A test image whose report ends in a sleep line: what woke the chip, after a deep sleep.
+  // A bare-metal image whose report ends in a sleep line: what woke the chip, after a deep sleep.
   const int lastLine = saved.lastIndexOf('\n', saved.length() >= 2 ? saved.length() - 2 : 0);
   const bool sleptLast = saved.substring(lastLine + 1).startsWith("sleep:");
   switch (sleptLast ? esp_sleep_get_wakeup_cause() : ESP_SLEEP_WAKEUP_UNDEFINED) {

@@ -173,8 +173,8 @@ pins' auto-hold is on. This RTC setting survives the reset, and it comes on from
 `sleep::deep_sleep` turns it off. Confirmed on the device (`input-check`'s fourth run: the setting
 was found on, and with it off the first deep sleep, with no light sleep before it, woke on Power).
 
-In the test images the RTC watchdog counts in sleep too (`watch_sleep`: first a core reset that
-keeps the latch, then a system reset); this is shared with `sleep-check`.
+In the phase-2 images the RTC watchdog counts in sleep too (`boot::watch_sleep`: first a core
+reset that keeps the latch, then a system reset); this is shared with `sleep-check`.
 
 The `input-check` image, `emu/baremetal-input.txt`: in the emulator the counts, the sleep when
 Power is held, and the wake on Power passed.
@@ -194,18 +194,18 @@ panel pixel through `Canvas::panel_to_logical` (the integer inverse of C++'s
 `GfxRenderer::tapToLogical`; its floating-point twin is `tap_to_logical`). The panel is driven with
 `purestwhite-epd`. Refreshes are blocking fast refreshes, with a half refresh after every 15 fast
 ones; a press or a touch that starts and ends while a refresh runs is not read. The sleep goes
-through `test_image::report_and_sleep`; the panel is first put into deep sleep, as in C++. There is
-no floating point in the bare-metal path, because eink-qemu 0.9.2 crashes on floating-point
-operations ("[Digital Signature] Invalid padding"). `emu/baremetal-feedback.txt`: passed in the
-emulator (63 steps, the marks under the finger, the 16th refresh a half one).
+through `boot::report_and_sleep`; the panel is first put into deep sleep, as in C++. There is no
+floating point in the bare-metal path, because eink-qemu 0.9.2 crashes on floating-point operations
+("[Digital Signature] Invalid padding"). `emu/baremetal-feedback.txt`: passed in the emulator (63
+steps, the marks under the finger, the 16th refresh a half one).
 
-The start every phase-2 image shares (`start`: the watchdog armed, the latch held, the report
-begun, the next boot handed back to C++) and the report are in `rust/firmware`'s `boot` module,
-which the real firmware's image uses too while the C++ firmware is the known-good one. What only
-the test images use (the watchdog that counts in sleep too, the sleep marked on the report's last
-line, the touch setup without an executor) is in its `test_image` module, away from the real
-firmware's path. The otadata choice behind handing back is in the `purestwhite-ota` crate, tested
-on the host.
+What every phase-2 image shares is in `rust/firmware`'s `boot` module, which the real firmware's
+image uses too while the C++ firmware is the known-good one: the start (`start`: the watchdog armed,
+the latch held, the report begun, the next boot handed back to C++), the report, and the deep sleep
+bounded by a timer and by the watchdog counting through it, marked on the report's last line. What
+only the test images use (the touch setup without an executor) is in its `test_image` module, away
+from the real firmware's path. The otadata choice behind handing back is in the `purestwhite-ota`
+crate, tested on the host.
 
 Text in the SD card's font (D2): `bembeyaz-font`'s new `face` module reads one style of a `.cpfont`
 directly from the file (the header and the style's interval table once; each glyph's record and

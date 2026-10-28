@@ -10,7 +10,7 @@
 //! runs in the emulator too.
 //!
 //! The report's sleep line gets a mark before each step of the sleep, so that a sleep that never
-//! ends shows its step (see `test_image::report_and_sleep`).
+//! ends shows its step (see `boot::report_and_sleep`).
 #![no_std]
 #![warn(clippy::pedantic)]
 #![no_main]
@@ -23,11 +23,11 @@ use esp_hal::rtc_cntl::Rtc;
 use esp_hal::rtc_cntl::sleep::LowPower;
 use esp_hal::time::{Duration, Instant};
 use purestwhite_firmware::board::Board;
-use purestwhite_firmware::boot::{Report, Started, start};
+use purestwhite_firmware::boot::{self, BoundedSleep, Report, Started, start};
 use purestwhite_firmware::input::{self, ButtonPins, Input, Polled};
 use purestwhite_firmware::ready;
 use purestwhite_firmware::sleep::Rails;
-use purestwhite_firmware::test_image::{self, TestSleep};
+use purestwhite_firmware::test_image;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -47,7 +47,7 @@ const IDLE: Duration = Duration::from_secs(60);
 const MOST: Duration = Duration::from_secs(180);
 /// The sleep: until Power, or for at most 60 s; the watchdog resets the chip if it has not
 /// woken after 90 s, and fully 30 s later. Power may stay down 10 s before it starts anyway.
-const TEST_SLEEP: TestSleep = TestSleep {
+const TEST_SLEEP: BoundedSleep = BoundedSleep {
     timer: Duration::from_secs(60),
     core: Duration::from_secs(90),
     system: Duration::from_secs(30),
@@ -188,7 +188,7 @@ fn main() -> ! {
         sd_power: Output::new(board.card.supply, Level::High, OutputConfig::default()),
         panel_reset: Output::new(board.panel.rst, Level::High, OutputConfig::default()),
     };
-    test_image::sleep_when_released(
+    boot::sleep_when_released(
         &mut report,
         why,
         &mut rtc,

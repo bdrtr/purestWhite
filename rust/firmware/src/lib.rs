@@ -1,8 +1,8 @@
 //! The bare-metal firmware's device layers: the X4 Pro's wiring (`board`), the buttons and touch
 //! panel (`input`), deep sleep (`sleep`), and for now the panel (`panel`) and the SD card (`sd`)
-//! through blocking calls. The start every image shares while the C++ firmware is the known-good
-//! one (the watchdog, the next boot handed back to it, the report) is in `boot`; what only the
-//! test images use is in `test_image`, out of the real firmware's way.
+//! through blocking calls. What every image shares while the C++ firmware is the known-good one
+//! (the watchdog, the next boot handed back to it, the report, the bounded deep sleep) is in
+//! `boot`; what only the test images use is in `test_image`, out of the real firmware's way.
 #![no_std]
 #![warn(clippy::pedantic)]
 

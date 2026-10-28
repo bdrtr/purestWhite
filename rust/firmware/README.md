@@ -71,14 +71,16 @@ traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit
   248 bytes of text), saved again after every stage. Text past its room is dropped and the last
   byte becomes `~`. After a panic, every image adds `PANIC` to the saved report and resets.
 - `arm_watchdog`: the RTC watchdog, 60 s, then a core reset, which keeps the latch and the report.
+- `watch_sleep`: keeps the RTC watchdog counting through a phase-2 image's deep sleep, so that a
+  sleep that never ends still ends: first a core reset, which comes back to the C++ firmware; then
+  a system reset, which on battery turns the device off. A firmware whose sleeps last hours must
+  not call it.
+- `report_and_sleep`, `sleep_when_released`: a deep sleep bounded by its timer and `watch_sleep`
+  (`BoundedSleep`), and the sleep line `sleep: deep, <why>` at the end of the report, with a mark
+  for each step of the sleep, so that a sleep that never ends shows its step;
+  `sleep_when_released` first waits for Power to be up (or notes `power held`).
 
 ### test_image
-
-- `watch_sleep`: keeps the RTC watchdog counting through a test image's deep sleep (a core reset,
-  then a system reset). The real firmware must not call it, as its sleeps last hours.
-- `report_and_sleep`, `sleep_when_released`: the sleep line `sleep: deep, <why>` at the end of the
-  report, with a mark for each step of the sleep, so that a sleep that never ends shows its step;
-  `sleep_when_released` first waits for Power to be up (or notes `power held`).
 - `open_touch`, `note_touch`: the touch panel through blocking calls, for images without an
   executor, and its report line (`touch: 0x5d` or `touch: none`).
 

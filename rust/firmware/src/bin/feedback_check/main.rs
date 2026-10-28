@@ -11,7 +11,7 @@
 //! sleep: Power held longer than 400 ms, or 60 s without input, or at the latest after 5 minutes.
 //! Then it reports what it counted, draws a crescent moon with a full refresh, puts the panel to
 //! sleep, and sleeps deeply until Power is pressed or for at most 60 s
-//! (`test_image::report_and_sleep`); the wake boots the C++ firmware.
+//! (`boot::report_and_sleep`); the wake boots the C++ firmware.
 //!
 //! The refreshes block: input during one is not read until it ends. Without esp-rtos, so it runs
 //! in the emulator too.
@@ -41,11 +41,11 @@ use esp_hal::sdmmc::{Config as SdConfig, SdHostController};
 use esp_hal::time::{Duration, Instant};
 use font::{Font, add_psram, open_font};
 use purestwhite_firmware::board::{Board, CardParts, PanelParts};
-use purestwhite_firmware::boot::{Report, Started, start};
+use purestwhite_firmware::boot::{self, BoundedSleep, Report, Started, start};
 use purestwhite_firmware::input::{self, ButtonPins, Input};
 use purestwhite_firmware::ready;
 use purestwhite_firmware::sleep::Rails;
-use purestwhite_firmware::test_image::{self, TestSleep};
+use purestwhite_firmware::test_image;
 use screen::{Screen, open_screen};
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -66,7 +66,7 @@ const IDLE: Duration = Duration::from_secs(60);
 const MOST: Duration = Duration::from_secs(300);
 /// The sleep: until Power, or for at most 60 s; the watchdog resets the chip if it has not
 /// woken after 90 s, and fully 30 s later. Power may stay down 10 s before it starts anyway.
-const TEST_SLEEP: TestSleep = TestSleep {
+const TEST_SLEEP: BoundedSleep = BoundedSleep {
     timer: Duration::from_secs(60),
     core: Duration::from_secs(90),
     system: Duration::from_secs(30),
@@ -240,7 +240,7 @@ fn main() -> ! {
         sd_power,
         panel_reset: run.screen.lines.rst,
     };
-    test_image::sleep_when_released(
+    boot::sleep_when_released(
         &mut report,
         why,
         &mut rtc,
