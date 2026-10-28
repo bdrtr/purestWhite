@@ -70,10 +70,17 @@ struct Counts {
     long_presses: u32,
     home_taps: u32,
     home_long_presses: u32,
+    /// Contacts lifted (also those of several fingers, which give no touch-down), those lifted
+    /// neither as a tap nor as a swipe, split by whether they lasted longer than a swipe may, and
+    /// touch reads that failed: what tells a contact never seen from one not taken as a gesture.
+    releases: u32,
+    slow: u32,
+    other: u32,
+    failed_reads: u32,
 }
 
 impl Counts {
-    fn add(&mut self, polled: &Polled) {
+    fn add(&mut self, polled: &Polled, held_ms: u32) {
         for (bit, count) in self.presses.iter_mut().enumerate() {
             if polled.buttons.pressed & (1 << bit) != 0 {
                 *count += 1;
@@ -86,6 +93,17 @@ impl Counts {
         self.long_presses += u32::from(t.long_press.is_some());
         self.home_taps += u32::from(t.home_tapped);
         self.home_long_presses += u32::from(t.home_long_press);
+        self.failed_reads += u32::from(polled.touch_failed);
+        if t.released {
+            self.releases += 1;
+            if t.tap.is_none() && t.swipe.is_none() {
+                if held_ms > purestwhite_touch::SWIPE_MAX_MS {
+                    self.slow += 1;
+                } else {
+                    self.other += 1;
+                }
+            }
+        }
     }
 
     fn write(&self, report: &mut Report) {
@@ -93,13 +111,18 @@ impl Counts {
         let _ = writeln!(report, "dugme: sol {left} sag {right} guc {power}");
         let _ = writeln!(
             report,
-            "dokunus: {}, dokun {}, kaydir {}, uzun {}",
-            self.touches, self.taps, self.swipes, self.long_presses
+            "dokunus {} dokun {} kaydir {} uzun {} home {}/{}",
+            self.touches,
+            self.taps,
+            self.swipes,
+            self.long_presses,
+            self.home_taps,
+            self.home_long_presses
         );
         let _ = writeln!(
             report,
-            "home: dokun {}, uzun {}",
-            self.home_taps, self.home_long_presses
+            "birak {} yavas {} diger {} hata {}",
+            self.releases, self.slow, self.other, self.failed_reads
         );
     }
 }
@@ -118,7 +141,7 @@ fn watch<B: embedded_hal_async::i2c::I2c>(
         let Some(polled) = ready(input.poll(millis())) else {
             return "hazir degil";
         };
-        counts.add(&polled);
+        counts.add(&polled, input.last_touch_held_ms());
         if polled.touch.long_press.is_some() {
             // As the C++ firmware's callers: the lift of a long press does not also tap.
             input.suppress_touch();

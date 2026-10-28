@@ -8,7 +8,7 @@
 use embedded_hal_async::i2c::I2c;
 use esp_hal::gpio::{Flex, Input as Pin, Level, Output};
 use purestwhite_buttons::{Buttons, Change, PowerHold};
-use purestwhite_gt911::ResetPins;
+use purestwhite_gt911::{Reading, ResetPins};
 use purestwhite_touch::{Events, Point, Touch};
 
 /// How often to poll, in milliseconds: the SDK's `beginAsync` default.
@@ -86,6 +86,8 @@ pub struct Polled {
     pub sleep: bool,
     /// What the touch panel's reading ended; nothing when there is no panel.
     pub touch: Events,
+    /// The touch panel's status or contacts could not be read (the contact is kept as it was).
+    pub touch_failed: bool,
     /// While a single contact is down, where it is now (`Touch::held_at`), for dragging.
     pub held: Option<Point>,
     /// While a single contact is down and still in place, where it touched down and for how long
@@ -131,17 +133,19 @@ impl<'d, B: I2c> Input<'d, B> {
         let sampled = self.pins.sample();
         let buttons = self.buttons.update(now, sampled);
         let sleep = self.power_hold.update(&self.buttons, sampled, now);
-        let touch = match self.touch.as_mut() {
+        let (touch, touch_failed) = match self.touch.as_mut() {
             Some((bus, addr)) => {
                 let reading = purestwhite_gt911::read(bus, *addr, &TOUCH).await;
-                self.gestures.update(now, &reading)
+                let failed = matches!(reading, Reading::Failed | Reading::ContactsFailed { .. });
+                (self.gestures.update(now, &reading), failed)
             }
-            None => Events::default(),
+            None => (Events::default(), false),
         };
         Polled {
             buttons,
             sleep,
             touch,
+            touch_failed,
             held: self.gestures.held_at(),
             candidate: self.gestures.tap_candidate(now),
         }
@@ -150,6 +154,12 @@ impl<'d, B: I2c> Input<'d, B> {
     /// Ignores the rest of the current touch contact (`purestwhite_touch::Touch::suppress`).
     pub fn suppress_touch(&mut self) {
         self.gestures.suppress();
+    }
+
+    /// How long the last touch contact lasted, from touch-down to lift.
+    #[must_use]
+    pub fn last_touch_held_ms(&self) -> u32 {
+        self.gestures.last_held_ms()
     }
 
     /// Whether Power is down, debounced.

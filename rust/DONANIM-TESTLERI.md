@@ -2677,25 +2677,25 @@ sayımlar, uyku ve Güç ile uyanış çalışıyor (`emu/baremetal-input.txt`).
 
 Dikkat: uyandırırken Sağ'ı basılı tutmayın.
 
-- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-giris-5.bin`'i
+- [x] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-giris-5.bin`'i
   (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) kartın köküne koyun; Ayarlar → System → SD
   Karttan Firmware Güncelleme → dosyayı seçin → Onayla. Güncelleme bitince ekran donar (normal).
   5 saniye bekleyin. Sonra, aralarında 60 saniyeden uzun ara vermeden: Sol'a 2 kez, Sağ'a 2 kez
   kısaca basın; ekrana bir kez kısaca dokunun; bir yere parmağınızı 1 saniye basılı tutup kaldırın;
   ekranda parmağınızı hızlıca bir yana kaydırın; Home tuşuna bir kez kısaca dokunun. En son Güç'ü 1
   saniye basılı tutup bırakın: cihaz uykuya girer (ekran değişmez).
-- [ ] Birkaç saniye bekleyin, sonra Güç'e C++'ta uyandırırken yaptığınız gibi basın (bir an basılı
+- [x] Birkaç saniye bekleyin, sonra Güç'e C++'ta uyandırırken yaptığınız gibi basın (bir an basılı
   tutun; çok kısa basarsanız C++ bunu yanlışlıkla uyanma sayıp yeniden uyur, o zaman bir daha
   basın). C++ ana ekranı gelmeli. Hiçbir şeye basmazsanız cihaz 60 saniye sonra kendisi uyanır. 2
   dakika içinde C++ gelmezse Güç'e uzun basıp açın ve bana söyleyin.
-- [ ] Raporda şunlar bekleniyor: "dokunma: 0x5d" (ya da 0x14), "dugme: sol 2 sag 2 guc 1",
-  "dokunus: 3, dokun 1, kaydir 1, uzun 1" (her dokunuş, uzun dokunuş ve kaydırma bir "dokunus"
-  sayılır), "home: dokun 1, uzun 0", "uyku: derin, guc" (ardından "i…", "p…", "a", "r", "s" gibi adım
-  izleri gelir, bunlar normaldir), "uyanma: dugme" ve "sifirlama: DEEPSLEEP". Güç'e basmadan beklediyseniz "uyanma: zamanlayici" yazar. Bir şeyi atlayıp 60 saniye
-  beklediyseniz "uyku: derin, bos 60 s" yazar; bu da olur. Sayılar bastıklarınızdan farklıysa,
-  "dokunma: yok", "guc birakilmadi", "hazir degil" ya da "PANIK" çıkarsa, ya da uyku satırından
-  sonra "uyanma:" satırı yoksa ve "sifirlama: WDT (other)" geliyorsa raporun
-  tamamını bana iletin.
+- [ ] Kaydırma: `purestwhite-baremetal-giris-6.bin` ile aynı yükleme; 5 saniye sonra ekranda tek
+  parmakla, normal hızda 5 kez kaydırın (sola, sağa, yukarı, aşağı, sola), sonra ekrana 1 kez kısa
+  dokunun, en son Güç'ü 1 saniye basılı tutup bırakın; birkaç saniye sonra Güç'le uyandırın.
+  Raporda "dokunus 6 dokun 1 kaydir 5 uzun 0 home 0/0" ve "birak 6 yavas 0 diger 0 hata 0"
+  bekleniyor ("birak" bırakılan temaslar, "yavas" kaydırma için fazla uzun süren, "diger" ne
+  dokunuş ne kaydırma sayılan temaslar, "hata" okunamayan dokunma durumları). Ardından "uyku:
+  derin, guc" (adım izleriyle), "uyanma: dugme" ve "sifirlama: DEEPSLEEP". Kaydırma 5'ten azsa
+  raporun tamamını bana iletin.
   - Sonuç 1 (2026-10-28, 3fa3167e'nin imajı `purestwhite-baremetal-giris.bin`, cihaz, pilde):
     "dokunma: 0x5d", "dugme: sol 3 sag 2 guc 1", "dokunus: 4, dokun 2, kaydir 1, uzun 1", "home:
     dokun 1, uzun 0", "uyku: derin, guc", sonra uyanma satırı yok ve "sifirlama: WDT (other)".
@@ -2724,3 +2724,12 @@ Dikkat: uyandırırken Sağ'ı basılı tutmayın.
     dinlemeye başladığı görülmüyor, basışlar 20 saniyelik bekleme bittikten sonra geldi. Boşta
     uyuma ve Güç ile uyanma da cihazda çalıştı. Bekleme bundan sonra 60 saniye
     (`purestwhite-baremetal-giris-5.bin`). Rapor `firmware-arsiv/cihaz-raporlari/giris-4b-bos.txt`.
+  - Tam deneme (2026-10-28, 2f7c60a5'in imajı `purestwhite-baremetal-giris-5.bin`): "dugme: sol 2
+    sag 2 guc 1", "dokunus: 2, dokun 1, kaydir 0, uzun 1", "home: dokun 1, uzun 0", "uyku: derin,
+    guc i28000 p10000880 a r s", "uyanma: dugme", "sifirlama: DEEPSLEEP". Düğmeler, dokunuş, uzun
+    basma (bırakılınca ayrıca dokunuş sayılmadı), Home, Güç ile uyku ve uyanma doğru. Uyandırırken
+    Güç'e üç kez basıldı: ilk ikisi kısaydı, C++ yeniden uyudu (C++'ın kuralı). Kaydırma sayılmadı,
+    temas olarak bile görülmedi ("dokunus: 2"); sahibi tek parmakla normal hızda kaydırdı, C++'ta
+    kaydırma çalışıyor. giris-1'de bir kaydırma sayılmıştı. Nedenini ayırmak için `giris-6`
+    bırakılan temasları, kaydırma için fazla uzun sürenleri ve okunamayan dokunma durumlarını da
+    sayıyor. Rapor `firmware-arsiv/cihaz-raporlari/giris-5.txt`.
