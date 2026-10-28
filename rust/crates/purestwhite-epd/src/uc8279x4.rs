@@ -12,10 +12,7 @@
 //! wakes the controller. A failed call leaves the controller's state unknown: `begin` again
 //! before the next refresh.
 
-use crate::{Bus, BusError};
-use embedded_hal::digital::{InputPin, OutputPin};
-use embedded_hal_async::delay::DelayNs;
-use embedded_hal_async::spi::SpiBus;
+use crate::{BusError, Interface};
 
 const PANEL_SETTING: u8 = 0x00;
 const POWER_OFF: u8 = 0x02;
@@ -134,18 +131,7 @@ impl Uc8279X4 {
     ///
     /// # Errors
     /// When a transfer or a pin fails.
-    pub async fn begin<S, Cs, Dc, Rst, Busy, D>(
-        &mut self,
-        bus: &mut Bus<S, Cs, Dc, Rst, Busy, D>,
-    ) -> Result<(), BusError>
-    where
-        S: SpiBus,
-        Cs: OutputPin,
-        Dc: OutputPin,
-        Rst: OutputPin,
-        Busy: InputPin,
-        D: DelayNs,
-    {
+    pub async fn begin(&mut self, bus: &mut impl Interface) -> Result<(), BusError> {
         self.old_plane_valid = false;
         self.need_full_clear = true;
         bus.reset(50).await?;
@@ -177,21 +163,13 @@ impl Uc8279X4 {
 
     /// A plane: white rows before the visible ones, `frame`'s rows (inverted when asked), white
     /// rows to the addressed height. Without `frame`, all white.
-    async fn plane<S, Cs, Dc, Rst, Busy, D>(
+    async fn plane(
         &self,
-        bus: &mut Bus<S, Cs, Dc, Rst, Busy, D>,
+        bus: &mut impl Interface,
         command: u8,
         frame: Option<&[u8]>,
         invert: bool,
-    ) -> Result<(), BusError>
-    where
-        S: SpiBus,
-        Cs: OutputPin,
-        Dc: OutputPin,
-        Rst: OutputPin,
-        Busy: InputPin,
-        D: DelayNs,
-    {
+    ) -> Result<(), BusError> {
         let c = self.config;
         let wb = self.row_bytes().min(MAX_ROW);
         let mut row = [0u8; MAX_ROW];
@@ -214,18 +192,7 @@ impl Uc8279X4 {
         .await
     }
 
-    async fn power_on<S, Cs, Dc, Rst, Busy, D>(
-        &mut self,
-        bus: &mut Bus<S, Cs, Dc, Rst, Busy, D>,
-    ) -> Result<(), BusError>
-    where
-        S: SpiBus,
-        Cs: OutputPin,
-        Dc: OutputPin,
-        Rst: OutputPin,
-        Busy: InputPin,
-        D: DelayNs,
-    {
+    async fn power_on(&mut self, bus: &mut impl Interface) -> Result<(), BusError> {
         if !self.powered {
             bus.cmd(POWER_ON).await?;
             bus.wait_idle().await?;
@@ -235,19 +202,11 @@ impl Uc8279X4 {
     }
 
     /// The built-in refresh, in the stock firmware's order; returns once the waveform started.
-    async fn start_refresh<S, Cs, Dc, Rst, Busy, D>(
+    async fn start_refresh(
         &mut self,
-        bus: &mut Bus<S, Cs, Dc, Rst, Busy, D>,
+        bus: &mut impl Interface,
         fast: bool,
-    ) -> Result<(), BusError>
-    where
-        S: SpiBus,
-        Cs: OutputPin,
-        Dc: OutputPin,
-        Rst: OutputPin,
-        Busy: InputPin,
-        D: DelayNs,
-    {
+    ) -> Result<(), BusError> {
         let c = self.config;
         bus.cmd_data(CDI, &[if fast { c.cdi_fast } else { c.cdi_full }])
             .await?;
@@ -288,21 +247,13 @@ impl Uc8279X4 {
     /// # Errors
     /// When a transfer or a pin fails, `frame` is too short, or the config's rows are wider than
     /// 128 bytes or do not fit the addressed gates.
-    pub async fn display<S, Cs, Dc, Rst, Busy, D>(
+    pub async fn display(
         &mut self,
-        bus: &mut Bus<S, Cs, Dc, Rst, Busy, D>,
+        bus: &mut impl Interface,
         frame: &[u8],
         refresh: Refresh,
         power_off: bool,
-    ) -> Result<(), BusError>
-    where
-        S: SpiBus,
-        Cs: OutputPin,
-        Dc: OutputPin,
-        Rst: OutputPin,
-        Busy: InputPin,
-        D: DelayNs,
-    {
+    ) -> Result<(), BusError> {
         if frame.len() < self.row_bytes() * usize::from(self.config.height) || !self.geometry_ok() {
             return Err(BusError);
         }
@@ -339,18 +290,7 @@ impl Uc8279X4 {
     ///
     /// # Errors
     /// When a transfer or a pin fails.
-    pub async fn deep_sleep<S, Cs, Dc, Rst, Busy, D>(
-        &mut self,
-        bus: &mut Bus<S, Cs, Dc, Rst, Busy, D>,
-    ) -> Result<(), BusError>
-    where
-        S: SpiBus,
-        Cs: OutputPin,
-        Dc: OutputPin,
-        Rst: OutputPin,
-        Busy: InputPin,
-        D: DelayNs,
-    {
+    pub async fn deep_sleep(&mut self, bus: &mut impl Interface) -> Result<(), BusError> {
         if self.powered {
             bus.cmd(POWER_OFF).await?;
             bus.wait_idle().await?;

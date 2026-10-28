@@ -1,0 +1,135 @@
+//! The waveforms the controller is given (its LUT registers 0x20 to 0x24): the stock gray one,
+//! the transition after a gray page, and the full-gray one of a Direct pass with its settings.
+
+use super::command::PLL;
+
+/// A waveform table's data bytes; the tables go to LUT registers 0x20 (VCOM) to 0x24.
+pub(super) const LUT_LEN: usize = 42;
+pub(super) const LUT_VCOM: u8 = 0x20;
+
+/// A 42-byte table from its leading bytes, zero after.
+#[allow(
+    clippy::indexing_slicing,
+    reason = "evaluated at build time, where an index out of range fails the build"
+)]
+const fn lut(head: [u8; 12]) -> [u8; LUT_LEN] {
+    let mut t = [0; LUT_LEN];
+    let mut i = 0;
+    while i < head.len() {
+        t[i] = head[i];
+        i += 1;
+    }
+    t
+}
+
+/// The stock gray waveform, by register 0x20 to 0x24: VCOM, then the pixels whose (DTM1, DTM2)
+/// selectors are (1,1) white, (0,1), (1,0) and (0,0) black.
+pub(super) const GRAY_LUTS: [[u8; LUT_LEN]; 5] = [
+    lut([
+        0x00, 0x02, 0x02, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    ]),
+    lut([
+        0x08, 0x02, 0x02, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    ]),
+    lut([
+        0x20, 0x02, 0x02, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    ]),
+    // Dark gray (0x23): the SDK's, with the VDL phase a frame shorter than stock's.
+    lut([
+        0x20, 0x02, 0x01, 0x02, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    ]),
+    lut([
+        0x00, 0x02, 0x02, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    ]),
+];
+
+/// The stock `XTF_PRE_BW_MID` waveform, by register 0x20 to 0x24: the transition from the
+/// previous base to the new one after a gray page.
+pub(super) const PRE_BW_MID: [[u8; LUT_LEN]; 5] = [
+    lut([
+        0x00, 0x06, 0x01, 0x06, 0x06, 0x01, 0x00, 0x02, 0x04, 0x00, 0x00, 0x01,
+    ]),
+    lut([
+        0x20, 0x06, 0x01, 0x06, 0x06, 0x01, 0x00, 0x02, 0x04, 0x00, 0x00, 0x01,
+    ]),
+    lut([
+        0xAA, 0x06, 0x01, 0x06, 0x06, 0x01, 0xA0, 0x02, 0x04, 0x00, 0x00, 0x01,
+    ]),
+    lut([
+        0x55, 0x06, 0x01, 0x06, 0x06, 0x01, 0x50, 0x02, 0x04, 0x00, 0x00, 0x01,
+    ]),
+    lut([
+        0x00, 0x06, 0x01, 0x06, 0x06, 0x01, 0x10, 0x02, 0x04, 0x00, 0x00, 0x01,
+    ]),
+];
+
+/// The full-gray waveform (freeink-sdk's `kUltraChipDirectGray`), rows VCOM, black, light, dark,
+/// white; 18 leading bytes each.
+const DIRECT_GRAY: [[u8; 18]; 5] = [
+    [
+        0x00, 0x08, 0x0B, 0x02, 0x03, 0x01, 0x00, 0x0C, 0x02, 0x07, 0x02, 0x01, 0x00, 0x01, 0x00,
+        0x02, 0x00, 0x01,
+    ],
+    [
+        0xA8, 0x08, 0x0B, 0x02, 0x03, 0x01, 0x44, 0x0C, 0x02, 0x07, 0x02, 0x01, 0x04, 0x01, 0x00,
+        0x02, 0x00, 0x01,
+    ],
+    [
+        0x80, 0x08, 0x0B, 0x02, 0x03, 0x01, 0x62, 0x0C, 0x02, 0x07, 0x02, 0x01, 0x00, 0x01, 0x00,
+        0x02, 0x00, 0x01,
+    ],
+    [
+        0x88, 0x08, 0x0B, 0x02, 0x03, 0x01, 0x60, 0x0C, 0x02, 0x07, 0x02, 0x01, 0x00, 0x01, 0x00,
+        0x02, 0x00, 0x01,
+    ],
+    [
+        0x00, 0x08, 0x0B, 0x02, 0x03, 0x01, 0x4A, 0x0C, 0x02, 0x07, 0x02, 0x01, 0x88, 0x01, 0x00,
+        0x02, 0x00, 0x01,
+    ],
+];
+/// Which `DIRECT_GRAY` row each LUT register 0x20 to 0x24 gets: VCOM, then the selectors as in
+/// `GRAY_LUTS`, white, light, dark, black.
+const DIRECT_GRAY_ROWS: [usize; 5] = [0, 4, 2, 3, 1];
+/// The stock `gray_full` packet's header (freeink-sdk's `kUc8179DirectGrayConfig`): power, PLL and
+/// VCOM settings, sent before the tables.
+const DIRECT_GRAY_CONFIG: [u8; 6] = [0x67, 0xBF, 0x3F, 0x0D, 0x00, 0x26];
+
+/// The settings the stock firmware's `gray_full` packet makes of `DIRECT_GRAY_CONFIG`, as
+/// (command, data): 0x52, PLL, power setting (0x01), 0x2A and VCOM DC (0x82).
+pub(super) const fn direct_gray_setup() -> [(u8, [u8; 5], usize); 5] {
+    let c = DIRECT_GRAY_CONFIG;
+    [
+        (0x52, [(c[0] & 8) | (c[1] >> 6), 0, 0, 0, 0], 1),
+        (PLL, [c[0] >> 4, 0, 0, 0, 0], 1),
+        (
+            0x01,
+            [0x17, c[0] & 7, c[1] & 0x3F, c[2] & 0x3F, c[3] & 0x3F],
+            5,
+        ),
+        (0x2A, [c[2] & 0xC0, c[4], 0, 0, 0], 2),
+        (0x82, [c[5], 0, 0, 0, 0], 1),
+    ]
+}
+
+/// `DIRECT_GRAY`'s rows as LUT registers 0x20 to 0x24 take them (`DIRECT_GRAY_ROWS`), zero
+/// after.
+pub(super) const DIRECT_GRAY_LUTS: [[u8; LUT_LEN]; 5] = direct_gray_luts();
+
+#[allow(
+    clippy::indexing_slicing,
+    reason = "evaluated at build time, where an index out of range fails the build"
+)]
+const fn direct_gray_luts() -> [[u8; LUT_LEN]; 5] {
+    let mut luts = [[0; LUT_LEN]; 5];
+    let mut r = 0;
+    while r < luts.len() {
+        let row = DIRECT_GRAY[DIRECT_GRAY_ROWS[r]];
+        let mut i = 0;
+        while i < row.len() {
+            luts[r][i] = row[i];
+            i += 1;
+        }
+        r += 1;
+    }
+    luts
+}

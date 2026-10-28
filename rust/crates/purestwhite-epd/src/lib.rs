@@ -7,6 +7,9 @@
 //! released from any pad hold (esp-hal releases it when it takes the pin); BUSY as an input without
 //! a pull.
 //!
+//! The drivers take any [`Interface`], the bus operations they use; [`Bus`] implements it over
+//! embedded-hal.
+//!
 //! The SPI bus and the delay are embedded-hal-async's: a refresh waits about a second on BUSY,
 //! which an executor must be free to spend elsewhere. The pins are embedded-hal's.
 //!
@@ -45,7 +48,90 @@ fn pin<E>(result: Result<(), E>) -> Result<(), BusError> {
     result.map_err(|_| BusError)
 }
 
+/// What a controller driver needs of the panel's lines; [`Bus`] is the one the firmware has.
+/// The drivers bound on this, not on the bus's six types.
+#[allow(
+    async_fn_in_trait,
+    reason = "the drivers run on a single-threaded executor; no `Send` bound is wanted"
+)]
+pub trait Interface {
+    /// The reset pulse: high, low, high, 10 ms each, then `settle_ms` more.
+    ///
+    /// # Errors
+    /// When the reset line cannot be driven.
+    async fn reset(&mut self, settle_ms: u32) -> Result<(), BusError>;
+
+    /// A command byte in its own chip-select frame.
+    ///
+    /// # Errors
+    /// When a transfer or a pin fails.
+    async fn cmd(&mut self, command: u8) -> Result<(), BusError>;
+
+    /// Data bytes in their own chip-select frame.
+    ///
+    /// # Errors
+    /// When a transfer or a pin fails.
+    async fn data(&mut self, bytes: &[u8]) -> Result<(), BusError>;
+
+    /// A command and its data bytes, each in its own frame: freeink-sdk's `cmd` and `data` calls
+    /// one after another, not its `cmdData` (that is `frame`).
+    ///
+    /// # Errors
+    /// When a transfer or a pin fails.
+    async fn cmd_data(&mut self, command: u8, bytes: &[u8]) -> Result<(), BusError> {
+        self.cmd(command).await?;
+        for &b in bytes {
+            self.data(&[b]).await?;
+        }
+        Ok(())
+    }
+
+    /// A command and its data bytes in one chip-select frame (freeink-sdk's `cmdData`).
+    ///
+    /// # Errors
+    /// When a transfer or a pin fails.
+    async fn frame(&mut self, command: u8, bytes: &[u8]) -> Result<(), BusError>;
+
+    /// A command, then a burst of data in one chip-select frame, written by `fill` row by row:
+    /// `fill(n, row)` fills row `n` (of `rows`) of `row.len()` bytes.
+    ///
+    /// # Errors
+    /// When a transfer or a pin fails.
+    async fn burst(
+        &mut self,
+        command: u8,
+        row: &mut [u8],
+        rows: u16,
+        fill: impl FnMut(u16, &mut [u8]),
+    ) -> Result<(), BusError>;
+
+    /// The `UC81xx` wait: one tick for the command to take effect, then until BUSY (active low)
+    /// reads high. No time limit, as the SDK's: writing while the controller is busy can drop
+    /// the write, so a stuck BUSY is the caller's watchdog's to end.
+    ///
+    /// # Errors
+    /// When BUSY cannot be read.
+    async fn wait_idle(&mut self) -> Result<(), BusError>;
+
+    /// Up to `max_ms` for BUSY to drop, which shows a waveform started.
+    ///
+    /// # Errors
+    /// When BUSY cannot be read.
+    async fn wait_busy_start(&mut self, max_ms: u32) -> Result<(), BusError>;
+}
+
 impl<S, Cs, Dc, Rst, Busy, D> Bus<S, Cs, Dc, Rst, Busy, D>
+where
+    S: SpiBus,
+{
+    async fn write(&mut self, bytes: &[u8]) -> Result<(), BusError> {
+        self.spi.write(bytes).await.map_err(|_| BusError)?;
+        // The frame ends only once the bytes are out.
+        self.spi.flush().await.map_err(|_| BusError)
+    }
+}
+
+impl<S, Cs, Dc, Rst, Busy, D> Interface for Bus<S, Cs, Dc, Rst, Busy, D>
 where
     S: SpiBus,
     Cs: OutputPin,
@@ -54,11 +140,7 @@ where
     Busy: InputPin,
     D: DelayNs,
 {
-    /// The reset pulse: high, low, high, 10 ms each, then `settle_ms` more.
-    ///
-    /// # Errors
-    /// When the reset line cannot be driven.
-    pub async fn reset(&mut self, settle_ms: u32) -> Result<(), BusError> {
+    async fn reset(&mut self, settle_ms: u32) -> Result<(), BusError> {
         for high in [true, false, true] {
             pin(if high {
                 self.rst.set_high()
@@ -73,17 +155,7 @@ where
         Ok(())
     }
 
-    async fn write(&mut self, bytes: &[u8]) -> Result<(), BusError> {
-        self.spi.write(bytes).await.map_err(|_| BusError)?;
-        // The frame ends only once the bytes are out.
-        self.spi.flush().await.map_err(|_| BusError)
-    }
-
-    /// A command byte in its own chip-select frame.
-    ///
-    /// # Errors
-    /// When a transfer or a pin fails.
-    pub async fn cmd(&mut self, command: u8) -> Result<(), BusError> {
+    async fn cmd(&mut self, command: u8) -> Result<(), BusError> {
         pin(self.dc.set_low())?;
         pin(self.cs.set_low())?;
         let sent = self.write(&[command]).await;
@@ -91,11 +163,7 @@ where
         sent
     }
 
-    /// Data bytes in their own chip-select frame.
-    ///
-    /// # Errors
-    /// When a transfer or a pin fails.
-    pub async fn data(&mut self, bytes: &[u8]) -> Result<(), BusError> {
+    async fn data(&mut self, bytes: &[u8]) -> Result<(), BusError> {
         pin(self.dc.set_high())?;
         pin(self.cs.set_low())?;
         let sent = self.write(bytes).await;
@@ -103,24 +171,7 @@ where
         sent
     }
 
-    /// A command and its data bytes, each in its own frame: freeink-sdk's `cmd` and `data` calls
-    /// one after another, not its `cmdData` (that is `frame`).
-    ///
-    /// # Errors
-    /// When a transfer or a pin fails.
-    pub async fn cmd_data(&mut self, command: u8, bytes: &[u8]) -> Result<(), BusError> {
-        self.cmd(command).await?;
-        for &b in bytes {
-            self.data(&[b]).await?;
-        }
-        Ok(())
-    }
-
-    /// A command and its data bytes in one chip-select frame (freeink-sdk's `cmdData`).
-    ///
-    /// # Errors
-    /// When a transfer or a pin fails.
-    pub async fn frame(&mut self, command: u8, bytes: &[u8]) -> Result<(), BusError> {
+    async fn frame(&mut self, command: u8, bytes: &[u8]) -> Result<(), BusError> {
         pin(self.dc.set_low())?;
         pin(self.cs.set_low())?;
         let mut sent = self.write(&[command]).await;
@@ -134,12 +185,7 @@ where
         sent
     }
 
-    /// A command, then a burst of data in one chip-select frame, written by `fill` row by row:
-    /// `fill(n, row)` fills row `n` (of `rows`) of `row.len()` bytes.
-    ///
-    /// # Errors
-    /// When a transfer or a pin fails.
-    pub async fn burst(
+    async fn burst(
         &mut self,
         command: u8,
         row: &mut [u8],
@@ -164,13 +210,7 @@ where
         sent
     }
 
-    /// The `UC81xx` wait: one tick for the command to take effect, then until BUSY (active low)
-    /// reads high. No time limit, as the SDK's: writing while the controller is busy can drop
-    /// the write, so a stuck BUSY is the caller's watchdog's to end.
-    ///
-    /// # Errors
-    /// When BUSY cannot be read.
-    pub async fn wait_idle(&mut self) -> Result<(), BusError> {
+    async fn wait_idle(&mut self) -> Result<(), BusError> {
         self.delay.delay_ms(1).await;
         while self.busy.is_low().map_err(|_| BusError)? {
             self.delay.delay_ms(1).await;
@@ -178,11 +218,7 @@ where
         Ok(())
     }
 
-    /// Up to `max_ms` for BUSY to drop, which shows a waveform started.
-    ///
-    /// # Errors
-    /// When BUSY cannot be read.
-    pub async fn wait_busy_start(&mut self, max_ms: u32) -> Result<(), BusError> {
+    async fn wait_busy_start(&mut self, max_ms: u32) -> Result<(), BusError> {
         let mut waited = 0;
         while self.busy.is_high().map_err(|_| BusError)? && waited < max_ms {
             self.delay.delay_ms(1).await;
