@@ -47,11 +47,13 @@ run in the emulator, so an image without one drives their async calls over block
 - `storage`: `load_whole` reads a file from the card whole into memory from a given allocator
   (PSRAM through esp-alloc's `ExternalMemory` for a large file), for data that is read often and
   never changed, such as a font.
-- `text`: text on the panel in a font from the SD card: one style of a `.cpfont`
-  (`bembeyaz_font::face`), drawn with `bembeyaz_gfx`. `Writer` holds only the style; the font's
-  bytes come from the font in memory (`bembeyaz_font::Memory`) or from a file on the volume
-  (`FontFile`).
 - `test_image`: what only the test images use, out of the real firmware's way (below).
+
+What does not touch hardware is in `rust/crates`, where it builds and is tested on the host:
+`purestwhite-app` (the application's state machine), `purestwhite-render` (draws its screens; its
+`Writer` and `Text` draw text in one style of a `.cpfont`) and `purestwhite-services` (the device
+traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit together, and the
+[host simulator](#run-in-the-host-simulator) runs them on a PC.
 
 ### test_image
 
@@ -145,6 +147,27 @@ Each scenario's header shows its own commands: `feedback-check` also needs the f
 (`emu/books/LiberationSerif_14.cpfont=/.fonts/LiberationSerif`, made with
 `lib/EpdFont/scripts/fontconvert_sdcard.py`), and the UC8179 run of `display-check` calls eink-qemu
 itself with `--panel uc8179`.
+
+## Run in the host simulator
+
+`rust/sim` (`pw-sim`) runs the application, the renderer and the service loops on a PC, driven by
+a scenario script (`rust/sim/scenarios/`, one event per line: `battery:N`, `time:HH:MM`,
+`press:left|right|power|home`, `sleep`; `#` starts a comment; see
+[script.rs](../sim/src/script.rs)), and
+writes each frame the panel shows as an upright PNG. It checks what does not depend on hardware;
+timing, interrupts and sleep stay on the device and in the emulator. From `rust/`:
+
+```sh
+cargo run -p purestwhite-sim --bin pw-sim -- \
+    --font crates/bembeyaz-font/testdata/noto-serif-14.cpfont sim/scenarios/home.txt
+```
+
+It writes to `target/sim-out` (`--out DIR` for another directory), first removing the shots of an
+earlier run there, and prints the files it wrote (`0001-full.png`, `0002-fast.png`, ...: the
+order and the refresh) and `sleep` when the application asked to sleep. A run stops at the sleep
+request; later lines are not sent. Without `--font` only the shapes are drawn.
+`cargo test -p purestwhite-sim` runs every scenario, and checks each one's refreshes in its own
+test in `rust/sim/src/tests.rs` (a new scenario gets one there too).
 
 ## Put an image on the device
 

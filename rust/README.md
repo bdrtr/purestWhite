@@ -33,6 +33,8 @@ and the Arduino layer goes away.
   `cmake -S test -B build/test && cmake --build build/test && ctest --test-dir build/test`
   CMake builds the Rust library for the host and links it into every test.
 - Rust only: `cd rust && cargo test`
+- The bare-metal firmware's application on the PC, as PNG files: see
+  [Run in the host simulator](firmware/README.md#run-in-the-host-simulator).
 
 ## Checking on the emulator
 

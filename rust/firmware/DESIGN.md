@@ -28,11 +28,13 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
   Events: raw key and touch results already classified by the services (below), timers, the
   battery level, job results, "frame shown". Commands: show this `View`, run this storage job,
   start a timer, sleep. It emits `View`s (pure data describing a screen), never pixels, and refers
-  to files and buffers by handle, never by content.
+  to files and buffers by handle, never by content. The refresh cycle is its state too: every
+  15th refresh is a half one, as in the C++ reader (`ReaderUtils::displayWithRefreshCycle`).
 - **`purestwhite-render`**: draws a `View` into a frame with `bembeyaz-gfx` and `bembeyaz-font`;
-  pure and tested on the host against stored images.
+  pure, and tested on the host by probing pixels (stored reference images may come later).
 - **`purestwhite-services`**: the device traits, defined by what the services need, and generic
-  service loops (`async fn run<S: Screen>(…)`). Its dependencies: `embassy-sync`, `embassy-time`
+  service loops (`async fn run<S: Screen>(…)`), each handed only the ends of the channels it
+  uses. Its dependencies: `embassy-sync`, `embassy-time`
   without a time driver, `embedded-hal-async`, and the `purestwhite-*` drivers. `#[task]`
   functions cannot be generic, so each binary declares thin concrete wrappers that call
   `run::<ItsType>`. Allocators come in as parameters (the simulator has no PSRAM heap).
@@ -55,8 +57,26 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
 | storage | the `Card`, the FAT volume, the SD supply | jobs | results by handle |
 | power | `Gauge`, `Clock`, the watchdog | sleep, timers | battery level, timers |
 
-- **Frames**: two frames of 48,000 bytes move as `&'static mut [u8]` between draw and panel
-  through channels (draw → panel, panel → draw after the refresh), which also gives backpressure.
+- **Frames**: two frames of 48,000 bytes move as `&'static mut [u8; FRAME_BYTES]` between draw
+  and panel through channels (draw → panel, panel → draw after the refresh), which also gives
+  backpressure.
+- **Views**: the app's views go through a slot that holds one (`Views`): a newer view replaces
+  one not yet drawn and keeps the stronger refresh. So the app never waits for the panel, and the
+  panel never spends a refresh on a view that is already out of date. Drawing also takes back a
+  drawn frame the panel has not taken yet and draws the newer view into it. A fast view dropped
+  this way was already counted by the refresh cycle, so the next half refresh comes a little
+  early, which is the safe side. The panel answers each frame with an event to the app (`Shown`,
+  or `ScreenFailed`). The app waits only for events, so these answers cannot close a cycle of
+  full channels.
+- **A panel failure**: the app shows the current screen again with a full refresh, at most twice
+  in a row; when a newer view is already on its way, nothing is shown again, and that view gets
+  the full refresh unless the panel shows a later one first. The `Screen` implementation brings
+  the panel back (the drivers' `begin`) first. The drivers also flash the first refresh after
+  `begin`; the app's own full refresh is kept on purpose, so that its refresh cycle and the
+  simulator see it. On a dead panel each attempt costs up to the driver's time limit (8 s), so
+  step 2 decides whether the app stops trying after the retries until a key is pressed.
+- **Executor**: the loops' futures are not `Send` (the channel ends are not), so they run on the
+  thread-mode executor; the second core stays parked.
 - **Storage jobs**: the reader's parsers (`bembeyaz_io::Source`, zip, the chapter parser, the
   section cache) read synchronously. The storage task therefore runs whole jobs (open a book,
   parse a chapter, read a page) over a synchronous `Source`: the device-proven `BlockingBus`,
@@ -76,15 +96,23 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
   heap holds only those. Its size is planned for Wi-Fi at gate 2 (73 KB will not do).
 - PSRAM: a separate heap (`esp_alloc::EspHeap::empty()` with the PSRAM added as its region, used
   through allocator-api2), never the global allocator, so a full internal heap fails instead of
-  spilling. It holds the fonts, the two frames, decoded pages and images.
+  spilling. It holds the fonts, the two frames, decoded pages and images. A frame is allocated
+  there as a slice, leaked, then turned into `&'static mut [u8; FRAME_BYTES]`: never as a boxed
+  array, which is built on the stack first (48 KB).
 - The panel's SPI reads a frame with the CPU (as today) or through a small internal bounce
   buffer; never GDMA straight from PSRAM until alignment and cache write-back are designed.
 
 ## Sleep
 
-- Sleep is a two-phase handshake. The app sends Sleep; each service quiesces (the panel's deep
-  sleep, the volume flushed, input stopped, no I2C transfer in flight) and answers, handing back
-  the pin it holds for the rails; then the power task holds the rails, arms Power and sleeps.
+- Sleep is a two-phase handshake. The app asks for the sleep screen, and sets the sleep signal
+  only once the panel has answered for it (shown, or failed: a broken panel does not keep the
+  device awake). The signal has one listener, the power task, which asks each service in turn
+  to quiesce (the panel's deep sleep, the volume flushed, input stopped, no I2C transfer in
+  flight); each answers, handing back the pin it holds for the rails. Then the power task holds
+  the rails, arms Power and sleeps.
+- Since sleep waits for the panel's answer, every `Screen::show` must end. Step 2 bounds it in
+  the panel loop itself (a timeout through `embassy-time` turns into `ScreenFailed`), not only in
+  each `Screen` implementation (today the firmware's 8 s limit per driver call).
 - Light sleep (esp-rtos's idle hook) needs the input task to stop polling when idle: it polls
   every 15 ms only while a button or a touch is active (the `Buttons` and `Touch` deadlines) and
   otherwise waits on the pins. Wake sources go through the low-power path: Power (GPIO3), the
@@ -110,7 +138,9 @@ is not running holds the C++ firmware: the known-good one, with the proven SD up
 3. Read the recovery key (Right held at power-on).
 4. Check the boot counter (below).
 5. Start the tasks. "Healthy" needs no input from the owner: the first screen shown and the tasks
-   running for 30 s, or an orderly sleep reached. Healthy clears the counter.
+   running for 30 s, or an orderly sleep reached. Healthy clears the counter. The panel's answers
+   reach only the app, so the app turns the first `Shown` into a command (with the 30 s timer
+   once timers exist); no second listener is added to the panel's answers.
 
 ### The boot counter
 
@@ -149,14 +179,25 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
 ## Battery measurement (gate 1)
 
 - Both firmwares show the same pre-rendered pages: full-frame images on the card, shown by the
-  Rust page loop and by the C++ firmware's image viewer (BMP), every 30 s, a fast refresh with a
-  full one every 15 pages, for one hour each. Neither parses a book, so the comparison is the
+  Rust page loop and by the C++ firmware's image viewer (BMP), every 30 s, for one hour each. The
+  app refreshes fast with a half refresh every 15th; the C++ image viewer refreshes differently
+  (mostly half refreshes, `BmpViewerActivity.cpp`), so step 4 makes both use the same refreshes
+  before measuring. Neither parses a book, so the comparison is the
   platform's power alone.
 - The gauge's charge and voltage every 5 minutes (12 samples) go into the RTC report (they fit in
   its 248 bytes), so nothing is written to the card before gate 4; the books card is never
   written.
 
 ## The host simulator (`rust/sim`)
+
+Step 1: the script's lines (`battery`, `time`, `press`, `sleep`) go straight to the app as
+events; `Screen` is the only device trait so far. These words stand for events the services have
+already classified; when the classifiers come, words for raw samples are added beside them. The
+loops run in one `block_on` (`embassy-futures`). After the first screen and after each event,
+the run waits until nothing is left to handle, draw or show (`Links::is_idle`), and fails if that
+does not happen within 10,000 turns of the loops; it ends after the last event, or right after the app asks to sleep (later lines
+are not sent). Embassy's `std` executor comes when the app needs timers; the rest of this section
+comes with the step that needs it.
 
 Embassy's `std` executor runs the app, draw and service loops over a simulated board:
 
@@ -178,7 +219,10 @@ hand-back).
 ## Steps
 
 1. `purestwhite-app`, `purestwhite-render` and `purestwhite-services` with one screen, the
-   traits and their tests; `rust/sim` showing the screen as a PNG.
+   traits and their tests; `rust/sim` showing the screen as a PNG. Done: the home and sleep
+   screens, the refresh cycle, the `Screen` trait, the app, draw and panel loops with the
+   panel's answers and the first half of the sleep handshake; `pw-sim` with
+   `rust/sim/scenarios/`. The other traits come with the steps that use them.
 2. The firmware board and the `purestwhite` image (hands back first) showing the screen on the
    device; the input loop that stops polling when idle; the sleep handshake.
 3. The update gate: the boot counter, the recovery mode with the phase-2 limits, the scratch-flash

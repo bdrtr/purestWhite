@@ -1,0 +1,7 @@
+# The home screen, updated by the battery and the clock, then the sleep screen.
+battery:87
+time:21:30
+# The same reading changes nothing, so nothing is drawn.
+battery:87
+battery:86
+sleep

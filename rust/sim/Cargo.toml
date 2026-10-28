@@ -1,0 +1,20 @@
+# The host simulator of the bare-metal firmware: the application, the renderer and the service
+# loops on a PC, over a simulated board; see rust/firmware/DESIGN.md.
+[package]
+name = "purestwhite-sim"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "pw-sim"
+path = "src/main.rs"
+
+[dependencies]
+embassy-futures = "=0.1.2"
+embassy-sync = "=0.8.0"
+png = "=0.17.16"
+purestwhite-app = { path = "../crates/purestwhite-app" }
+purestwhite-render = { path = "../crates/purestwhite-render" }
+purestwhite-services = { path = "../crates/purestwhite-services" }

@@ -1,0 +1,7 @@
+# Keys change nothing yet: the home screen stays, and the device stays awake.
+press:left
+press:right
+press:power
+press:home
+# The app still answers after the keys: one fast refresh.
+battery:50
