@@ -1,0 +1,43 @@
+# rust/firmware's input-check image polls the buttons and the touch panel from the bare-metal
+# firmware every 15 ms and counts what they give, then sleeps deeply once Power is held, as the
+# C++ firmware does; Power wakes it into this firmware, which saves the report with what woke the
+# chip.
+# Settings > System > SD Card Firmware Update flashes it into the other OTA slot.
+#   cd rust/firmware; cargo build --release; cd ../..
+#   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/input-check build/baremetal/input-check.bin
+#   emu/compare.sh emu/baremetal-input.txt x4pro build/baremetal/input-check.bin
+# The base side fails at its first wait for the image's output: the unmodified base firmware
+# never starts the image.
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+touch:240,472
+timeout:180
+wait-log:giris: hazir
+press:up
+press:down
+# A tap, a long press (whose lift does not tap) and a swipe.
+touch:240,400
+touch:240,400:900
+swipe:left
+press:home
+press:power:1500
+wait-log:uyku: derin, guc
+wait:3
+press:power:2000
+ready
+expect-log:dokunma: 0x5d
+expect-log:dugme: sol 1 sag 1 guc 1
+expect-log:dokunus: 3, dokun 1, kaydir 1, uzun 1
+expect-log:home: dokun 1, uzun 0
+expect-log:uyanma: dugme
+# The console can run the next log line into this one, so only its start is matched.
+expect-log:sifirlama: DEEPSLEE
+wait-quiet:5
+shot:back-home

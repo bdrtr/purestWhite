@@ -54,6 +54,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "input-check"
+path = "./src/bin/input_check.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rollback-check"
 path = "./src/bin/rollback_check.rs"
 test = false
@@ -85,6 +91,7 @@ purestwhite-fat = { path = "../crates/purestwhite-fat" }
 purestwhite-gauge = { path = "../crates/purestwhite-gauge" }
 purestwhite-gt911 = { path = "../crates/purestwhite-gt911" }
 purestwhite-rtc = { path = "../crates/purestwhite-rtc" }
+purestwhite-touch = { path = "../crates/purestwhite-touch" }
 
 [profile.dev]
 opt-level = "s"

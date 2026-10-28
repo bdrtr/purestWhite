@@ -1,11 +1,14 @@
 //! What the smoke-test images for the second OTA slot share: the watchdog armed first, handing
-//! the next boot back to the C++ firmware, the report they leave it in RTC slow memory, the panel
-//! (`panel`) and the SD card (`sd`).
+//! the next boot back to the C++ firmware, the report they leave it in RTC slow memory, the
+//! buttons and touch panel (`input`), the panel (`panel`), the SD card (`sd`) and deep sleep
+//! (`sleep`).
 #![no_std]
 #![warn(clippy::pedantic)]
 
+pub mod input;
 pub mod panel;
 pub mod sd;
+pub mod sleep;
 
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};

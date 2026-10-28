@@ -2,6 +2,8 @@
 #![allow(clippy::unwrap_used)]
 
 use super::*;
+extern crate std;
+use std::vec::Vec;
 
 const UP: u8 = 1 << 0;
 const DOWN: u8 = 1 << 1;
@@ -130,4 +132,64 @@ fn the_deadline_is_when_a_waiting_state_commits() {
     let mut w = Buttons::new(2);
     w.update(u32::MAX - 1, DOWN);
     assert_eq!(w.deadline(), Some(4));
+}
+
+/// Polls `b` and `h` with `sampled` every millisecond from `from` to `to`, inclusive: the times
+/// `h` asked to sleep.
+fn hold(b: &mut Buttons, h: &mut PowerHold, sampled: u8, from: u32, to: u32) -> Vec<u32> {
+    (from..=to)
+        .filter(|&now| {
+            b.update(now, sampled);
+            h.update(b, sampled, now)
+        })
+        .collect()
+}
+
+#[test]
+fn a_power_hold_asks_once_past_its_time() {
+    let mut b = Buttons::new(2);
+    let mut h = PowerHold::new(400, DOWN);
+    assert!(hold(&mut b, &mut h, 0, 0, 50).is_empty());
+    // Committed at 106: held more than 400 ms at 507.
+    assert_eq!(hold(&mut b, &mut h, POWER, 100, 2000), [507]);
+    assert!(hold(&mut b, &mut h, 0, 2001, 2100).is_empty());
+    assert_eq!(hold(&mut b, &mut h, POWER, 3000, 4000), [3407]);
+}
+
+#[test]
+fn the_press_that_woke_the_device_does_not_count() {
+    let mut b = Buttons::new(2);
+    let mut h = PowerHold::new(400, DOWN);
+    // Held from the first poll, before its debounce commits it.
+    assert!(hold(&mut b, &mut h, POWER, 0, 3000).is_empty());
+    assert!(hold(&mut b, &mut h, 0, 3001, 3100).is_empty());
+    assert_eq!(hold(&mut b, &mut h, POWER, 3200, 4000), [3607]);
+}
+
+#[test]
+fn a_blocker_holds_the_request_back_until_it_is_up() {
+    let mut b = Buttons::new(2);
+    let mut h = PowerHold::new(400, DOWN);
+    hold(&mut b, &mut h, 0, 0, 10);
+    assert!(hold(&mut b, &mut h, POWER | DOWN, 100, 1000).is_empty());
+    // Down up while Power stays down: the request comes once Down's release commits.
+    assert_eq!(hold(&mut b, &mut h, POWER, 1001, 2000), [1007]);
+}
+
+#[test]
+fn a_power_hold_times_through_the_wrap() {
+    let mut b = Buttons::new(2);
+    let mut h = PowerHold::new(10, 0);
+    let start = u32::MAX - 20;
+    b.update(start, 0);
+    h.update(&b, 0, start);
+    let mut asked = Vec::new();
+    for step in 0..40u32 {
+        let now = start.wrapping_add(step);
+        b.update(now, POWER);
+        if h.update(&b, POWER, now) {
+            asked.push(step);
+        }
+    }
+    assert_eq!(asked, [17]);
 }

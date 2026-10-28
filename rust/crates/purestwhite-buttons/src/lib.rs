@@ -132,3 +132,51 @@ impl Buttons {
         }
     }
 }
+
+/// The C++ firmware's request to sleep from a held power button (its `loop()` in src/main.cpp):
+/// the power button held longer than a set time with none of some other buttons down, counted
+/// only after the power button was up once since the start, so that the press that woke the
+/// device does not put it back to sleep. Once per press.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PowerHold {
+    hold_ms: u32,
+    blockers: u8,
+    /// The power button has been up since the start, in both the committed and the sampled
+    /// state: a press held from the start is not committed until its debounce ends.
+    was_up: bool,
+    /// This press has asked.
+    asked: bool,
+}
+
+impl PowerHold {
+    /// Asks once the power button has been held longer than `hold_ms`, unless a button in
+    /// `blockers` is down (the C++ firmware's screenshot holds Power with Down).
+    #[must_use]
+    pub const fn new(hold_ms: u32, blockers: u8) -> Self {
+        PowerHold {
+            hold_ms,
+            blockers,
+            was_up: false,
+            asked: false,
+        }
+    }
+
+    /// After `buttons.update(now, sampled)`: whether to sleep now.
+    pub fn update(&mut self, buttons: &Buttons, sampled: u8, now: u32) -> bool {
+        let state = buttons.state();
+        let down = state & buttons.power != 0;
+        if !down {
+            self.asked = false;
+            if sampled & buttons.power == 0 {
+                self.was_up = true;
+            }
+        }
+        let sleep = down
+            && self.was_up
+            && !self.asked
+            && state & self.blockers == 0
+            && buttons.power_held_ms(now) > self.hold_ms;
+        self.asked |= sleep;
+        sleep
+    }
+}

@@ -18,13 +18,13 @@
 
 use core::fmt::Write as _;
 use esp_backtrace as _;
-use esp_hal::delay::Delay;
 use esp_hal::gpio::{Event, Input, InputConfig, Level, Output, OutputConfig, Pull, WakeupConfig};
 use esp_hal::peripherals::{Interrupt, LPWR};
 use esp_hal::rtc_cntl::sleep::{LowPower, RtcSleepConfig};
 use esp_hal::rtc_cntl::{RwdtStage, RwdtStageAction, WakeupSource, wakeup_cause};
 use esp_hal::system::Cpu;
 use esp_hal::time::{Duration, Instant};
+use purestwhite_firmware::sleep::{self, Rails, WATCHDOG_KEY, watchdog_through_sleep};
 use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -53,8 +53,6 @@ const RELEASE_WAIT: Duration = Duration::from_secs(10);
 const WATCHDOG_NOTE: Duration = Duration::from_secs(60);
 const WATCHDOG_CORE: Duration = Duration::from_secs(15);
 const WATCHDOG_SYSTEM: Duration = Duration::from_secs(30);
-/// The key that unlocks the watchdog's registers, as esp-hal's `Rwdt` writes it.
-const WATCHDOG_KEY: u32 = 0x50D8_3AA1;
 
 /// What ended the last sleep, in a word.
 fn cause() -> &'static str {
@@ -68,19 +66,6 @@ fn cause() -> &'static str {
     } else {
         "diger"
     }
-}
-
-/// Lets the RTC watchdog count on in sleep, which esp-hal's `enable` pauses it in, so that a
-/// sleep that never ends still resets the chip.
-fn watchdog_through_sleep() {
-    let regs = LPWR::regs();
-    // SAFETY: the key that unlocks the watchdog's registers, and 0 to lock them again, as esp-hal's
-    // own `Rwdt` writes them; nothing else here touches them meanwhile.
-    regs.wdtwprotect()
-        .write(|w| unsafe { w.bits(WATCHDOG_KEY) });
-    regs.wdtconfig0()
-        .modify(|_, w| w.wdt_pause_in_slp().clear_bit());
-    regs.wdtwprotect().write(|w| unsafe { w.bits(0) });
 }
 
 /// The watchdog's first stage: the CPU still runs, so a sleep was not entered or did not end as
@@ -143,7 +128,6 @@ fn main() -> ! {
     watchdog_through_sleep();
     rtc.rwdt.feed();
 
-    let delay = Delay::new();
     let mut low_power = LowPower::new(peripherals.LPWR);
 
     // 1. A light sleep on the timer. Each sleep's line goes in first: if the sleep never ends, the
@@ -194,28 +178,21 @@ fn main() -> ! {
     rtc.rwdt.feed();
 
     // 3. Power up first: a wake pad at its wake level ends the sleep at once.
-    let released = Instant::now();
-    while power.is_low() && released.elapsed() < RELEASE_WAIT {
-        delay.delay_millis(10);
-    }
-    if power.is_low() {
+    if !sleep::wait_power_up(&power, RELEASE_WAIT, || {}) {
         // The sleep then ends at once, on Power.
         let _ = writeln!(report, "guc birakilmadi");
     }
-    // As the SDK leaves the X4 Pro's rails for a deep sleep (PowerManager::powerDownRailsForSleep,
-    // HalPowerManager::startDeepSleep): touch power (GPIO2) and SD power (GPIO5), both active
-    // low, held off; the panel's reset (GPIO14) held high, as its rail stays powered. The latch
-    // (GPIO1) is already held high. The C++ firmware releases these at boot.
-    let mut touch_power = Output::new(peripherals.GPIO2, Level::High, OutputConfig::default());
-    touch_power.set_pad_hold(true);
-    let mut sd_power = Output::new(peripherals.GPIO5, Level::High, OutputConfig::default());
-    sd_power.set_pad_hold(true);
-    let mut panel_reset = Output::new(peripherals.GPIO14, Level::High, OutputConfig::default());
-    panel_reset.set_pad_hold(true);
-    low_power.set_wakeup_deadline(Instant::now() + DEEP);
+    // The rails as the SDK leaves them for a deep sleep (see `sleep::deep_sleep`).
+    let rails = Rails {
+        touch_power: Output::new(peripherals.GPIO2, Level::High, OutputConfig::default()),
+        sd_power: Output::new(peripherals.GPIO5, Level::High, OutputConfig::default()),
+        panel_reset: Output::new(peripherals.GPIO14, Level::High, OutputConfig::default()),
+    };
     let _ = writeln!(report, "uyku: derin, guc ya da 15 s");
     esp_println::println!("{}", report.as_str());
     report.save();
     rtc.rwdt.feed();
-    low_power.sleep_deep(RtcSleepConfig::deep())
+    // With a timer it does not return.
+    let _ = sleep::deep_sleep(low_power, &mut power, rails, Some(DEEP));
+    esp_hal::system::software_reset()
 }

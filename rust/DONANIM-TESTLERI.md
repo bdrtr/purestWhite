@@ -2661,3 +2661,35 @@ deneme"dekiyle aynıdır.
     yavaş değil. Düğmeler yalnızca pin değişiminde ve titreşim süzmesi bitince uyandı (her
     basışta iki pin, iki süre uyanması). Güç'le yaklaşık 20 saniyede bitti; kalp atışı en çok
     1,3 ms geç kaldı, yani görevler yürütücüyü aç bırakmıyor. Rapor `firmware-arsiv/cihaz-raporlari/`'nda.
+
+## Bare-metal giriş ve uyku ("rust: input and deep sleep in the bare-metal firmware")
+
+Bare-metal firmware düğmeleri ve dokunma panelini C++ firmware gibi 15 ms'de bir okuyor ve C++'ın
+kurallarıyla uykuya giriyor. `input-check` imajı Sol, Sağ ve Güç basmalarını, ekrana dokunuşları
+(kısa dokunuş, uzun dokunuş, kaydırma) ve Home tuşunu sayar. Güç'ü yarım saniyeden uzun basılı
+tutup bırakınca, ya da 20 saniye hiçbir şeye dokunmazsanız, derin uykuya girer. Güç'e basınca
+uyanır ve C++ firmware açılır; o da raporun sonuna uyanma ve sıfırlama nedenini yazar. Güç'e hiç
+basmazsanız cihaz 60 saniye sonra kendisi uyanır. İmaj ekrana çizmez (ekran güncelleme sayfasında
+kalır, bu normaldir), karta yazmaz. Geri dönüş "Bare-metal ilk deneme"dekiyle aynıdır. Emülatörde
+sayımlar, uyku ve Güç ile uyanış çalışıyor (`emu/baremetal-input.txt`).
+
+Dikkat: uyandırırken Sağ'ı basılı tutmayın.
+
+- [ ] Kartta eski `purestwhite-bare-metal.txt` varsa silin. `purestwhite-baremetal-giris.bin`'i
+  (arşivde, sağlama toplamı `SHA256-bare-metal.txt`'de) kartın köküne koyun; Ayarlar → System → SD
+  Karttan Firmware Güncelleme → dosyayı seçin → Onayla. Güncelleme bitince ekran donar (normal).
+  5 saniye bekleyin. Sonra, aralarında 20 saniyeden uzun ara vermeden: Sol'a 2 kez, Sağ'a 2 kez
+  kısaca basın; ekrana bir kez kısaca dokunun; bir yere parmağınızı 1 saniye basılı tutup kaldırın;
+  ekranda parmağınızı hızlıca bir yana kaydırın; Home tuşuna bir kez kısaca dokunun. En son Güç'ü 1
+  saniye basılı tutup bırakın: cihaz uykuya girer (ekran değişmez).
+- [ ] Birkaç saniye bekleyin, sonra Güç'e C++'ta uyandırırken yaptığınız gibi basın (bir an basılı
+  tutun; çok kısa basarsanız C++ bunu yanlışlıkla uyanma sayıp yeniden uyur, o zaman bir daha
+  basın). C++ ana ekranı gelmeli. Hiçbir şeye basmazsanız cihaz 60 saniye sonra kendisi uyanır. 2
+  dakika içinde C++ gelmezse Güç'e uzun basıp açın ve bana söyleyin.
+- [ ] Raporda şunlar bekleniyor: "dokunma: 0x5d" (ya da 0x14), "dugme: sol 2 sag 2 guc 1",
+  "dokunus: 3, dokun 1, kaydir 1, uzun 1" (her dokunuş, uzun dokunuş ve kaydırma bir "dokunus"
+  sayılır), "home: dokun 1, uzun 0", "uyku: derin, guc", "uyanma: dugme" ve "sifirlama:
+  DEEPSLEEP". Güç'e basmadan beklediyseniz "uyanma: zamanlayici" yazar. Bir şeyi atlayıp 20 saniye
+  beklediyseniz "uyku: derin, bos 20 s" yazar; bu da olur. Sayılar bastıklarınızdan farklıysa,
+  "dokunma: yok", "guc birakilmadi", "hazir degil", "uyku: girilmedi" ya da "PANIK" çıkarsa raporun
+  tamamını bana iletin.

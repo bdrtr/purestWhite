@@ -23,9 +23,10 @@ use esp_hal::time::{Duration, Rate};
 use esp_hal::timer::systimer::SystemTimer;
 use log::info;
 use purestwhite_epd::uc8279x4::Refresh;
+use purestwhite_firmware::input::{TOUCH, TouchPins};
 use purestwhite_firmware::panel::{Lines, Panel, PanelPins};
 use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch};
-use purestwhite_gt911::{Reading, ResetPins};
+use purestwhite_gt911::Reading;
 
 extern crate alloc;
 
@@ -45,41 +46,6 @@ pub fn custom_halt() -> ! {
 
 const RTC_ADDR: u8 = 0x51;
 const GAUGE_ADDR: u8 = 0x63;
-
-/// The X4 Pro's touch controller, as freeink-sdk's board profile has it.
-const TOUCH: purestwhite_gt911::Config = purestwhite_gt911::Config {
-    addr: 0x5D,
-    alt_addr: 0x14,
-    raw_min_x: 0,
-    raw_max_x: 799,
-    raw_min_y: 0,
-    raw_max_y: 479,
-    swap_xy: true,
-    flip_x: false,
-    flip_y: true,
-    coords_at_byte0: true,
-};
-
-/// The touch controller's RST (GPIO4) and INT (GPIO10).
-struct TouchPins<'d> {
-    reset: Output<'d>,
-    int: Flex<'d>,
-}
-
-impl ResetPins for TouchPins<'_> {
-    fn set_reset(&mut self, high: bool) {
-        self.reset.set_level(Level::from(high));
-    }
-    fn drive_int(&mut self, high: bool) {
-        // The level first, so the pin starts driving it.
-        self.int.set_level(Level::from(high));
-        self.int.set_output_enable(true);
-    }
-    fn release_int(&mut self) {
-        self.int.set_output_enable(false);
-        self.int.set_input_enable(true);
-    }
-}
 
 /// What 15 s of touches showed.
 #[derive(Default)]

@@ -1,0 +1,240 @@
+//! The X4 Pro's input and sleep from the bare-metal firmware: hands the next boot back to the C++
+//! firmware, starts the touch panel, then polls the buttons and the panel every 15 ms
+//! (`purestwhite_firmware::input`) and counts what they give, until the C++ firmware would sleep:
+//! Power held longer than 400 ms, or 20 s without input (the C++ firmware waits its setting,
+//! 10 minutes by default), or at the latest after 3 minutes. Then, once Power is up, it reports
+//! and sleeps deeply (`purestwhite_firmware::sleep`) until Power is pressed, or for at most 60 s;
+//! the wake boots the C++ firmware, which adds what woke the chip and what reset it. The RTC
+//! watchdog counts through the sleep: a sleep that never ends resets the chip after 90 s, and
+//! after 30 s more resets it fully (on battery the device then turns off). Without esp-rtos, so it
+//! runs in the emulator too.
+#![no_std]
+#![warn(clippy::pedantic)]
+#![no_main]
+
+use core::fmt::Write as _;
+use esp_backtrace as _;
+use esp_hal::delay::Delay;
+use esp_hal::gpio::{Flex, Input as Pin, InputConfig, Level, Output, OutputConfig, Pull};
+use esp_hal::i2c::master::{Config as I2cConfig, I2c, SoftwareTimeout};
+use esp_hal::rtc_cntl::Rtc;
+use esp_hal::rtc_cntl::sleep::LowPower;
+use esp_hal::time::{Duration, Instant, Rate};
+use purestwhite_firmware::input::{self, ButtonPins, Input, Polled, ReadyI2c, TouchPins};
+use purestwhite_firmware::sleep::{self, Rails};
+use purestwhite_firmware::{Report, arm_watchdog, hand_back, hold_power_latch, ready};
+
+esp_bootloader_esp_idf::esp_app_desc!();
+
+/// After a panic: note it in the report and reset, so the next boot is the C++ firmware.
+#[allow(
+    clippy::no_mangle_with_rust_abi,
+    reason = "esp-backtrace declares it extern \"Rust\""
+)]
+#[unsafe(no_mangle)]
+pub fn custom_halt() -> ! {
+    Report::append_saved("PANIK\n");
+    esp_hal::system::software_reset()
+}
+
+/// How long without input puts the device to sleep, and how long it runs at most.
+const IDLE: Duration = Duration::from_secs(20);
+const MOST: Duration = Duration::from_secs(180);
+/// How long Power may stay down before the sleep starts anyway.
+const RELEASE_WAIT: Duration = Duration::from_secs(10);
+/// The sleep's timer, in case Power does not wake it.
+const SLEEP_AT_MOST: Duration = Duration::from_secs(60);
+/// The watchdog's stages for the sleep, past its timer (see `sleep::watch_sleep`).
+const WATCHDOG_CORE: Duration = Duration::from_secs(90);
+const WATCHDOG_SYSTEM: Duration = Duration::from_secs(30);
+
+/// Milliseconds since boot, wrapping as `millis()` does.
+#[allow(clippy::cast_possible_truncation, reason = "wraps on purpose")]
+fn millis() -> u32 {
+    Instant::now().duration_since_epoch().as_millis() as u32
+}
+
+/// What the run counted.
+#[derive(Default)]
+struct Counts {
+    presses: [u32; 3],
+    touches: u32,
+    taps: u32,
+    swipes: u32,
+    long_presses: u32,
+    home_taps: u32,
+    home_long_presses: u32,
+}
+
+impl Counts {
+    fn add(&mut self, polled: &Polled) {
+        for (bit, count) in self.presses.iter_mut().enumerate() {
+            if polled.buttons.pressed & (1 << bit) != 0 {
+                *count += 1;
+            }
+        }
+        let t = &polled.touch;
+        self.touches += u32::from(t.pressed.is_some());
+        self.taps += u32::from(t.tap.is_some());
+        self.swipes += u32::from(t.swipe.is_some());
+        self.long_presses += u32::from(t.long_press.is_some());
+        self.home_taps += u32::from(t.home_tapped);
+        self.home_long_presses += u32::from(t.home_long_press);
+    }
+
+    fn write(&self, report: &mut Report) {
+        let [left, right, power] = self.presses;
+        let _ = writeln!(report, "dugme: sol {left} sag {right} guc {power}");
+        let _ = writeln!(
+            report,
+            "dokunus: {}, dokun {}, kaydir {}, uzun {}",
+            self.touches, self.taps, self.swipes, self.long_presses
+        );
+        let _ = writeln!(
+            report,
+            "home: dokun {}, uzun {}",
+            self.home_taps, self.home_long_presses
+        );
+    }
+}
+
+/// Polls the input every `POLL_MS` and counts what it gives, until the C++ firmware would sleep:
+/// why, in a word or two.
+fn watch<B: embedded_hal_async::i2c::I2c>(
+    input: &mut Input<'_, B>,
+    rtc: &mut Rtc<'_>,
+    counts: &mut Counts,
+) -> &'static str {
+    let delay = Delay::new();
+    let start = Instant::now();
+    let mut last_activity = start;
+    loop {
+        let Some(polled) = ready(input.poll(millis())) else {
+            return "hazir degil";
+        };
+        counts.add(&polled);
+        if polled.touch.long_press.is_some() {
+            // As the C++ firmware's callers: the lift of a long press does not also tap.
+            input.suppress_touch();
+        }
+        if polled.activity() {
+            last_activity = Instant::now();
+        }
+        if polled.sleep {
+            return "guc";
+        }
+        if last_activity.elapsed() >= IDLE {
+            return "bos 20 s";
+        }
+        if start.elapsed() >= MOST {
+            return "sure doldu";
+        }
+        rtc.rwdt.feed();
+        delay.delay_millis(input::POLL_MS);
+    }
+}
+
+#[esp_hal::main]
+fn main() -> ! {
+    let peripherals = esp_hal::init(esp_hal::Config::default());
+    let mut rtc = arm_watchdog(peripherals.RTC_TIMER);
+    let _latch = hold_power_latch(peripherals.GPIO1);
+    let mut report = Report::default();
+    let _ = writeln!(report, "purestWhite bare-metal giris denemesi");
+    report.save();
+    match hand_back(peripherals.FLASH, peripherals.CPU_CTRL) {
+        Ok(_) => {
+            let _ = writeln!(report, "sonraki acilis: C++ yazilimi");
+        }
+        Err(e) => {
+            // The way back rests on the bootloader alone now: touch nothing more.
+            let _ = writeln!(report, "sonraki acilis: SECILEMEDI ({e})");
+            report.save();
+            esp_hal::system::software_reset()
+        }
+    }
+    report.save();
+
+    // The touch controller's supply, active low, on before the shared bus is driven, as the C++
+    // firmware does.
+    let delay = Delay::new();
+    let touch_power = Output::new(peripherals.GPIO2, Level::Low, OutputConfig::default());
+    delay.delay_millis(50);
+    let bus = I2c::new(
+        peripherals.I2C0,
+        // A stuck bus fails a transfer instead of waiting for the watchdog.
+        I2cConfig::default()
+            .with_frequency(Rate::from_khz(400))
+            .with_software_timeout(SoftwareTimeout::Transaction(Duration::from_millis(50))),
+    )
+    .ok()
+    .map(|i2c| {
+        ReadyI2c(
+            i2c.with_sda(peripherals.GPIO39)
+                .with_scl(peripherals.GPIO38),
+        )
+    });
+    let mut touch_pins = TouchPins {
+        // In reset until the address is selected, as the SDK's pinMode(OUTPUT) leaves it.
+        reset: Output::new(peripherals.GPIO4, Level::Low, OutputConfig::default()),
+        int: Flex::new(peripherals.GPIO10),
+    };
+    touch_pins.int.apply_output_config(&OutputConfig::default());
+    let touch = bus.and_then(|mut bus| {
+        let found = ready(purestwhite_gt911::begin(
+            &mut bus,
+            &mut purestwhite_firmware::sd::SpinDelay(Delay::new()),
+            Some(&mut touch_pins),
+            &input::TOUCH,
+        ))
+        .flatten();
+        found.map(|addr| (bus, addr))
+    });
+    match &touch {
+        Some((_, addr)) => {
+            let _ = writeln!(report, "dokunma: {addr:#04x}");
+        }
+        None => {
+            let _ = writeln!(report, "dokunma: yok");
+        }
+    }
+    report.save();
+
+    let pulled_up = InputConfig::default().with_pull(Pull::Up);
+    let pins = ButtonPins {
+        left: Pin::new(peripherals.GPIO0, pulled_up),
+        right: Pin::new(peripherals.GPIO7, pulled_up),
+        power: Pin::new(peripherals.GPIO3, pulled_up),
+    };
+    let mut input = Input::new(pins, touch, input::POWER_HOLD_MS);
+    let mut counts = Counts::default();
+    esp_println::println!("giris: hazir");
+    let why = watch(&mut input, &mut rtc, &mut counts);
+    counts.write(&mut report);
+    report.save();
+
+    let mut pins = input.into_pins();
+    if !sleep::wait_power_up(&pins.power, RELEASE_WAIT, || rtc.rwdt.feed()) {
+        let _ = writeln!(report, "guc birakilmadi");
+    }
+    // The last line, which the C++ firmware looks for to add what woke and reset the chip.
+    let _ = writeln!(report, "uyku: derin, {why}");
+    esp_println::println!("{}", report.as_str());
+    report.save();
+    sleep::watch_sleep(&mut rtc, WATCHDOG_CORE, WATCHDOG_SYSTEM);
+    let rails = Rails {
+        touch_power,
+        sd_power: Output::new(peripherals.GPIO5, Level::High, OutputConfig::default()),
+        panel_reset: Output::new(peripherals.GPIO14, Level::High, OutputConfig::default()),
+    };
+    // With a timer it does not return; without, only when Power cannot wake the chip.
+    let why = sleep::deep_sleep(
+        LowPower::new(peripherals.LPWR),
+        &mut pins.power,
+        rails,
+        Some(SLEEP_AT_MOST),
+    );
+    Report::append_saved("uyku: girilmedi\n");
+    esp_println::println!("uyku: girilmedi ({why:?})");
+    esp_hal::system::software_reset()
+}
