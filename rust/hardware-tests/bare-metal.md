@@ -677,7 +677,7 @@ the device (that opens the C++ recovery mode). If the C++ home screen has not co
 after Confirm (or 13 minutes after the crescent), long-press Power to restart (a full power cycle:
 the report is then lost) and tell me. Do not long-press before that.
 
-- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put
+- [x] Delete the old `purestwhite-bare-metal.txt` on the card. Put
   `purestwhite-baremetal-main-1.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`) in
   the card's root; Settings > System > SD Card Firmware Update > choose the file > Confirm. Within
   a few seconds the screen should flash, then settle white with one black line near the top. Note
@@ -687,18 +687,24 @@ the report is then lost) and tell me. Do not long-press before that.
   seconds), wake it as below and send me the report.
 - [ ] Press Left, Right and Power briefly a few times: nothing should change on the screen, and
   the device should not sleep.
-- [ ] Hold Power for about a second and release it: within about 3 seconds a crescent should show
+- [x] Hold Power for about a second and release it: within about 3 seconds a crescent should show
   with a full refresh, then the device sleeps. If no crescent comes within 30 seconds, the device
   still sleeps by itself; wake it and send me the report.
-- [ ] A few seconds later wake it as you wake the C++ firmware: hold Power for about a second (a
+- [x] A few seconds later wake it as you wake the C++ firmware: hold Power for about a second (a
   short press does not wake it). The C++ home screen should come. There, check that touch, the
   card and a page refresh work as usual.
-- [ ] Expected in the report, in this order: "purestWhite", "next boot: C++ firmware", "psram
+- [x] Expected in the report, in this order: "purestWhite", "next boot: C++ firmware", "psram
   8192 KB, frames ok", "panel UC8179" (or UC8279), "panel: 3 ok, 0 failed, 0 given up, longest
   N ms, asleep" (N a few thousand at most), "sleep: deep, power i… p… a r s", then from the C++
   firmware "wake: button" and "reset: DEEPSLEEP". "PANIC", "NOT SET", "NONE", "unusable", "NOT
   asleep", "did not rest", "no sleep", "power held", a "given up" above 0, a "!" in the sleep
   line, or a missing line: send me the report.
+  - Result (2026-10-29, device): "purestWhite", "next boot: C++ firmware", "psram 8192 KB, frames
+    ok", "panel UC8179", "panel: 3 ok, 0 failed, 0 given up, longest 1904 ms, asleep", "sleep:
+    deep, power i28000 p10000880 a r s", "wake: button", "reset: DEEPSLEEP". Every line as
+    expected: the panel's BUSY interrupt wakes the task (the longest refresh 1.9 s, none given
+    up), the panel and the keys rested, and Power woke the chip into the C++ firmware. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-purestwhite-main-1.txt`.
 - [ ] Optional, the keys during a refresh: delete the report, install it again, and hold Power
   while the home screen is still flashing. The crescent should follow right after the home screen;
   then wake it as above. Expected: the same report.
