@@ -1011,7 +1011,7 @@ it).
     memory survived each run's end (two panics and a reset) and the C++ firmware starting in
     between, and the healthy mark cleared it. Report:
     `firmware-arsiv/cihaz-raporlari/2026-10-29-count-4.txt`.
-- [ ] Then the main image, as in "The Embassy main" above (on battery; do not hold Right while
+- [x] Then the main image, as in "The Embassy main" above (on battery; do not hold Right while
   waking the device). Put `purestwhite-baremetal-main-2.bin` on the card and install it. Wait on
   the home screen for at least 40 seconds, then hold Power for about a second to put it to sleep,
   and a few seconds later wake it the same way: the C++ firmware comes back. Expected, in this
@@ -1028,3 +1028,9 @@ it).
 
   "healthy: sleep" after the "panel:" line instead of "healthy: 30 s" means the 30 s mark did not
   come: tell me how long you waited. No "healthy" line at all means no frame was shown.
+  - Result (2026-10-29, device): "runs: 0 unfinished", "psram 8192 KB, frames ok", "panel
+    UC8179", "healthy: 30 s", "panel: 3 ok, 0 failed, 0 given up, longest 1904 ms, asleep",
+    "sleep: deep, power i28000 p10000880 a r s", "wake: button", "reset: DEEPSLEEP". The main
+    image read the counter, marked the run healthy 30 s after its first frame (the path the
+    emulator cannot run), and slept and came back as before. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-main-2.txt`.
