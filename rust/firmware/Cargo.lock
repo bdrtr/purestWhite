@@ -1418,6 +1418,9 @@ dependencies = [
 [[package]]
 name = "purestwhite-ota"
 version = "0.1.0"
+dependencies = [
+ "embedded-storage",
+]
 
 [[package]]
 name = "purestwhite-render"

@@ -446,6 +446,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "embedded-storage"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c815b3ed4213d85d6cfd274b871f430c0681084e28dfd4a537877f47f844ec83"
+
+[[package]]
 name = "equivalent"
 version = "1.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -648,6 +654,7 @@ dependencies = [
 name = "purestwhite-ota"
 version = "0.1.0"
 dependencies = [
+ "embedded-storage",
  "sha2",
 ]
 

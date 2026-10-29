@@ -181,6 +181,13 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   its 60 s; esp-storage runs each operation with interrupts off).
 - The write goes to the slot that is not running, is read back and checked, and only then is
   otadata changed (`purestwhite-ota`); a failure at any step leaves otadata as it was.
+- Two passes over the file, because during phase 2 the slot written is the known-good one: the
+  first (`purestwhite_ota::digest::Identify`) checks the image and works out its digest without
+  writing anything, and only a known release's digest goes on; the second
+  (`purestwhite_ota::slot::SlotWriter`) erases, writes and reads back each 4 KB sector through the
+  partition's own flash region (`esp-bootloader-esp-idf`'s `FlashRegion`, which cannot write
+  outside it), and its digest must be the first pass's. Host-tested on a fake NOR flash: a refused
+  image erases nothing, a bit that does not take is found when read back.
 - A path without the screen or touch: holding the recovery key long installs the one file with a
   fixed name (the C++ release image) without a menu, so recovery does not depend on the panel or
   the touch working.
