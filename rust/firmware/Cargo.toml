@@ -114,6 +114,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "right-check"
+path = "./src/bin/right_check.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rollback-check"
 path = "./src/bin/rollback_check.rs"
 test = false

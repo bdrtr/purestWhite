@@ -1,0 +1,28 @@
+# rust/firmware's right-check image samples Right (the SDK's Down) for 30 s from its start and
+# notes what it saw, then resets into this firmware, which saves the report. Down is held from
+# the tap on Confirm through the update and the restart into the image, as the owner holds Right
+# to enter the purestwhite image's recovery mode, then pressed twice briefly.
+# Settings > System > SD Card Firmware Update flashes it into the other OTA slot.
+#   cd rust/firmware; cargo build --release; cd ../..
+#   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/right-check build/baremetal/right-check.bin
+#   emu/compare.sh emu/baremetal-right.txt x4pro build/baremetal/right-check.bin
+# The base side fails at its first wait for the image's output: the unmodified base firmware
+# never starts the image.
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+touch:240,472
+press:down:20000
+press:down
+press:down
+timeout:180
+wait-log:held as purestwhite reads: yes
+wait-log:Bare-metal report
+wait-quiet:5
+shot:back-home

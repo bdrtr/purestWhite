@@ -1060,10 +1060,11 @@ without breaking the C++ firmware's slot; the fell-back entry stays build-only s
   did.** With Right held. Plug in USB power (charging only) and keep it in. Put
   `purestwhite-recovery.bin` back on the card (from the archive) beside main-3. Settings > System >
   SD Card Firmware Update > choose `purestwhite-baremetal-main-3.bin`, not
-  `purestwhite-recovery.bin` > Confirm, and hold Right from the moment you tap Confirm for about
-  20 seconds (the C++ firmware writes the image, restarts into it, and the image reads Right as it
-  starts); then let go. The screen does not change while it works, about a minute more; do not
-  press anything until the C++ firmware is back. Expected, in this order:
+  `purestwhite-recovery.bin` > Confirm. Press Right when "Updating..." shows, and keep holding it
+  until 15 seconds after "Update complete" shows (the C++ firmware restarts 1.5 s after that text,
+  and the image reads Right as it starts); then let go. The screen stays on "Update complete"
+  while it works, about a minute more; do not press anything until the C++ firmware is back.
+  Expected, in this order:
   - "purestWhite"
   - "next boot: C++ firmware"
   - "runs: 0 unfinished"
@@ -1081,3 +1082,28 @@ without breaking the C++ firmware's slot; the fell-back entry stays build-only s
   install-check's notes above). If the C++ firmware is not back within 3 minutes, do as in the
   install's last step above (hold Power for about a second, wait 2 minutes, check
   `purestwhite-recovery.bin` against `SHA256-bare-metal.txt`). Send me the report in any case.
+  - First try (2026-10-29, device, Right held for about 20 s from the tap on Confirm): Right was
+    not seen. "runs: 0 unfinished", "psram 8192 KB, frames ok", "panel UC8179", "healthy: 30 s",
+    "panel: 3 ok, 0 failed, 0 given up, longest 1903 ms, asleep", "sleep: deep, time up ...",
+    "wake: button", "reset: DEEPSLEEP"; no "recovery:" line, and nothing was written. The image
+    reads Right with the same pull-up as the key checks that passed, so Right was most likely
+    already released when the image started: the C++ firmware checks the file again, writes it
+    and redraws its progress before it restarts. The step above now holds Right until after
+    "Update complete". Report: `firmware-arsiv/cihaz-raporlari/2026-10-29-main-3-right-1.txt`.
+  - Second try (2026-10-29, device, Right held from "Updating..." until 15 s after "Update
+    complete"): Right was not seen again; the white screen with its black line came. As the first
+    try, with "healthy: sleep" and "sleep: deep, power ..." (Power pressed for the sleep); nothing
+    was written. Report: `firmware-arsiv/cihaz-raporlari/2026-10-29-main-3-right-2.txt`. Next:
+    `right-check` below, which shows what the image reads on GPIO7 as it starts.
+- [ ] `right-check`: what an image reads on Right as it starts. It starts as the `purestwhite`
+  image does, samples Right (GPIO7, pulled up) every 10 ms for 30 s, notes what it saw and resets
+  into the C++ firmware; it writes nothing but the hand-back's otadata entry. It passes in the
+  emulator (`emu/baremetal-right.txt`: Down held through the restart gives "held as purestwhite
+  reads: yes", "first: low", and the two presses after it). With USB power plugged in, as in the
+  tries above: put `purestwhite-baremetal-right-1.bin` on the card (in the archive, its checksum in
+  `SHA256-bare-metal.txt`); Settings > System > SD Card Firmware Update > choose it > Confirm.
+  Press Right when "Updating..." shows and hold it until 15 s after "Update complete"; let go, wait
+  2 s, press Right twice briefly; then press nothing until the C++ home screen is back (about 30 s
+  after "Update complete"). Expected: "purestWhite right check", "next boot: C++ firmware", "held
+  as purestwhite reads: yes|no", "first: low|high", "low: N of 3000, A..B ms", "presses: P",
+  "done". With Right held as the image starts: "yes", "first: low", A 0, B about 13000, P 2.

@@ -225,6 +225,10 @@ its scenario in `emu/`.
   count is one install. `emu/baremetal-count.txt` (a cold boot over a broken app0, so that the
   bootloader starts it after every reset) and `emu/baremetal-count-cpp.txt` (twice through the C++
   firmware).
+- `right-check`: what an image reads on Right (GPIO7) as it starts, as the `purestwhite` image
+  reads it for its recovery mode: samples it every 10 ms for 30 s and notes whether the first five
+  were all low, the first sample's level, how many were low and when, and the presses.
+  `emu/baremetal-right.txt` (Down held through the restart into the image).
 - `install-check`: the firmware's `updater` run once (the SD updater's install, within phase 2's
   limits, `purestwhite_ota::plan`): writes `/purestwhite-recovery.bin` into the C++ firmware's slot
   when it is a release the updater knows and the slot holds the same release (`Rewrite`, which
