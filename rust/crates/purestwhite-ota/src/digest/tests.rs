@@ -59,3 +59,22 @@ fn an_image_with_another_digest_appended_is_refused() {
         Err(crate::image::ImageError::Chip(5))
     );
 }
+
+#[test]
+fn an_image_in_a_slot_is_measured_and_hashed_in_one_pass() {
+    let image = good_image(5000);
+    let mut slot = image.clone();
+    slot.extend_from_slice(&[0xFF; 10_000]);
+    for chunk in [1, 512, 4096] {
+        let mut identify = Identify::new(SLOT, Sha::default());
+        for piece in slot.chunks(chunk) {
+            identify.feed_some(piece).unwrap();
+            if identify.is_done() {
+                break;
+            }
+        }
+        let identified = identify.finish().unwrap();
+        assert_eq!(identified.checked.len, image.len(), "{chunk}");
+        assert_eq!(&identified.digest[..], &image[image.len() - DIGEST..]);
+    }
+}

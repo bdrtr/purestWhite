@@ -113,6 +113,23 @@ impl<H: Sha256> Identify<H> {
         Ok(())
     }
 
+    /// As `feed`, but stops at the image's end: how many bytes of `data` were the image's (for an
+    /// image read where it lies, as in an app slot, whose length is not known before).
+    ///
+    /// # Errors
+    /// As `ImageCheck::feed_some`.
+    pub fn feed_some(&mut self, data: &[u8]) -> Result<usize, ImageError> {
+        let used = self.check.feed_some(data)?;
+        self.digest.update(data.get(..used).unwrap_or_default());
+        Ok(used)
+    }
+
+    /// Whether the whole image has come.
+    #[must_use]
+    pub fn is_done(&self) -> bool {
+        self.check.is_done()
+    }
+
     /// The image and its digest, once it has all come.
     ///
     /// # Errors
