@@ -991,14 +991,14 @@ install: four installs in a row. Do them in one sitting, and do not restart the 
 press on Power in between: a power cut clears the count (the C++ firmware's own sleeps should keep
 it).
 
-- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put
+- [x] Delete the old `purestwhite-bare-metal.txt` on the card. Put
   `purestwhite-baremetal-count-1.bin` in the card's root (in the archive, its checksum in
   `SHA256-bare-metal.txt`). Settings > System > SD Card Firmware Update > choose it > Confirm, four
-  times; after each the C++ firmware comes back by itself within a few seconds. Each install
-  overwrites the report: give me the card after each one (I keep the report and delete it from
-  the card), or copy it off the card yourself and delete it there.
-- [ ] Expected, one report per install, each starting with "purestWhite count check" and "next
-  boot: C++ firmware":
+  times in a row; after each the C++ firmware comes back by itself within a few seconds. Each
+  install overwrites the report, and the last one is enough: its count can reach 3 only if each
+  run before it was counted. Give me the card after the fourth.
+- [x] Expected, one report per install (only the fourth stays on the card), each starting with
+  "purestWhite count check" and "next boot: C++ firmware":
   1. "runs: 0 unfinished", "crash: panic", "PANIC"
   2. "runs: 1 unfinished", "crash: reset"
   3. "runs: 2 unfinished", "crash: panic", "PANIC"
@@ -1006,6 +1006,11 @@ it).
 
   A count that does not grow by one means the record did not survive between runs: tell me what
   happened in between (a long press, an empty battery).
+  - Result (2026-10-29, device): the fourth install's report reads "runs: 3 unfinished, recovery
+    due", "healthy", "done". Each of the three runs before it was counted: the record in RTC slow
+    memory survived each run's end (two panics and a reset) and the C++ firmware starting in
+    between, and the healthy mark cleared it. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-count-4.txt`.
 - [ ] Then the main image, as in "The Embassy main" above (on battery; do not hold Right while
   waking the device). Put `purestwhite-baremetal-main-2.bin` on the card and install it. Wait on
   the home screen for at least 40 seconds, then hold Power for about a second to put it to sleep,
