@@ -84,6 +84,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "write-check"
+path = "./src/bin/write_check.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rollback-check"
 path = "./src/bin/rollback_check.rs"
 test = false
@@ -96,7 +102,7 @@ psram-80mhz = []
 [dependencies]
 esp-hal = { version = "=1.2.2", features = ["esp32s3", "log-04", "unstable"] }
 esp-rtos = { version = "=0.4.0", features = ["embassy", "esp-alloc", "esp32s3", "log-04"] }
-esp-bootloader-esp-idf = { version = "=0.6.0", features = ["esp32s3", "log-04"] }
+esp-bootloader-esp-idf = { version = "=0.6.0", features = ["embedded-storage", "esp32s3", "log-04"] }
 esp-alloc = "=0.11.0"
 esp-backtrace = { version = "=0.20.0", features = ["esp32s3", "panic-handler", "println", "custom-halt"] }
 esp-println = { version = "=0.18.0", features = ["esp32s3", "log-04"] }
@@ -107,6 +113,12 @@ embassy-sync = "=0.8.0"
 embassy-time = { version = "=0.5.1", features = ["log"] }
 embedded-hal = "=1.0.0"
 embedded-hal-async = "=1.0.0"
+embedded-storage = "=0.3.2"
+# esp-storage with interrupts masked around each ROM flash call (`critical-section`): a handler run
+# from flash while the flash is busy would fetch garbage. esp-bootloader-esp-idf leaves it off (it
+# takes esp-storage without default features).
+esp-storage = { version = "=0.10.0", default-features = false, features = ["critical-section", "esp32s3"] }
+nb = "=1.1.0"
 log = "=0.4.34"
 # The SD card: the card protocol over esp-hal's SDMMC slot (sdio, as esp-hal uses it); its FAT
 # volume is our purestwhite-fat.

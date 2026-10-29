@@ -20,7 +20,9 @@ pub mod memory;
 pub mod panel;
 pub mod screen;
 pub mod sd;
+pub mod sha;
 pub mod sleep;
+pub mod slots;
 pub mod storage;
 pub mod test_image;
 

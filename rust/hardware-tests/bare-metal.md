@@ -731,14 +731,14 @@ nothing. It hands the next boot back first and resets at once. It passes in the 
     start makes one storage before any write and keeps it for the run. Report:
     `firmware-arsiv/cihaz-raporlari/2026-10-29-scratch-1.txt`.
 - [x] Delete the old `purestwhite-bare-metal.txt` on the card. Put
-  `purestwhite-baremetal-scratch-2.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`)
-  in the card's root; Settings > System > SD Card Firmware Update > choose the file > Confirm. Within a few seconds the C++ firmware
-  should come back by itself.
-- [ ] Expected in the report: "purestWhite scratch check", "next boot: C++ firmware", "flash
-  16384 KB", "scratch 0xc90000, 3456 KB", "erased N of 864 sectors", "first used: …", "fnv …", "done". Send me the
-  report whatever it says: "erased 864 of 864" and "first used: none" mean the partition is unused
-  and the write path can be proven there; anything else tells what was written there once. If
-  the table still cannot be read, the report says why ("table: …", "raw …, flash … KB").
+  `purestwhite-baremetal-scratch-2.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`) in
+  the card's root; Settings > System > SD Card Firmware Update > choose the file > Confirm. Within a
+  few seconds the C++ firmware should come back by itself.
+- [ ] Expected in the report: "purestWhite scratch check", "next boot: C++ firmware", "flash 16384
+  KB", "scratch 0xc90000, 3456 KB", "erased N of 864 sectors", "first used: …", "fnv …", "done".
+  Send me the report whatever it says: "erased 864 of 864" and "first used: none" mean the partition
+  is unused and the write path can be proven there; anything else tells what was written there once.
+  If the table still cannot be read, the report says why ("table: …", "raw …, flash … KB").
   - Result (2026-10-29, device): "flash 16384 KB", "scratch 0xfd0000, 80 KB", "erased 0 of 20
     sectors", "first used 0xfd0000: [01, 80, 01, 00, ff, ff, ff, ff]", "fnv 265e7f4e", "done".
     The single storage made before any write reads the flash: the cause above is confirmed as far
@@ -767,4 +767,46 @@ which shows `partitions.csv`).
     7e0000", "app1 0/11 7f0000 7e0000", "spiffs 1/82 fd0000 14000", "coredump 1/03 fe4000 1c000",
     "run app1". Two app slots of 0x7E0000 (not `partitions.csv`'s 0x640000), no free space, the
     image in `app1` and the C++ firmware in `app0`. The write path will be proven in the last
-    megabyte of the image's own slot. Report: `firmware-arsiv/cihaz-raporlari/2026-10-29-table-1.txt`.
+    megabyte of the image's own slot. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-table-1.txt`.
+
+## The update gate's write path ("firmware: write-check, the write path proven in the image's own slot")
+
+Before the update gate's SD updater ever writes a firmware slot, its erase, write and read-back
+path is proven on the device where a mistake harms only this image's own slot: the image copies
+itself from the start of the slot it runs from (`app1` on your device, 0x7E0000 bytes) into the
+last megabyte of that same slot (0xED0000 to 0xFD0000 on the flash, just before `spiffs`), far
+past its own image (about 106 KB). Every write after the hand-back (clearing the target sectors,
+then the copy) goes through that slot's own flash region, which cannot reach outside it: the C++
+firmware's slot (`app0`) and nvs cannot be touched. The only write outside it is the hand-back's
+otadata entry, made first, as in every test image, so even if the copy went wrong the C++ firmware
+would start as usual. Before the copy, the sectors it will use are written to 0x00, so that the
+copy can pass only if each erase really works. It passes in the emulator
+(`emu/baremetal-write.txt`, where the lines read "slot 650000+640000", because the emulator uses
+`partitions.csv`).
+
+- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put
+  `purestwhite-baremetal-write-1.bin` (108,704 bytes; in the archive, its checksum in
+  `SHA256-bare-metal.txt`) in the card's root; Settings > System > SD Card Firmware Update >
+  choose the file > Confirm. Within a few seconds the C++ firmware should come back by itself.
+- [ ] Expected in the report, in this order:
+  - "purestWhite write check"
+  - "next boot: C++ firmware"
+  - "slot 7f0000+7e0000" ("slot 10000+7e0000" instead only means the C++ firmware is now in
+    `app1`: the test is just as valid)
+  - "image 108704 bytes, digest ok"
+  - "cleared 27 sectors"
+  - "copy: 27 sectors, T ms" (an estimate: about 1500 to 2000 is typical; up to 12000 is still
+    within the flash chip's limits; over 12000 is not normal)
+  - "read back: same digest"
+  - "done"
+
+  "PANIC", "NOT SET", "DIGESTS DIFFER", a line that starts with "slot:", "region:", "window:",
+  "measure", "identify", "clear" or "copy" followed by an error, or a report that stops early:
+  send me the report. A "clear at …" line that says "not 0x00" means the flash would not program
+  zeros over written data; that does not block the SD updater, which always erases first. Send the
+  report in any case: T is the first measure of the write path's speed (the C++ firmware's 5.4 MB
+  should take roughly 50 times as long, if the time grows with the size).
+- [ ] Optional, later: use the C++ firmware as usual, then install any other bare-metal image
+  through the SD updater. The C++ firmware should write `app1` as before: the copy left in its
+  last megabyte does no harm.

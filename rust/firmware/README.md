@@ -25,11 +25,11 @@ the emulator, so an image without one drives their async calls over blocking bus
 
 - `board`: the X4 Pro's wiring in one place. `Board::take` splits the chip's peripherals into the
   device's parts, handed over as they are, not yet set up: `Boot` (the RTC watchdog's timer, the
-  power latch GPIO1, the flash and the second core), `PanelParts` (SPI2: SCLK 12, MOSI 11, CS 13,
-  DC 18, RST 14, BUSY 6), `CardParts` (SDMMC slot 1: CLK 41, CMD 42, DAT0 40; its supply GPIO5,
-  active low), `I2cParts` (I2C0: SDA 39, SCL 38; the touch panel's supply GPIO2, active low),
-  `TouchParts` (GT911: RST 4, INT 10), `ButtonParts` (Left GPIO0, Right GPIO7, Power GPIO3), the
-  PSRAM, the RTC's low-power control, and `RtosParts` (what esp-rtos runs on). Also
+  power latch GPIO1, the flash and the second core), `PanelParts` (SPI2: SCLK 12, MOSI 11, CS 13, DC
+  18, RST 14, BUSY 6), `CardParts` (SDMMC slot 1: CLK 41, CMD 42, DAT0 40; its supply GPIO5, active
+  low), `I2cParts` (I2C0: SDA 39, SCL 38; the touch panel's supply GPIO2, active low), `TouchParts`
+  (GT911: RST 4, INT 10), `ButtonParts` (Left GPIO0, Right GPIO7, Power GPIO3), the PSRAM, the RTC's
+  low-power control, `RtosParts` (what esp-rtos runs on) and the SHA accelerator. Also
   `hold_power_latch`, `psram_config` and `PSRAM_MHZ` (40).
 - `input`: the three buttons and the GT911 touch panel. `Input::poll` reads both once, as the SDK's
   `InputManager::update()` does, and gives what changed: button changes, a request to sleep (Power
@@ -44,6 +44,11 @@ the emulator, so an image without one drives their async calls over blocking bus
   over the panel's lines, with embassy-time's delays and BUSY awaited on its interrupt, so other
   tasks run while the panel refreshes (SPI stays blocking). It begins the panel before the first
   frame and again after any call that failed or was given up on.
+- `sha`: the chip's SHA accelerator as `purestwhite_ota::digest::Sha256`, for firmware images. A
+  digest dropped unfinished is finished then, so that the next starts on an idle unit.
+- `slots`: the two OTA app slots (the one this image was booted from and the other) and otadata,
+  from the device's partition table, which must have exactly `ota_0` and `ota_1`: for the
+  hand-back, the SD updater and the boot counter.
 - `sleep`: deep sleep as the C++ firmware enters it (`HalPowerManager::startDeepSleep`): Power
   armed through the low-power path, the rails held, the digital pads' auto-hold turned off, then the
   sleep. The module's doc explains why the auto-hold must be off.
@@ -69,13 +74,13 @@ traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit
 
 ### boot
 
-- `start`: the start every image shares. It makes the run's one flash storage before anything
-  writes the flash and gives it to the image after the hand-back: esp-storage 0.10 reads the
-  flash's size with a hardware command when a storage is made, and on the device one made after
-  the hand-back's write could read nothing. It arms the RTC watchdog (60 s, then a core reset) before
-  anything that could hang, holds the power latch, begins the report with the image's title and
-  saves it, then hands the next boot back and notes `next boot: C++ firmware`. If handing back
-  fails, it notes `next boot: NOT SET (<why>)` and resets at once.
+- `start`: the start every image shares. It makes the run's one flash storage before anything writes
+  the flash and gives it to the image after the hand-back: esp-storage 0.10 reads the flash's size
+  with a hardware command when a storage is made, and on the device one made after the hand-back's
+  write could read nothing. It arms the RTC watchdog (60 s, then a core reset) before anything that
+  could hang, holds the power latch, begins the report with the image's title and saves it, then
+  hands the next boot back and notes `next boot: C++ firmware`. If handing back fails, it notes
+  `next boot: NOT SET (<why>)` and resets at once.
 - `hand_back`: selects the C++ firmware's OTA slot (the one this image was not booted from) in
   otadata, as valid. The choice of the entry is in the `purestwhite-ota` crate, tested on the host;
   here the partition table and the flash are read and written. Before that it drops the
@@ -159,12 +164,19 @@ its scenario in `emu/`.
   (eink-qemu 0.9.2 also crashes on the GPIO and SDMMC interrupts).
 - `input-check`: polls the buttons and the touch panel every 15 ms and counts what they give until
   the C++ firmware would sleep, then sleeps deeply until Power (or 60 s). `emu/baremetal-input.txt`.
+- `write-check`: proves the update gate's write path in the last megabyte of the slot it runs
+  from, where a mistake harms only its own slot. It measures its own image where it lies, then
+  copies it into that megabyte through the slot's flash region, with the SD updater's parts
+  (`purestwhite-ota`). First its digest is worked out without writing. Then the target sectors
+  are written to 0x00, so that the copy can pass only if the erase of each sector holding a
+  non-zero byte works. Then each sector is erased, written and read back, and the copy is read
+  and hashed again. The digests use the chip's SHA unit (`sha`). `emu/baremetal-write.txt`.
 - `table-check`: reports the device's partition table, each partition's label, type/subtype,
   offset and size, and the slot it ran from: the device keeps its factory table, which need not
   be `partitions.csv`. `emu/baremetal-table.txt`.
-- `scratch-check`: reads the scratch partition (`spiffs`, 0xC90000, 3456 KB) whole, read only, and
-  reports how many 4 KB sectors are erased, the first one that is not and its first bytes, and a
-  hash of it all: before the update gate's write path is proven there, whether anything uses it.
+- `scratch-check`: reads the `spiffs` partition whole, read only, and reports how many 4 KB sectors
+  are erased, the first one that is not and its first bytes, and a hash of it all. On the device
+  it is 80 KB at 0xFD0000 and holds data, so the write path is proven by `write-check` instead.
   `emu/baremetal-scratch.txt`.
 - `feedback-check` (`src/bin/feedback_check/`): draws what the input gives on the panel, with the
   card's font loaded into PSRAM for the texts, then a moon before a deep sleep.

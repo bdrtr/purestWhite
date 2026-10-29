@@ -7,7 +7,7 @@ use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::peripherals::{
     CPU_CTRL, FLASH, FROM_CPU_INTR0, GPIO0, GPIO1, GPIO2, GPIO3, GPIO4, GPIO5, GPIO6, GPIO7,
     GPIO10, GPIO11, GPIO12, GPIO13, GPIO14, GPIO18, GPIO38, GPIO39, GPIO40, GPIO41, GPIO42, I2C0,
-    LPWR, PSRAM, Peripherals, RTC_TIMER, SDHOST, SPI2, SYSTIMER,
+    LPWR, PSRAM, Peripherals, RTC_TIMER, SDHOST, SHA, SPI2, SYSTIMER,
 };
 use esp_hal::psram::{
     FlashFreq, PsramConfig, PsramMode, PsramSize, SpiRamFreq, SpiTimingConfigCoreClock,
@@ -84,6 +84,8 @@ pub struct Board {
     /// The RTC's low-power control: deep sleep and its wake sources.
     pub low_power: LPWR<'static>,
     pub rtos: RtosParts,
+    /// The SHA accelerator, for checking firmware images.
+    pub sha: SHA<'static>,
 }
 
 impl Board {
@@ -134,6 +136,7 @@ impl Board {
                 systimer: p.SYSTIMER,
                 interrupt: p.FROM_CPU_INTR0,
             },
+            sha: p.SHA,
         }
     }
 }

@@ -95,8 +95,9 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
 ## Memory
 
 - Internal RAM: every task's stack, DMA buffers (the card's blocks), and everything touched while
-  the flash is written (the cache is off then: no PSRAM access, no DMA from PSRAM). The internal
-  heap holds only those. Its size is planned for Wi-Fi at gate 2 (73 KB will not do).
+  the flash is written (the flash cannot be read through the cache then: no code or data from flash,
+  no PSRAM access, no DMA from PSRAM). The internal heap holds only those. Its size is planned for
+  Wi-Fi at gate 2 (73 KB will not do).
 - PSRAM: a separate heap (`esp_alloc::EspHeap::empty()` with the PSRAM added as its region, used
   through allocator-api2), never the global allocator, so a full internal heap fails instead of
   spilling. It holds the fonts, the two frames, decoded pages and images. A frame is allocated
@@ -186,8 +187,14 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   magic, and that the image measured from its segments fits the slot; the battery not low.
   `purestwhite_ota::image::ImageCheck` checks the image as it streams in (the digest itself is the
   caller's, with the chip's SHA unit); it passes every release in the archive. The watchdog is fed
-  between flash chunks (erasing and writing 6.4 MB can take longer than its 60 s; esp-storage runs
-  each operation with interrupts off).
+  between flash chunks: a 5.4 MB image in 4 KB sectors should take over a minute (an estimate;
+  write-check's copy time measures the write path). Erasing 64 KB blocks would be several times
+  faster, but each block erase keeps interrupts masked for its whole length (about 0.15 s,
+  up to 2 s on common 128 Mbit parts). Each ROM flash call runs with interrupts masked, through
+  esp-storage's `critical-section` feature, which the firmware turns on itself
+  (esp-bootloader-esp-idf leaves it off): a handler run from flash while the flash is busy would
+  fetch garbage, so interrupts wait up to a sector erase (about 0.4 s). `sha::HwSha` finishes a
+  digest dropped unfinished, so that the next starts on an idle unit.
 - The write goes to the slot that is not running, is read back and checked, and only then is
   otadata changed (`purestwhite-ota`); a failure at any step leaves otadata as it was.
 - Two passes over the file, because during phase 2 the slot written is the known-good one: the
@@ -262,7 +269,9 @@ hand-back).
    later; health (step 3) and the battery log (step 4) get tasks of their own rather than growing
    the power task.
 3. The update gate: the boot counter, the recovery mode with the phase-2 limits, the scratch-flash
-   proof on the device.
+   proof on the device. Done so far: the image check, the two passes and the slot writer
+   (`purestwhite-ota`), and `write-check`, which proves the write path in the last megabyte of
+   its own slot, for the device test.
 4. The battery page loop and its RTC log; the two-firmware measurement. Before it, who owns the
    report: now the power task does, and the phase-2 backstop writes it once, just before a
    reset; a battery log in its own task needs a shared report in `boot` or an RTC area of its own.

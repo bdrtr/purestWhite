@@ -2,12 +2,11 @@
 //! anything else runs (the choice is `purestwhite_ota`'s; the partition table and the flash are
 //! read and written here), and the bootloader's record of this image dropped.
 
-use esp_bootloader_esp_idf::partitions::{
-    FlashStorage, PARTITION_TABLE_MAX_LEN, PartitionEntry, read_partition_table,
-};
+use crate::slots::ota_slots;
+use esp_bootloader_esp_idf::partitions::FlashStorage;
 use esp_hal::peripherals::CPU_CTRL;
 use esp_hal::system::{Cpu, CpuControl};
-use purestwhite_ota::{self as ota, Slot};
+use purestwhite_ota as ota;
 
 /// The CRC of the record the ESP-IDF bootloader keeps at the top of RTC fast memory (its
 /// `rtc_retain_mem_t`, 16 bytes at `SOC_RTC_DRAM_HIGH - 16` on the ESP32-S3): the app partition
@@ -39,13 +38,6 @@ pub struct HandBack {
     pub booted_state: Option<u32>,
 }
 
-/// The OTA app slot number of a partition (`ota_0` is 0), from its raw type, which unlike
-/// `PartitionEntry::partition_type` does not panic on a type the crate does not know.
-fn ota_slot(p: &PartitionEntry) -> Option<u32> {
-    (p.raw_type() == 0 && (0x10..=0x1F).contains(&p.raw_subtype()))
-        .then(|| u32::from(p.raw_subtype() - 0x10))
-}
-
 /// Selects the C++ firmware, the OTA app slot this image was not booted from, for the next boot,
 /// valid. Done first, before anything that could fail: the device's bootloader may not roll back
 /// on its own, so from here on any reset, panic, watchdog or deep-sleep wake lands in the C++
@@ -71,7 +63,8 @@ pub fn hand_back(
     forget_last_boot();
     // SAFETY: this code runs on the first core.
     unsafe { CpuControl::new(cpu).park_core(Cpu::AppCpu) };
-    let (otadata, booted) = ota_partitions(storage)?;
+    let slots = ota_slots(storage)?;
+    let (otadata, booted) = (slots.otadata, slots.booted_slot);
     let mut entries = [[0u8; ota::ENTRY]; 2];
     for (at, entry) in [otadata, otadata + ota::SECTOR]
         .into_iter()
@@ -86,37 +79,6 @@ pub fn hand_back(
     Ok(HandBack {
         booted_state: selection.booted_state,
     })
-}
-
-/// Where otadata is, and the OTA app slot this image was booted from, once the partition table
-/// has exactly `ota_0` and `ota_1`, once each.
-fn ota_partitions(storage: &mut FlashStorage<'_>) -> Result<(u32, Slot), &'static str> {
-    let mut table = [0u8; PARTITION_TABLE_MAX_LEN];
-    let table = read_partition_table(storage, &mut table).map_err(|_| "partition table")?;
-    let (mut slots, mut seen) = (0u32, 0u32);
-    let mut otadata = None;
-    for p in table.iter() {
-        if let Some(slot) = ota_slot(&p) {
-            slots += 1;
-            seen |= 1 << slot;
-        } else if p.raw_type() == 1 && p.raw_subtype() == 0 {
-            otadata = Some(p.offset());
-        }
-    }
-    if slots != 2 || seen != 0b11 {
-        return Err("not two OTA slots");
-    }
-    let otadata = otadata.ok_or("no otadata")?;
-    // The image the bootloader mapped, from the MMU.
-    let booted = table
-        .booted_partition()
-        .ok()
-        .flatten()
-        .as_ref()
-        .and_then(ota_slot)
-        .and_then(Slot::from_index)
-        .ok_or("running slot unknown")?;
-    Ok((otadata, booted))
 }
 
 /// Writes `entry` at `at` and reads it back.
