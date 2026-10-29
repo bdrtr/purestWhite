@@ -833,13 +833,13 @@ The card holds two `.bin` files for this test: in the update list choose
 `purestwhite-baremetal-update-1.bin`, not `purestwhite-recovery.bin`. Choosing the recovery file by
 mistake only installs the C++ firmware into the other slot, as any C++ update would.
 
-- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. The card's root should hold
+- [x] Delete the old `purestwhite-bare-metal.txt` on the card. The card's root should hold
   `purestwhite-baremetal-update-1.bin` and `purestwhite-recovery.bin` (a copy of
   `purestWhite-next-reports-en-a8764dbb.bin`; both in the archive, their checksums in
   `SHA256-bare-metal.txt`). Settings > System > SD Card Firmware Update > choose
   `purestwhite-baremetal-update-1.bin` > Confirm. Within about 15 seconds the C++ firmware should
   come back by itself (reading 5.4 MB from the card takes a few seconds).
-- [ ] Expected in the report, in this order:
+- [x] Expected in the report, in this order:
   - "purestWhite update check"
   - "next boot: C++ firmware"
   - "card 5490944 B T ms c746bebf next a8764dbb"
@@ -852,4 +852,11 @@ mistake only installs the C++ firmware into the other slot, as any C++ update wo
   SET", or a line starting "card:", "volume:", "slot:" or "region:" followed by an error: send me
   the report. Send it in any case: the times are the first measure of reading the card and the
   slot.
+  - Result (2026-10-29, device): "card 5490944 B 3979 ms c746bebf next a8764dbb", "slot 5490944
+    B 1994 ms c746bebf next a8764dbb", "same: yes, would write 1341 sectors", "done". The device
+    runs the archive's `purestWhite-next-reports-en-a8764dbb.bin`, and the card's copy was read,
+    checked and hashed whole: the card at about 1.4 MB/s, the slot at about 2.8 MB/s (each with
+    the hardware SHA). With the write path's 27 ms per sector, a real install of this release
+    should take about 45 s (the first pass about 4 s, the second about 40 s). Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-update-1.txt`.
 

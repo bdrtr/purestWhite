@@ -188,7 +188,8 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   `purestwhite_ota::image::ImageCheck` checks the image as it streams in (the digest itself is the
   caller's, with the chip's SHA unit); it passes every release in the archive. The watchdog is fed
   between flash chunks: write-check measured about 27 ms per 4 KB sector on the device (erase,
-  write, read back and hash; 2026-10-29), so a 5.4 MB image should take about 36 s. Erasing 64 KB
+  write, read back and hash; 2026-10-29), so a 5.4 MB image should take about 36 s, and with
+  update-check's reading of the card (about 1.4 MB/s) both passes about 45 s. Erasing 64 KB
   blocks would be several times faster, but each block erase keeps interrupts masked for its whole
   length (about 0.15 s, up to 2 s on common 128 Mbit parts). Each ROM flash call runs with
   interrupts masked, through esp-storage's `critical-section` feature, which the firmware turns on
@@ -272,9 +273,10 @@ hand-back).
    proof on the device. Done so far: the image check, the two passes and the slot writer
    (`purestwhite-ota`), and `write-check`, which proved the write path on the device in the last
    megabyte of its own slot (2026-10-29: 27 sectors in 726 ms, the same digest read back), and
-   `update-check`, the SD updater's reading side as a dry run (the card's release and the C++
-   slot identified and compared; nothing written), for the device test. Writing the C++ slot on
-   the device waits for the owner's decision after that dry run.
+   `update-check`, the SD updater's reading side as a dry run, which passed on the device (the
+   card's release and the C++ slot identified as the same image, "next a8764dbb"; the card read
+   in 3979 ms, the slot in 1994 ms; nothing written). Writing the C++ slot on the device waits
+   for the owner's decision.
 4. The battery page loop and its RTC log; the two-firmware measurement. Before it, who owns the
    report: now the power task does, and the phase-2 backstop writes it once, just before a
    reset; a battery log in its own task needs a shared report in `boot` or an RTC area of its own.
