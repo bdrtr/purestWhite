@@ -756,10 +756,15 @@ the flash is free. This image only reads the table and reports it; it writes not
 next boot back first and resets at once. It passes in the emulator (`emu/baremetal-table.txt`,
 which shows `partitions.csv`).
 
-- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put
+- [x] Delete the old `purestwhite-bare-metal.txt` on the card. Put
   `purestwhite-baremetal-table-1.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`) in
   the card's root; Settings > System > SD Card Firmware Update > choose the file > Confirm. Within
   a few seconds the C++ firmware should come back by itself.
-- [ ] Expected in the report: "purestWhite table", "next boot: C++ firmware", "flash 16384 KB",
+- [x] Expected in the report: "purestWhite table", "next boot: C++ firmware", "flash 16384 KB",
   then one line per partition ("<label> <type>/<subtype> <offset> <size>", in hex), "run app0" or
   "run app1", "done". Send me the report.
+  - Result (2026-10-29, device): "nvs 1/02 9000 5000", "otadata 1/00 e000 2000", "app0 0/10 10000
+    7e0000", "app1 0/11 7f0000 7e0000", "spiffs 1/82 fd0000 14000", "coredump 1/03 fe4000 1c000",
+    "run app1". Two app slots of 0x7E0000 (not `partitions.csv`'s 0x640000), no free space, the
+    image in `app1` and the C++ firmware in `app0`. The write path will be proven in the last
+    megabyte of the image's own slot. Report: `firmware-arsiv/cihaz-raporlari/2026-10-29-table-1.txt`.
