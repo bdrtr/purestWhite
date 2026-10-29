@@ -110,6 +110,39 @@ fn an_image_larger_than_the_slot_is_refused_as_soon_as_it_shows() {
     assert_eq!(c.feed(&head), Err(ImageError::TooLarge));
 }
 
+#[test]
+fn bytes_after_the_image_are_refused_in_a_later_piece_too() {
+    let image = good();
+    let mut c = ImageCheck::new(SLOT);
+    c.feed(&image).unwrap();
+    assert_eq!(c.feed(&[0xFF]), Err(ImageError::Trailing));
+    // Nothing more is taken by `feed_some` once the image has ended.
+    let mut c = ImageCheck::new(SLOT);
+    assert_eq!(c.feed_some(&image).unwrap(), image.len());
+    assert_eq!(c.feed_some(&[0xFF; 10]).unwrap(), 0);
+    assert!(c.is_done());
+}
+
+#[test]
+fn an_image_read_where_it_lies_ends_where_it_ends() {
+    // In a slot, an image is followed by whatever was there: here, erased flash.
+    let image = good();
+    let mut slot = image.clone();
+    slot.extend_from_slice(&[0xFF; 5000]);
+    for chunk in [1, 100, 4096] {
+        let mut c = ImageCheck::new(SLOT);
+        let mut used = 0;
+        for piece in slot.chunks(chunk) {
+            used += c.feed_some(piece).unwrap();
+            if c.is_done() {
+                break;
+            }
+        }
+        assert_eq!(used, image.len(), "{chunk}");
+        assert_eq!(c.finish().unwrap().len, image.len());
+    }
+}
+
 /// A real image, when `PW_IMAGE` names one (for example a release from the archive): it passes,
 /// and its digest holds.
 #[test]

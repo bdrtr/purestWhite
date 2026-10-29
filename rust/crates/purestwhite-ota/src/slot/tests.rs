@@ -8,97 +8,8 @@ extern crate std;
 
 use super::*;
 use crate::image::{DIGEST, ImageError};
-use crate::testing::{Sha, good_image};
-use embedded_storage::nor_flash::{ErrorType, NorFlashError, NorFlashErrorKind, ReadNorFlash};
-use std::vec;
-use std::vec::Vec;
-
-/// What the fake flash failed with.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct FakeError;
-
-impl NorFlashError for FakeError {
-    fn kind(&self) -> NorFlashErrorKind {
-        NorFlashErrorKind::Other
-    }
-}
-
-/// A NOR flash in memory: an erase sets a sector to 0xFF, a write can only clear bits (as the
-/// chip's), and both must be aligned. It can hold a bit at 0 (`stuck`) or fail writes at an
-/// offset (`fail_write_at`).
-struct FakeFlash {
-    mem: Vec<u8>,
-    erases: Vec<(u32, u32)>,
-    stuck: Option<usize>,
-    fail_write_at: Option<u32>,
-}
-
-impl FakeFlash {
-    /// A slot of `len` bytes holding something old (not erased).
-    fn new(len: usize) -> Self {
-        FakeFlash {
-            mem: vec![0x5A; len],
-            erases: Vec::new(),
-            stuck: None,
-            fail_write_at: None,
-        }
-    }
-}
-
-impl ErrorType for FakeFlash {
-    type Error = FakeError;
-}
-
-impl ReadNorFlash for FakeFlash {
-    const READ_SIZE: usize = 1;
-
-    fn read(&mut self, offset: u32, bytes: &mut [u8]) -> Result<(), FakeError> {
-        let at = offset as usize;
-        bytes.copy_from_slice(self.mem.get(at..at + bytes.len()).ok_or(FakeError)?);
-        Ok(())
-    }
-
-    fn capacity(&self) -> usize {
-        self.mem.len()
-    }
-}
-
-impl NorFlash for FakeFlash {
-    const WRITE_SIZE: usize = 4;
-    const ERASE_SIZE: usize = 4096;
-
-    fn erase(&mut self, from: u32, to: u32) -> Result<(), FakeError> {
-        assert!(
-            from.is_multiple_of(4096) && to.is_multiple_of(4096),
-            "unaligned erase"
-        );
-        self.mem
-            .get_mut(from as usize..to as usize)
-            .ok_or(FakeError)?
-            .fill(0xFF);
-        self.erases.push((from, to));
-        Ok(())
-    }
-
-    fn write(&mut self, offset: u32, bytes: &[u8]) -> Result<(), FakeError> {
-        assert!(
-            offset.is_multiple_of(4) && bytes.len().is_multiple_of(4),
-            "unaligned write"
-        );
-        if self.fail_write_at == Some(offset) {
-            return Err(FakeError);
-        }
-        let at = offset as usize;
-        let to = self.mem.get_mut(at..at + bytes.len()).ok_or(FakeError)?;
-        for (m, b) in to.iter_mut().zip(bytes) {
-            *m &= b;
-        }
-        if let Some(stuck) = self.stuck {
-            self.mem[stuck] &= 0xFE;
-        }
-        Ok(())
-    }
-}
+use crate::testing::{FakeError, FakeFlash, Sha, good_image};
+use embedded_storage::nor_flash::ReadNorFlash;
 
 /// Writes `bytes` in pieces of `chunk` into `flash`: the writer's end, and the flash.
 fn write(
@@ -108,15 +19,15 @@ fn write(
 ) -> (Result<Identified, WriteError<FakeError>>, FakeFlash) {
     let mut flash = flash;
     let result = {
-        let mut writer = SlotWriter::new(&mut flash, Sha::default());
+        let mut writer = SlotWriter::new(flash.capacity(), Sha::default());
         let mut fed = Ok(());
         for piece in bytes.chunks(chunk) {
-            fed = writer.write(piece);
+            fed = writer.write(&mut flash, piece);
             if fed.is_err() {
                 break;
             }
         }
-        fed.and_then(|()| writer.finish())
+        fed.and_then(|()| writer.finish(&mut flash))
     };
     (result, flash)
 }
@@ -198,4 +109,24 @@ fn the_two_passes_give_the_same_digest() {
     let first = identify.finish().unwrap();
     let (second, _) = write(&bytes, 4096, FakeFlash::new(64 * 1024));
     assert_eq!(second.unwrap().digest, first.digest);
+}
+
+#[test]
+fn a_flash_not_the_slots_size_is_refused_before_anything_is_written() {
+    let bytes = good_image(10_000);
+    let mut flash = FakeFlash::new(8 * 1024);
+    let mut writer = SlotWriter::new(64 * 1024, Sha::default());
+    assert_eq!(
+        writer.write(&mut flash, &bytes[..4096]),
+        Err(WriteError::SlotSize)
+    );
+    assert!(flash.erases.is_empty());
+    // A larger flash too: it is not the slot (for example the whole partition for a window).
+    let mut larger = FakeFlash::new(128 * 1024);
+    assert_eq!(
+        writer.write(&mut larger, &bytes[..4096]),
+        Err(WriteError::SlotSize)
+    );
+    assert!(larger.erases.is_empty());
+    assert_eq!(writer.finish(&mut flash).err(), Some(WriteError::SlotSize));
 }

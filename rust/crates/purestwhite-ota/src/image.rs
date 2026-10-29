@@ -123,16 +123,36 @@ impl ImageCheck {
     ///
     /// # Errors
     /// The first thing wrong in the image so far; the check stops there.
-    pub fn feed(&mut self, mut data: &[u8]) -> Result<(), ImageError> {
-        while !data.is_empty() {
-            let used = self.step(data)?;
+    pub fn feed(&mut self, data: &[u8]) -> Result<(), ImageError> {
+        if self.feed_some(data)? < data.len() {
+            return Err(ImageError::Trailing);
+        }
+        Ok(())
+    }
+
+    /// As `feed`, but stops at the image's end: how many bytes of `data` were the image's. For an
+    /// image read where it lies, whose length is not known (an app slot holds more than its
+    /// image).
+    ///
+    /// # Errors
+    /// As `feed`'s, except that bytes after the end are left unread, not refused (`Trailing`).
+    pub fn feed_some(&mut self, data: &[u8]) -> Result<usize, ImageError> {
+        let mut rest = data;
+        while !rest.is_empty() && self.part != Part::Done {
+            let used = self.step(rest)?;
             self.pos += used;
             if self.pos > self.limit {
                 return Err(ImageError::TooLarge);
             }
-            data = data.get(used..).unwrap_or_default();
+            rest = rest.get(used..).unwrap_or_default();
         }
-        Ok(())
+        Ok(data.len() - rest.len())
+    }
+
+    /// Whether the whole image has come.
+    #[must_use]
+    pub fn is_done(&self) -> bool {
+        self.part == Part::Done
     }
 
     /// Ends the check: the image, once it has all come.

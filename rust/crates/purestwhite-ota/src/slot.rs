@@ -29,6 +29,9 @@ const READ_BACK_BYTES: u32 = 256;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WriteError<E> {
     Image(ImageError),
+    /// The flash lent is not the size of the slot the writer was made for: nothing of this call
+    /// was written.
+    SlotSize,
     /// The digest appended is not the image's.
     Digest,
     Flash(E),
@@ -45,45 +48,58 @@ impl<E> From<DigestError> for WriteError<E> {
     }
 }
 
-/// An image being written into a slot.
-pub struct SlotWriter<F, H> {
-    flash: F,
+/// A buffer the flash can take without copying it again (esp-storage copies through one of its
+/// own when a buffer is not word aligned).
+#[repr(C, align(4))]
+struct Aligned<const N: usize>([u8; N]);
+
+/// An image being written into a slot, the slot's flash lent to each call (so that the caller
+/// may read from the same flash between them).
+pub struct SlotWriter<H> {
     identify: Identify<H>,
-    sector: [u8; SECTOR],
+    /// The slot's size: every flash lent must be the slot, of this size.
+    capacity: usize,
+    sector: Aligned<SECTOR>,
     filled: usize,
     /// Where the sector being filled goes.
     at: u32,
 }
 
-impl<F: NorFlash, H: Sha256> SlotWriter<F, H> {
-    /// A writer into `flash`, the whole slot (an image may fill all of it).
-    pub fn new(flash: F, hasher: H) -> Self {
-        let limit = flash.capacity();
+impl<H: Sha256> SlotWriter<H> {
+    /// A writer into a slot of `capacity` bytes (an image may fill all of it).
+    pub fn new(capacity: usize, hasher: H) -> Self {
         SlotWriter {
-            flash,
-            identify: Identify::new(limit, hasher),
-            sector: [0xFF; SECTOR],
+            identify: Identify::new(capacity, hasher),
+            capacity,
+            sector: Aligned([0xFF; SECTOR]),
             filled: 0,
             at: 0,
         }
     }
 
-    /// Checks the next bytes of the image, then writes them, a sector at a time.
+    /// Checks the next bytes of the image, then writes them into `flash` (the slot, of the
+    /// capacity given), a sector at a time.
     ///
     /// # Errors
-    /// The image is refused (nothing of `data` is written then), or the flash failed.
-    pub fn write(&mut self, mut data: &[u8]) -> Result<(), WriteError<F::Error>> {
+    /// The image is refused (nothing of `data` is written then), the flash lent is not the slot's
+    /// size (nothing of `data` is written then), or the flash failed.
+    pub fn write<F: NorFlash>(
+        &mut self,
+        flash: &mut F,
+        mut data: &[u8],
+    ) -> Result<(), WriteError<F::Error>> {
+        self.check_size(flash)?;
         self.identify.feed(data).map_err(WriteError::Image)?;
         while !data.is_empty() {
             let n = (SECTOR - self.filled).min(data.len());
             let (head, rest) = data.split_at(n);
-            if let Some(to) = self.sector.get_mut(self.filled..self.filled + n) {
+            if let Some(to) = self.sector.0.get_mut(self.filled..self.filled + n) {
                 to.copy_from_slice(head);
             }
             self.filled += n;
             data = rest;
             if self.filled == SECTOR {
-                self.flush()?;
+                self.flush(flash)?;
             }
         }
         Ok(())
@@ -93,39 +109,60 @@ impl<F: NorFlash, H: Sha256> SlotWriter<F, H> {
     /// it all is and it holds.
     ///
     /// # Errors
-    /// The image ended early or is refused, its digest does not hold, or the flash failed.
-    pub fn finish(mut self) -> Result<Identified, WriteError<F::Error>> {
+    /// The image ended early or is refused, its digest does not hold, the flash lent is not the
+    /// slot's size, or the flash failed.
+    pub fn finish<F: NorFlash>(
+        mut self,
+        flash: &mut F,
+    ) -> Result<Identified, WriteError<F::Error>> {
+        self.check_size(flash)?;
         if self.filled > 0 {
-            self.flush()?;
+            self.flush(flash)?;
         }
         Ok(self.identify.finish()?)
     }
 
+    /// Refuses a flash that is not the slot's size, before anything is written to it.
+    fn check_size<F: NorFlash>(&self, flash: &F) -> Result<(), WriteError<F::Error>> {
+        if flash.capacity() != self.capacity {
+            return Err(WriteError::SlotSize);
+        }
+        Ok(())
+    }
+
     /// Erases the sector at `at`, writes what was filled of it (padded with 0xFF to the flash's
     /// write size), and reads it back.
-    fn flush(&mut self) -> Result<(), WriteError<F::Error>> {
+    fn flush<F: NorFlash>(&mut self, flash: &mut F) -> Result<(), WriteError<F::Error>> {
         let len = self.filled.next_multiple_of(F::WRITE_SIZE).min(SECTOR);
-        if let Some(pad) = self.sector.get_mut(self.filled..len) {
+        if let Some(pad) = self.sector.0.get_mut(self.filled..len) {
             pad.fill(0xFF);
         }
         let end = self.at + SECTOR_BYTES;
-        self.flash.erase(self.at, end).map_err(WriteError::Flash)?;
-        let bytes = self.sector.get(..len).unwrap_or_default();
-        self.flash
-            .write(self.at, bytes)
-            .map_err(WriteError::Flash)?;
-        self.read_back(len)?;
+        flash.erase(self.at, end).map_err(WriteError::Flash)?;
+        let bytes = self.sector.0.get(..len).unwrap_or_default();
+        flash.write(self.at, bytes).map_err(WriteError::Flash)?;
+        self.read_back(flash, len)?;
         self.at = end;
         self.filled = 0;
         Ok(())
     }
 
-    fn read_back(&mut self, len: usize) -> Result<(), WriteError<F::Error>> {
-        let mut back = [0u8; READ_BACK];
+    fn read_back<F: NorFlash>(
+        &mut self,
+        flash: &mut F,
+        len: usize,
+    ) -> Result<(), WriteError<F::Error>> {
+        let mut back = Aligned([0u8; READ_BACK]);
         let mut at = self.at;
-        for written in self.sector.get(..len).unwrap_or_default().chunks(READ_BACK) {
-            let back = back.get_mut(..written.len()).unwrap_or_default();
-            self.flash.read(at, back).map_err(WriteError::Flash)?;
+        for written in self
+            .sector
+            .0
+            .get(..len)
+            .unwrap_or_default()
+            .chunks(READ_BACK)
+        {
+            let back = back.0.get_mut(..written.len()).unwrap_or_default();
+            flash.read(at, back).map_err(WriteError::Flash)?;
             if written != back {
                 return Err(WriteError::ReadBack(at));
             }

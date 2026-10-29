@@ -7,7 +7,8 @@
 //! one at the start of each of otadata's two sectors, and writes the one [`select_other`] gives.
 //!
 //! [`image`] checks an app image as it streams in, [`digest`] works out its SHA-256, and [`slot`]
-//! writes it into a slot, sector by sector, read back: the SD updater's parts.
+//! writes it into a slot, sector by sector, read back: the SD updater's parts. [`window`] shows a
+//! part of a flash as a flash of its own.
 //!
 //! The bootloader takes, of the two entries whose CRC holds and whose state is neither INVALID nor
 //! ABORTED, the one with the higher sequence number; sequence number `seq` selects slot
@@ -24,6 +25,7 @@ pub mod slot;
 mod testing;
 #[cfg(test)]
 mod tests;
+pub mod window;
 
 /// An entry's size in bytes: the sequence number at 0, a label, the state at 24 and the CRC at 28.
 pub const ENTRY: usize = 32;
