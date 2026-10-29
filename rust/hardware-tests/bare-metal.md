@@ -1134,3 +1134,19 @@ without breaking the C++ firmware's slot; the fell-back entry stays build-only s
   checksum in `SHA256-bare-metal.txt`); install it from SD; press Right when "Updating..." shows
   and hold it until the C++ home screen is back (about 15 s after "Update complete"). Send me
   the report.
+  - Result (2026-10-29, device, after the archived tasks-check's run): "a 1b00 40000000 i0 r0 e00
+    s2", the same for b, c and d, "low 400/400 400/400 400/400 of 400". This time Right read low
+    from the moment the image was entered, on both inputs and in every phase: the pad is a GPIO
+    input with its pull-up (`1b00`), not routed to the RTC side, no output on it, SPI1's MISC at
+    its reset value. The first version's binary reads Right the same way, so what kept it high in
+    the four runs before (main-3 twice, right-check 1 twice) was a state the device was in, not
+    those images' code. Those four runs all came after the main image's deep sleep (main-3's
+    first step, then each try); the two that read Right came later. Next: the main image's sleep
+    and wake, then right-check 2 again, to catch that state with the registers. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-right-2.txt`.
+  - After the main image's sleep and wake (2026-10-29, device: main-3 on battery, 40 s, Power
+    for the sleep, Power to wake, then right-check 2 at once): the same lines, "low 400/400
+    400/400 400/400 of 400". The sleep does not leave GPIO7 reading high; the four runs that never
+    saw Right stay unexplained (a state not reproduced, or the key not pressed as the image
+    started). Next: the recovery mode's second step again. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-right-2-after-sleep.txt`.
