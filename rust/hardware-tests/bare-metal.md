@@ -706,3 +706,21 @@ the report is then lost) and tell me. Do not long-press before that.
   About 10 minutes after the white screen the crescent should come by itself, and about 10
   minutes later the C++ firmware should start without a press. Expected: "panel: … asleep",
   "sleep: deep, time up i… p… a r s", "wake: timer", "reset: DEEPSLEEP".
+
+## The scratch partition, read only ("firmware: scratch-check, the scratch partition read only")
+
+The update gate's SD updater (step 3 of `rust/firmware/DESIGN.md`) will write a firmware image to
+the flash. Before it ever writes to a firmware slot, the erase, write and read-back path is to be
+proven on a part of the flash nothing uses: the `spiffs` partition (0xC90000, 3456 KB), which the
+C++ firmware's sources never open. This image only reads it and reports what is there; it writes
+nothing. It hands the next boot back first and resets at once. It passes in the emulator
+(`emu/baremetal-scratch.txt`: all 864 sectors erased there).
+
+- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put
+  `purestwhite-baremetal-scratch-1.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`)
+  in the card's root; Settings > System > SD Card Firmware Update > choose the file > Confirm. Within a few seconds the C++ firmware
+  should come back by itself.
+- [ ] Expected in the report: "purestWhite scratch check", "next boot: C++ firmware", "scratch
+  0xc90000, 3456 KB", "erased N of 864 sectors", "first used: …", "fnv …", "done". Send me the
+  report whatever it says: "erased 864 of 864" and "first used: none" mean the partition is unused
+  and the write path can be proven there; anything else tells what was written there once.

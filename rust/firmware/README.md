@@ -69,7 +69,7 @@ traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit
 
 ### boot
 
-- `start`: the start every image shares. It arms the RTC watchdog (60 s, then a core reset) before
+- `start`: the start every image shares (it gives back the flash, for an image that reads it). It arms the RTC watchdog (60 s, then a core reset) before
   anything that could hang, holds the power latch, begins the report with the image's title and
   saves it, then hands the next boot back and notes `next boot: C++ firmware`. If handing back
   fails, it notes `next boot: NOT SET (<why>)` and resets at once.
@@ -156,6 +156,10 @@ its scenario in `emu/`.
   (eink-qemu 0.9.2 also crashes on the GPIO and SDMMC interrupts).
 - `input-check`: polls the buttons and the touch panel every 15 ms and counts what they give until
   the C++ firmware would sleep, then sleeps deeply until Power (or 60 s). `emu/baremetal-input.txt`.
+- `scratch-check`: reads the scratch partition (`spiffs`, 0xC90000, 3456 KB) whole, read only, and
+  reports how many 4 KB sectors are erased, the first one that is not and its first bytes, and a
+  hash of it all: before the update gate's write path is proven there, whether anything uses it.
+  `emu/baremetal-scratch.txt`.
 - `feedback-check` (`src/bin/feedback_check/`): draws what the input gives on the panel, with the
   card's font loaded into PSRAM for the texts, then a moon before a deep sleep.
   `emu/baremetal-feedback.txt`.

@@ -72,6 +72,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "scratch-check"
+path = "./src/bin/scratch_check.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rollback-check"
 path = "./src/bin/rollback_check.rs"
 test = false
