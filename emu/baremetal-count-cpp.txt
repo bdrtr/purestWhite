@@ -1,0 +1,36 @@
+# The boot counter across the C++ firmware, as on the device during phase 2 (rust/firmware's
+# count-check): this firmware installs count-check twice over SD Card Firmware Update. The first
+# run notes "runs: 0 unfinished" and panics; this firmware starts, saves the report and leaves the
+# counter's record alone (16 bytes below the report in RTC slow memory); the second run counts the
+# first ("runs: 1 unfinished") and resets.
+#   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/count-check build/baremetal/a-count-check.bin
+#   emu/compare.sh emu/baremetal-count-cpp.txt x4pro build/baremetal/a-count-check.bin
+# (The image sorts first in the update list, where the scenario touches.)
+# (The unmodified base never starts the image: its side fails at the first wait for its output.)
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+touch:240,472
+timeout:180
+wait-log:runs: 0 unfinished
+wait-log:crash: panic
+wait-log:Bare-metal report
+ready:120
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+touch:240,472
+wait-log:runs: 1 unfinished
+wait-log:crash: reset
+wait-log:Bare-metal report

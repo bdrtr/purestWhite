@@ -1,0 +1,21 @@
+# The boot counter (rust/firmware's count-check): a cold boot of a flash whose app0 holds no image
+# that passes (make_install_flash.py's cut-first.bin, made with count-check in app1), so the
+# bootloader starts count-check after every reset. Each run notes the runs before it that did not
+# get healthy, then crashes on purpose (a panic, a reset, a panic). The fourth notes "runs: 3
+# unfinished, recovery due", marks itself healthy and resets, and the next run counts from zero.
+#   cd rust/firmware; cargo build --release; cd ../..
+#   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/count-check build/baremetal/a-count-check.bin
+#   (make build/baremetal/flash/base.bin as emu/make_install_flash.py says)
+#   python3 emu/make_install_flash.py build/baremetal/flash/base.bin build/baremetal/a-count-check.bin build/baremetal/count
+#   ~/Documents/bembeyaz/tools/eink-qemu-0.9.2/qemu/bin/eink-qemu run build/baremetal/count/cut-first.bin --machine x4pro --sleep on --script emu/baremetal-count.txt
+timeout:400
+wait-log:runs: 0 unfinished
+wait-log:crash: panic
+wait-log:runs: 1 unfinished
+wait-log:crash: reset
+wait-log:runs: 2 unfinished
+wait-log:crash: panic
+wait-log:runs: 3 unfinished, recovery due
+wait-log:healthy
+wait-log:done
+wait-log:runs: 0 unfinished

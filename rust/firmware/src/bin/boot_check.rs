@@ -28,7 +28,6 @@
 #![no_main]
 
 use aligned::{A4, Aligned};
-use core::fmt::{Arguments, Write as _};
 use embedded_storage::nor_flash::NorFlash;
 use esp_backtrace as _;
 use esp_bootloader_esp_idf::partitions::{Error as FlashError, FlashStorage, PartitionEntry};
@@ -40,7 +39,7 @@ use purestwhite_firmware::images::{SlotError, identify_partition};
 use purestwhite_firmware::releases::{Named, release};
 use purestwhite_firmware::sha::HwSha;
 use purestwhite_firmware::slots::{OtaSlots, ota_slots};
-use purestwhite_firmware::test_image::select_this_image;
+use purestwhite_firmware::test_image::{note, select_this_image};
 use purestwhite_ota::digest::{HeldBack, Identified};
 use purestwhite_ota::image::{DIGEST, ImageCheck};
 use purestwhite_ota::slot::SECTOR;
@@ -75,14 +74,6 @@ const CPP_BUILD_BOOTLOADER: [u8; DIGEST] = [
 ];
 
 type Buf = Aligned<A4, [u8; SECTOR]>;
-
-/// Adds `line` to the report, saved, and prints it.
-fn note(report: &mut Report, line: Arguments<'_>) {
-    let _ = report.write_fmt(line);
-    let _ = writeln!(report);
-    report.save();
-    esp_println::println!("{line}");
-}
 
 /// A digest's first four bytes, for the report.
 struct Start<'a>(&'a [u8; DIGEST]);

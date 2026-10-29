@@ -620,6 +620,10 @@ name = "purestwhite-app"
 version = "0.1.0"
 
 [[package]]
+name = "purestwhite-bootcount"
+version = "0.1.0"
+
+[[package]]
 name = "purestwhite-buttons"
 version = "0.1.0"
 

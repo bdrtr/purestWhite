@@ -978,3 +978,46 @@ reset (2026-10-29); at power-on it is still unproven.
   the archive if it differs), put the card back, hold Power for about a second, and wait 2
   minutes. While it has power, the device tries again by itself every 10 minutes. The Right+Power
   recovery is the C++ firmware's, so it does not open then.
+
+## The boot counter ("firmware: the boot counter, runs in a row that never got healthy")
+
+The boot counter (rust/firmware/DESIGN.md) keeps, in RTC memory, how many runs in a row ended
+before they were healthy; at three the firmware is due to go to its recovery mode, which is not
+written yet. It passes in the emulator (`emu/baremetal-count.txt`, `emu/baremetal-count-cpp.txt`).
+`count-check` ends each run on purpose without getting healthy, so on the device each count is one
+install: four installs in a row. Do them in one sitting, and do not restart the device with a long
+press on Power in between: a power cut clears the count (the C++ firmware's own sleeps should keep
+it).
+
+- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put
+  `purestwhite-baremetal-count-1.bin` in the card's root (in the archive, its checksum in
+  `SHA256-bare-metal.txt`). Settings > System > SD Card Firmware Update > choose it > Confirm, four
+  times; after each the C++ firmware comes back by itself within a few seconds. Each install
+  overwrites the report: give me the card after each one (I keep the report and delete it from
+  the card), or copy it off the card yourself and delete it there.
+- [ ] Expected, one report per install, each starting with "purestWhite count check" and "next
+  boot: C++ firmware":
+  1. "runs: 0 unfinished", "crash: panic", "PANIC"
+  2. "runs: 1 unfinished", "crash: reset"
+  3. "runs: 2 unfinished", "crash: panic", "PANIC"
+  4. "runs: 3 unfinished, recovery due", "healthy", "done"
+
+  A count that does not grow by one means the record did not survive between runs: tell me what
+  happened in between (a long press, an empty battery).
+- [ ] Then the main image, as in "The Embassy main" above (on battery; do not hold Right while
+  waking the device). Put `purestwhite-baremetal-main-2.bin` on the card and install it. Wait on
+  the home screen for at least 40 seconds, then hold Power for about a second to put it to sleep,
+  and a few seconds later wake it the same way: the C++ firmware comes back. Expected, in this
+  order:
+  - "purestWhite"
+  - "next boot: C++ firmware"
+  - "runs: 0 unfinished" (count-check's last run was healthy)
+  - "psram 8192 KB, frames ok"
+  - "panel UC8179"
+  - "healthy: 30 s" (a frame shown and 30 s passed)
+  - "panel: 3 ok, 0 failed, 0 given up, longest N ms, asleep"
+  - "sleep: deep, power i<hex> p<hex> a r s", then the C++ firmware's "wake: button" and "reset:
+    DEEPSLEEP"
+
+  "healthy: sleep" after the "panel:" line instead of "healthy: 30 s" means the 30 s mark did not
+  come: tell me how long you waited. No "healthy" line at all means no frame was shown.

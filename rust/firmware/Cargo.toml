@@ -108,6 +108,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "count-check"
+path = "./src/bin/count_check.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rollback-check"
 path = "./src/bin/rollback_check.rs"
 test = false
@@ -152,6 +158,7 @@ purestwhite-epd = { path = "../crates/purestwhite-epd" }
 purestwhite-fat = { path = "../crates/purestwhite-fat" }
 purestwhite-gauge = { path = "../crates/purestwhite-gauge" }
 purestwhite-gt911 = { path = "../crates/purestwhite-gt911" }
+purestwhite-bootcount = { path = "../crates/purestwhite-bootcount" }
 purestwhite-ota = { path = "../crates/purestwhite-ota" }
 purestwhite-render = { path = "../crates/purestwhite-render" }
 purestwhite-rtc = { path = "../crates/purestwhite-rtc" }

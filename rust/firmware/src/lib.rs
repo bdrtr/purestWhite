@@ -3,8 +3,8 @@
 //! through blocking calls. For the Embassy main: the buttons on their interrupts (`keys`), the
 //! PSRAM as a heap of its own (`memory`) and the panel as the services' `Screen` (`screen`). What
 //! every image shares while the C++ firmware is the known-good one (the watchdog, the next boot
-//! handed back to it, the report, the bounded deep sleep) is in `boot`; what only the test images
-//! use is in `test_image`, out of the real firmware's way.
+//! handed back to it, the report, the bounded deep sleep), and the boot counter's record, is in
+//! `boot`; what only the test images use is in `test_image`, out of the real firmware's way.
 #![no_std]
 #![warn(clippy::pedantic)]
 

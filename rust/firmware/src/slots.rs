@@ -1,7 +1,7 @@
 //! The device's two OTA app slots and otadata, from its partition table: what the hand-back, the
-//! update gate's SD updater and the boot counter all need, whatever the phase. The device keeps
-//! the table it left the factory with (rust/firmware/DESIGN.md), so nothing here assumes
-//! `partitions.csv`.
+//! update gate's SD updater and later the boot counter's switch of slots need, whatever the phase.
+//! The device keeps the table it left the factory with (rust/firmware/DESIGN.md), so nothing here
+//! assumes `partitions.csv`.
 
 use esp_bootloader_esp_idf::partitions::{
     FlashStorage, PARTITION_TABLE_MAX_LEN, PartitionEntry, read_partition_table,

@@ -26,7 +26,6 @@
 )]
 #![no_main]
 
-use core::fmt::{Arguments, Write as _};
 use esp_backtrace as _;
 use esp_bootloader_esp_idf::partitions::{Error as FlashError, FlashStorage, PartitionEntry};
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
@@ -45,6 +44,7 @@ use purestwhite_firmware::sd::{self, CardVolume};
 use purestwhite_firmware::sha::HwSha;
 use purestwhite_firmware::sleep::Rails;
 use purestwhite_firmware::slots::ota_slots;
+use purestwhite_firmware::test_image::note;
 use purestwhite_ota::digest::Identified;
 use purestwhite_ota::plan::{InSlot, Plan, plan};
 use purestwhite_ota::slot::SECTOR;
@@ -76,14 +76,6 @@ const SLEEP: BoundedSleep = BoundedSleep {
     system: Duration::from_secs(30),
     release: Duration::from_secs(10),
 };
-
-/// Adds `line` to the report, saved, and prints it.
-fn note(report: &mut Report, line: Arguments<'_>) {
-    let _ = report.write_fmt(line);
-    let _ = writeln!(report);
-    report.save();
-    esp_println::println!("{line}");
-}
 
 /// What the run lends each step.
 struct Run<'a, 'd> {

@@ -3,7 +3,7 @@
 /// Where the report goes: the last 256 bytes of RTC slow memory, which the C++ firmware leaves
 /// unused (it checks that at boot). lib/hal/HalSystem.cpp reads it with the same layout: magic,
 /// length, then the text. A change of layout changes the magic.
-const REPORT_ADDR: usize = 0x5000_1F00;
+pub(super) const REPORT_ADDR: usize = 0x5000_1F00;
 const REPORT_MAGIC: u32 = 0x5057_4254; // "PWBT"
 const REPORT_TEXT: usize = 248;
 

@@ -5,7 +5,7 @@
 //! C++ firmware, which `boot::start` selected, and the sleep is bounded (`boot::BoundedSleep`):
 //! it ends after `SLEEP.timer` at most, and the watchdog counts through it.
 
-use crate::tasks::{KEYS_RESTED, LINKS, PANEL_LIMIT, PANEL_RESTED, PanelRested};
+use crate::tasks::{KEYS_RESTED, LINKS, PANEL_LIMIT, PANEL_RESTED, PanelRested, SHOWN};
 use core::fmt::Write as _;
 use core::sync::atomic::{AtomicBool, Ordering};
 use embassy_futures::select::{Either, select};
@@ -20,6 +20,9 @@ use purestwhite_firmware::sleep::Rails;
 
 /// How often the watchdog (60 s) is fed while the executor runs.
 pub const FEED: Duration = Duration::from_secs(10);
+/// How long the image runs, a frame shown, before the run counts as healthy (the boot counter,
+/// rust/firmware/DESIGN.md); with a frame shown, reaching the orderly sleep counts too.
+const HEALTHY_AFTER: Duration = Duration::from_secs(30);
 /// Set by the power loop once it begins the sleep.
 pub static SLEEPING: AtomicBool = AtomicBool::new(false);
 /// Set by the phase-2 backstop (`crate::backstop`) once it has asked for the sleep.
@@ -65,10 +68,17 @@ impl Power {
         }
     }
 
-    /// Feeds the watchdog until the application asks to sleep, then sleeps.
+    /// Feeds the watchdog until the application asks to sleep, marking the run healthy on the
+    /// way (`HEALTHY_AFTER`), then sleeps.
     pub async fn run(mut self) -> ! {
+        let started = Instant::now();
+        let mut healthy = false;
         while let Either::Second(()) = select(LINKS.sleep.wait(), Timer::after(FEED)).await {
             self.rtc.rwdt.feed();
+            if !healthy && SHOWN.load(Ordering::Acquire) && started.elapsed() >= HEALTHY_AFTER {
+                self.mark_healthy("30 s");
+                healthy = true;
+            }
         }
         SLEEPING.store(true, Ordering::Release);
         let why = if TIME_UP.load(Ordering::Acquire) {
@@ -81,6 +91,10 @@ impl Power {
         self.note_panel(&panel);
         LINKS.keys_rest.signal(());
         let pins = self.within(KEYS_RESTED.wait(), "keys did not rest").await;
+        // The orderly sleep is reached, both loops at rest: healthy, once a frame was shown.
+        if !healthy && SHOWN.load(Ordering::Acquire) {
+            self.mark_healthy("sleep");
+        }
         let rails = Rails {
             touch_power: self.touch_supply,
             sd_power: self.sd_supply,
@@ -91,6 +105,13 @@ impl Power {
         // Blocking from here (the wait for Power, then the sleep): only as the last step, with
         // every other task at rest.
         boot::sleep_when_released(report, why, rtc, pins.power, rails, low_power, SLEEP)
+    }
+
+    /// Marks the run healthy for the boot counter and notes `healthy: <why>` in the report.
+    fn mark_healthy(&mut self, why: &str) {
+        boot::finish_run();
+        let _ = writeln!(self.report, "healthy: {why}");
+        self.report.save();
     }
 
     /// `wait`'s result, feeding the watchdog meanwhile; after `REST_MOST`, `what` noted and a

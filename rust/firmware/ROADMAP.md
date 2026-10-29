@@ -131,9 +131,10 @@ gate open without it, and without changing the bootloader or the partition table
    (board, card, FAT, flash, otadata, a line of text), before fonts, books or the network, so that
    a fault in the rest of the firmware cannot block it. The C++ firmware has this (Right + Power);
    the Rust firmware gets it in its first main.
-5. **A crash loop falls back by itself.** A boot counter in RTC memory: a firmware that resets
-   several times in a row without reaching a healthy state selects the other slot. The watchdog is
-   armed first, so a hang becomes a reset.
+5. **A crash loop falls back by itself.** A boot counter in RTC memory: after three runs in a row
+   that never reached a healthy state, the firmware goes to its minimal recovery mode, and switches
+   slots only to an image that validates (rust/firmware/DESIGN.md, the boot counter). The watchdog
+   is armed first, so a hang becomes a reset.
 6. **Safe writes.** The image is written and verified (its checksum) in the other slot before
    otadata changes; the new otadata entry goes into the other otadata sector, so a power loss
    leaves the old entry in force (`purestwhite-ota`).

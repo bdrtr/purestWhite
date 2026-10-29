@@ -28,7 +28,7 @@ use esp_hal::psram::Psram;
 use esp_hal::timer::systimer::SystemTimer;
 use power::Power;
 use purestwhite_firmware::board::{Board, PanelParts, psram_config};
-use purestwhite_firmware::boot::{Report, Started, start};
+use purestwhite_firmware::boot::{self, Report, Started, start};
 use purestwhite_firmware::input::ButtonPins;
 use purestwhite_firmware::memory::{add_psram, psram_frame};
 use purestwhite_firmware::panel;
@@ -97,6 +97,10 @@ async fn main(spawner: Spawner) -> ! {
         mut report,
         ..
     } = start("purestWhite", board.boot);
+    // The boot counter: during phase 2 it is only noted (there is no recovery mode yet), and the
+    // hand-back has already made the next boot the C++ firmware's.
+    let _ = writeln!(report, "{}", boot::begin_run());
+    report.save();
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
     // Before the scheduler, as psram-check does: mapping the PSRAM suspends the cache.
     let psram = Psram::new(board.psram, psram_config());

@@ -59,7 +59,7 @@ the emulator, so an image without one drives their async calls over blocking bus
   digest dropped unfinished is finished then, so that the next starts on an idle unit.
 - `slots`: the two OTA app slots (the one this image was booted from and the other) and otadata,
   from the device's partition table, which must have exactly `ota_0` and `ota_1`: for the
-  hand-back, the SD updater and the boot counter.
+  hand-back, the SD updater, and later the boot counter's switch of slots.
 - `sleep`: deep sleep as the C++ firmware enters it (`HalPowerManager::startDeepSleep`): Power
   armed through the low-power path, the rails held, the digital pads' auto-hold turned off, then the
   sleep. The module's doc explains why the auto-hold must be off.
@@ -114,6 +114,10 @@ traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit
   (`BoundedSleep`), and the sleep line `sleep: deep, <why>` at the end of the report, with a mark
   for each step of the sleep, so that a sleep that never ends shows its step;
   `sleep_when_released` first waits for Power to be up (or notes `power held`).
+- `begin_run`, `finish_run`: the boot counter's record (`purestwhite-bootcount`) in RTC slow
+  memory, the 16 bytes below the report. `begin_run` counts the last run when it never got
+  healthy and marks this one running (a power-on starts from zero); `finish_run` marks the run
+  healthy, which starts the count again.
 
 ### test_image
 
@@ -142,8 +146,10 @@ that. There is no font, battery or clock yet: the screens show their shapes only
 ```
 purestWhite
 next boot: C++ firmware
+runs: 0 unfinished
 psram 8192 KB, frames ok
 panel UC8179
+healthy: 30 s
 panel: 3 ok, 0 failed, 0 given up, longest N ms, asleep
 sleep: deep, power i<hex> p<hex> a r s
 ```
@@ -152,6 +158,11 @@ sleep: deep, power i<hex> p<hex> a r s
 up, or a longest frame near the panel loop's 20 s, mean BUSY's interrupt did not wake the task. The
 sleep line says `time up` when the backstop asked for it; the C++ firmware adds what woke and reset
 the chip. Needs esp-rtos: device only.
+
+`runs:` is the boot counter (`boot::begin_run`): the runs in a row before this one that ended
+before they were healthy (`, recovery due` at three or more). The run is healthy
+(`boot::finish_run`) once a frame was shown and 30 s passed (`healthy: 30 s`, before the `panel:`
+line), or, with a frame shown, once the orderly sleep is reached (`healthy: sleep`, after it).
 
 ## Test images
 
@@ -193,19 +204,25 @@ its scenario in `emu/`.
   appended digest, selects its own slot (`test_image::select_this_image`) and resets. A bootloader
   that checks images refuses it and starts the C++ firmware; one that does not starts it again,
   and it hands back and notes `ran again`. `emu/baremetal-boot.txt`.
+- `count-check`: the boot counter: notes `runs: N unfinished`, then ends without getting healthy on
+  purpose (a panic, a reset, a panic); at three in a row it notes `runs: 3 unfinished, recovery
+  due`, marks itself healthy and resets. During phase 2 each run ends in the C++ firmware, so each
+  count is one install. `emu/baremetal-count.txt` (a cold boot over a broken app0, so that the
+  bootloader starts it after every reset) and `emu/baremetal-count-cpp.txt` (twice through the C++
+  firmware).
 - `install-check`: the SD updater's install, within phase 2's limits (`purestwhite_ota::plan`):
   writes `/purestwhite-recovery.bin` into the C++ firmware's slot when it is a release the updater
   knows and the slot holds the same release (`Rewrite`, which changes nothing) or no image that
   passes while the bootloader fell back to this image (`Repair`, after a write cut short; a slot
-  read as broken without that fallback gives `refused: Unconfirmed`); refuses otherwise.
-  Identifies both first, writes each sector read back, and identifies the slot again. A write cut
-  short leaves the C++ slot without an image that passes, so a bootloader that checks images
-  comes back to this image, which writes again (seen in the emulator with the C++ build's
-  bootloader, not yet on the device); when the slot is left without one, it sleeps until Power or
-  its timer rather than reset into itself. `emu/baremetal-install.txt`, `emu/baremetal-install-refuse.txt`, and cold boots of
+  read as broken without that fallback gives `refused: Unconfirmed`); refuses otherwise. Identifies
+  both first, writes each sector read back, and identifies the slot again. A write cut short leaves
+  the C++ slot without an image that passes, so a bootloader that checks images comes back to this
+  image, which writes again (seen in the emulator with the C++ build's bootloader, not yet on the
+  device); when the slot is left without one, it sleeps until Power or its timer rather than reset
+  into itself. `emu/baremetal-install.txt`, `emu/baremetal-install-refuse.txt`, and cold boots of
   flash images made by `emu/make_install_flash.py`: `emu/baremetal-repair.txt` (a slot cut short)
-  and `emu/baremetal-reset-mid-write.txt`.
-  **It writes the C++ firmware's slot: only with the owner's go-ahead.**
+  and `emu/baremetal-reset-mid-write.txt`. **It writes the C++ firmware's slot: only with the
+  owner's go-ahead.**
 - `write-check`: proves the update gate's write path in the last megabyte of the slot it runs
   from, where a mistake harms only its own slot. It measures its own image where it lies, then
   copies it into that megabyte through the slot's flash region, with the SD updater's parts

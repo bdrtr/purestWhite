@@ -200,8 +200,8 @@ std::string getPanicInfo(bool full) {
 }
 
 void saveBareMetalReport() {
-  // As rust/firmware/src/boot/report.rs writes it: magic, length, then the text, in the last
-  // 256 bytes of RTC slow memory, past everything this firmware keeps there.
+  // As rust/firmware/src/boot/report.rs writes it: magic, length, text, in RTC slow memory's last 256 bytes; its
+  // boot counter (boot/runs.rs) has the 16 bytes below. Keep RTC data below both (the check covers only the report).
   constexpr uintptr_t REPORT_ADDR = 0x50001F00;
   constexpr uint32_t REPORT_MAGIC = 0x50574254;  // "PWBT"
   constexpr uint32_t REPORT_TEXT = 248;

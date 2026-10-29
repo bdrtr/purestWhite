@@ -52,10 +52,10 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
 | --- | --- | --- | --- |
 | app | `App` | events | views, storage jobs, timers, sleep |
 | draw | the renderer, the fonts (`&'static [u8]`) | views, an empty frame | a drawn frame |
-| panel | `Screen`, the panel's lines and reset | drawn frames | the frame back, "shown" |
+| panel | `Screen`, the panel's lines and reset | drawn frames | the frame back, "shown", the shown flag |
 | input | `Keys`, `TouchPanel`, the Power pin | sleep requests | key and touch events |
 | storage | the `Card`, the FAT volume, the SD supply | jobs | results by handle |
-| power | the watchdog, the deep sleep, the supplies no task uses | sleep | rest requests |
+| power | the watchdog, the deep sleep, the supplies no task uses, the healthy mark | sleep, the shown flag | rest requests |
 | backstop (phase 2) | nothing | time | a sleep request, a reset |
 | gauge and clock (step 4) | `Gauge`, `Clock` | timers | battery level, time |
 
@@ -156,19 +156,35 @@ Slot sizes therefore come from the device's table, never from `partitions.csv`.
    that could fail, the recovery key included.
 3. Read the recovery key (Right held at power-on).
 4. Check the boot counter (below).
-5. Start the tasks. "Healthy" needs no input from the owner: the first screen shown and the tasks
-   running for 30 s, or an orderly sleep reached. Healthy clears the counter. The panel's answers
-   reach only the app, so the app turns the first `Shown` into a command (with the 30 s timer
-   once timers exist); no second listener is added to the panel's answers.
+5. Start the tasks. "Healthy" needs no input from the owner: the first screen shown, and then
+   either the tasks running for 30 s or an orderly sleep reached. A run that never shows a frame
+   is never healthy. Healthy clears the counter. In the `purestwhite` image the panel task wraps
+   the screen and sets a flag once a frame is shown (it sees the screen's own result, so neither
+   the app nor the services' channels change), and the power task marks the run healthy once the
+   flag is set and 30 s have passed (`healthy: 30 s`), or, with the flag set, once the panel and
+   the keys rest before the sleep (`healthy: sleep`). During phase 2 the count is only noted
+   (`runs: N unfinished`, `, recovery due`): the hand-back has already made the next boot the C++
+   firmware's, and there is no recovery mode yet. Phase 3, without the hand-back, is to count the
+   run right after arming the watchdog, so that a crash in the start counts too.
 
 ### The boot counter
 
-- At a reserved RTC address documented in both firmwares, clear of the C++ firmware's
-  `RTC_NOINIT`/`RTC_DATA` areas and wake stub, the report (0x5000_1F00) and the bootloader's record
-  (0x600F_FFFC); kept with a magic and an inverted copy, and cleared on a power-on reset so that
-  leftover RAM is not read as a count.
-- It counts only abnormal resets, by the reset reason (watchdog, panic, brownout); a wake from
-  deep sleep is not one.
+- Its record (`purestwhite-bootcount`, kept by `boot::begin_run` and `boot::finish_run`) is in RTC
+  slow memory at 0x5000_1EF0, the 16 bytes below the report (0x5000_1F00). That is clear of the C++
+  firmware's RTC data, which ends at 0x5000_17BC in its current build, and of the bootloader's
+  record (0x600F_FFFC). The C++ firmware's report saver names the 16 bytes in a comment; its
+  overlap check covers only the report, and is to cover them too at its next release (changing it
+  now would change the C++ build, which must stay the release the SD updater knows).
+- The record holds a magic and an inverted copy of its value, so that memory never written is not
+  read as a count. RTC slow memory keeps it through resets, watchdog core resets and deep sleeps,
+  and loses it in a power cut. A power-on reset seen by `begin_run` starts from zero; during phase
+  2 a power-on starts the C++ firmware, not an image, so there it is the power cut that clears it.
+- It counts runs in a row that ended before they were healthy, not reset reasons: each run marks
+  itself running at its start and clears the mark once it is healthy, and the next run counts a
+  mark left behind, whatever ended that run (a panic, a reset, a hang the watchdog ends, a
+  brownout that keeps RTC memory). During phase 2 a crashed run is followed by the C++ firmware,
+  so the next bare-metal run sees the C++ firmware's restart as its reset reason, not the crash.
+  An orderly sleep after a frame was shown is healthy, so its wake is not counted.
 - At three in a row: the minimal recovery mode first (below). A switch of slots goes only to a slot
   whose image validates, or the bootloader's own fallback could ping-pong between them. The one
   exception is `boot-check`, a test image that selects itself on purpose once its own digest no
@@ -196,20 +212,19 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   2026-10-29). The device's `spiffs` holds data and its table has no free space (scratch-check
   and table-check, 2026-10-29).
 - Checks before writing: the appended SHA-256, the chip id (9, ESP32-S3), the app descriptor's
-  magic, and that the image measured from its segments fits the slot; the battery not low, which
-  is not done yet: no image reads the fuel gauge, and install-check's device test asks for USB
-  power instead.
-  `purestwhite_ota::image::ImageCheck` checks the image as it streams in (the digest itself is the
-  caller's, with the chip's SHA unit); it passes every release in the archive. The watchdog is fed
-  between flash chunks: write-check measured about 27 ms per 4 KB sector on the device (erase,
-  write, read back and hash; 2026-10-29); install-check wrote the 5.4 MB release in 54 s, about
-  40 ms a sector with the card read (2026-10-29), and its first pass reads the card in about 4 s. Erasing 64 KB
-  blocks would be several times faster, but each block erase keeps interrupts masked for its whole
-  length (about 0.15 s, up to 2 s on common 128 Mbit parts). Each ROM flash call runs with
-  interrupts masked, through esp-storage's `critical-section` feature, which the firmware turns on
-  itself (esp-bootloader-esp-idf leaves it off): a handler run from flash while the flash is busy
-  would fetch garbage, so interrupts wait up to a sector erase (about 0.4 s). `sha::HwSha` finishes
-  a digest dropped unfinished, so that the next starts on an idle unit.
+  magic, and that the image measured from its segments fits the slot; the battery not low, which is
+  not done yet: no image reads the fuel gauge, and install-check's device test asks for USB power
+  instead. `purestwhite_ota::image::ImageCheck` checks the image as it streams in (the digest itself
+  is the caller's, with the chip's SHA unit); it passes every release in the archive. The watchdog
+  is fed between flash chunks: write-check measured about 27 ms per 4 KB sector on the device
+  (erase, write, read back and hash; 2026-10-29); install-check wrote the 5.4 MB release in 54 s,
+  about 40 ms a sector with the card read (2026-10-29), and its first pass reads the card in about 4
+  s. Erasing 64 KB blocks would be several times faster, but each block erase keeps interrupts
+  masked for its whole length (about 0.15 s, up to 2 s on common 128 Mbit parts). Each ROM flash
+  call runs with interrupts masked, through esp-storage's `critical-section` feature, which the
+  firmware turns on itself (esp-bootloader-esp-idf leaves it off): a handler run from flash while
+  the flash is busy would fetch garbage, so interrupts wait up to a sector erase (about 0.4 s).
+  `sha::HwSha` finishes a digest dropped unfinished, so that the next starts on an idle unit.
 - The write goes to the slot that is not running, is read back and checked, and only then is
   otadata changed (`purestwhite-ota`); a failure at any step leaves otadata as it was. During
   phase 2 otadata already selects the C++ firmware's slot (the hand-back comes first), so a write
@@ -286,28 +301,30 @@ hand-back).
    panel's answers and the first half of the sleep handshake; `pw-sim` with
    `rust/sim/scenarios/`. The other traits come with the steps that use them.
 2. The firmware board and the `purestwhite` image (hands back first) showing the screen on the
-   device; the input loop that stops polling when idle; the sleep handshake. Written, for the
-   device test: the image with the app, draw, panel and key tasks, frames in a PSRAM heap of
-   their own, the panel's calls bounded by a time limit in the panel loop, the panel and the keys
-   resting before the deep sleep, and a phase-2 backstop task (it asks for the sleep after 10
-   minutes; the sleep itself is bounded by a timer and the watchdog). The key loop is in the
-   firmware lib (`keys`), on the pins, not a service over a `Keys` trait: the simulator does not
-   run it, and its timing is host-tested in `purestwhite-buttons` (`sample_in`). The `Keys` trait
-   comes when the simulator needs raw samples. Touch, the font, the battery and the clock come
-   later; health (step 3) and the battery log (step 4) get tasks of their own rather than growing
-   the power task.
+   device; the input loop that stops polling when idle; the sleep handshake. Written, for the device
+   test: the image with the app, draw, panel and key tasks, frames in a PSRAM heap of their own, the
+   panel's calls bounded by a time limit in the panel loop, the panel and the keys resting before
+   the deep sleep, and a phase-2 backstop task (it asks for the sleep after 10 minutes; the sleep
+   itself is bounded by a timer and the watchdog). The key loop is in the firmware lib (`keys`), on
+   the pins, not a service over a `Keys` trait: the simulator does not run it, and its timing is
+   host-tested in `purestwhite-buttons` (`sample_in`). The `Keys` trait comes when the simulator
+   needs raw samples. Touch, the font, the battery and the clock come later. Health (step 3) is a
+   check in the power task (its watchdog loop, and its sleep handshake once the loops rest); the
+   battery log (step 4) gets a task of its own rather than growing the power task.
 3. The update gate: the boot counter, the recovery mode with the phase-2 limits, the scratch-flash
    proof on the device. Done so far: the image check, the two passes and the slot writer
    (`purestwhite-ota`), and `write-check`, which proved the write path on the device in the last
    megabyte of its own slot (2026-10-29: 27 sectors in 726 ms, the same digest read back), and
    `update-check`, the SD updater's reading side as a dry run, which passed on the device (the
-   card's release and the C++ slot identified as the same image, "next a8764dbb"; the card read
-   in 3979 ms, the slot in 1994 ms; nothing written), `boot-check`, which showed the device's own
-   bootloader refusing an image that does not pass after a software reset, and `install-check`,
-   the install within the phase-2 plan (cut-short writes passed in the emulator), which wrote the
-   C++ firmware's release over itself on the device and read it back the same (2026-10-29: 1341
-   sectors in 54 s). Left: the boot counter, the recovery mode with its key and its screen-less
-   path, and the check at power-on.
+   card's release and the C++ slot identified as the same image, "next a8764dbb"; the card read in
+   3979 ms, the slot in 1994 ms; nothing written), `boot-check`, which showed the device's own
+   bootloader refusing an image that does not pass after a software reset, and `install-check`, the
+   install within the phase-2 plan (cut-short writes passed in the emulator), which wrote the C++
+   firmware's release over itself on the device and read it back the same (2026-10-29: 1341 sectors
+   in 54 s); and the boot counter (`purestwhite-bootcount`, `count-check`: three unfinished runs in
+   a row call for the recovery mode in the emulator, and the count survives the C++ firmware running
+   in between, `emu/baremetal-count-cpp.txt`). Left: the recovery mode with its key and its
+   screen-less path, and the check at power-on.
 4. The battery page loop and its RTC log; the two-firmware measurement. Before it, who owns the
    report: now the power task does, and the phase-2 backstop writes it once, just before a
    reset; a battery log in its own task needs a shared report in `boot` or an RTC area of its own.
