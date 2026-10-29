@@ -1107,3 +1107,30 @@ without breaking the C++ firmware's slot; the fell-back entry stays build-only s
   after "Update complete"). Expected: "purestWhite right check", "next boot: C++ firmware", "held
   as purestwhite reads: yes|no", "first: low|high", "low: N of 3000, A..B ms", "presses: P",
   "done". With Right held as the image starts: "yes", "first: low", A 0, B about 13000, P 2.
+  - Result (2026-10-29, device, USB power in): "held as purestwhite reads: no", "first: high",
+    "low: 0 of 3000", "presses: 0", "done". Right never read low in 30 s, neither held nor in the
+    two presses after it. button-check and tasks-check counted Right on the device (tasks-check
+    with the CPU at its fastest, as here); no step there asked for USB power, the main image's
+    steps were on battery. So the next run is the same on battery. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-right-1-usb.txt`.
+  - On battery (2026-10-29, device): the same lines, Right never low; USB power is not the cause.
+    Right was last counted by input-check (giris-5, 2026-10-28) and tasks-check (gorev,
+    2026-10-28). Next, two controls: Right in the C++ firmware, and the archived tasks-check image
+    (`purestwhite-baremetal-gorev.bin`, f71f09f1's) run again. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-right-1-battery.txt`.
+  - The archived tasks-check run again (2026-10-29, device, Left 3 and Right 2 pressed): "dugme:
+    sol 3 sag 2 guc 1 uzun evet". The key and the device are fine, and that image reads Right with
+    the same `Input`, pulled up, polled with `is_low`: something the newer images do keeps GPIO7
+    from reading low. Report: `firmware-arsiv/cihaz-raporlari/2026-10-29-gorev-again.txt`.
+- [ ] `right-check` 2: GPIO7's pad, looked at. As the image is entered (a), after `start` (b) and
+  with Right set up as an input, pulled up (c), it notes the pad's IO MUX register, its RTC IO
+  register, the digital and the RTC input's level (`i`, `r`), the digital and the RTC output
+  enables (`e`) and SPI1's MISC register (`s`). Then it samples Right for 4 s three times, on both
+  inputs: as set up; with SPI1's MISC back at its value on entry (`start` selects the flash alone,
+  which the older images did not); with the pad's touch power, touch start and RTC pull-down off.
+  The line "low D1/R1 D2/R2 D3/R3 of 400" gives the samples read low on each input; "d" the pad at
+  the end. It runs through in the emulator (`emu/baremetal-right.txt`; eink-qemu reads these
+  registers as 0). Put `purestwhite-baremetal-right-2.bin` on the card (in the archive, its
+  checksum in `SHA256-bare-metal.txt`); install it from SD; press Right when "Updating..." shows
+  and hold it until the C++ home screen is back (about 15 s after "Update complete"). Send me
+  the report.

@@ -1,7 +1,6 @@
-# rust/firmware's right-check image samples Right (the SDK's Down) for 30 s from its start and
-# notes what it saw, then resets into this firmware, which saves the report. Down is held from
-# the tap on Confirm through the update and the restart into the image, as the owner holds Right
-# to enter the purestwhite image's recovery mode, then pressed twice briefly.
+# rust/firmware's right-check image notes GPIO7's pad registers and samples Right (the SDK's Down)
+# in three phases of 4 s, then resets into this firmware, which saves the report. Down is held
+# from the tap on Confirm through the update, the restart into the image and its three phases.
 # Settings > System > SD Card Firmware Update flashes it into the other OTA slot.
 #   cd rust/firmware; cargo build --release; cd ../..
 #   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/right-check build/baremetal/right-check.bin
@@ -18,11 +17,9 @@ wait-screen
 touch:240,138
 wait-quiet:3
 touch:240,472
-press:down:20000
-press:down
-press:down
+press:down:30000
 timeout:180
-wait-log:held as purestwhite reads: yes
+wait-log:low 
 wait-log:Bare-metal report
 wait-quiet:5
 shot:back-home
