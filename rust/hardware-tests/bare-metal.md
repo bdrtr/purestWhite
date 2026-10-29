@@ -1044,13 +1044,18 @@ into the C++ firmware. The updater's own paths pass in the emulator through inst
 `purestwhite` image does not run in the emulator. Only the Right entry can be tried on the device
 without breaking the C++ firmware's slot; the fell-back entry stays build-only so far.
 
-- [ ] Without Right. Take `purestwhite-recovery.bin` off the card first (the archive keeps it), so
+- [x] Without Right. Take `purestwhite-recovery.bin` off the card first (the archive keeps it), so
   that nothing here can write the C++ firmware's slot. Put `purestwhite-baremetal-main-3.bin` on
   the card (in the archive, its checksum in `SHA256-bare-metal.txt`) and install it as main-2
   above: on battery, do not hold Right, wait 40 s on the home screen, then sleep and wake.
   Expected as main-2: "runs: 0 unfinished", "psram ...", "panel UC8179", "healthy: 30 s", the
   panel line and the sleep line; no "recovery:" line. Give me the card (the next step overwrites
   the report).
+  - Result (2026-10-29, device): "runs: 0 unfinished", "psram 8192 KB, frames ok", "panel
+    UC8179", "healthy: 30 s", "panel: 3 ok, 0 failed, 0 given up, longest 1903 ms, asleep", the
+    sleep line, "wake: button", "reset: DEEPSLEEP"; no "recovery:" line. Without Right the
+    recovery entry stays out of the way. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-main-3-plain.txt`.
 - [ ] **Only with the owner's go-ahead: this step writes the C++ firmware's slot, as install-check
   did.** With Right held. Plug in USB power (charging only) and keep it in. Put
   `purestwhite-recovery.bin` back on the card (from the archive) beside main-3. Settings > System >
