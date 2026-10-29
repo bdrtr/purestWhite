@@ -77,6 +77,30 @@ impl Report {
         core::sync::atomic::fence(core::sync::atomic::Ordering::SeqCst);
     }
 
+    /// The report saved last, while the C++ firmware has not taken it (it clears the magic once the
+    /// report is on the card); `crate::boot::start` reads it before it begins a new one over it.
+    #[must_use]
+    pub(super) fn saved() -> Option<Report> {
+        let base = REPORT_ADDR as *const u32;
+        let mut report = Report::default();
+        // SAFETY: as `save`, reading only; the length is checked against the room first.
+        unsafe {
+            if base.read_volatile() != REPORT_MAGIC {
+                return None;
+            }
+            let len = base.add(1).read_volatile() as usize;
+            if len > REPORT_TEXT {
+                return None;
+            }
+            let text = base.add(2).cast::<u8>();
+            for (i, b) in report.text.iter_mut().take(len).enumerate() {
+                *b = text.add(i).read_volatile();
+            }
+            report.len = len;
+        }
+        Some(report)
+    }
+
     /// Adds a line to the report saved last, for a panic, which cannot reach the `Report`.
     pub fn append_saved(line: &str) {
         let base = REPORT_ADDR as *mut u32;

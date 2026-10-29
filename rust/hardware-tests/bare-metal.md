@@ -860,3 +860,60 @@ mistake only installs the C++ firmware into the other slot, as any C++ update wo
     should take about 45 s (the first pass about 4 s, the second about 40 s). Report:
     `firmware-arsiv/cihaz-raporlari/2026-10-29-update-1.txt`.
 
+## The SD updater's install ("firmware: install-check, the SD updater's install within phase 2's limits")
+
+**Only with the owner's go-ahead: this image writes the C++ firmware's slot.** It is the dry run's
+next step: the same C++ release from the card (`purestwhite-recovery.bin`, a copy of
+`purestWhite-next-reports-en-a8764dbb.bin`, the build your device runs) written over the C++
+firmware's slot, each 4 KB sector erased, written and read back, and the slot identified once more.
+Nothing changes when it passes: the bytes written are the bytes that were there. It writes only
+a release it knows, and only over the same release, or over a slot whose image no longer passes
+and which the bootloader has just refused; anything else it refuses ("refused: ..."), writing
+nothing.
+
+If the write is cut short (power lost, a reset), the C++ firmware's slot holds no image that
+passes. A bootloader that checks the image it boots then finds none there and starts this image
+again from the other slot, which writes the release again. If it cannot (the card or its release
+missing), it sleeps for 10 minutes or until Power is pressed, then tries again. All of this was
+seen in the emulator only, with the C++ build's bootloader: over the same release, over a slot cut
+short three ways (first sector erased, a middle sector erased, a sector half written), after a
+reset in the middle of its own write, and through the sleep and a wake on Power; it refused another
+release and an unknown image (`emu/baremetal-install.txt`, `emu/baremetal-install-refuse.txt`,
+`emu/baremetal-repair.txt`, `emu/baremetal-reset-mid-write.txt`). Your device keeps the bootloader
+it left the factory with: it rolls back an image that never confirms itself (rollback-check), but
+whether it checks an image before booting it, and falls back when it does not pass, has not been
+seen on the device yet.
+
+- [ ] Plug in USB power (charging only; no data is needed) and keep it in until the end. Delete the
+  old `purestwhite-bare-metal.txt` on the card. The card's root should hold
+  `purestwhite-baremetal-install-1.bin` and `purestwhite-recovery.bin` (both in the archive, their
+  checksums in `SHA256-bare-metal.txt`), and no other `purestwhite-baremetal-*.bin`. Settings >
+  System > SD Card Firmware Update > choose `purestwhite-baremetal-install-1.bin`, not
+  `purestwhite-recovery.bin` (choosing that one only installs the C++ firmware into the other
+  slot, as any C++ update would) > Confirm. Do not press anything until the C++ firmware is back,
+  about a minute (reading the card and the slot, then 36 to 45 s of writing); the screen does not
+  change meanwhile.
+- [ ] Expected in the report, in this order:
+  - "purestWhite install"
+  - "next boot: C++ firmware"
+  - "slot 5490944 B T ms c746bebf next a8764dbb"
+  - "card 5490944 B T ms c746bebf next a8764dbb"
+  - "Rewrite: 1341 sectors T ms"
+  - "installed: same digest"
+  - "done"
+
+  A line "earlier: ..." after "next boot" gives the last line of an earlier run that ended before
+  the C++ firmware started (cut short by a reset, a panic or a sleep; a power loss leaves no such
+  line); "slot: Image(...)" (or "slot: Digest") and "Repair: ..." then follow in place of the
+  slot line and "Rewrite". "refused: ..." means it wrote nothing: `Another` (the slot holds another build),
+  `Unknown` (the card's file is not a release it knows), `Unreadable` (the slot could not be read)
+  or `Unconfirmed` (the slot read as broken, but the bootloader had not refused it). Send me the
+  report in any case: T is the first measure of writing the C++ firmware's release on the device.
+- [ ] If the C++ firmware is not back within 3 minutes: leave the card in and USB power plugged,
+  hold Power for about a second (as you wake the C++ firmware; a short press can wake it only to
+  sleep again), and wait 2 more minutes. If it is still not back, the C++ firmware's slot needs
+  the release: keep USB power in, take the card out, check `purestwhite-recovery.bin` against
+  `SHA256-bare-metal.txt` on the computer (copy it again from the archive if it differs), put the
+  card back, hold Power for about a second, and wait 2 minutes. While it has power, the device tries
+  again by itself every 10 minutes. The Right+Power recovery is the C++ firmware's, so it does
+  not open then.

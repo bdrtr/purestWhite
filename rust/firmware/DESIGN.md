@@ -137,7 +137,10 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
 ## The update gate
 
 The rules are the roadmap's; phase 2 restricts them further, because during phase 2 the slot that
-is not running holds the C++ firmware: the known-good one, with the proven SD updater.
+is not running holds the C++ firmware: the known-good one, with the proven SD updater. One
+exception, which the owner accepted for the SD updater's install (2026-10-29): while the updater
+writes the C++ firmware's release over itself (about 40 s), that slot is not known-good; the way
+back is then the updater in the other slot and the release on the card.
 
 The device keeps the partition table it left the factory with, not `partitions.csv` (the C++
 firmware's updates never write the table). On the owner's X4 Pro (table-check, 2026-10-29): nvs at
@@ -147,7 +150,8 @@ Slot sizes therefore come from the device's table, never from `partitions.csv`.
 
 ### Boot order
 
-1. Arm the RTC watchdog; hold the power latch; park the second core.
+1. Arm the RTC watchdog; hold the power latch; park the second core; make SPI1 select the flash
+   alone (its second chip select is the PSRAM's), whatever ran before.
 2. Phase 2: hand the next boot back to the C++ firmware (`purestwhite-ota`), before anything else
    that could fail, the recovery key included.
 3. Read the recovery key (Right held at power-on).
@@ -176,15 +180,23 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   that ESP-IDF appends to it, which the Rust image carries for each known release, and refuses any
   other file. The app descriptor cannot tell it: the C++ image's names the Arduino framework that
   built it (`arduino-lib-builder`, `ee57070` for 0.0.3), not the firmware, whose own name is the
-  `purestWhite-firmware:` string `OtherFirmware.cpp` finds by scanning. Writing the C++ firmware
-  over itself with a proven-identical image is the only write it can make to the known-good slot.
-- Before that is ever done on the device, the erase, write and verify path is proven on scratch
-  flash: the last megabyte of the slot the image runs from, far past its own image, through that
-  partition's own flash region (which cannot write outside it). A mistake there harms only the
-  image's own slot, and the next boot is the C++ firmware's anyway. The device's `spiffs` holds
-  data and its table has no free space (scratch-check and table-check, 2026-10-29).
+  `purestWhite-firmware:` string `OtherFirmware.cpp` finds by scanning. It writes the known-good
+  slot only with a known release, and only over the same release (proven identical: the write
+  path on the real slot, changing nothing) or over a slot whose image no longer passes and which
+  the bootloader has just refused (a write cut short: otadata selects that slot, yet the
+  bootloader started the updater); a slot holding another image that passes, or one that reads as
+  broken while the bootloader booted the updater by selection, is left alone
+  (`purestwhite_ota::plan`). An image passes when its segments, chip, app descriptor, checksum
+  and appended SHA-256 hold: what a bootloader that checks images checks.
+- The erase, write and verify path was proven on scratch flash first: the last megabyte of the
+  slot the image runs from, far past its own image, through that partition's own flash region
+  (which cannot write outside it), where a mistake harms only the image's own slot (write-check,
+  2026-10-29). The device's `spiffs` holds data and its table has no free space (scratch-check
+  and table-check, 2026-10-29).
 - Checks before writing: the appended SHA-256, the chip id (9, ESP32-S3), the app descriptor's
-  magic, and that the image measured from its segments fits the slot; the battery not low.
+  magic, and that the image measured from its segments fits the slot; the battery not low, which
+  is not done yet: no image reads the fuel gauge, and install-check's device test asks for USB
+  power instead.
   `purestwhite_ota::image::ImageCheck` checks the image as it streams in (the digest itself is the
   caller's, with the chip's SHA unit); it passes every release in the archive. The watchdog is fed
   between flash chunks: write-check measured about 27 ms per 4 KB sector on the device (erase,
@@ -197,7 +209,17 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   would fetch garbage, so interrupts wait up to a sector erase (about 0.4 s). `sha::HwSha` finishes
   a digest dropped unfinished, so that the next starts on an idle unit.
 - The write goes to the slot that is not running, is read back and checked, and only then is
-  otadata changed (`purestwhite-ota`); a failure at any step leaves otadata as it was.
+  otadata changed (`purestwhite-ota`); a failure at any step leaves otadata as it was. During
+  phase 2 otadata already selects the C++ firmware's slot (the hand-back comes first), so a write
+  cut short (power lost, a reset) leaves the selected slot without an image that passes. A
+  bootloader that checks the image it boots then finds none there and falls back to the updater
+  in the other slot, which writes the release again. The C++ build's bootloader checks on every
+  boot; a deep-sleep wake normally skips the check and boots the image booted last, but the
+  hand-back drops that record, so the wake reads otadata and checks the image too. Whether the
+  device's factory bootloader checks images has not been seen yet (it does roll back). When the
+  slot is left without an image that passes and the updater cannot write it (the card or its
+  release missing), it sleeps until Power or a timer rather than reset straight back into itself
+  (`install-check`).
 - Two passes over the file, because during phase 2 the slot written is the known-good one: the
   first (`purestwhite_ota::digest::Identify`) checks the image and works out its digest without
   writing anything, and only a known release's digest goes on; the second
@@ -275,8 +297,9 @@ hand-back).
    megabyte of its own slot (2026-10-29: 27 sectors in 726 ms, the same digest read back), and
    `update-check`, the SD updater's reading side as a dry run, which passed on the device (the
    card's release and the C++ slot identified as the same image, "next a8764dbb"; the card read
-   in 3979 ms, the slot in 1994 ms; nothing written). Writing the C++ slot on the device waits
-   for the owner's decision.
+   in 3979 ms, the slot in 1994 ms; nothing written), and `install-check`, the install within
+   the phase-2 plan, which passes in the emulator, cut-short writes included. Writing the C++
+   slot on the device waits for the owner's decision.
 4. The battery page loop and its RTC log; the two-firmware measurement. Before it, who owns the
    report: now the power task does, and the phase-2 backstop writes it once, just before a
    reset; a battery log in its own task needs a shared report in `boot` or an RTC area of its own.

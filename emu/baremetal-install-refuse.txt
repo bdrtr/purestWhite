@@ -1,0 +1,29 @@
+# The SD updater's install refusing what it may not write (rust/firmware's install-check), as
+# emu/baremetal-install.txt, with another file under the recovery name: a release it knows but not
+# this firmware's build ("refused: Another"), or an image it does not know ("refused: Unknown").
+# Nothing is written; it resets into this firmware, which saves the report.
+#   mkdir -p build/baremetal/another build/baremetal/unknown
+#   cp ~/Documents/bembeyaz/firmware-arsiv/purestWhite-next-0.0.3.bin build/baremetal/another/purestwhite-recovery.bin
+#   cp build/baremetal/rollback-check.bin build/baremetal/unknown/purestwhite-recovery.bin
+#   (rollback-check.bin as emu/baremetal-handback.txt makes it; any image the updater does not know)
+#   emu/compare.sh emu/baremetal-install-refuse.txt x4pro build/baremetal/a-install-check.bin build/baremetal/another/purestwhite-recovery.bin
+#   emu/compare.sh emu/baremetal-install-refuse.txt x4pro build/baremetal/a-install-check.bin build/baremetal/unknown/purestwhite-recovery.bin
+# (The unmodified base never starts the image: its side fails at the first wait for its output.)
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+touch:240,472
+timeout:180
+wait-log:next boot: C\+\+ firmware
+wait-log:slot [0-9]+ B [0-9]+ ms [0-9a-f]+ next
+wait-log:refused: (Another|Unknown)
+wait-log:done
+wait-log:Bare-metal report
+wait-quiet:5
+shot:back-home

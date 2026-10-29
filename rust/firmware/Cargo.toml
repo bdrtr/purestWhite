@@ -96,6 +96,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "install-check"
+path = "./src/bin/install_check.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rollback-check"
 path = "./src/bin/rollback_check.rs"
 test = false

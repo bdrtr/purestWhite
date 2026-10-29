@@ -5,10 +5,11 @@
 //! the next. Nothing else is touched: the caller changes otadata only once [`SlotWriter::finish`]
 //! has passed, so a write that fails leaves the device booting what it booted before.
 //!
-//! During phase 2 the slot written is the known-good C++ firmware's, so the file must be known
-//! before its first byte is written: a first pass with [`crate::digest::Identify`], the digest
-//! compared with the release's, then this pass, whose digest must be the first pass's (the file
-//! read twice must not have changed).
+//! During phase 2 the slot written is the known-good C++ firmware's, which otadata already
+//! selects, so a write that fails leaves the selected slot without an image that passes (see
+//! [`crate::plan`]); and the file must be known before its first byte is written: a first pass with
+//! [`crate::digest::Identify`], the digest compared with the release's, then this pass, whose
+//! digest must be the first pass's (the file read twice must not have changed).
 
 use crate::digest::{DigestError, Identified, Identify, Sha256};
 use crate::image::ImageError;

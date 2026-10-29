@@ -3,11 +3,12 @@
 //! layers that drive a part take its pins from here. Also what the board fixes beyond the pins:
 //! the power latch ([`hold_power_latch`]) and the PSRAM's mode ([`psram_config`]).
 
+use esp_bootloader_esp_idf::partitions::FlashStorage;
 use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::peripherals::{
     CPU_CTRL, FLASH, FROM_CPU_INTR0, GPIO0, GPIO1, GPIO2, GPIO3, GPIO4, GPIO5, GPIO6, GPIO7,
     GPIO10, GPIO11, GPIO12, GPIO13, GPIO14, GPIO18, GPIO38, GPIO39, GPIO40, GPIO41, GPIO42, I2C0,
-    LPWR, PSRAM, Peripherals, RTC_TIMER, SDHOST, SHA, SPI2, SYSTIMER,
+    LPWR, PSRAM, Peripherals, RTC_TIMER, SDHOST, SHA, SPI1, SPI2, SYSTIMER,
 };
 use esp_hal::psram::{
     FlashFreq, PsramConfig, PsramMode, PsramSize, SpiRamFreq, SpiTimingConfigCoreClock,
@@ -182,4 +183,24 @@ pub fn hold_power_latch(pin: GPIO1<'_>) -> Output<'_> {
     let mut latch = Output::new(pin, Level::High, OutputConfig::default());
     latch.set_pad_hold(true);
     latch
+}
+
+/// The flash as esp-storage's storage, SPI1 made to select the flash alone first
+/// (`select_flash_alone`). esp-storage 0.10 reads the flash's size with a hardware command when a
+/// storage is made: make one per run, before anything writes the flash (see `crate::boot::start`).
+#[must_use]
+pub fn flash_storage(flash: FLASH<'_>) -> FlashStorage<'_> {
+    select_flash_alone();
+    FlashStorage::new(flash)
+}
+
+/// Makes SPI1, which esp-storage drives through the ROM, select the flash alone, as ESP-IDF's
+/// flash driver does before each operation: its second chip select is the PSRAM's, which would
+/// otherwise answer every flash command too. It is the chip's reset value, which eink-qemu 0.9.2's
+/// cold boot does not give. Starting the PSRAM sends commands through SPI1 and may leave it
+/// otherwise: call this again before using the flash after that.
+pub fn select_flash_alone() {
+    SPI1::regs()
+        .misc()
+        .modify(|_, w| w.cs0_dis().clear_bit().cs1_dis().set_bit());
 }

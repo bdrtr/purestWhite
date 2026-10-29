@@ -38,10 +38,24 @@ pub struct HandBack {
     pub booted_state: Option<u32>,
 }
 
+impl HandBack {
+    /// Whether the bootloader started this image although otadata did not select it: it found no
+    /// image it would boot in the slot otadata selects (the C++ firmware's) and fell back to this
+    /// one. With no entry in force (never left so by the C++ firmware or the hand-back) the
+    /// bootloader tries `ota_0` first, so it holds there only for an image in `ota_1`, as these
+    /// images are on the device. The bootloader's deep-sleep shortcut cannot start it so, as `hand_back` drops
+    /// the bootloader's record of it on every run.
+    #[must_use]
+    pub fn fell_back(&self) -> bool {
+        self.booted_state.is_none()
+    }
+}
+
 /// Selects the C++ firmware, the OTA app slot this image was not booted from, for the next boot,
 /// valid. Done first, before anything that could fail: the device's bootloader may not roll back
 /// on its own, so from here on any reset, panic, watchdog or deep-sleep wake lands in the C++
-/// firmware (for the wake, see `forget_last_boot`).
+/// firmware (for the wake, see `forget_last_boot`), unless that slot holds no image the bootloader
+/// boots, which then falls back to this one.
 ///
 /// Like the C++ firmware's own switch (src/network/OtaBootSwitch.cpp), it writes one complete
 /// entry into the other otadata sector, so a power loss mid-write leaves the entry in force. It

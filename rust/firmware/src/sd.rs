@@ -19,8 +19,12 @@ use embedded_hal_async::delay::DelayNs;
 use esp_hal::delay::Delay;
 use esp_hal::dma::aligned::DmaAlignedMut;
 use esp_hal::gpio::Output;
-use esp_hal::sdmmc::{BlockingError, BusWidth, CommandFlags, Error, ResponseLen, Slot};
+use esp_hal::peripherals::{GPIO40, GPIO41, GPIO42};
+use esp_hal::sdmmc::{
+    BlockingError, BusWidth, CommandFlags, Error, ResponseLen, SdHostController, Slot, SlotConfig,
+};
 use esp_hal::{Async, Blocking};
+use purestwhite_fat::Volume;
 use sdio::{MmcError, Response};
 
 /// The card's clock once it is up: ESP-IDF's `SDMMC_FREQ_DEFAULT`, the SDK's.
@@ -370,6 +374,46 @@ pub fn mount(card: &mut Card<'_>, enable: &mut Output<'_>, on_try: impl FnMut(u8
         on_try,
     ))
     .flatten()
+}
+
+/// The card's FAT volume over the blocking bus.
+pub type CardVolume<'d> = Volume<CardBlocks<BlockingBus<'d>, SpinDelay>>;
+
+/// Why the card's volume could not be opened.
+#[derive(Debug)]
+pub enum OpenError {
+    /// The controller gave no slot 1.
+    Slot,
+    /// No try at mounting the card worked.
+    NotMounted,
+    /// The bus did not finish at once (it always does).
+    NotReady,
+    Volume(purestwhite_fat::Error<MmcError>),
+}
+
+/// The card's FAT volume through `controller`'s slot 1 on its pins and the blocking bus, mounted
+/// as the C++ firmware mounts it ([`mount`], `enable` the card's supply); `on_try` hears of each
+/// try at the card, which a card that stalls can make long.
+///
+/// # Errors
+/// The slot, the card or its volume could not be had.
+pub fn open_volume<'d>(
+    controller: &'d SdHostController<'_>,
+    (clk, cmd, dat0): (GPIO41<'d>, GPIO42<'d>, GPIO40<'d>),
+    enable: &mut Output<'_>,
+    on_try: impl FnMut(u8),
+) -> Result<CardVolume<'d>, OpenError> {
+    let slot = controller
+        .slot::<1>(SlotConfig::default())
+        .map_err(|_| OpenError::Slot)?
+        .with_clk(clk)
+        .with_cmd(cmd)
+        .with_data0(dat0);
+    let mut card: Card<'d> = Card::new_uninit(BlockingBus::new(slot), SpinDelay(Delay::new()));
+    mount(&mut card, enable, on_try).ok_or(OpenError::NotMounted)?;
+    ready(Volume::mount(CardBlocks::new(card)))
+        .ok_or(OpenError::NotReady)?
+        .map_err(OpenError::Volume)
 }
 
 /// The mounted card as `purestwhite-fat`'s block device, which can only read: up to `RUN` blocks

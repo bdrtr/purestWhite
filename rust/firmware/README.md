@@ -9,7 +9,9 @@ the start of the real firmware's `main` (see the [roadmap](ROADMAP.md): what com
 must be true before the C++ firmware is left behind). A test image runs once from the second OTA
 slot. First it hands the next boot back to the C++ firmware; then it does its check, leaves a report
 in RTC slow memory and resets (or sleeps, and the wake boots the C++ firmware). The C++ firmware
-saves the report to the SD card.
+saves the report to the SD card. The one exception is `install-check`, which writes the C++
+firmware's slot: while that slot holds no image that passes, a bootloader that checks images
+comes back to it (seen in the emulator with the C++ build's bootloader, not yet on the device).
 
 It is its own Cargo workspace and builds only for the ESP32-S3 (`xtensa-esp32s3-none-elf`, with the
 `esp` toolchain from `rust-toolchain.toml` and `build-std` for `core` and `alloc`). The crates in
@@ -30,9 +32,13 @@ the emulator, so an image without one drives their async calls over blocking bus
   low), `I2cParts` (I2C0: SDA 39, SCL 38; the touch panel's supply GPIO2, active low), `TouchParts`
   (GT911: RST 4, INT 10), `ButtonParts` (Left GPIO0, Right GPIO7, Power GPIO3), the PSRAM, the RTC's
   low-power control, `RtosParts` (what esp-rtos runs on) and the SHA accelerator. Also
-  `hold_power_latch`, `psram_config` and `PSRAM_MHZ` (40).
-- `images`: app images on the card (`identify_file`) and in a slot (`identify_slot`), checked and
-  hashed as they stream in: the SD updater's reading side; nothing here writes.
+  `hold_power_latch`, `psram_config`, `PSRAM_MHZ` (40), and `flash_storage`, which makes SPI1
+  select the flash alone (`select_flash_alone`; its second chip select is the PSRAM's, and
+  eink-qemu 0.9.2's cold boot leaves both selected) before it makes esp-storage's storage.
+- `images`: app images on the card (`identify_file`) and in a slot (`identify_slot`, or
+  `identify_partition` through a partition's own flash region), checked and hashed as they stream
+  in, and a card's image written into a slot (`install_file`, the second pass): the SD updater's
+  parts over the card and the flash.
 - `input`: the three buttons and the GT911 touch panel. `Input::poll` reads both once, as the SDK's
   `InputManager::update()` does, and gives what changed: button changes, a request to sleep (Power
   held longer than `POWER_HOLD_MS`, 400 ms), touch events, the point held and the tap candidate.
@@ -42,6 +48,9 @@ the emulator, so an image without one drives their async calls over blocking bus
   nothing runs while every button is up. It ends when asked to rest and hands the pins back.
 - `memory`: the PSRAM as a heap of its own (`PSRAM`, `add_psram`), never the global allocator, and
   the panel's frames in it (`psram_frame`), allocated as slices.
+- `releases`: the X4 Pro's C++ releases the SD updater knows, by their appended digest
+  (`release`, and `Named` for a report), and the file it reads a release from
+  (`RECOVERY_FILE`).
 - `screen`: the panel as the services' `Screen` (`DeviceScreen`): the probed controller's driver
   over the panel's lines, with embassy-time's delays and BUSY awaited on its interrupt, so other
   tasks run while the panel refreshes (SPI stays blocking). It begins the panel before the first
@@ -61,7 +70,8 @@ the emulator, so an image without one drives their async calls over blocking bus
 - `sd`: the SD card, mounted as freeink-sdk's `SdmmcBlockDevice` does. The card protocol is
   `sdio`'s over esp-hal's slot: `BlockingBus` (runs in the emulator) or `AsyncBus`
   (interrupt-driven, for Embassy tasks, device only). `CardBlocks` gives `purestwhite-fat` the
-  card's blocks, read only.
+  card's blocks, read only; `open_volume` mounts the card and its FAT volume over the blocking
+  bus in one call.
 - `storage`: `load_whole` reads a file from the card whole into memory from a given allocator
   (PSRAM through esp-alloc's `ExternalMemory` for a large file), for data that is read often and
   never changed, such as a font.
@@ -76,24 +86,28 @@ traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit
 
 ### boot
 
-- `start`: the start every image shares. It makes the run's one flash storage before anything writes
-  the flash and gives it to the image after the hand-back: esp-storage 0.10 reads the flash's size
-  with a hardware command when a storage is made, and on the device one made after the hand-back's
-  write could read nothing. It arms the RTC watchdog (60 s, then a core reset) before anything that
-  could hang, holds the power latch, begins the report with the image's title and saves it, then
-  hands the next boot back and notes `next boot: C++ firmware`. If handing back fails, it notes
-  `next boot: NOT SET (<why>)` and resets at once.
+- `start`: the start every image shares. It makes the run's one flash storage
+  (`board::flash_storage`) before anything writes the flash and gives it to the image after the
+  hand-back: on the device a storage made after the hand-back's write could read nothing. It arms
+  the RTC watchdog (60 s, then a core reset) before anything that could hang, holds the power
+  latch, keeps the report saved last while the C++ firmware has not taken it (`Started.earlier`,
+  for an image that runs again before the C++ firmware does), begins the report with the image's
+  title and saves it, then hands the next boot back and notes `next boot: C++ firmware`. If handing
+  back fails, it notes `next boot: NOT SET (<why>)` and resets at once.
 - `hand_back`: selects the C++ firmware's OTA slot (the one this image was not booted from) in
   otadata, as valid. The choice of the entry is in the `purestwhite-ota` crate, tested on the host;
   here the partition table and the flash are read and written. Before that it drops the
   bootloader's record of this image, so that a wake from deep sleep boots what otadata selects
-  rather than this image again, and parks the second core.
+  rather than this image again, and parks the second core. `HandBack::fell_back` says whether the
+  bootloader started this image although otadata did not select it: it refused the C++ firmware's
+  slot.
 - `Report`: the report in the last 256 bytes of RTC slow memory (magic "PWBT", length, then up to
   248 bytes of text), saved again after every stage. Text past its room is dropped and the last
   byte becomes `~`. After a panic, every image adds `PANIC` to the saved report and resets.
 - `arm_watchdog`: the RTC watchdog, 60 s, then a core reset, which keeps the latch and the report.
 - `watch_sleep`: keeps the RTC watchdog counting through a phase-2 image's deep sleep, so that a
-  sleep that never ends still ends: first a core reset, which comes back to the C++ firmware; then
+  sleep that never ends still ends: first a core reset, which comes back to the C++ firmware (or to
+  `install-check` while the C++ firmware's slot holds no image that passes); then
   a system reset, which on battery turns the device off. A firmware whose sleeps last hours must
   not call it.
 - `report_and_sleep`, `sleep_when_released`: a deep sleep bounded by its timer and `watch_sleep`
@@ -171,6 +185,19 @@ its scenario in `emu/`.
   the image in the C++ firmware's slot, names each among the X4 Pro releases it knows by their
   appended digest, and reports whether they are the same and how many sectors an install would
   write. `emu/baremetal-update.txt`.
+- `install-check`: the SD updater's install, within phase 2's limits (`purestwhite_ota::plan`):
+  writes `/purestwhite-recovery.bin` into the C++ firmware's slot when it is a release the updater
+  knows and the slot holds the same release (`Rewrite`, which changes nothing) or no image that
+  passes while the bootloader fell back to this image (`Repair`, after a write cut short; a slot
+  read as broken without that fallback gives `refused: Unconfirmed`); refuses otherwise.
+  Identifies both first, writes each sector read back, and identifies the slot again. A write cut
+  short leaves the C++ slot without an image that passes, so a bootloader that checks images
+  comes back to this image, which writes again (seen in the emulator with the C++ build's
+  bootloader, not yet on the device); when the slot is left without one, it sleeps until Power or
+  its timer rather than reset into itself. `emu/baremetal-install.txt`, `emu/baremetal-install-refuse.txt`, and cold boots of
+  flash images made by `emu/make_install_flash.py`: `emu/baremetal-repair.txt` (a slot cut short)
+  and `emu/baremetal-reset-mid-write.txt`.
+  **It writes the C++ firmware's slot: only with the owner's go-ahead.**
 - `write-check`: proves the update gate's write path in the last megabyte of the slot it runs
   from, where a mistake harms only its own slot. It measures its own image where it lies, then
   copies it into that megabyte through the slot's flash region, with the SD updater's parts
@@ -189,9 +216,11 @@ its scenario in `emu/`.
   card's font loaded into PSRAM for the texts, then a moon before a deep sleep.
   `emu/baremetal-feedback.txt`.
 
-Each report starts with the image's title (`purestWhite bare-metal <name> check`, or
-`purestWhite feedback`) and `next boot: C++ firmware`. Images that reset end it with `done`; images
-that sleep end it with the sleep line, and the C++ firmware then adds `wake: ...` and `reset: ...`.
+Each report starts with the image's title (such as `purestWhite bare-metal SD check` or
+`purestWhite install`) and `next boot: C++ firmware`. Images that reset end it with `done`; images
+that sleep end it with the sleep line, and the C++ firmware then adds `wake: ...` and `reset: ...`
+(after `install-check`'s sleep, `install-check` may run again first, while the C++ firmware's
+slot holds no image that passes).
 
 ## Build
 

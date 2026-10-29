@@ -19,6 +19,7 @@ pub mod input;
 pub mod keys;
 pub mod memory;
 pub mod panel;
+pub mod releases;
 pub mod screen;
 pub mod sd;
 pub mod sha;

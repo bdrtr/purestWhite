@@ -1,14 +1,15 @@
-//! App images on the SD card and in an OTA app slot, checked and hashed as they stream in: the
-//! update gate's SD updater, its reading side (rust/firmware/DESIGN.md). Nothing here writes.
-//! `identify_file` is async over the card, as `crate::storage` is: an image without an executor
-//! drives it with `crate::ready` over the blocking bus.
+//! App images on the SD card and in an OTA app slot, checked and hashed as they stream in, and a
+//! card's image written into a slot: the update gate's SD updater (rust/firmware/DESIGN.md). Only
+//! `install_file` writes. The card's functions are async, as `crate::storage` is: an image
+//! without an executor drives them with `crate::ready` over the blocking bus.
 
 use aligned::{A4, Aligned};
-use embedded_storage::nor_flash::ReadNorFlash;
+use embedded_storage::nor_flash::{NorFlash, ReadNorFlash};
+use esp_bootloader_esp_idf::partitions::{self, FlashStorage, PartitionEntry};
 use purestwhite_fat::{BlockDevice, Volume};
 use purestwhite_ota::digest::{DigestError, Identified, Identify, Sha256};
-use purestwhite_ota::image::ImageError;
-use purestwhite_ota::slot::SECTOR;
+use purestwhite_ota::image::{DIGEST, ImageError};
+use purestwhite_ota::slot::{SECTOR, SlotWriter, WriteError};
 
 /// How much is read at a time: a sector, word aligned (the card's DMA and esp-storage want it).
 type Buf = Aligned<A4, [u8; SECTOR]>;
@@ -83,6 +84,58 @@ pub async fn identify_file<D: BlockDevice, H: Sha256>(
     Ok(identify.finish()?)
 }
 
+/// Why a file's image was not written whole.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstallError<E, F> {
+    /// The file could not be read.
+    File(purestwhite_fat::Error<E>),
+    Write(WriteError<F>),
+    /// What was written is whole, but not the image the first pass read: the file has changed.
+    Changed,
+}
+
+/// Writes the image in the file at `path` on `volume` into `slot`, as big as the slot may be: the
+/// SD updater's second pass, which must write the image the first pass (`identify_file`) read,
+/// whose digest is `expected`. `between` runs after each piece, to feed a watchdog.
+///
+/// # Errors
+/// The file cannot be read, the write fails, or what was written is not the first pass's image.
+/// The slot then holds part of an image, unless the error came before its first sector was
+/// written. After `Changed` the slot holds a whole image that passes, but not the one the first
+/// pass read: the file changed on the card between the passes (nothing else writes the card
+/// meanwhile, so only a card swapped mid-run gives that).
+pub async fn install_file<D: BlockDevice, F: NorFlash, H: Sha256>(
+    volume: &mut Volume<D>,
+    path: &str,
+    slot: &mut F,
+    expected: &[u8; DIGEST],
+    hasher: H,
+    mut between: impl FnMut(),
+) -> Result<Identified, InstallError<D::Error, F::Error>> {
+    let entry = volume.find(path).await.map_err(InstallError::File)?;
+    let mut file = volume.open(&entry).map_err(InstallError::File)?;
+    let mut writer = SlotWriter::new(slot.capacity(), hasher);
+    let mut buf: Buf = Aligned([0; SECTOR]);
+    loop {
+        let n = volume
+            .read(&mut file, &mut *buf)
+            .await
+            .map_err(InstallError::File)?;
+        if n == 0 {
+            break;
+        }
+        writer
+            .write(slot, buf.get(..n).unwrap_or_default())
+            .map_err(InstallError::Write)?;
+        between();
+    }
+    let written = writer.finish(slot).map_err(InstallError::Write)?;
+    if written.digest != *expected {
+        return Err(InstallError::Changed);
+    }
+    Ok(written)
+}
+
 /// The image at the start of `slot`, measured and hashed where it lies. `between` runs after
 /// each piece, to feed a watchdog.
 ///
@@ -110,4 +163,21 @@ pub fn identify_slot<F: ReadNorFlash, H: Sha256>(
         between();
     }
     Ok(identify.finish()?)
+}
+
+/// The image at the start of the partition `entry` (an OTA app slot), measured and hashed where it
+/// lies through the partition's own flash region (`identify_slot`).
+///
+/// # Errors
+/// The region or the flash cannot be read (`SlotError::Flash`, at 0 for the region), or the slot
+/// holds no image that passes.
+pub fn identify_partition<H: Sha256>(
+    storage: &mut FlashStorage<'_>,
+    entry: PartitionEntry,
+    hasher: H,
+    between: impl FnMut(),
+) -> Result<Identified, SlotError<partitions::Error>> {
+    let mut region = entry.as_flash_region(storage);
+    let mut flash = region.as_nor_flash().map_err(|e| SlotError::Flash(0, e))?;
+    identify_slot(&mut flash, hasher, between)
 }
