@@ -647,18 +647,20 @@ clock 160 MHz) without the timing tuning ESP-IDF does and esp-hal 1.2.2 lacks
 first, so a hang at the PSRAM's start ends in a watchdog reset into the C++ firmware. The emulator
 passes it (`emu/baremetal-psram.txt`), but does not model the timing: only the device can tell.
 
-- [ ] Cold: after the device has been off for a while, install
+- [x] Cold: after the device has been off for a while, install
   `purestwhite-baremetal-psram80.bin` from SD. Expected in the report: "psram: 8192 KB, 80 MHz,
   at …", "heap: N KB, in PSRAM", "memory: errors 0, …" and "memory inverted: errors 0, …", with
   write and read times shorter than at 40 MHz (send them: they show the speed gained).
+  - Result, cold (2026-10-29, device): "psram: 8192 KB, 80 MHz, at 0x3c020000", "heap: 8128 KB,
+    in PSRAM", "memory: errors 0, write 406 ms, read 647 ms", the same inverted, "done": the same
+    as the slightly warm run. Report: `firmware-arsiv/cihaz-raporlari/2026-10-29-psram80-cold.txt`.
 - [ ] Warm: the same after an hour of reading or charging. Any error count above zero, a missing
   "memory" line or "PANIC" means 80 MHz is not safe without tuning on this device: tell me.
   - Result, slightly warm (2026-10-29, device): "psram: 8192 KB, 80 MHz, at 0x3c020000", "heap:
     8128 KB, in PSRAM", "memory: errors 0, write 406 ms, read 647 ms", the same inverted. At 40 MHz
     (2026-10-28) the same test took 474 ms to write and 689 ms to read: 14% and 6% faster. The test
     computes a pattern for every word, so it measures the CPU's loop more than the PSRAM's bus;
-    copying frames or reading a font may gain more. The cold run and a run after an hour are still
-    to come. Report: `firmware-arsiv/cihaz-raporlari/2026-10-29-psram80-warm.txt`.
+    copying frames or reading a font may gain more. A run after an hour is still to come. Report: `firmware-arsiv/cihaz-raporlari/2026-10-29-psram80-warm.txt`.
 
 ## The Embassy main ("firmware: the purestwhite image, the Embassy main's first device run")
 
