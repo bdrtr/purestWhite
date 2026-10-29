@@ -885,11 +885,11 @@ which you will not notice. Settings still offers Start Other Firmware for it; it
 firmware is damaged and changes nothing. Keep USB power in during that next update: it writes the
 slot otadata selects.
 
-- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put `purestwhite-baremetal-boot-1.bin`
+- [x] Delete the old `purestwhite-bare-metal.txt` on the card. Put `purestwhite-baremetal-boot-1.bin`
   in the card's root (in the archive, its checksum in `SHA256-bare-metal.txt`). Settings > System >
   SD Card Firmware Update > choose it > Confirm. Within a few seconds the C++ firmware should come
   back by itself.
-- [ ] Expected in the report, in this order:
+- [x] Expected in the report, in this order:
   - "purestWhite boot check"
   - "next boot: C++ firmware"
   - "bootloader N B xxxxxxxx" (its length and the start of its digest)
@@ -906,6 +906,13 @@ slot otadata selects.
   "own image:", "own digest:", "select:" or "slot:", or "PANIC", "NOT SET", or a report that
   stops early; send it to me. Other forms of the bootloader lines ("digest BAD", "bootloader: ...",
   "no descriptor") only describe the bootloader. Send me the report in any case.
+  - Result (2026-10-29, device): "bootloader 15600 B e17e214f", "C++ build's: other", "built
+    v6.0.1 Aug 27 2026 13:36:28", "C++ slot 5490944 B c746bebf next a8764dbb", "digest cleared at
+    18c30, selected: reset" as the last line. The device's bootloader is not the C++ build's: it
+    was built with ESP-IDF v6.0.1. After a software reset it refused the image whose digest no
+    longer held and started the C++ firmware, which saved this report; the image did not run
+    again. Whether it checks at power-on is still unproven. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-boot-1.txt`.
 
 ## The SD updater's install ("firmware: install-check, the SD updater's install within phase 2's limits")
 
@@ -929,7 +936,8 @@ release and an unknown image (`emu/baremetal-install.txt`, `emu/baremetal-instal
 `emu/baremetal-repair.txt`, `emu/baremetal-reset-mid-write.txt`). Your device keeps the bootloader
 it left the factory with: it rolls back an image that never confirms itself (rollback-check), but
 whether it checks an image before booting it, and falls back when it does not pass, has not been
-seen on the device yet: the bootloader's check (above) tests it, and must pass first.
+seen on the device yet: the bootloader's check (above) tests it, and passed after a software
+reset (2026-10-29); at power-on it is still unproven.
 
 - [ ] Plug in USB power (charging only; no data is needed) and keep it in until the end. Delete the
   old `purestwhite-bare-metal.txt` on the card. The card's root should hold

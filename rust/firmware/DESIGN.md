@@ -218,10 +218,11 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   in the other slot, which writes the release again. The C++ build's bootloader checks on every
   boot; a deep-sleep wake normally skips the check and boots the image booted last, but the
   hand-back drops that record, so the wake reads otadata and checks the image too. Whether the
-  device's factory bootloader checks images has not been seen yet (it does roll back):
-  `boot-check` names it and tests the check on its own image after a software reset, before the
-  install goes on the device (a bootloader set to skip the check only at power-on passes it too,
-  so the repair after a power loss stays unproven). When the slot is left without an image that
+  device's own bootloader checks images was tested by `boot-check` (2026-10-29): it is not the C++
+  build's (15600 bytes, ESP-IDF v6.0.1, built Aug 27 2026), it rolls back, and after a software
+  reset it refused an image whose digest no longer held and started the C++ firmware. A
+  bootloader set to skip the check only at power-on would pass that too, so the repair after a
+  power loss stays unproven. When the slot is left without an image that
   passes and the updater cannot write it (the card or its release missing), it sleeps until Power
   or a timer rather than reset straight back into itself (`install-check`).
 - Two passes over the file, because during phase 2 the slot written is the known-good one: the
