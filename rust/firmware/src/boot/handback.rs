@@ -78,7 +78,24 @@ pub fn hand_back(
     // SAFETY: this code runs on the first core.
     unsafe { CpuControl::new(cpu).park_core(Cpu::AppCpu) };
     let slots = ota_slots(storage)?;
-    let (otadata, booted) = (slots.otadata, slots.booted_slot);
+    let selection = select_other_slot(storage, slots.otadata, slots.booted_slot)?;
+    Ok(HandBack {
+        booted_state: selection.booted_state,
+    })
+}
+
+/// Selects the slot other than `from` for the next boot in otadata (at `otadata`), valid, unless
+/// the entry in force already does: one complete entry written into the sector not in force and
+/// read back. What it found (its `booted_state` describes `from`'s entry). The hand-back passes
+/// the slot this image was booted from.
+///
+/// # Errors
+/// What failed, when otadata cannot be read or written, or its sequence numbers ran out.
+pub(crate) fn select_other_slot(
+    storage: &mut FlashStorage<'_>,
+    otadata: u32,
+    from: ota::Slot,
+) -> Result<ota::Selection, &'static str> {
     let mut entries = [[0u8; ota::ENTRY]; 2];
     for (at, entry) in [otadata, otadata + ota::SECTOR]
         .into_iter()
@@ -86,13 +103,11 @@ pub fn hand_back(
     {
         storage.read(at, entry).map_err(|_| "otadata read failed")?;
     }
-    let selection = ota::select_other(&entries, booted).map_err(|_| "otadata sequence ran out")?;
+    let selection = ota::select_other(&entries, from).map_err(|_| "otadata sequence ran out")?;
     if let Some(write) = selection.write {
         write_entry(storage, otadata + write.sector * ota::SECTOR, &write.entry)?;
     }
-    Ok(HandBack {
-        booted_state: selection.booted_state,
-    })
+    Ok(selection)
 }
 
 /// Writes `entry` at `at` and reads it back.

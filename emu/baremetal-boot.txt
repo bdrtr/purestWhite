@@ -1,0 +1,34 @@
+# The bootloader's own check of images (rust/firmware's boot-check): Settings > System > SD Card
+# Firmware Update flashes it into the other OTA slot and restarts into it. It hands the next boot
+# back to this firmware, reads the bootloader (here the C++ build's), clears its own appended
+# digest, selects its own slot and resets. The bootloader checks it, refuses it ("OTA app
+# partition slot 1 is not bootable") and boots this firmware, which saves the report. (A later
+# reset is refused the same way, but eink-qemu then takes the bootloader's "Image hash failed"
+# line for a crash, so the scenario stops here.)
+#   cd rust/firmware; cargo build --release; cd ../..
+#   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/boot-check build/baremetal/a-boot-check.bin
+#   emu/compare.sh emu/baremetal-boot.txt x4pro build/baremetal/a-boot-check.bin
+# (The image sorts first in the update list, where the scenario touches.)
+# (The unmodified base never starts the image: its side fails at the first wait for its output.)
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+shot:confirm
+touch:240,472
+timeout:180
+wait-log:next boot: C\+\+ firmware
+wait-log:bootloader [0-9]+ B [0-9a-f]+
+wait-log:C\+\+ build's: same
+wait-log:built v5
+wait-log:C\+\+ slot [0-9]+ B [0-9a-f]+ next
+wait-log:digest cleared at [0-9a-f]+, selected: reset
+wait-log:slot 1 is not bootable
+wait-log:Bare-metal report
+wait-quiet:5
+shot:back-home

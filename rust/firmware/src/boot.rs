@@ -12,6 +12,7 @@ mod start;
 mod watchdog;
 
 pub use bounded_sleep::{BoundedSleep, report_and_sleep, sleep_when_released};
+pub(crate) use handback::select_other_slot;
 pub use handback::{HandBack, hand_back};
 pub use report::Report;
 pub use start::{Started, start};

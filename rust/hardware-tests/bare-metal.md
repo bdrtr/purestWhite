@@ -860,6 +860,53 @@ mistake only installs the C++ firmware into the other slot, as any C++ update wo
     should take about 45 s (the first pass about 4 s, the second about 40 s). Report:
     `firmware-arsiv/cihaz-raporlari/2026-10-29-update-1.txt`.
 
+## The bootloader's check of images ("firmware: boot-check, the device's bootloader and its check of images")
+
+Run this before the install. The install's repair after a write cut short rests on the bootloader
+refusing an image that does not pass and falling back to the other slot; that was seen only with
+the C++ build's bootloader, in the emulator, and your device keeps the bootloader it left the
+factory with. This image reads that bootloader (read only) and names it; then it tests the check
+on itself, never on the C++ firmware: only when the C++ firmware's slot holds a release it knows,
+it clears its own image's appended digest, selects its own slot for the next boot and resets. A
+bootloader that checks images refuses it and starts the C++ firmware; one that does not starts this
+image again, which hands the next boot back at once, as every image does, and notes it. Either way
+the C++ firmware comes back by itself, and nothing but this image's own slot and otadata is
+written. It passes in the emulator (`emu/baremetal-boot.txt`).
+
+Its reset is a software one, and a bootloader can be set to skip the check only at power-on: this
+test cannot tell that apart, so the install's repair after a power loss stays unproven (keep USB
+power in during the install, which makes a power loss unlikely). Proving the power-on case needs a
+boot known to be a power-on (the image turning the device off itself by releasing the power latch
+on battery, or the C++ firmware recording why it started); that test is not written yet.
+
+When the bootloader refused the image, otadata still selects it until the next SD Card Firmware
+Update replaces it: at each boot the bootloader refuses it again and starts the C++ firmware,
+which you will not notice. Settings still offers Start Other Firmware for it; it says the other
+firmware is damaged and changes nothing. Keep USB power in during that next update: it writes the
+slot otadata selects.
+
+- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put `purestwhite-baremetal-boot-1.bin`
+  in the card's root (in the archive, its checksum in `SHA256-bare-metal.txt`). Settings > System >
+  SD Card Firmware Update > choose it > Confirm. Within a few seconds the C++ firmware should come
+  back by itself.
+- [ ] Expected in the report, in this order:
+  - "purestWhite boot check"
+  - "next boot: C++ firmware"
+  - "bootloader N B xxxxxxxx" (its length and the start of its digest)
+  - "C++ build's: same" or "C++ build's: other" (other is expected: the factory's)
+  - "built vX.Y.Z <date> <time>" (the ESP-IDF it was built with), or "no descriptor" for an
+    older one
+  - "C++ slot 5490944 B c746bebf next a8764dbb"
+  - "digest cleared at <hex offset>, selected: reset" as the last line: the bootloader refused the
+    image after a reset.
+
+  "ran again: booted with its digest cleared" followed by "done" means the bootloader started an
+  image whose digest does not hold: it does not check images, and the install must not go on the
+  card. Any other ending means the test did not run: "done" after a line starting "skipped:",
+  "own image:", "own digest:", "select:" or "slot:", or "PANIC", "NOT SET", or a report that
+  stops early; send it to me. Other forms of the bootloader lines ("digest BAD", "bootloader: ...",
+  "no descriptor") only describe the bootloader. Send me the report in any case.
+
 ## The SD updater's install ("firmware: install-check, the SD updater's install within phase 2's limits")
 
 **Only with the owner's go-ahead: this image writes the C++ firmware's slot.** It is the dry run's
@@ -882,7 +929,7 @@ release and an unknown image (`emu/baremetal-install.txt`, `emu/baremetal-instal
 `emu/baremetal-repair.txt`, `emu/baremetal-reset-mid-write.txt`). Your device keeps the bootloader
 it left the factory with: it rolls back an image that never confirms itself (rollback-check), but
 whether it checks an image before booting it, and falls back when it does not pass, has not been
-seen on the device yet.
+seen on the device yet: the bootloader's check (above) tests it, and must pass first.
 
 - [ ] Plug in USB power (charging only; no data is needed) and keep it in until the end. Delete the
   old `purestwhite-bare-metal.txt` on the card. The card's root should hold

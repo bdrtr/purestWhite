@@ -101,8 +101,9 @@ pub struct Write {
 /// What [`select_other`] found and what it would write.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Selection {
-    /// The state of the entry in force when it selects the running image's slot (see
-    /// `STATE_PENDING_VERIFY`); `None` when it selects the other slot, or none is in force.
+    /// The state of the entry in force when it selects the slot given as `booted` (for the
+    /// hand-back, the running image's; see `STATE_PENDING_VERIFY`); `None` when it selects the
+    /// other slot, or none is in force.
     pub booted_state: Option<u32>,
     /// The entry to write; `None` when the entry in force already selects the other slot, valid.
     pub write: Option<Write>,
@@ -126,8 +127,9 @@ pub fn seq_crc(seq: u32) -> u32 {
     !crc
 }
 
-/// What selects the slot other than `booted` (the running image's) for the next boot, valid,
-/// given the two entries (sector 0's, then sector 1's).
+/// What selects the slot other than `booted` for the next boot, valid, given the two entries
+/// (sector 0's, then sector 1's). The hand-back passes the running image's slot; boot-check's
+/// `select_this_image` passes the other one, to select its own.
 ///
 /// # Errors
 /// The sequence numbers ran out.

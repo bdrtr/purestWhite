@@ -102,6 +102,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "boot-check"
+path = "./src/bin/boot_check.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rollback-check"
 path = "./src/bin/rollback_check.rs"
 test = false

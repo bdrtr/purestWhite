@@ -119,6 +119,8 @@ traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit
 
 - `open_touch`, `note_touch`: the touch panel through blocking calls, for images without an
   executor, and its report line (`touch: 0x5d` or `touch: none`).
+- `select_this_image`: selects this image's own slot for the next boot (the reverse of the
+  hand-back). Only boot-check uses it, after clearing its own digest.
 
 ## The purestwhite image
 
@@ -185,6 +187,12 @@ its scenario in `emu/`.
   the image in the C++ firmware's slot, names each among the X4 Pro releases it knows by their
   appended digest, and reports whether they are the same and how many sectors an install would
   write. `emu/baremetal-update.txt`.
+- `boot-check`: reads the device's bootloader (its length, whether its appended digest holds, the
+  ESP-IDF version and build time it names, whether it is the C++ build's), then tests its check of
+  images on itself, only while the C++ firmware's slot holds a known release: it clears its own
+  appended digest, selects its own slot (`test_image::select_this_image`) and resets. A bootloader
+  that checks images refuses it and starts the C++ firmware; one that does not starts it again,
+  and it hands back and notes `ran again`. `emu/baremetal-boot.txt`.
 - `install-check`: the SD updater's install, within phase 2's limits (`purestwhite_ota::plan`):
   writes `/purestwhite-recovery.bin` into the C++ firmware's slot when it is a release the updater
   knows and the slot holds the same release (`Rewrite`, which changes nothing) or no image that

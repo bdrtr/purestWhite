@@ -155,6 +155,13 @@ impl ImageCheck {
         self.part == Part::Done
     }
 
+    /// The image's length once it has all come, whatever its first segment holds: for an image
+    /// that is not an app, such as the bootloader, whose first segment holds its own descriptor.
+    #[must_use]
+    pub fn len_once_done(&self) -> Option<usize> {
+        self.is_done().then_some(self.pos)
+    }
+
     /// Ends the check: the image, once it has all come.
     ///
     /// # Errors

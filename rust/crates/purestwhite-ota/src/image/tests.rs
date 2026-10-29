@@ -161,3 +161,13 @@ fn a_real_image_when_one_is_given() {
         checked.len
     );
 }
+
+#[test]
+fn an_image_without_an_app_descriptor_still_gives_its_length_once_done() {
+    let bytes = image(CHIP_ESP32S3, &[&[0x50, 0, 0, 0, 1, 2, 3, 4], &[9; 100]], 1);
+    let mut check = ImageCheck::new(SLOT);
+    assert_eq!(check.len_once_done(), None);
+    assert_eq!(check.feed_some(&bytes), Ok(bytes.len()));
+    assert_eq!(check.len_once_done(), Some(bytes.len()));
+    assert_eq!(check.finish(), Err(ImageError::Descriptor));
+}
