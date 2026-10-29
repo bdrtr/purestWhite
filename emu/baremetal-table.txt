@@ -1,0 +1,29 @@
+# The partition table, read only (rust/firmware's table-check): Settings > System > SD Card
+# Firmware Update flashes it into the other OTA slot and restarts into it; it hands the next boot
+# back to this firmware, reports each partition and the slot it ran from, then resets; this
+# firmware saves the report to /purestwhite-bare-metal.txt.
+#   cd rust/firmware; cargo build --release; cd ../..
+#   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/table-check build/baremetal/table-check.bin
+#   emu/compare.sh emu/baremetal-table.txt x4pro build/baremetal/table-check.bin
+# (The unmodified base never starts the image: its side fails at the first wait for its output.)
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+shot:confirm
+touch:240,472
+timeout:180
+wait-log:next boot: C\+\+ firmware
+wait-log:^run app[01]
+wait-log:done
+wait-log:Bare-metal report
+wait-quiet:5
+shot:back-home
+reset
+ready:120
+shot:after-reset

@@ -78,6 +78,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "table-check"
+path = "./src/bin/table_check.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rollback-check"
 path = "./src/bin/rollback_check.rs"
 test = false

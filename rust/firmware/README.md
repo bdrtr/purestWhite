@@ -159,6 +159,9 @@ its scenario in `emu/`.
   (eink-qemu 0.9.2 also crashes on the GPIO and SDMMC interrupts).
 - `input-check`: polls the buttons and the touch panel every 15 ms and counts what they give until
   the C++ firmware would sleep, then sleeps deeply until Power (or 60 s). `emu/baremetal-input.txt`.
+- `table-check`: reports the device's partition table, each partition's label, type/subtype,
+  offset and size, and the slot it ran from: the device keeps its factory table, which need not
+  be `partitions.csv`. `emu/baremetal-table.txt`.
 - `scratch-check`: reads the scratch partition (`spiffs`, 0xC90000, 3456 KB) whole, read only, and
   reports how many 4 KB sectors are erased, the first one that is not and its first bytes, and a
   hash of it all: before the update gate's write path is proven there, whether anything uses it.

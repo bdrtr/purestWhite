@@ -730,7 +730,7 @@ nothing. It hands the next boot back first and resets at once. It passes in the 
     most likely wrongly after the ROM's write: every read was then out of bounds. Since then the
     start makes one storage before any write and keeps it for the run. Report:
     `firmware-arsiv/cihaz-raporlari/2026-10-29-scratch-1.txt`.
-- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put
+- [x] Delete the old `purestwhite-bare-metal.txt` on the card. Put
   `purestwhite-baremetal-scratch-2.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`)
   in the card's root; Settings > System > SD Card Firmware Update > choose the file > Confirm. Within a few seconds the C++ firmware
   should come back by itself.
@@ -739,3 +739,27 @@ nothing. It hands the next boot back first and resets at once. It passes in the 
   report whatever it says: "erased 864 of 864" and "first used: none" mean the partition is unused
   and the write path can be proven there; anything else tells what was written there once. If
   the table still cannot be read, the report says why ("table: …", "raw …, flash … KB").
+  - Result (2026-10-29, device): "flash 16384 KB", "scratch 0xfd0000, 80 KB", "erased 0 of 20
+    sectors", "first used 0xfd0000: [01, 80, 01, 00, ff, ff, ff, ff]", "fnv 265e7f4e", "done".
+    The single storage made before any write reads the flash: the cause above is confirmed as far
+    as it goes. But the device's partition table is not `partitions.csv`: its `spiffs` is 80 KB at
+    0xFD0000, every sector of it in use (most likely the factory firmware's data). It is not a
+    scratch area; the next test reads the whole table. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-scratch-2.txt`.
+
+## The device's partition table ("firmware: table-check, the device's partition table")
+
+The device keeps the partition table it left the factory with; the C++ firmware's updates never
+write it. scratch-check found its `spiffs` partition elsewhere and in use, so before any write is
+proven on the flash, the whole table must be known: the app slots' sizes, and whether any part of
+the flash is free. This image only reads the table and reports it; it writes nothing, hands the
+next boot back first and resets at once. It passes in the emulator (`emu/baremetal-table.txt`,
+which shows `partitions.csv`).
+
+- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put
+  `purestwhite-baremetal-table-1.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`) in
+  the card's root; Settings > System > SD Card Firmware Update > choose the file > Confirm. Within
+  a few seconds the C++ firmware should come back by itself.
+- [ ] Expected in the report: "purestWhite table", "next boot: C++ firmware", "flash 16384 KB",
+  then one line per partition ("<label> <type>/<subtype> <offset> <size>", in hex), "run app0" or
+  "run app1", "done". Send me the report.
