@@ -785,11 +785,11 @@ copy can pass only if each erase really works. It passes in the emulator
 (`emu/baremetal-write.txt`, where the lines read "slot 650000+640000", because the emulator uses
 `partitions.csv`).
 
-- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put
+- [x] Delete the old `purestwhite-bare-metal.txt` on the card. Put
   `purestwhite-baremetal-write-1.bin` (108,704 bytes; in the archive, its checksum in
   `SHA256-bare-metal.txt`) in the card's root; Settings > System > SD Card Firmware Update >
   choose the file > Confirm. Within a few seconds the C++ firmware should come back by itself.
-- [ ] Expected in the report, in this order:
+- [x] Expected in the report, in this order:
   - "purestWhite write check"
   - "next boot: C++ firmware"
   - "slot 7f0000+7e0000" ("slot 10000+7e0000" instead only means the C++ firmware is now in
@@ -807,6 +807,12 @@ copy can pass only if each erase really works. It passes in the emulator
   zeros over written data; that does not block the SD updater, which always erases first. Send the
   report in any case: T is the first measure of the write path's speed (the C++ firmware's 5.4 MB
   should take roughly 50 times as long, if the time grows with the size).
+  - Result (2026-10-29, device): "slot 7f0000+7e0000", "image 108704 bytes, digest ok", "cleared
+    27 sectors", "copy: 27 sectors, 726 ms", "read back: same digest", "done". The erase, the
+    write and the read-back work through the slot's flash region on the device, with the
+    interrupt masking and the hardware SHA; about 27 ms per 4 KB sector (erase, write, read back
+    and hash), so a 5.4 MB image should take about 36 s. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-write-1.txt`.
 - [ ] Optional, later: use the C++ firmware as usual, then install any other bare-metal image
   through the SD updater. The C++ firmware should write `app1` as before: the copy left in its
   last megabyte does no harm.

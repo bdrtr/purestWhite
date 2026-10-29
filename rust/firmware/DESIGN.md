@@ -187,14 +187,14 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   magic, and that the image measured from its segments fits the slot; the battery not low.
   `purestwhite_ota::image::ImageCheck` checks the image as it streams in (the digest itself is the
   caller's, with the chip's SHA unit); it passes every release in the archive. The watchdog is fed
-  between flash chunks: a 5.4 MB image in 4 KB sectors should take over a minute (an estimate;
-  write-check's copy time measures the write path). Erasing 64 KB blocks would be several times
-  faster, but each block erase keeps interrupts masked for its whole length (about 0.15 s,
-  up to 2 s on common 128 Mbit parts). Each ROM flash call runs with interrupts masked, through
-  esp-storage's `critical-section` feature, which the firmware turns on itself
-  (esp-bootloader-esp-idf leaves it off): a handler run from flash while the flash is busy would
-  fetch garbage, so interrupts wait up to a sector erase (about 0.4 s). `sha::HwSha` finishes a
-  digest dropped unfinished, so that the next starts on an idle unit.
+  between flash chunks: write-check measured about 27 ms per 4 KB sector on the device (erase,
+  write, read back and hash; 2026-10-29), so a 5.4 MB image should take about 36 s. Erasing 64 KB
+  blocks would be several times faster, but each block erase keeps interrupts masked for its whole
+  length (about 0.15 s, up to 2 s on common 128 Mbit parts). Each ROM flash call runs with
+  interrupts masked, through esp-storage's `critical-section` feature, which the firmware turns on
+  itself (esp-bootloader-esp-idf leaves it off): a handler run from flash while the flash is busy
+  would fetch garbage, so interrupts wait up to a sector erase (about 0.4 s). `sha::HwSha` finishes
+  a digest dropped unfinished, so that the next starts on an idle unit.
 - The write goes to the slot that is not running, is read back and checked, and only then is
   otadata changed (`purestwhite-ota`); a failure at any step leaves otadata as it was.
 - Two passes over the file, because during phase 2 the slot written is the known-good one: the
@@ -270,8 +270,8 @@ hand-back).
    the power task.
 3. The update gate: the boot counter, the recovery mode with the phase-2 limits, the scratch-flash
    proof on the device. Done so far: the image check, the two passes and the slot writer
-   (`purestwhite-ota`), and `write-check`, which proves the write path in the last megabyte of
-   its own slot, for the device test.
+   (`purestwhite-ota`), and `write-check`, which proved the write path on the device in the last
+   megabyte of its own slot (2026-10-29: 27 sectors in 726 ms, the same digest read back).
 4. The battery page loop and its RTC log; the two-firmware measurement. Before it, who owns the
    report: now the power task does, and the phase-2 backstop writes it once, just before a
    reset; a battery log in its own task needs a shared report in `boot` or an RTC area of its own.
