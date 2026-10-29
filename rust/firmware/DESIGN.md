@@ -271,7 +271,10 @@ hand-back).
 3. The update gate: the boot counter, the recovery mode with the phase-2 limits, the scratch-flash
    proof on the device. Done so far: the image check, the two passes and the slot writer
    (`purestwhite-ota`), and `write-check`, which proved the write path on the device in the last
-   megabyte of its own slot (2026-10-29: 27 sectors in 726 ms, the same digest read back).
+   megabyte of its own slot (2026-10-29: 27 sectors in 726 ms, the same digest read back), and
+   `update-check`, the SD updater's reading side as a dry run (the card's release and the C++
+   slot identified and compared; nothing written), for the device test. Writing the C++ slot on
+   the device waits for the owner's decision after that dry run.
 4. The battery page loop and its RTC log; the two-firmware measurement. Before it, who owns the
    report: now the power task does, and the phase-2 backstop writes it once, just before a
    reset; a battery log in its own task needs a shared report in `boot` or an RTC area of its own.

@@ -1,0 +1,33 @@
+# The SD updater's reading side, a dry run (rust/firmware's update-check): Settings > System > SD
+# Card Firmware Update flashes it into the other OTA slot and restarts into it; it hands the next
+# boot back to this firmware, identifies /purestwhite-recovery.bin on the card and the image in
+# this firmware's slot, compares them and reports, writing nothing more, then resets; this
+# firmware saves the report to /purestwhite-bare-metal.txt. The card gets this firmware's own
+# build under the recovery name, so the two are the same image.
+#   cd rust/firmware; cargo build --release; cd ../..
+#   espflash save-image --chip esp32s3 --flash-size 16mb rust/firmware/target/xtensa-esp32s3-none-elf/release/update-check build/baremetal/a-update-check.bin
+#   mkdir -p build/baremetal/recovery && cp .pio/build/x4pro/firmware.bin build/baremetal/recovery/purestwhite-recovery.bin
+#   emu/compare.sh emu/baremetal-update.txt x4pro build/baremetal/a-update-check.bin build/baremetal/recovery/purestwhite-recovery.bin
+# (The image sorts first in the update list, where the scenario touches.)
+# (The unmodified base never starts the image: its side fails at the first wait for its output.)
+ready
+touch:240,562
+wait-screen
+touch:240,145
+wait-screen
+touch:240,510
+wait-screen
+touch:240,138
+wait-quiet:3
+shot:confirm
+touch:240,472
+timeout:180
+wait-log:next boot: C\+\+ firmware
+wait-log:same: yes, would write [0-9]+ sectors
+wait-log:done
+wait-log:Bare-metal report
+wait-quiet:5
+shot:back-home
+reset
+ready:120
+shot:after-reset

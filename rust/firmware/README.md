@@ -31,6 +31,8 @@ the emulator, so an image without one drives their async calls over blocking bus
   (GT911: RST 4, INT 10), `ButtonParts` (Left GPIO0, Right GPIO7, Power GPIO3), the PSRAM, the RTC's
   low-power control, `RtosParts` (what esp-rtos runs on) and the SHA accelerator. Also
   `hold_power_latch`, `psram_config` and `PSRAM_MHZ` (40).
+- `images`: app images on the card (`identify_file`) and in a slot (`identify_slot`), checked and
+  hashed as they stream in: the SD updater's reading side; nothing here writes.
 - `input`: the three buttons and the GT911 touch panel. `Input::poll` reads both once, as the SDK's
   `InputManager::update()` does, and gives what changed: button changes, a request to sleep (Power
   held longer than `POWER_HOLD_MS`, 400 ms), touch events, the point held and the tap candidate.
@@ -164,6 +166,11 @@ its scenario in `emu/`.
   (eink-qemu 0.9.2 also crashes on the GPIO and SDMMC interrupts).
 - `input-check`: polls the buttons and the touch panel every 15 ms and counts what they give until
   the C++ firmware would sleep, then sleeps deeply until Power (or 60 s). `emu/baremetal-input.txt`.
+- `update-check`: the SD updater's reading side, a dry run that writes nothing: identifies
+  `/purestwhite-recovery.bin` on the card (the C++ release the recovery mode would install) and
+  the image in the C++ firmware's slot, names each among the X4 Pro releases it knows by their
+  appended digest, and reports whether they are the same and how many sectors an install would
+  write. `emu/baremetal-update.txt`.
 - `write-check`: proves the update gate's write path in the last megabyte of the slot it runs
   from, where a mistake harms only its own slot. It measures its own image where it lies, then
   copies it into that megabyte through the slot's flash region, with the SD updater's parts

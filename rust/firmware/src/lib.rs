@@ -14,6 +14,7 @@ use esp_alloc as _;
 
 pub mod board;
 pub mod boot;
+pub mod images;
 pub mod input;
 pub mod keys;
 pub mod memory;

@@ -816,3 +816,40 @@ copy can pass only if each erase really works. It passes in the emulator
 - [ ] Optional, later: use the C++ firmware as usual, then install any other bare-metal image
   through the SD updater. The C++ firmware should write `app1` as before: the copy left in its
   last megabyte does no harm.
+
+## The SD updater's dry run ("firmware: update-check, the SD updater's reading side as a dry run")
+
+The SD updater will install the C++ firmware's release from the card when the recovery mode needs
+it. You chose to go one step at a time: this image does everything up to the write, and writes
+nothing (but the hand-back's otadata entry, as every test image). It reads the C++ release from the
+card under the fixed name `purestwhite-recovery.bin`, checks it and works out its SHA-256 as it
+reads, names it among the X4 Pro releases it knows (the archive's `purestWhite-next-*.bin`), then
+does the same with the C++ firmware now in `app0` and compares them. It passes in the emulator
+(`emu/baremetal-update.txt`): the card's release and the slot's are the same image, "next
+a8764dbb" (the archive's `purestWhite-next-reports-en-a8764dbb.bin`, which this tree's C++ build
+still is); with another release on the card it says "same: no".
+
+The card holds two `.bin` files for this test: in the update list choose
+`purestwhite-baremetal-update-1.bin`, not `purestwhite-recovery.bin`. Choosing the recovery file by
+mistake only installs the C++ firmware into the other slot, as any C++ update would.
+
+- [ ] Delete the old `purestwhite-bare-metal.txt` on the card. The card's root should hold
+  `purestwhite-baremetal-update-1.bin` and `purestwhite-recovery.bin` (a copy of
+  `purestWhite-next-reports-en-a8764dbb.bin`; both in the archive, their checksums in
+  `SHA256-bare-metal.txt`). Settings > System > SD Card Firmware Update > choose
+  `purestwhite-baremetal-update-1.bin` > Confirm. Within about 15 seconds the C++ firmware should
+  come back by itself (reading 5.4 MB from the card takes a few seconds).
+- [ ] Expected in the report, in this order:
+  - "purestWhite update check"
+  - "next boot: C++ firmware"
+  - "card 5490944 B T ms c746bebf next a8764dbb"
+  - "slot 5490944 B T ms <digest> <name>"
+  - "same: yes, would write 1341 sectors"
+  - "done"
+
+  If your C++ firmware is another build, the slot line names it (or says "unknown") and the last
+  line says "same: no": that is a result too, it tells which build is installed. "PANIC", "NOT
+  SET", or a line starting "card:", "volume:", "slot:" or "region:" followed by an error: send me
+  the report. Send it in any case: the times are the first measure of reading the card and the
+  slot.
+

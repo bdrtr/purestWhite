@@ -90,6 +90,12 @@ test = false
 bench = false
 
 [[bin]]
+name = "update-check"
+path = "./src/bin/update_check.rs"
+test = false
+bench = false
+
+[[bin]]
 name = "rollback-check"
 path = "./src/bin/rollback_check.rs"
 test = false
