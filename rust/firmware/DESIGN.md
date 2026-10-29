@@ -202,8 +202,8 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   `purestwhite_ota::image::ImageCheck` checks the image as it streams in (the digest itself is the
   caller's, with the chip's SHA unit); it passes every release in the archive. The watchdog is fed
   between flash chunks: write-check measured about 27 ms per 4 KB sector on the device (erase,
-  write, read back and hash; 2026-10-29), so a 5.4 MB image should take about 36 s, and with
-  update-check's reading of the card (about 1.4 MB/s) both passes about 45 s. Erasing 64 KB
+  write, read back and hash; 2026-10-29); install-check wrote the 5.4 MB release in 54 s, about
+  40 ms a sector with the card read (2026-10-29), and its first pass reads the card in about 4 s. Erasing 64 KB
   blocks would be several times faster, but each block erase keeps interrupts masked for its whole
   length (about 0.15 s, up to 2 s on common 128 Mbit parts). Each ROM flash call runs with
   interrupts masked, through esp-storage's `critical-section` feature, which the firmware turns on
@@ -302,9 +302,12 @@ hand-back).
    megabyte of its own slot (2026-10-29: 27 sectors in 726 ms, the same digest read back), and
    `update-check`, the SD updater's reading side as a dry run, which passed on the device (the
    card's release and the C++ slot identified as the same image, "next a8764dbb"; the card read
-   in 3979 ms, the slot in 1994 ms; nothing written), and `install-check`, the install within
-   the phase-2 plan, which passes in the emulator, cut-short writes included. Writing the C++
-   slot on the device waits for the owner's decision.
+   in 3979 ms, the slot in 1994 ms; nothing written), `boot-check`, which showed the device's own
+   bootloader refusing an image that does not pass after a software reset, and `install-check`,
+   the install within the phase-2 plan (cut-short writes passed in the emulator), which wrote the
+   C++ firmware's release over itself on the device and read it back the same (2026-10-29: 1341
+   sectors in 54 s). Left: the boot counter, the recovery mode with its key and its screen-less
+   path, and the check at power-on.
 4. The battery page loop and its RTC log; the two-firmware measurement. Before it, who owns the
    report: now the power task does, and the phase-2 backstop writes it once, just before a
    reset; a battery log in its own task needs a shared report in `boot` or an RTC area of its own.
