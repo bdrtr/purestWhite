@@ -15,6 +15,7 @@ use esp_backtrace as _;
 use esp_bootloader_esp_idf::partitions::{
     FlashStorage, PARTITION_TABLE_MAX_LEN, read_partition_table,
 };
+use esp_hal::delay::Delay;
 use esp_hal::rtc_cntl::Rtc;
 use purestwhite_firmware::board::Board;
 use purestwhite_firmware::boot::{Report, Started, start};
@@ -77,15 +78,44 @@ impl Survey {
     }
 }
 
-/// Where the scratch partition is and how long, from the partition table.
-fn find(storage: &mut FlashStorage<'_>) -> Result<(u32, u32), &'static str> {
+/// Where the partition table is.
+const TABLE_AT: u32 = 0x8000;
+
+/// Where the scratch partition is and how long, from the partition table; when the table cannot
+/// be read, why, in the report (on the device the first image failed here, the emulator not).
+fn find(storage: &mut FlashStorage<'_>, report: &mut Report) -> Option<(u32, u32)> {
     let mut table = [0u8; PARTITION_TABLE_MAX_LEN];
-    let table = read_partition_table(storage, &mut table).map_err(|_| "partition table")?;
-    table
-        .iter()
-        .find(|p| p.raw_type() == DATA && p.raw_subtype() == SPIFFS)
-        .map(|p| (p.offset(), p.len()))
-        .ok_or("no spiffs partition")
+    if let Err(e) = read_partition_table(storage, &mut table) {
+        // Once more, a moment later: whether the failure lasts.
+        let _ = writeln!(report, "table first: {e:?}");
+        Delay::new().delay_millis(10);
+    }
+    let found = match read_partition_table(storage, &mut table) {
+        Ok(table) => table
+            .iter()
+            .find(|p| p.raw_type() == DATA && p.raw_subtype() == SPIFFS)
+            .map(|p| (p.offset(), p.len())),
+        Err(e) => {
+            let _ = writeln!(report, "table: {e:?}");
+            note_raw_read(storage, report);
+            return None;
+        }
+    };
+    if found.is_none() {
+        let _ = writeln!(report, "scratch: no spiffs partition");
+    }
+    found
+}
+
+/// The flash's own answer for the table's first bytes, and its size as the bootloader set it.
+fn note_raw_read(storage: &mut FlashStorage<'_>, report: &mut Report) {
+    let mut head = [0u8; 8];
+    let read = storage.read(TABLE_AT, &mut head);
+    let _ = writeln!(
+        report,
+        "raw {read:?} {head:02x?}, flash {} KB",
+        storage.capacity() / 1024
+    );
 }
 
 /// Reads `len` bytes at `offset` sector by sector, feeding the watchdog between them.
@@ -127,17 +157,16 @@ fn main() -> ! {
         mut rtc,
         latch: _latch,
         mut report,
-        flash,
+        flash: mut storage,
         ..
     } = start("purestWhite scratch check", board.boot);
-    let mut storage = FlashStorage::new(flash);
-    let surveyed = find(&mut storage).and_then(|(offset, len)| {
-        survey(&mut storage, &mut rtc, offset, len).map(|s| (offset, len, s))
-    });
-    match surveyed {
-        Ok((offset, len, s)) => note(&mut report, offset, len, &s),
-        Err(e) => {
-            let _ = writeln!(report, "scratch: {e}");
+    let _ = writeln!(report, "flash {} KB", storage.capacity() / 1024);
+    if let Some((offset, len)) = find(&mut storage, &mut report) {
+        match survey(&mut storage, &mut rtc, offset, len) {
+            Ok(s) => note(&mut report, offset, len, &s),
+            Err(e) => {
+                let _ = writeln!(report, "scratch: {e}");
+            }
         }
     }
     let _ = writeln!(report, "done");

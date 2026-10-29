@@ -3,8 +3,8 @@
 use super::{HandBack, Report, arm_watchdog, hand_back};
 use crate::board::{Boot, hold_power_latch};
 use core::fmt::Write as _;
+use esp_bootloader_esp_idf::partitions::FlashStorage;
 use esp_hal::gpio::Output;
-use esp_hal::peripherals::FLASH;
 use esp_hal::rtc_cntl::Rtc;
 
 /// What `start` leaves an image. Keep the RTC driver and the latch for the rest of the run.
@@ -13,8 +13,11 @@ pub struct Started<'d> {
     pub latch: Output<'d>,
     pub report: Report,
     pub found: HandBack,
-    /// The flash, back from handing the next boot back, for an image that reads it.
-    pub flash: FLASH<'d>,
+    /// The flash, for an image that reads or writes it: the one storage of the run. esp-storage
+    /// 0.10 reads the flash's size with a hardware command when a storage is made; on the device
+    /// one made after the hand-back's write could not read anything (scratch-check's first run,
+    /// 2026-10-29), so every image keeps this one, made before any write.
+    pub flash: FlashStorage<'d>,
 }
 
 /// The watchdog armed (`arm_watchdog`) before anything that could hang, the power latch held
@@ -23,13 +26,14 @@ pub struct Started<'d> {
 /// (`hand_back`) and noted. When that fails the way back rests on the bootloader alone: it notes
 /// why and resets at once, touching nothing more.
 #[must_use = "keep the RTC driver and the latch for the rest of the run"]
-pub fn start(title: &str, mut boot: Boot) -> Started<'static> {
+pub fn start(title: &str, boot: Boot) -> Started<'static> {
     let rtc = arm_watchdog(boot.rtc_timer);
     let latch = hold_power_latch(boot.latch);
     let mut report = Report::default();
     let _ = writeln!(report, "{title}");
     report.save();
-    let found = match hand_back(boot.flash.reborrow(), boot.cpu) {
+    let mut flash = FlashStorage::new(boot.flash);
+    let found = match hand_back(&mut flash, boot.cpu) {
         Ok(found) => found,
         Err(e) => {
             let _ = writeln!(report, "next boot: NOT SET ({e})");
@@ -44,6 +48,6 @@ pub fn start(title: &str, mut boot: Boot) -> Started<'static> {
         latch,
         report,
         found,
-        flash: boot.flash,
+        flash,
     }
 }

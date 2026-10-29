@@ -722,11 +722,20 @@ C++ firmware's sources never open. This image only reads it and reports what is 
 nothing. It hands the next boot back first and resets at once. It passes in the emulator
 (`emu/baremetal-scratch.txt`: all 864 sectors erased there).
 
+- [x] First run, `purestwhite-baremetal-scratch-1.bin`.
+  - Result (2026-10-29, device): "purestWhite scratch check", "next boot: C++ firmware",
+    "scratch: partition table", "done". The hand-back read the partition table, but the image's
+    own read of it, through a flash storage made after the hand-back had written otadata, failed;
+    the emulator passed. esp-storage 0.10 reads the flash's size over SPI1 when a storage is made,
+    most likely wrongly after the ROM's write: every read was then out of bounds. Since then the
+    start makes one storage before any write and keeps it for the run. Report:
+    `firmware-arsiv/cihaz-raporlari/2026-10-29-scratch-1.txt`.
 - [ ] Delete the old `purestwhite-bare-metal.txt` on the card. Put
-  `purestwhite-baremetal-scratch-1.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`)
+  `purestwhite-baremetal-scratch-2.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`)
   in the card's root; Settings > System > SD Card Firmware Update > choose the file > Confirm. Within a few seconds the C++ firmware
   should come back by itself.
-- [ ] Expected in the report: "purestWhite scratch check", "next boot: C++ firmware", "scratch
-  0xc90000, 3456 KB", "erased N of 864 sectors", "first used: …", "fnv …", "done". Send me the
+- [ ] Expected in the report: "purestWhite scratch check", "next boot: C++ firmware", "flash
+  16384 KB", "scratch 0xc90000, 3456 KB", "erased N of 864 sectors", "first used: …", "fnv …", "done". Send me the
   report whatever it says: "erased 864 of 864" and "first used: none" mean the partition is unused
-  and the write path can be proven there; anything else tells what was written there once.
+  and the write path can be proven there; anything else tells what was written there once. If
+  the table still cannot be read, the report says why ("table: …", "raw …, flash … KB").

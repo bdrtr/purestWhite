@@ -69,7 +69,10 @@ traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit
 
 ### boot
 
-- `start`: the start every image shares (it gives back the flash, for an image that reads it). It arms the RTC watchdog (60 s, then a core reset) before
+- `start`: the start every image shares. It makes the run's one flash storage before anything
+  writes the flash and gives it to the image after the hand-back: esp-storage 0.10 reads the
+  flash's size with a hardware command when a storage is made, and on the device one made after
+  the hand-back's write could read nothing. It arms the RTC watchdog (60 s, then a core reset) before
   anything that could hang, holds the power latch, begins the report with the image's title and
   saves it, then hands the next boot back and notes `next boot: C++ firmware`. If handing back
   fails, it notes `next boot: NOT SET (<why>)` and resets at once.

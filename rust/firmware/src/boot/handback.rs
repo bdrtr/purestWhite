@@ -5,7 +5,7 @@
 use esp_bootloader_esp_idf::partitions::{
     FlashStorage, PARTITION_TABLE_MAX_LEN, PartitionEntry, read_partition_table,
 };
-use esp_hal::peripherals::{CPU_CTRL, FLASH};
+use esp_hal::peripherals::CPU_CTRL;
 use esp_hal::system::{Cpu, CpuControl};
 use purestwhite_ota::{self as ota, Slot};
 
@@ -57,16 +57,21 @@ fn ota_slot(p: &PartitionEntry) -> Option<u32> {
 /// that firmware's code, and a flash write would refuse to run beside it. These images use one
 /// core; call it from the first.
 ///
+/// `storage` must have been made before any write to the flash, and is to be kept for the rest of
+/// the run (see `crate::boot::start`).
+///
 /// # Errors
 /// What failed, when the partition table or otadata cannot be read or written, the table does
 /// not have exactly the two OTA app slots the C++ firmware uses, or this image's slot is not one
 /// of them.
-pub fn hand_back(flash: FLASH<'_>, cpu: CPU_CTRL<'_>) -> Result<HandBack, &'static str> {
+pub fn hand_back(
+    storage: &mut FlashStorage<'_>,
+    cpu: CPU_CTRL<'_>,
+) -> Result<HandBack, &'static str> {
     forget_last_boot();
     // SAFETY: this code runs on the first core.
     unsafe { CpuControl::new(cpu).park_core(Cpu::AppCpu) };
-    let mut storage = FlashStorage::new(flash);
-    let (otadata, booted) = ota_partitions(&mut storage)?;
+    let (otadata, booted) = ota_partitions(storage)?;
     let mut entries = [[0u8; ota::ENTRY]; 2];
     for (at, entry) in [otadata, otadata + ota::SECTOR]
         .into_iter()
@@ -76,11 +81,7 @@ pub fn hand_back(flash: FLASH<'_>, cpu: CPU_CTRL<'_>) -> Result<HandBack, &'stat
     }
     let selection = ota::select_other(&entries, booted).map_err(|_| "otadata sequence ran out")?;
     if let Some(write) = selection.write {
-        write_entry(
-            &mut storage,
-            otadata + write.sector * ota::SECTOR,
-            &write.entry,
-        )?;
+        write_entry(storage, otadata + write.sector * ota::SECTOR, &write.entry)?;
     }
     Ok(HandBack {
         booted_state: selection.booted_state,

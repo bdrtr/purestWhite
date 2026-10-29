@@ -8,6 +8,7 @@
 
 use core::fmt::Write as _;
 use esp_backtrace as _;
+use esp_bootloader_esp_idf::partitions::FlashStorage;
 use purestwhite_firmware::board::{Board, hold_power_latch};
 use purestwhite_firmware::boot::{Report, arm_watchdog, hand_back};
 
@@ -34,7 +35,8 @@ fn main() -> ! {
     let mut report = Report::default();
     let _ = writeln!(report, "purestWhite bare-metal rollback check");
     report.save();
-    let handed_back = hand_back(board.boot.flash, board.boot.cpu);
+    let mut flash = FlashStorage::new(board.boot.flash);
+    let handed_back = hand_back(&mut flash, board.boot.cpu);
     match handed_back {
         Ok(found) => {
             let _ = writeln!(report, "next boot: C++ firmware");
