@@ -9,9 +9,10 @@ the start of the real firmware's `main` (see the [roadmap](ROADMAP.md): what com
 must be true before the C++ firmware is left behind). A test image runs once from the second OTA
 slot. First it hands the next boot back to the C++ firmware; then it does its check, leaves a report
 in RTC slow memory and resets (or sleeps, and the wake boots the C++ firmware). The C++ firmware
-saves the report to the SD card. The one exception is `install-check`, which writes the C++
-firmware's slot: while that slot holds no image that passes, a bootloader that checks images
-comes back to it (seen in the emulator with the C++ build's bootloader, not yet on the device).
+saves the report to the SD card. The exceptions are `install-check` and the `purestwhite` image's
+recovery mode, which write the C++ firmware's slot: while that slot holds no image that passes, a
+bootloader that checks images comes back to them (seen in the emulator with the C++ build's
+bootloader; the device's own bootloader refused such an image after a reset, boot-check).
 
 It is its own Cargo workspace and builds only for the ESP32-S3 (`xtensa-esp32s3-none-elf`, with the
 `esp` toolchain from `rust-toolchain.toml` and `build-std` for `core` and `alloc`). The crates in
@@ -75,6 +76,11 @@ the emulator, so an image without one drives their async calls over blocking bus
 - `storage`: `load_whole` reads a file from the card whole into memory from a given allocator
   (PSRAM through esp-alloc's `ExternalMemory` for a large file), for data that is read often and
   never changed, such as a font.
+- `updater`: the SD updater (`Parts`, `install`, `end`, `note_earlier`): the C++ firmware's
+  release on the card written into the C++ firmware's slot within phase 2's limits
+  (`purestwhite_ota::plan`), each step noted, then a reset or the bounded sleep
+  (`purestwhite_ota::plan::resets`). Used by install-check and the `purestwhite` image's recovery
+  mode.
 - `boot`: the start every image shares while the C++ firmware is the known-good one (below).
 - `test_image`: what only the test images use, out of the real firmware's way (below).
 
@@ -104,10 +110,12 @@ traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit
 - `Report`: the report in the last 256 bytes of RTC slow memory (magic "PWBT", length, then up to
   248 bytes of text), saved again after every stage. Text past its room is dropped and the last
   byte becomes `~`. After a panic, every image adds `PANIC` to the saved report and resets.
+  `Report::note` adds a line, saves the report and prints the line (the emulator's scenarios wait
+  for it).
 - `arm_watchdog`: the RTC watchdog, 60 s, then a core reset, which keeps the latch and the report.
 - `watch_sleep`: keeps the RTC watchdog counting through a phase-2 image's deep sleep, so that a
   sleep that never ends still ends: first a core reset, which comes back to the C++ firmware (or to
-  `install-check` while the C++ firmware's slot holds no image that passes); then
+  the image that runs the updater, while a reset would only bring the bootloader back to it); then
   a system reset, which on battery turns the device off. A firmware whose sleeps last hours must
   not call it.
 - `report_and_sleep`, `sleep_when_released`: a deep sleep bounded by its timer and `watch_sleep`
@@ -159,6 +167,13 @@ up, or a longest frame near the panel loop's 20 s, mean BUSY's interrupt did not
 sleep line says `time up` when the backstop asked for it; the C++ firmware adds what woke and reset
 the chip. Needs esp-rtos: device only.
 
+Before any task it may enter the recovery mode instead (`recovery.rs`): when the bootloader fell
+back to it (it refused the C++ firmware's slot), or when Right is held as it starts. It notes
+`recovery: fell back` or `recovery: Right held`, runs the firmware's `updater` (as install-check
+does, with no screen) and resets into the C++ firmware, or sleeps (bounded) when a reset would
+only bring the bootloader back to it. At three unfinished runs it only notes `, recovery due`
+during phase 2.
+
 `runs:` is the boot counter (`boot::begin_run`): the runs in a row before this one that ended
 before they were healthy (`, recovery due` at three or more). The run is healthy
 (`boot::finish_run`) once a frame was shown and 30 s passed (`healthy: 30 s`, before the `panel:`
@@ -194,7 +209,7 @@ its scenario in `emu/`.
 - `input-check`: polls the buttons and the touch panel every 15 ms and counts what they give until
   the C++ firmware would sleep, then sleeps deeply until Power (or 60 s). `emu/baremetal-input.txt`.
 - `update-check`: the SD updater's reading side, a dry run that writes nothing: identifies
-  `/purestwhite-recovery.bin` on the card (the C++ release the recovery mode would install) and
+  `/purestwhite-recovery.bin` on the card (the C++ release the recovery mode installs) and
   the image in the C++ firmware's slot, names each among the X4 Pro releases it knows by their
   appended digest, and reports whether they are the same and how many sectors an install would
   write. `emu/baremetal-update.txt`.
@@ -210,19 +225,21 @@ its scenario in `emu/`.
   count is one install. `emu/baremetal-count.txt` (a cold boot over a broken app0, so that the
   bootloader starts it after every reset) and `emu/baremetal-count-cpp.txt` (twice through the C++
   firmware).
-- `install-check`: the SD updater's install, within phase 2's limits (`purestwhite_ota::plan`):
-  writes `/purestwhite-recovery.bin` into the C++ firmware's slot when it is a release the updater
-  knows and the slot holds the same release (`Rewrite`, which changes nothing) or no image that
-  passes while the bootloader fell back to this image (`Repair`, after a write cut short; a slot
-  read as broken without that fallback gives `refused: Unconfirmed`); refuses otherwise. Identifies
-  both first, writes each sector read back, and identifies the slot again. A write cut short leaves
-  the C++ slot without an image that passes, so a bootloader that checks images comes back to this
-  image, which writes again (seen in the emulator with the C++ build's bootloader, not yet on the
-  device); when the slot is left without one, it sleeps until Power or its timer rather than reset
-  into itself. `emu/baremetal-install.txt`, `emu/baremetal-install-refuse.txt`, and cold boots of
-  flash images made by `emu/make_install_flash.py`: `emu/baremetal-repair.txt` (a slot cut short)
-  and `emu/baremetal-reset-mid-write.txt`. **It writes the C++ firmware's slot: only with the
-  owner's go-ahead.**
+- `install-check`: the firmware's `updater` run once (the SD updater's install, within phase 2's
+  limits, `purestwhite_ota::plan`): writes `/purestwhite-recovery.bin` into the C++ firmware's slot
+  when it is a release the updater knows and the slot holds the same release (`Rewrite`, which
+  changes nothing) or no image that passes while the bootloader fell back to this image (`Repair`,
+  after a write cut short; a slot read as broken without that fallback gives `refused:
+  Unconfirmed`, and one read as passing after a fallback `refused: Disagree`); refuses otherwise.
+  Identifies both first, writes each sector read back, and identifies the slot again. A write cut
+  short leaves the C++ slot without an image that passes, so a bootloader that checks images comes
+  back to this image, which writes again (seen in the emulator with the C++ build's bootloader;
+  the device's bootloader refused such an image after a reset, boot-check); when a reset would
+  only bring the bootloader back here, it sleeps until Power or its timer instead.
+  `emu/baremetal-install.txt`, `emu/baremetal-install-refuse.txt`, and cold boots of flash images
+  made by `emu/make_install_flash.py`: `emu/baremetal-repair.txt` (a slot cut short) and
+  `emu/baremetal-reset-mid-write.txt`. Passed on the device (2026-10-29). **It writes the C++
+  firmware's slot: only with the owner's go-ahead.**
 - `write-check`: proves the update gate's write path in the last megabyte of the slot it runs
   from, where a mistake harms only its own slot. It measures its own image where it lies, then
   copies it into that megabyte through the slot's flash region, with the SD updater's parts
@@ -244,8 +261,8 @@ its scenario in `emu/`.
 Each report starts with the image's title (such as `purestWhite bare-metal SD check` or
 `purestWhite install`) and `next boot: C++ firmware`. Images that reset end it with `done`; images
 that sleep end it with the sleep line, and the C++ firmware then adds `wake: ...` and `reset: ...`
-(after `install-check`'s sleep, `install-check` may run again first, while the C++ firmware's
-slot holds no image that passes).
+(after the updater's sleep, the image that runs it may run again first, while a reset would only
+bring the bootloader back to it).
 
 ## Build
 

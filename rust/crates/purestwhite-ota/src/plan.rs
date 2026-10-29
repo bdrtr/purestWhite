@@ -2,7 +2,8 @@
 //! (phase 2, rust/firmware/DESIGN.md): only a release it knows, and only over the same release,
 //! which proves the write path on the real slot and changes nothing, or over a slot whose image no
 //! longer passes and which the bootloader has just refused (a write cut short). A slot holding
-//! another image that passes is left alone.
+//! another image that passes is left alone. [`resets`] says whether the updater then resets into
+//! the slot or waits (a sleep), so that it never resets straight back into itself.
 //!
 //! An image passes when its segments, chip, app descriptor, checksum and appended SHA-256 hold
 //! ([`crate::image`], [`crate::digest`]): what the bootloader checks before it boots an image.
@@ -45,6 +46,9 @@ pub enum Refusal {
     /// The slot reads as holding no image that passes, but the bootloader did not refuse it: the
     /// read is not trusted over the bootloader's own check.
     Unconfirmed,
+    /// The slot reads as holding an image that passes, but the bootloader refused it: writing the
+    /// same bytes again would not change its check.
+    Disagree,
 }
 
 /// The plan for the card's image, whose digest is `card` (a `known` release or not), and the slot.
@@ -57,10 +61,20 @@ pub fn plan(card: &[u8; DIGEST], known: bool, slot: InSlot, fell_back: bool) -> 
         return Plan::Refuse(Refusal::Unknown);
     }
     match slot {
+        InSlot::Image(_) if fell_back => Plan::Refuse(Refusal::Disagree),
         InSlot::Image(digest) if digest == *card => Plan::Rewrite,
         InSlot::Image(_) => Plan::Refuse(Refusal::Another),
         InSlot::Broken if fell_back => Plan::Repair,
         InSlot::Broken => Plan::Refuse(Refusal::Unconfirmed),
         InSlot::Unreadable => Plan::Refuse(Refusal::Unreadable),
     }
+}
+
+/// Whether the updater, its work done, resets into the slot it writes: the slot holds an image
+/// that passes (`after`), and either the bootloader did not refuse the slot (`fell_back` false) or
+/// the updater wrote that image itself (`wrote`). Otherwise it waits (a bounded sleep): a reset
+/// would only bring the bootloader back to the updater's own image.
+#[must_use]
+pub fn resets(after: InSlot, wrote: bool, fell_back: bool) -> bool {
+    matches!(after, InSlot::Image(_)) && (wrote || !fell_back)
 }

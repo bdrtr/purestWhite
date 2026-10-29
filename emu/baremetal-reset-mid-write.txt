@@ -1,9 +1,13 @@
 # The SD updater's install reset halfway through its write (rust/firmware's install-check): the
 # flash as the C++ firmware leaves it after installing install-check (app1 selected, new), the C++
 # release on the card. install-check hands the next boot back, starts writing the release over
-# app0 ("Rewrite"), and the device is reset in the middle. The bootloader then finds no image
-# that passes in app0 and falls back to app1: install-check runs again, notes the last line the
-# first run left ("earlier: ..."), writes the release over app0 ("Repair") and resets into it.
+# app0 ("Rewrite"), and the device is reset 3 s later. Where the reset lands decides what follows,
+# and it moves with the code's timing: inside a sector's erase or write, app0 holds no image that
+# passes, the bootloader falls back to app1, and install-check notes the earlier run's last line
+# ("earlier: card ...") and repairs app0 ("Repair"), then resets into this firmware; between two
+# sectors, app0 is the same image as before and this firmware starts at once. Both end in this
+# firmware saving a report, which is what the scenario waits for; emu/baremetal-repair.txt covers
+# the repair from each kind of cut-short app0 deterministically.
 #   (make build/baremetal/flash/start.bin as emu/make_install_flash.py says)
 #   ~/Documents/bembeyaz/tools/eink-qemu-0.9.2/qemu/bin/eink-qemu run build/baremetal/flash/start.bin --machine x4pro --sleep on --put build/baremetal/recovery/purestwhite-recovery.bin --script emu/baremetal-reset-mid-write.txt
 timeout:600
@@ -11,12 +15,6 @@ wait-log:purestWhite install
 wait-log:card [0-9]+ B [0-9]+ ms [0-9a-f]+ next
 wait:3
 reset
-wait-log:purestWhite install
-wait-log:earlier: card
-wait-log:slot: (Image|Digest)
-wait-log:Repair: [0-9]+ sectors [0-9]+ ms
-wait-log:installed: same digest
-wait-log:done
 wait-log:Bare-metal report
 wait-quiet:5
 shot:home

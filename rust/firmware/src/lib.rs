@@ -27,6 +27,7 @@ pub mod sleep;
 pub mod slots;
 pub mod storage;
 pub mod test_image;
+pub mod updater;
 
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};

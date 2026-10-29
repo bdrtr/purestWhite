@@ -130,7 +130,8 @@ gate open without it, and without changing the bootloader or the partition table
 4. **A recovery key read first.** Holding a key at power-on goes straight to a minimal SD updater
    (board, card, FAT, flash, otadata, a line of text), before fonts, books or the network, so that
    a fault in the rest of the firmware cannot block it. The C++ firmware has this (Right + Power);
-   the Rust firmware gets it in its first main.
+   the `purestwhite` image has a first slice: Right held as it starts runs the SD updater with no
+   screen (rust/firmware/DESIGN.md, the SD updater).
 5. **A crash loop falls back by itself.** A boot counter in RTC memory: after three runs in a row
    that never reached a healthy state, the firmware goes to its minimal recovery mode, and switches
    slots only to an image that validates (rust/firmware/DESIGN.md, the boot counter). The watchdog
@@ -139,6 +140,7 @@ gate open without it, and without changing the bootloader or the partition table
    otadata changes; the new otadata entry goes into the other otadata sector, so a power loss
    leaves the old entry in force (`purestwhite-ota`).
 7. **Tested every time.** The emulator's hand-back scenarios (`emu/baremetal-handback.txt`, from
-   either slot) and a recovery-key scenario run for every release.
+   either slot) and a recovery-key scenario run for every release. The recovery-key scenario does
+   not exist yet: the `purestwhite` image does not run in eink-qemu 0.9.2.
 
 [6618]: https://github.com/esp-rs/esp-hal/issues/6618

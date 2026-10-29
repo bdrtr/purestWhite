@@ -1034,3 +1034,45 @@ it).
     image read the counter, marked the run healthy 30 s after its first frame (the path the
     emulator cannot run), and slept and came back as before. Report:
     `firmware-arsiv/cihaz-raporlari/2026-10-29-main-2.txt`.
+
+## The recovery mode ("firmware: the purestwhite image's recovery mode")
+
+The `purestwhite` image now enters the recovery mode before any task when the bootloader fell back
+to it (it refused the C++ firmware's slot) or when Right is held as it starts. The recovery mode
+runs the same SD updater as install-check (which passed on the device), with no screen, then resets
+into the C++ firmware. The updater's own paths pass in the emulator through install-check; the
+`purestwhite` image does not run in the emulator. Only the Right entry can be tried on the device
+without breaking the C++ firmware's slot; the fell-back entry stays build-only so far.
+
+- [ ] Without Right. Take `purestwhite-recovery.bin` off the card first (the archive keeps it), so
+  that nothing here can write the C++ firmware's slot. Put `purestwhite-baremetal-main-3.bin` on
+  the card (in the archive, its checksum in `SHA256-bare-metal.txt`) and install it as main-2
+  above: on battery, do not hold Right, wait 40 s on the home screen, then sleep and wake.
+  Expected as main-2: "runs: 0 unfinished", "psram ...", "panel UC8179", "healthy: 30 s", the
+  panel line and the sleep line; no "recovery:" line. Give me the card (the next step overwrites
+  the report).
+- [ ] **Only with the owner's go-ahead: this step writes the C++ firmware's slot, as install-check
+  did.** With Right held. Plug in USB power (charging only) and keep it in. Put
+  `purestwhite-recovery.bin` back on the card (from the archive) beside main-3. Settings > System >
+  SD Card Firmware Update > choose `purestwhite-baremetal-main-3.bin`, not
+  `purestwhite-recovery.bin` > Confirm, and hold Right from the moment you tap Confirm for about
+  20 seconds (the C++ firmware writes the image, restarts into it, and the image reads Right as it
+  starts); then let go. The screen does not change while it works, about a minute more; do not
+  press anything until the C++ firmware is back. Expected, in this order:
+  - "purestWhite"
+  - "next boot: C++ firmware"
+  - "runs: 0 unfinished"
+  - "recovery: Right held"
+  - "slot 5490944 B T ms c746bebf next a8764dbb"
+  - "card 5490944 B T ms c746bebf next a8764dbb"
+  - "Rewrite: 1341 sectors T ms"
+  - "installed: same digest"
+  - "done"
+
+  T is the time each step took: compare them with install-check's (1994, 3707 and 54356 ms;
+  install-check ran the CPU at 80 MHz, this image at 240 MHz). If the white home screen with its black line comes instead,
+  Right was not seen: the image runs as without Right; hold Power for a second, wake it as usual,
+  and give me the card. "refused: ...", "card: ...", "slot: ..." mean it wrote nothing (as in
+  install-check's notes above). If the C++ firmware is not back within 3 minutes, do as in the
+  install's last step above (hold Power for about a second, wait 2 minutes, check
+  `purestwhite-recovery.bin` against `SHA256-bare-metal.txt`). Send me the report in any case.

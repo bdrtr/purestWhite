@@ -55,6 +55,16 @@ impl Report {
         self.len = self.len.min(len);
     }
 
+    /// Adds `line` and a newline, saves the report and prints the line (the emulator's scenarios
+    /// wait for it). The print drains the UART with interrupts masked (a few ms a line): for code
+    /// that runs before a scheduler starts, not from its tasks.
+    pub fn note(&mut self, line: core::fmt::Arguments<'_>) {
+        let _ = core::fmt::Write::write_fmt(self, line);
+        let _ = core::fmt::Write::write_str(self, "\n");
+        self.save();
+        esp_println::println!("{line}");
+    }
+
     #[must_use]
     pub fn as_str(&self) -> &str {
         core::str::from_utf8(self.text.get(..self.len).unwrap_or_default()).unwrap_or("")

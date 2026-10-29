@@ -154,8 +154,10 @@ Slot sizes therefore come from the device's table, never from `partitions.csv`.
    alone (its second chip select is the PSRAM's), whatever ran before.
 2. Phase 2: hand the next boot back to the C++ firmware (`purestwhite-ota`), before anything else
    that could fail, the recovery key included.
-3. Read the recovery key (Right held at power-on).
-4. Check the boot counter (below).
+3. Count the run (the boot counter, below).
+4. Read the recovery key: Right held as the image starts (five samples 10 ms apart). During
+   phase 2 the image starts when the C++ firmware restarts into it, and at power-on the key is the
+   C++ firmware's (Right + Power, its own recovery mode).
 5. Start the tasks. "Healthy" needs no input from the owner: the first screen shown, and then
    either the tasks running for 30 s or an orderly sleep reached. A run that never shows a frame
    is never healthy. Healthy clears the counter. In the `purestwhite` image the panel task wraps
@@ -164,8 +166,9 @@ Slot sizes therefore come from the device's table, never from `partitions.csv`.
    flag is set and 30 s have passed (`healthy: 30 s`), or, with the flag set, once the panel and
    the keys rest before the sleep (`healthy: sleep`). During phase 2 the count is only noted
    (`runs: N unfinished`, `, recovery due`): the hand-back has already made the next boot the C++
-   firmware's, and there is no recovery mode yet. Phase 3, without the hand-back, is to count the
-   run right after arming the watchdog, so that a crash in the start counts too.
+   firmware's, and with the C++ firmware intact the recovery mode could only write the same
+   release again. Phase 3, without the hand-back, is to enter the recovery mode at three, and to
+   count the run right after arming the watchdog, so that a crash in the start counts too.
 
 ### The boot counter
 
@@ -239,7 +242,7 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   bootloader set to skip the check only at power-on would pass that too, so the repair after a
   power loss stays unproven. When the slot is left without an image that
   passes and the updater cannot write it (the card or its release missing), it sleeps until Power
-  or a timer rather than reset straight back into itself (`install-check`).
+  or a timer rather than reset straight back into itself (`updater::end`).
 - Two passes over the file, because during phase 2 the slot written is the known-good one: the
   first (`purestwhite_ota::digest::Identify`) checks the image and works out its digest without
   writing anything, and only a known release's digest goes on; the second
@@ -250,6 +253,20 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
 - A path without the screen or touch: holding the recovery key long installs the one file with a
   fixed name (the C++ release image) without a menu, so recovery does not depend on the panel or
   the touch working.
+- The updater resets into the C++ firmware only when its slot holds an image that passes and
+  either the bootloader did not refuse that slot or the updater wrote the image itself
+  (`purestwhite_ota::plan::resets`). After a fallback, a slot that reads as passing is left alone
+  (`refused: Disagree`): the bootloader and the updater's check disagree, and writing the same bytes
+  would not change that; the updater sleeps instead, so it never resets straight back into itself.
+- Done so far (`updater`, the `purestwhite` image's `recovery`): before any task starts, the image
+  runs the updater instead when the bootloader fell back to it (it refused the C++ firmware's slot)
+  or when Right is held as it starts; it notes `recovery: fell back` or `recovery: Right held`, then
+  the updater's lines, and resets into the C++ firmware or sleeps (bounded). The run counts as
+  healthy when it ends in that reset. Only the Right entry can be tested on the device without
+  breaking the C++ firmware's slot; the fell-back entry shares the updater with install-check, whose
+  repair passes in the emulator, but the `purestwhite` image itself does not run in eink-qemu 0.9.2,
+  so it is build-only so far, and the roadmap's recovery-key scenario does not exist yet. No line of
+  text on the panel yet.
 - Phase 3 (promotion) lifts the phase-2 limit only after the Rust firmware's own update path has
   installed the identical known-good image once.
 
@@ -322,9 +339,10 @@ hand-back).
    install within the phase-2 plan (cut-short writes passed in the emulator), which wrote the C++
    firmware's release over itself on the device and read it back the same (2026-10-29: 1341 sectors
    in 54 s); and the boot counter (`purestwhite-bootcount`, `count-check`: three unfinished runs in
-   a row call for the recovery mode in the emulator, and the count survives the C++ firmware running
-   in between, `emu/baremetal-count-cpp.txt`). Left: the recovery mode with its key and its
-   screen-less path, and the check at power-on.
+   a row note `recovery due` in the emulator, and the count survives the C++ firmware running
+   in between, `emu/baremetal-count-cpp.txt`); and the recovery mode's first slice (`updater`, the
+   `purestwhite` image's `recovery`; its device test waits). Left: its line of text on the panel,
+   and the check at power-on.
 4. The battery page loop and its RTC log; the two-firmware measurement. Before it, who owns the
    report: now the power task does, and the phase-2 backstop writes it once, just before a
    reset; a battery log in its own task needs a shared report in `boot` or an RTC area of its own.

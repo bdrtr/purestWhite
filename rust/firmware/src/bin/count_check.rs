@@ -16,7 +16,6 @@ use esp_backtrace as _;
 use purestwhite_bootcount::Runs;
 use purestwhite_firmware::board::Board;
 use purestwhite_firmware::boot::{self, Report, Started, start};
-use purestwhite_firmware::test_image::note;
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -35,10 +34,10 @@ pub fn custom_halt() -> ! {
 /// panic.
 fn crash(report: &mut Report, runs: Runs) -> ! {
     if runs.unfinished == 1 {
-        note(report, format_args!("crash: reset"));
+        report.note(format_args!("crash: reset"));
         esp_hal::system::software_reset()
     }
-    note(report, format_args!("crash: panic"));
+    report.note(format_args!("crash: panic"));
     panic!("on purpose")
 }
 
@@ -54,12 +53,12 @@ fn main() -> ! {
     // `note` prints each line it adds; these are `start`'s.
     esp_println::println!("{}", report.as_str().trim_end());
     let runs = boot::begin_run();
-    note(&mut report, format_args!("{runs}"));
+    report.note(format_args!("{runs}"));
     if !runs.recovery_due() {
         crash(&mut report, runs);
     }
     boot::finish_run();
-    note(&mut report, format_args!("healthy"));
-    note(&mut report, format_args!("done"));
+    report.note(format_args!("healthy"));
+    report.note(format_args!("done"));
     esp_hal::system::software_reset()
 }

@@ -39,7 +39,7 @@ use purestwhite_firmware::images::{SlotError, identify_partition};
 use purestwhite_firmware::releases::{Named, release};
 use purestwhite_firmware::sha::HwSha;
 use purestwhite_firmware::slots::{OtaSlots, ota_slots};
-use purestwhite_firmware::test_image::{note, select_this_image};
+use purestwhite_firmware::test_image::select_this_image;
 use purestwhite_ota::digest::{HeldBack, Identified};
 use purestwhite_ota::image::{DIGEST, ImageCheck};
 use purestwhite_ota::slot::SECTOR;
@@ -117,29 +117,26 @@ fn text(field: &[u8]) -> &str {
 fn bootloader(storage: &mut FlashStorage<'_>, sha: &mut Sha<'_>, report: &mut Report) {
     match measure_bootloader(storage, sha) {
         Ok((len, Some(digest))) => {
-            note(
-                report,
-                format_args!("bootloader {len} B {}", Start(&digest)),
-            );
+            report.note(format_args!("bootloader {len} B {}", Start(&digest)));
             let same = if digest == CPP_BUILD_BOOTLOADER {
                 "same"
             } else {
                 "other"
             };
-            note(report, format_args!("C++ build's: {same}"));
+            report.note(format_args!("C++ build's: {same}"));
         }
-        Ok((len, None)) => note(report, format_args!("bootloader {len} B, digest BAD")),
-        Err(e) => note(report, format_args!("bootloader: {e}")),
+        Ok((len, None)) => report.note(format_args!("bootloader {len} B, digest BAD")),
+        Err(e) => report.note(format_args!("bootloader: {e}")),
     }
     let mut desc = [0u8; 64];
     if storage.read(DESC_AT, &mut desc).is_err() || desc.first() != Some(&DESC_MAGIC) {
-        return note(report, format_args!("no descriptor"));
+        return report.note(format_args!("no descriptor"));
     }
     let (idf, built) = (
         text(desc.get(8..40).unwrap_or_default()),
         text(desc.get(40..64).unwrap_or_default()),
     );
-    note(report, format_args!("built {idf} {built}"));
+    report.note(format_args!("built {idf} {built}"));
 }
 
 /// Writes 0x00 over this image's appended digest at `at` in `flash` and reads it back: whether it
@@ -174,29 +171,28 @@ impl Run<'_, '_> {
     /// the C++ firmware's slot holds a known release, which the bootloader then boots. Noted.
     fn safe(&mut self, slots: &OtaSlots, own: &Identified, fell_back: bool) -> bool {
         if fell_back {
-            note(
-                self.report,
-                format_args!("skipped: the bootloader fell back"),
-            );
+            self.report
+                .note(format_args!("skipped: the bootloader fell back"));
             return false;
         }
         if release(&own.digest).is_some() {
-            note(self.report, format_args!("skipped: own image is a release"));
+            self.report
+                .note(format_args!("skipped: own image is a release"));
             return false;
         }
         match self.identify(slots.other) {
             Ok(cpp) if release(&cpp.digest).is_some() => {
                 let (len, named) = (cpp.checked.len, Named(&cpp.digest));
-                note(self.report, format_args!("C++ slot {len} B {named}"));
+                self.report.note(format_args!("C++ slot {len} B {named}"));
                 true
             }
             Ok(cpp) => {
                 let named = Named(&cpp.digest);
-                note(self.report, format_args!("skipped: C++ slot {named}"));
+                self.report.note(format_args!("skipped: C++ slot {named}"));
                 false
             }
             Err(e) => {
-                note(self.report, format_args!("skipped: C++ slot {e:?}"));
+                self.report.note(format_args!("skipped: C++ slot {e:?}"));
                 false
             }
         }
@@ -210,19 +206,17 @@ impl Run<'_, '_> {
             .as_nor_flash()
             .is_ok_and(|mut flash| clear_digest(&mut flash, at));
         if !cleared {
-            note(self.report, format_args!("own digest: not cleared"));
+            self.report.note(format_args!("own digest: not cleared"));
             return false;
         }
         match select_this_image(self.storage) {
             Ok(()) => {
-                note(
-                    self.report,
-                    format_args!("digest cleared at {at:x}, selected: reset"),
-                );
+                self.report
+                    .note(format_args!("digest cleared at {at:x}, selected: reset"));
                 true
             }
             Err(e) => {
-                note(self.report, format_args!("select: {e}"));
+                self.report.note(format_args!("select: {e}"));
                 false
             }
         }
@@ -237,14 +231,12 @@ impl Run<'_, '_> {
                 self.safe(slots, &own, fell_back) && self.set(slots, own.checked.hash_at as u32)
             }
             Err(SlotError::Digest) => {
-                note(
-                    self.report,
-                    format_args!("ran again: booted with its digest cleared"),
-                );
+                self.report
+                    .note(format_args!("ran again: booted with its digest cleared"));
                 false
             }
             Err(e) => {
-                note(self.report, format_args!("own image: {e:?}"));
+                self.report.note(format_args!("own image: {e:?}"));
                 false
             }
         }
@@ -275,12 +267,12 @@ fn main() -> ! {
         }
         .test_own_image(&slots, found.fell_back()),
         Err(e) => {
-            note(&mut report, format_args!("slot: {e}"));
+            report.note(format_args!("slot: {e}"));
             false
         }
     };
     if !tested {
-        note(&mut report, format_args!("done"));
+        report.note(format_args!("done"));
     }
     esp_hal::system::software_reset()
 }
