@@ -57,6 +57,7 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
 | storage | the `Card`, the FAT volume, the SD supply | jobs | results by handle |
 | power | the watchdog, the deep sleep, the supplies no task uses, the healthy mark | sleep, the shown flag | rest requests |
 | backstop (phase 2) | nothing | time | a sleep request, a reset |
+| timers | a `Clock` (embassy-time's on the device) | the app's armings | firings |
 | gauge and clock (step 4) | `Gauge`, `Clock` | timers | battery level, time |
 
 - **Frames**: two frames of 48,000 bytes move as `&'static mut [u8; FRAME_BYTES]` between draw
@@ -90,6 +91,16 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
   per user, locked per transaction, so the gauge's internal waits do not hold the bus away from the
   touch; the bus is recovered (nine clock pulses) when SDA is stuck. The touch supply (GPIO2) is
   owned with the bus and stays on whenever the bus is used.
+- **Timers**: the app arms a timer with a duration and an id (`Command::Arm`), never reading a
+  clock; the arming goes into a slot per timer (`Timers`, like `Views`: a newer arming replaces
+  the older, and the app never waits). The timer loop (`run_timers`) gives each arming its time
+  when it sees it and sends `Event::Fired` with its id; the app acts only on its latest arming's
+  id, so a firing already on its way when a key armed the timer again is out of date. The loop
+  runs on a `Clock`: embassy-time's on the device (`EmbassyClock`), the script's in the simulator.
+  The first timer is the idle sleep: ten minutes without a key press put the device to sleep, as
+  the C++ firmware's default auto-sleep (`IDLE_MS`). The `purestwhite` image does not run the
+  timer loop yet (its armings stay in the slot): during phase 2 the backstop's sleep stands in,
+  and the loop comes with the next device test of the image.
 - Channels are bounded; a full channel makes the sender wait.
 
 ## Memory
@@ -294,21 +305,25 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
 
 ## The host simulator (`rust/sim`)
 
-Step 1: the script's lines (`battery`, `time`, `press`, `sleep`) go straight to the app as events;
-`Screen` is the only device trait so far. These words stand for events the services have already
-classified; when the classifiers come, words for raw samples are added beside them. The loops run in
-one `block_on` (`embassy-futures`). After the first screen and after each event, the run waits until
-nothing is left to handle, draw or show (`Links::is_idle`), and fails if that does not happen within
-10,000 turns of the loops; it ends after the last event, or once the app has asked to sleep and the
-panel loop has put the panel to rest (later lines are not sent). Embassy's `std` executor comes when
-the app needs timers; the rest of this section comes with the step that needs it.
+Now: the script's event lines (`battery`, `time`, `press`, `sleep`) go straight to the app as
+events; `Screen` is the only device trait so far. These words stand for events the services have
+already classified; when the classifiers come, words for raw samples are added beside them. The
+loops, the timer loop included, run in one `block_on` (`embassy-futures`). After the first screen
+and after each step, the run waits until nothing is left to handle, draw or show and every arming
+has been seen by the timer loop (`Links::is_idle`), and fails if that does not happen within
+10,000 turns of the loops; it ends after the last step, or once the app has asked to sleep and the
+panel loop has put the panel to rest (later lines are not taken). The clock is the simulator's
+own and moves only on `wait:S` (seconds, as eink-qemu's `wait`): to each timer due meanwhile in
+turn, so that each fires at its time, then to the wait's end. A scenario of hours runs at once and
+the same every time; each shot keeps the time it was shown. Embassy's `std` executor is not used:
+its clock is the PC's. The rest of this section comes with the steps that need it.
 
-Embassy's `std` executor runs the app, draw and service loops over a simulated board:
+Later, the app, draw and service loops run over a simulated board:
 
 - `Screen`: frames written to PNG files (optionally a window), each refresh noted with its kind
   and modeled time;
 - `Keys` and `TouchPanel`: raw samples from a scenario script (`press:left`, `tap:240,400`,
-  `swipe:left`, `wait:500`, the eink-qemu words where they overlap), classified by the real
+  `swipe:left`, the eink-qemu words where they overlap), classified by the real
   `purestwhite-buttons` and `purestwhite-touch`;
 - `Card`: a FAT image file through `purestwhite-fat`, made with `mkfs.fat` and `mtools` as the FAT
   tests do; the flash and otadata through `purestwhite-ota` over a fake flash;

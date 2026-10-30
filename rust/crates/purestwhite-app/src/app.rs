@@ -2,10 +2,13 @@
 
 use crate::cadence::Cadence;
 use crate::view::{Home, View};
-use crate::{Command, Commands, Event, Refresh, Show};
+use crate::{Arm, Command, Commands, Event, Refresh, Show, Timer};
 
 /// How many times in a row a screen the panel failed to show is shown again, with a full refresh.
 const RETRIES: u8 = 2;
+/// How long without a key press before the device sleeps: the C++ firmware's default auto-sleep
+/// (`CrossPointSettings::sleepTimeoutMinutes`, 10 minutes).
+pub const IDLE_MS: u32 = 10 * 60 * 1000;
 
 /// Where the device is on its way to sleep.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -32,6 +35,10 @@ pub struct App {
     full_after: Option<u32>,
     /// The panel's failures in a row.
     failures: u8,
+    /// The idle timer's latest `Arm::id`; a firing of an earlier one is out of date.
+    idle: Option<u32>,
+    /// The next `Arm::id`.
+    next_arm: u32,
 }
 
 impl App {
@@ -40,12 +47,11 @@ impl App {
         App::default()
     }
 
-    /// The first commands: the home screen, with a full refresh.
+    /// The first commands: the home screen, with a full refresh, and the idle timer.
     #[must_use]
     pub fn start(&mut self) -> Commands {
-        Commands::one(Command::Show(
-            self.show(View::Home(self.home), Refresh::Full),
-        ))
+        let home = self.show(View::Home(self.home), Refresh::Full);
+        Commands::two(Command::Show(home), Command::Arm(self.arm_idle()))
     }
 
     /// The commands `event` calls for; once the sleep screen is asked for, only the panel's
@@ -80,11 +86,8 @@ impl App {
                 time: Some(time),
                 ..self.home
             }),
-            Event::SleepRequested => {
-                let show = self.show(View::Sleep, Refresh::Full);
-                self.phase = Phase::Sleeping(show.seq);
-                Commands::one(Command::Show(show))
-            }
+            Event::SleepRequested => self.sleep(),
+            Event::Fired(Timer::Idle, id) if self.idle == Some(id) => self.sleep(),
             Event::Shown(seq) => {
                 self.failures = 0;
                 if self.full_after.is_some_and(|failed| seq > failed) {
@@ -93,7 +96,27 @@ impl App {
                 Commands::none()
             }
             Event::ScreenFailed(seq) => self.failed(seq),
-            Event::Pressed(_) => Commands::none(),
+            Event::Pressed(_) => Commands::one(Command::Arm(self.arm_idle())),
+            Event::Fired(..) => Commands::none(),
+        }
+    }
+
+    /// The sleep screen, on its way to the panel; the sleep follows the panel's answer.
+    fn sleep(&mut self) -> Commands {
+        let show = self.show(View::Sleep, Refresh::Full);
+        self.phase = Phase::Sleeping(show.seq);
+        Commands::one(Command::Show(show))
+    }
+
+    /// The idle timer, armed from now: at the start and at each key press.
+    fn arm_idle(&mut self) -> Arm {
+        let id = self.next_arm;
+        self.next_arm = id.wrapping_add(1);
+        self.idle = Some(id);
+        Arm {
+            timer: Timer::Idle,
+            after_ms: IDLE_MS,
+            id,
         }
     }
 

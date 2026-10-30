@@ -1,7 +1,8 @@
 //! `pw-sim [--font FONT.cpfont] [--out DIR] SCRIPT`: runs a scenario of the bare-metal firmware's
 //! application on the PC and writes each frame the panel showed as `DIR/NNNN-<refresh>.png`
 //! (`DIR` is `target/sim-out` by default; the shots of an earlier run there are removed first).
-//! It prints a line per frame, and `sleep` when the application asked to sleep.
+//! It prints a line per frame, with the simulator's time it was shown, and `sleep` when the
+//! application asked to sleep.
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 #![forbid(unsafe_code)]
@@ -47,10 +48,9 @@ fn main_inner() -> Result<(), String> {
     let run = run(&script, font.as_deref()).map_err(|e| match e {
         RunError::Font(e) => format!("font: {e:?}"),
         RunError::Stuck(None) => "the loops did not settle on the first screen".into(),
-        RunError::Stuck(Some(i)) => format!(
-            "the loops did not settle after the script's event {}",
-            i + 1
-        ),
+        RunError::Stuck(Some(i)) => {
+            format!("the loops did not settle after the script's step {}", i + 1)
+        }
     })?;
     let out = &args.out;
     std::fs::create_dir_all(out).map_err(|e| format!("{}: {e}", out.display()))?;
@@ -60,7 +60,7 @@ fn main_inner() -> Result<(), String> {
         let path = out.join(&name);
         let file = std::fs::File::create(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         write_png(shot, std::io::BufWriter::new(file)).map_err(|e| format!("{name}: {e}"))?;
-        println!("{name}");
+        println!("{name} at {}.{:03} s", shot.at_ms / 1000, shot.at_ms % 1000);
     }
     if run.slept {
         println!("sleep");

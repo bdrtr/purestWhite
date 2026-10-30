@@ -1,41 +1,48 @@
 //! The host simulator of the bare-metal firmware: the application (`purestwhite-app`), the
-//! renderer and the service loops (`purestwhite-services`) run on a PC over a simulated panel,
-//! driven by a scenario script. Each frame the panel shows is kept as a [`Shot`] and can be
-//! written as a PNG upright, as the device is held.
+//! renderer and the service loops (`purestwhite-services`) run on a PC over a simulated panel and
+//! a clock that moves only when the scenario script waits. Each frame the panel shows is kept as a
+//! [`Shot`], with the time it was shown, and can be written as a PNG upright, as the device is
+//! held.
 //!
-//! It checks what does not depend on hardware: what the application asks for, what is drawn, the
-//! loops and their channels. Timing, interrupts, sleep and the flash stay on the device and in
-//! eink-qemu.
+//! It checks what does not depend on hardware: what the application asks for, what is drawn, its
+//! timers, the loops and their channels. Real timing, interrupts, sleep and the flash stay on the
+//! device and in eink-qemu.
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 
+mod clock;
 pub mod script;
 mod shots;
 #[cfg(test)]
 mod tests;
 
+use clock::SimClock;
 use embassy_futures::block_on;
-use embassy_futures::select::{Either4, select4};
+use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::Duration;
 use purestwhite_app::{App, Refresh};
 use purestwhite_render::{FRAME_BYTES, FaceError, Text};
-use purestwhite_services::{Frame, Links, Screen, ScreenError, run_app, run_draw, run_panel};
-pub use script::{Script, ScriptError};
+use purestwhite_services::{
+    Clock, Frame, Links, Screen, ScreenError, run_app, run_draw, run_panel, run_timers,
+};
+pub use script::{Script, ScriptError, Step};
 pub use shots::{clear_shots, shot_name, write_png};
 
-/// How many turns of the loops a run may take to settle after an event.
+/// How many turns of the loops a run may take to settle after an event, and how many timers may
+/// fire in one wait.
 const TURNS: usize = 10_000;
 /// How long the simulated panel may take over a call: it takes none.
 const PANEL_LIMIT: Duration = Duration::from_secs(1);
 
-/// A frame the panel showed, and how.
+/// A frame the panel showed, how, and when (by the simulator's clock).
 #[derive(Clone, Debug)]
 pub struct Shot {
     pub refresh: Refresh,
     pub frame: Vec<u8>,
+    pub at_ms: u64,
 }
 
 /// What a run of a scenario gave.
@@ -51,18 +58,18 @@ pub struct Run {
 pub enum RunError {
     /// The font cannot be read.
     Font(FaceError),
-    /// The loops did not settle after the script's event with this index (from 0), or before
-    /// the first event when `None`.
+    /// The loops did not settle after the script's step with this index (from 0), or before
+    /// the first step when `None`.
     Stuck(Option<usize>),
 }
 
-/// The simulated panel: keeps every frame shown.
-#[derive(Default)]
-struct Panel {
+/// The simulated panel: keeps every frame shown, with the time.
+struct Panel<'a> {
     shots: Vec<Shot>,
+    clock: &'a SimClock,
 }
 
-impl Screen for Panel {
+impl Screen for Panel<'_> {
     #[allow(clippy::unused_async_trait_impl, reason = "simulated: shown at once")]
     async fn show(
         &mut self,
@@ -72,6 +79,7 @@ impl Screen for Panel {
         self.shots.push(Shot {
             refresh,
             frame: frame.to_vec(),
+            at_ms: self.clock.now_ms(),
         });
         Ok(())
     }
@@ -83,10 +91,10 @@ impl Screen for Panel {
 }
 
 /// Runs `script` with text in the font `font` (a `.cpfont`, style 0) when given. The first
-/// screen is shown, then the events go in one by one, each once the loops have settled (nothing
-/// left to handle, draw or show). The run ends after the last event, or once the application has
-/// asked to sleep and the panel was put to rest, as the power loop does: later events are not
-/// sent.
+/// screen is shown, then the steps are taken one by one, each once the loops have settled (nothing
+/// left to handle, draw or show). The run ends after the last step, or once the application has
+/// asked to sleep and the panel was put to rest, as the power loop does: later steps are not
+/// taken.
 ///
 /// # Errors
 /// The font cannot be read, or the loops do not settle.
@@ -99,19 +107,28 @@ pub fn run(script: &Script, font: Option<&[u8]>) -> Result<Run, RunError> {
     let links: Links<NoopRawMutex> = Links::new();
     links.give_frames(core::array::from_fn(|_| frame()));
     let mut app = App::new();
-    let mut panel = Panel::default();
+    let clock = SimClock::default();
+    let mut panel = Panel {
+        shots: Vec::new(),
+        clock: &clock,
+    };
     let slept = block_on(async {
         match select4(
             run_app(&mut app, links.app_links()),
             run_draw(links.draw_links(), text.as_mut()),
             run_panel(&mut panel, links.panel_links(), PANEL_LIMIT),
-            drive(script, &links),
+            select(
+                run_timers(&clock, links.timer_links()),
+                drive(script, &links, &clock),
+            ),
         )
         .await
         {
-            Either4::First(never) | Either4::Second(never) => match never {},
+            Either4::First(never)
+            | Either4::Second(never)
+            | Either4::Fourth(Either::First(never)) => match never {},
             Either4::Third(rested) => Ok(rested.is_ok()),
-            Either4::Fourth(driven) => driven.map(|()| false),
+            Either4::Fourth(Either::Second(driven)) => driven.map(|()| false),
         }
     })?;
     Ok(Run {
@@ -129,16 +146,26 @@ fn frame() -> Frame {
     Box::leak(Box::new([0xFF; FRAME_BYTES]))
 }
 
-/// Lets the first screen show, then sends the script's events, settling after each. Once the
+/// Lets the first screen show, then takes the script's steps, settling after each. Once the
 /// application asks to sleep, asks the panel to rest and waits for the panel loop to end the run.
-async fn drive(script: &Script, links: &Links<NoopRawMutex>) -> Result<(), RunError> {
+async fn drive(
+    script: &Script,
+    links: &Links<NoopRawMutex>,
+    clock: &SimClock,
+) -> Result<(), RunError> {
     settle(links).await.ok_or(RunError::Stuck(None))?;
-    for (index, &event) in script.events().iter().enumerate() {
+    for (index, &step) in script.steps().iter().enumerate() {
         if links.sleep.signaled() {
             break;
         }
-        links.events.send(event).await;
-        settle(links).await.ok_or(RunError::Stuck(Some(index)))?;
+        let settled = match step {
+            Step::Event(event) => {
+                links.events.send(event).await;
+                settle(links).await
+            }
+            Step::Wait(ms) => pass(ms, links, clock).await,
+        };
+        settled.ok_or(RunError::Stuck(Some(index)))?;
     }
     if links.sleep.signaled() {
         links.panel_rest.signal(());
@@ -147,13 +174,34 @@ async fn drive(script: &Script, links: &Links<NoopRawMutex>) -> Result<(), RunEr
     Ok(())
 }
 
-/// Waits until the loops are idle; `None` if they are not within `TURNS` turns.
+/// Lets `ms` pass: the clock moves to each timer due meanwhile in turn, so that each fires at its
+/// own time, and the loops settle after each; `None` if they do not, or if more than `TURNS`
+/// timers fire. A timer is not followed once the application has asked to sleep.
+async fn pass(ms: u64, links: &Links<NoopRawMutex>, clock: &SimClock) -> Option<()> {
+    let until = clock.now_ms().saturating_add(ms);
+    for _ in 0..TURNS {
+        match links.timers.next_due() {
+            Some(due) if due <= until && !links.sleep.signaled() => {
+                clock.move_to(due);
+                settle(links).await?;
+            }
+            _ => {
+                clock.move_to(until);
+                return settle(links).await;
+            }
+        }
+    }
+    None
+}
+
+/// Waits until the loops are idle, after one turn at least (a loop the clock just woke runs);
+/// `None` if they are not within `TURNS` turns.
 async fn settle(links: &Links<NoopRawMutex>) -> Option<()> {
     for _ in 0..TURNS {
+        yield_now().await;
         if links.is_idle() {
             return Some(());
         }
-        yield_now().await;
     }
     None
 }

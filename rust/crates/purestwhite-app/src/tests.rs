@@ -7,6 +7,8 @@ use std::vec::Vec;
 
 extern crate std;
 
+mod idle;
+
 fn list(commands: Commands) -> Vec<Command> {
     commands.into_iter().collect()
 }
@@ -19,18 +21,37 @@ fn home(seq: u32, battery: Option<u8>, time: Option<Time>, refresh: Refresh) -> 
     })
 }
 
-/// The refresh of the one show `commands` holds.
+/// The idle timer armed with `id`.
+fn idle(id: u32) -> Command {
+    Command::Arm(Arm {
+        timer: Timer::Idle,
+        after_ms: IDLE_MS,
+        id,
+    })
+}
+
+/// The refresh of the one show `commands` holds, besides any timer armed.
 fn refresh(commands: Commands) -> Refresh {
-    match list(commands).as_slice() {
-        [Command::Show(show)] => show.refresh,
+    let shows: Vec<Show> = commands
+        .into_iter()
+        .filter_map(|command| match command {
+            Command::Show(show) => Some(show),
+            _ => None,
+        })
+        .collect();
+    match shows.as_slice() {
+        [show] => show.refresh,
         other => panic!("not one show: {other:?}"),
     }
 }
 
 #[test]
-fn it_starts_on_the_home_screen_with_a_full_refresh() {
+fn it_starts_on_the_home_screen_with_a_full_refresh_and_the_idle_timer() {
     let mut app = App::new();
-    assert_eq!(list(app.start()), [home(0, None, None, Refresh::Full)]);
+    assert_eq!(
+        list(app.start()),
+        [home(0, None, None, Refresh::Full), idle(0)]
+    );
 }
 
 #[test]
@@ -180,15 +201,6 @@ fn the_stronger_refresh_clears_more() {
         (Fast, Fast, Fast),
     ] {
         assert_eq!(a.stronger(b), stronger, "{a:?} {b:?}");
-    }
-}
-
-#[test]
-fn key_presses_change_nothing_yet() {
-    let mut app = App::new();
-    let _ = app.start();
-    for key in [Key::Left, Key::Right, Key::Power, Key::Home] {
-        assert!(app.handle(Event::Pressed(key)).is_empty());
     }
 }
 

@@ -1,6 +1,6 @@
 //! The application's loop: its first commands, then the commands each event calls for.
 
-use crate::Views;
+use crate::{Timers, Views};
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::DynamicReceiver;
 use embassy_sync::signal::Signal;
@@ -10,11 +10,13 @@ use purestwhite_app::{App, Command, Commands, Event};
 pub struct AppLinks<'a, M: RawMutex> {
     pub events: DynamicReceiver<'a, Event>,
     pub views: &'a Views<M>,
+    pub timers: &'a Timers<M>,
     pub sleep: &'a Signal<M, ()>,
 }
 
-/// Runs `app` on the events from `links.events`: each view goes to `links.views`, and
-/// `links.sleep` is set when the application asks to sleep. Only the events are waited for.
+/// Runs `app` on the events from `links.events`: each view goes to `links.views`, each timer to
+/// `links.timers`, and `links.sleep` is set when the application asks to sleep. Only the events
+/// are waited for.
 pub async fn run_app<M: RawMutex>(app: &mut App, links: AppLinks<'_, M>) -> ! {
     carry_out(app.start(), &links);
     loop {
@@ -28,6 +30,7 @@ fn carry_out<M: RawMutex>(commands: Commands, links: &AppLinks<'_, M>) {
     for command in commands {
         match command {
             Command::Show(show) => links.views.put(show),
+            Command::Arm(arm) => links.timers.arm(arm),
             Command::Sleep => links.sleep.signal(()),
         }
     }

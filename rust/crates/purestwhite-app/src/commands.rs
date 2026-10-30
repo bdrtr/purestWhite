@@ -2,7 +2,8 @@
 
 use crate::Command;
 
-/// Room for two commands (each event calls for one so far); raised when a handler needs more.
+/// Room for two commands (the start calls for two, each event for one so far); raised when a
+/// handler needs more.
 const MAX: usize = 2;
 
 /// Commands in the order they are to be carried out.

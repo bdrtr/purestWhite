@@ -5,7 +5,8 @@
 //! - [`run_app`]: events in; views to draw and the sleep signal out;
 //! - [`run_draw`]: draws the latest view into a free frame (`purestwhite-render`);
 //! - [`run_panel`]: shows each drawn frame on a [`Screen`], hands the frame back, and tells the
-//!   application whether the panel showed it; when asked to rest, puts the panel to sleep.
+//!   application whether the panel showed it; when asked to rest, puts the panel to sleep;
+//! - [`run_timers`]: fires the application's timers on a [`Clock`].
 //!
 //! The loops are generic over the devices and over the channels' mutex, so the firmware can run
 //! them in Embassy tasks over the X4 Pro's drivers (step 2), and the host simulator and the tests
@@ -21,6 +22,7 @@ mod draw;
 mod panel;
 #[cfg(test)]
 mod tests;
+mod timers;
 mod views;
 
 pub use app::{AppLinks, run_app};
@@ -31,6 +33,7 @@ use embassy_sync::signal::Signal;
 pub use panel::{PanelLinks, Screen, ScreenError, run_panel};
 use purestwhite_app::{Event, Refresh};
 use purestwhite_render::FRAME_BYTES;
+pub use timers::{Clock, EmbassyClock, TimerLinks, Timers, run_timers};
 pub use views::Views;
 
 /// A frame of the panel, owned by one loop at a time.
@@ -59,6 +62,8 @@ pub struct Links<M: RawMutex> {
     pub events: Channel<M, Event, EVENTS>,
     /// From the application to drawing.
     pub views: Views<M>,
+    /// From the application to the timer loop.
+    pub timers: Timers<M>,
     /// From drawing to the panel.
     pub drawn: Channel<M, Drawn, FRAMES>,
     /// From the panel back to drawing (`give_frames` puts the frames here first).
@@ -78,6 +83,7 @@ impl<M: RawMutex> Links<M> {
         Links {
             events: Channel::new(),
             views: Views::new(),
+            timers: Timers::new(),
             drawn: Channel::new(),
             empty: Channel::new(),
             sleep: Signal::new(),
@@ -92,7 +98,17 @@ impl<M: RawMutex> Links<M> {
         AppLinks {
             events: self.events.dyn_receiver(),
             views: &self.views,
+            timers: &self.timers,
             sleep: &self.sleep,
+        }
+    }
+
+    /// The timer loop's ends.
+    #[must_use]
+    pub fn timer_links(&self) -> TimerLinks<'_, M> {
+        TimerLinks {
+            timers: &self.timers,
+            events: self.events.dyn_sender(),
         }
     }
 
@@ -127,11 +143,14 @@ impl<M: RawMutex> Links<M> {
     }
 
     /// Whether nothing is left to handle, draw or show: no event waiting, no view, every frame
-    /// back. Meaningful between the loops' turns on one executor, where each loop runs until it
-    /// waits (the host simulator and the tests).
+    /// back, every timer armed seen by the timer loop. Meaningful between the loops' turns on one
+    /// executor, where each loop runs until it waits (the host simulator and the tests).
     #[must_use]
     pub fn is_idle(&self) -> bool {
-        self.events.is_empty() && self.views.is_empty() && self.empty.len() == FRAMES
+        self.events.is_empty()
+            && self.views.is_empty()
+            && self.empty.len() == FRAMES
+            && self.timers.is_settled()
     }
 }
 

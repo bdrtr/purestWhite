@@ -1,0 +1,11 @@
+# Ten minutes without a key press put the device to sleep (the C++ firmware's default auto-sleep);
+# each press starts the ten minutes again.
+wait:599
+# A second before the ten minutes are up, a press.
+press:left
+wait:599
+# Still awake, 1198 s in: the battery redraws home.
+battery:80
+# Ten minutes after the press: the sleep screen, and the run ends there.
+wait:2
+battery:10

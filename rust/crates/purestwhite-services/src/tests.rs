@@ -3,9 +3,11 @@
 
 extern crate std;
 
+mod timers;
+
 use super::*;
 use embassy_futures::block_on;
-use embassy_futures::select::{Either4, select4};
+use embassy_futures::select::{Either, Either4, select, select4};
 use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::Duration;
@@ -148,13 +150,15 @@ fn run(steps: &[Step], screen: Recorder) -> Outcome {
             run_app(&mut app, links.app_links()),
             run_draw(links.draw_links(), None),
             run_panel(&mut screen, links.panel_links(), LIMIT),
-            script,
+            select(script, run_timers(&EmbassyClock, links.timer_links())),
         )
         .await
         {
-            Either4::First(never) | Either4::Second(never) => match never {},
+            Either4::First(never)
+            | Either4::Second(never)
+            | Either4::Fourth(Either::Second(never)) => match never {},
             Either4::Third(rested) => Some(rested),
-            Either4::Fourth(()) => None,
+            Either4::Fourth(Either::First(())) => None,
         }
     });
     Outcome {

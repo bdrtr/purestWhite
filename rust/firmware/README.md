@@ -304,11 +304,12 @@ itself with `--panel uc8179`.
 ## Run in the host simulator
 
 `rust/sim` (`pw-sim`) runs the application, the renderer and the service loops on a PC, driven by
-a scenario script (`rust/sim/scenarios/`, one event per line: `battery:N`, `time:HH:MM`,
-`press:left|right|power|home`, `sleep`; `#` starts a comment; see
-[script.rs](../sim/src/script.rs)), and
-writes each frame the panel shows as an upright PNG. It checks what does not depend on hardware;
-timing, interrupts and sleep stay on the device and in the emulator. From `rust/`:
+a scenario script (`rust/sim/scenarios/`, one step per line: `battery:N`, `time:HH:MM`,
+`press:left|right|power|home`, `sleep`, and `wait:S`, S seconds on the simulator's own clock, which
+fires the application's timers at their time; `#` starts a comment; see
+[script.rs](../sim/src/script.rs)), and writes each frame the panel shows as an upright PNG, printing
+the time it was shown. It checks what does not depend on hardware; real timing, interrupts and sleep
+stay on the device and in the emulator. From `rust/`:
 
 ```sh
 cargo run -p purestwhite-sim --bin pw-sim -- \

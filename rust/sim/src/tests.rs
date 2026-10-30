@@ -34,7 +34,7 @@ fn every_scenario_runs() {
     }
     names.sort();
     // Each scenario also has its test below.
-    assert_eq!(names, ["home", "keys"]);
+    assert_eq!(names, ["home", "idle", "keys"]);
 }
 
 #[test]
@@ -42,6 +42,22 @@ fn the_home_scenario_shows_home_its_updates_and_the_sleep_screen() {
     let run = run(&scenario("home"), None).unwrap();
     // Home; the battery; the time; the same battery draws nothing; a new reading; sleep.
     assert_eq!(refreshes(&run), [Full, Fast, Fast, Fast, Full]);
+    assert!(run.slept);
+}
+
+#[test]
+fn the_idle_scenario_sleeps_ten_minutes_after_the_last_press() {
+    let run = run(&scenario("idle"), None).unwrap();
+    assert_eq!(refreshes(&run), [Full, Fast, Full]);
+    let at: Vec<u64> = run.shots.iter().map(|s| s.at_ms).collect();
+    assert_eq!(at, [0, 1_198_000, 1_199_000]);
+    assert!(run.slept);
+}
+
+#[test]
+fn a_long_wait_without_keys_sleeps_at_ten_minutes() {
+    let run = run(&Script::parse("wait:3600").unwrap(), None).unwrap();
+    assert_eq!(run.shots.last().unwrap().at_ms, 600_000);
     assert!(run.slept);
 }
 

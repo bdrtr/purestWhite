@@ -1,8 +1,9 @@
 //! The bare-metal firmware's application: what the device shows and does, as a state machine. It
-//! takes events (keys, Power held, the battery, the time, the panel's answers) and answers with
-//! commands (show a view, sleep). It touches no hardware, does not wait and does not allocate, so
-//! the same code runs on the device, in the host simulator and in tests. The service loops around
-//! it own the devices: they turn what they read into events, and carry out the commands.
+//! takes events (keys, Power held, the battery, the time, the panel's answers, its timers) and
+//! answers with commands (show a view, arm a timer, sleep). It touches no hardware, does not wait,
+//! does not read a clock and does not allocate, so the same code runs on the device, in the host
+//! simulator and in tests. The service loops around it own the devices and the time: they turn
+//! what they read into events, and carry out the commands.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -15,7 +16,7 @@ mod commands;
 mod tests;
 pub mod view;
 
-pub use app::App;
+pub use app::{App, IDLE_MS};
 pub use commands::Commands;
 use view::{Time, View};
 
@@ -43,6 +44,25 @@ pub enum Event {
     Shown(u32),
     /// The panel failed to show the view with this `Show::seq`; its state is unknown.
     ScreenFailed(u32),
+    /// The timer armed with this `Arm::id` fired.
+    Fired(Timer, u32),
+}
+
+/// A timer of the application's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Timer {
+    /// No key pressed for a while: the device sleeps, as the C++ firmware's auto-sleep.
+    Idle,
+}
+
+/// A timer to arm: `timer` fires `after_ms` from when the services see it, unless armed again
+/// first, which replaces it. Its event names `id`, so that the application can tell a firing that
+/// was already on its way when it armed the timer again.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Arm {
+    pub timer: Timer,
+    pub after_ms: u32,
+    pub id: u32,
 }
 
 /// How the panel changes to a view: `Full` flashes from white, `Half` from the new frame's
@@ -82,6 +102,8 @@ pub struct Show {
 pub enum Command {
     /// Draw the view and show it.
     Show(Show),
+    /// Arm a timer.
+    Arm(Arm),
     /// Put the device to sleep: the sleep screen is shown, or the panel failed to show it.
     Sleep,
 }
