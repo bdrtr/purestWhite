@@ -170,6 +170,7 @@ purestwhite-render = { path = "../crates/purestwhite-render" }
 purestwhite-rtc = { path = "../crates/purestwhite-rtc" }
 purestwhite-services = { path = "../crates/purestwhite-services" }
 purestwhite-touch = { path = "../crates/purestwhite-touch" }
+purestwhite-updater = { path = "../crates/purestwhite-updater" }
 
 [profile.dev]
 opt-level = "s"

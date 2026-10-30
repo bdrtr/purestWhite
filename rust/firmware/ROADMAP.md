@@ -140,7 +140,9 @@ gate open without it, and without changing the bootloader or the partition table
    otadata changes; the new otadata entry goes into the other otadata sector, so a power loss
    leaves the old entry in force (`purestwhite-ota`).
 7. **Tested every time.** The emulator's hand-back scenarios (`emu/baremetal-handback.txt`, from
-   either slot) and a recovery-key scenario run for every release. The recovery-key scenario does
-   not exist yet: the `purestwhite` image does not run in eink-qemu 0.9.2.
+   either slot), the SD updater's install scenarios (`emu/baremetal-install*.txt`,
+   `emu/baremetal-repair.txt`) and the recovery mode's scenarios on the host
+   (`cargo test -p purestwhite-updater`) run for every release. The recovery key itself is checked
+   on the device: the `purestwhite` image does not run in eink-qemu 0.9.2.
 
 [6618]: https://github.com/esp-rs/esp-hal/issues/6618

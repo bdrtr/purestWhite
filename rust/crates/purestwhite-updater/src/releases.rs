@@ -8,29 +8,33 @@ use purestwhite_ota::image::DIGEST;
 /// The release image the SD updater installs: one fixed name in the card's root.
 pub const RECOVERY_FILE: &str = "purestwhite-recovery.bin";
 
-/// The name of the release with this digest, if the updater knows it.
+/// A release the updater may install: its name, and the digest appended to its image.
+pub type Release = (&'static str, [u8; DIGEST]);
+
+/// The name of the release in `known` with this digest, if any.
 #[must_use]
-pub fn release(digest: &[u8; DIGEST]) -> Option<&'static str> {
-    KNOWN
+pub fn release(known: &[Release], digest: &[u8; DIGEST]) -> Option<&'static str> {
+    known
         .iter()
-        .find(|(_, known)| known == digest)
+        .find(|(_, release)| release == digest)
         .map(|(name, _)| *name)
 }
 
-/// A digest for a report: its first four bytes and its release's name, or `unknown`.
-pub struct Named<'a>(pub &'a [u8; DIGEST]);
+/// A digest for a report: its first four bytes and its release's name in the list given, or
+/// `unknown`.
+pub struct Named<'a>(pub &'a [u8; DIGEST], pub &'a [Release]);
 
 impl Display for Named<'_> {
     fn fmt(&self, out: &mut Formatter<'_>) -> core::fmt::Result {
         for byte in self.0.iter().take(4) {
             write!(out, "{byte:02x}")?;
         }
-        write!(out, " {}", release(self.0).unwrap_or("unknown"))
+        write!(out, " {}", release(self.1, self.0).unwrap_or("unknown"))
     }
 }
 
-/// Each release's name and digest.
-const KNOWN: [(&str, [u8; DIGEST]); 6] = [
+/// The X4 Pro's releases.
+pub const X4_PRO: [Release; 6] = [
     (
         "next 0.0.1",
         [

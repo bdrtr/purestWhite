@@ -36,10 +36,9 @@ the emulator, so an image without one drives their async calls over blocking bus
   `hold_power_latch`, `psram_config`, `PSRAM_MHZ` (40), and `flash_storage`, which makes SPI1
   select the flash alone (`select_flash_alone`; its second chip select is the PSRAM's, and
   eink-qemu 0.9.2's cold boot leaves both selected) before it makes esp-storage's storage.
-- `images`: app images on the card (`identify_file`) and in a slot (`identify_slot`, or
-  `identify_partition` through a partition's own flash region), checked and hashed as they stream
-  in, and a card's image written into a slot (`install_file`, the second pass): the SD updater's
-  parts over the card and the flash.
+- `images`: an OTA app slot's image identified through the partition table
+  (`identify_partition`: the slot's own flash region, then `purestwhite-updater`'s
+  `identify_slot`).
 - `input`: the three buttons and the GT911 touch panel. `Input::poll` reads both once, as the SDK's
   `InputManager::update()` does, and gives what changed: button changes, a request to sleep (Power
   held longer than `POWER_HOLD_MS`, 400 ms), touch events, the point held and the tap candidate.
@@ -49,15 +48,13 @@ the emulator, so an image without one drives their async calls over blocking bus
   nothing runs while every button is up. It ends when asked to rest and hands the pins back.
 - `memory`: the PSRAM as a heap of its own (`PSRAM`, `add_psram`), never the global allocator, and
   the panel's frames in it (`psram_frame`), allocated as slices.
-- `releases`: the X4 Pro's C++ releases the SD updater knows, by their appended digest
-  (`release`, and `Named` for a report), and the file it reads a release from
-  (`RECOVERY_FILE`).
 - `screen`: the panel as the services' `Screen` (`DeviceScreen`): the probed controller's driver
   over the panel's lines, with embassy-time's delays and BUSY awaited on its interrupt, so other
   tasks run while the panel refreshes (SPI stays blocking). It begins the panel before the first
   frame and again after any call that failed or was given up on.
-- `sha`: the chip's SHA accelerator as `purestwhite_ota::digest::Sha256`, for firmware images. A
-  digest dropped unfinished is finished then, so that the next starts on an idle unit.
+- `sha`: the chip's SHA accelerator as `purestwhite_ota::digest::Sha256`, for firmware images,
+  and as the SD updater's `Hashes` (`ShaUnit`). A digest dropped unfinished is finished then, so
+  that the next starts on an idle unit.
 - `slots`: the two OTA app slots (the one this image was booted from and the other) and otadata,
   from the device's partition table, which must have exactly `ota_0` and `ota_1`: for the
   hand-back, the SD updater, and later the boot counter's switch of slots.
@@ -76,18 +73,20 @@ the emulator, so an image without one drives their async calls over blocking bus
 - `storage`: `load_whole` reads a file from the card whole into memory from a given allocator
   (PSRAM through esp-alloc's `ExternalMemory` for a large file), for data that is read often and
   never changed, such as a font.
-- `updater`: the SD updater (`Parts`, `install`, `end`, `note_earlier`): the C++ firmware's
-  release on the card written into the C++ firmware's slot within phase 2's limits
-  (`purestwhite_ota::plan`), each step noted, then a reset or the bounded sleep
-  (`purestwhite_ota::plan::resets`). Used by install-check and the `purestwhite` image's recovery
-  mode.
+- `updater`: the SD updater on the device (`Parts`, `install`, `end`, `note_earlier`):
+  `purestwhite-updater`'s steps over the C++ firmware's slot (its partition's flash region), the
+  card over the blocking bus, the SHA unit and the report, then a reset or the bounded sleep
+  (`purestwhite_updater::Done::resets`). Used by install-check and the `purestwhite` image's
+  recovery mode.
 - `boot`: the start every image shares while the C++ firmware is the known-good one (below).
 - `test_image`: what only the test images use, out of the real firmware's way (below).
 
 What does not touch hardware is in `rust/crates`, where it builds and is tested on the host:
 `purestwhite-app` (the application's state machine), `purestwhite-render` (draws its screens; its
-`Writer` and `Text` draw text in one style of a `.cpfont`) and `purestwhite-services` (the device
-traits and the loops between them). [DESIGN.md](DESIGN.md) explains how they fit together, and the
+`Writer` and `Text` draw text in one style of a `.cpfont`), `purestwhite-services` (the device
+traits and the loops between them) and `purestwhite-updater` (the SD updater's steps, the releases
+it knows and the recovery mode's scenarios, run on a FAT image and a flash in memory).
+[DESIGN.md](DESIGN.md) explains how they fit together, and the
 [host simulator](#run-in-the-host-simulator) runs them on a PC.
 
 ### boot

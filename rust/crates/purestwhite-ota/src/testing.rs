@@ -1,9 +1,11 @@
-//! What the tests share: images built to order, and SHA-256 from `sha2`.
+//! What the tests share, here and in the crates built on this one (the `testing` feature): images
+//! built to order, SHA-256 from `sha2`, and a NOR flash in memory.
 #![allow(
     clippy::indexing_slicing,
     clippy::cast_possible_truncation,
     clippy::missing_panics_doc,
-    reason = "test images are built by index, and are small"
+    clippy::must_use_candidate,
+    reason = "test helpers: images are built by index, and are small"
 )]
 
 extern crate std;

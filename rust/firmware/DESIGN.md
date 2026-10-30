@@ -265,8 +265,18 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   healthy when it ends in that reset. Only the Right entry can be tested on the device without
   breaking the C++ firmware's slot; the fell-back entry shares the updater with install-check, whose
   repair passes in the emulator, but the `purestwhite` image itself does not run in eink-qemu 0.9.2,
-  so it is build-only so far, and the roadmap's recovery-key scenario does not exist yet. No line of
-  text on the panel yet.
+  so it is build-only so far. No line of text on the panel yet.
+- The updater's steps are in `purestwhite-updater`, which touches no hardware: the slot is an
+  `embedded-storage` NOR flash, the card a `purestwhite-fat` volume opened through its `Card` trait,
+  the SHA unit a `Hashes`, the report a `Notes`; the firmware's `updater` lends it the device's
+  parts. Its host tests are the recovery mode's scenarios, on a card formatted by mkfs.fat and the
+  slot in memory: the same release written over itself, a slot the bootloader refused repaired, a
+  write cut short then repaired on the next run, each refusal (an unknown image, another release,
+  a broken slot the bootloader did not refuse, a slot that passes after a fall back, an image too
+  big for the slot, an unreadable slot) writing nothing, and no card or no release changing
+  nothing; each checks the lines noted and whether the firmware then resets or sleeps. What they
+  cannot check is the key, the image's start and the real flash and card: those stay on the device
+  and in the emulator's install-check scenarios.
 - Phase 3 (promotion) lifts the phase-2 limit only after the Rust firmware's own update path has
   installed the identical known-good image once.
 
@@ -341,8 +351,8 @@ hand-back).
    in 54 s); and the boot counter (`purestwhite-bootcount`, `count-check`: three unfinished runs in
    a row note `recovery due` in the emulator, and the count survives the C++ firmware running
    in between, `emu/baremetal-count-cpp.txt`); and the recovery mode's first slice (`updater`, the
-   `purestwhite` image's `recovery`; its device test waits). Left: its line of text on the panel,
-   and the check at power-on.
+   `purestwhite` image's `recovery`; its device test waits), whose steps and scenarios run on the
+   host (`purestwhite-updater`). Left: its line of text on the panel, and the check at power-on.
 4. The battery page loop and its RTC log; the two-firmware measurement. Before it, who owns the
    report: now the power task does, and the phase-2 backstop writes it once, just before a
    reset; a battery log in its own task needs a shared report in `boot` or an RTC area of its own.

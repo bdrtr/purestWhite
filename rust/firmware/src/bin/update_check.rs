@@ -1,11 +1,12 @@
 //! The SD updater's reading side, a dry run on the device (rust/firmware/DESIGN.md, the SD
 //! updater): nothing is written but the hand-back's otadata entry. It reads the C++ firmware's
 //! release image the recovery mode would install from the card (`RECOVERY_FILE`), checks and hashes
-//! it as it streams in, and names it among the releases the updater knows (`releases`). Then it
-//! hashes the image in the C++ firmware's slot the same way and compares the two. Reports both
-//! (their length, the start of their digest, their name), the time each took, whether they are the
-//! same image, and how many sectors an install would write; then resets. Hands the next boot back
-//! first, as every test image. Runs in the emulator too (`emu/baremetal-update.txt`).
+//! it as it streams in, and names it among the releases the updater knows
+//! (`purestwhite_updater::releases::X4_PRO`). Then it hashes the image in the C++ firmware's slot
+//! the same way and compares the two. Reports both (their length, the start of their digest, their
+//! name), the time each took, whether they are the same image, and how many sectors an install
+//! would write; then resets. Hands the next boot back first, as every test image. Runs in the
+//! emulator too (`emu/baremetal-update.txt`).
 #![no_std]
 #![warn(clippy::pedantic)]
 #![allow(
@@ -24,14 +25,15 @@ use esp_hal::sha::Sha;
 use esp_hal::time::Instant;
 use purestwhite_firmware::board::{Board, CardParts};
 use purestwhite_firmware::boot::{Report, Started, start};
-use purestwhite_firmware::images::{identify_file, identify_partition};
+use purestwhite_firmware::images::identify_partition;
 use purestwhite_firmware::ready;
-use purestwhite_firmware::releases::{Named, RECOVERY_FILE};
 use purestwhite_firmware::sd;
 use purestwhite_firmware::sha::HwSha;
 use purestwhite_firmware::slots::ota_slots;
 use purestwhite_ota::digest::Identified;
 use purestwhite_ota::slot::SECTOR;
+use purestwhite_updater::images::identify_file;
+use purestwhite_updater::releases::{Named, RECOVERY_FILE, X4_PRO};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -54,7 +56,7 @@ fn failed(report: &mut Report, what: &str, why: impl Debug) {
 /// Notes an identified image: where it is, its length, its digest's start and its name, and the
 /// time it took.
 fn note(report: &mut Report, what: &str, image: &Identified, ms: u64) {
-    let (len, named) = (image.checked.len, Named(&image.digest));
+    let (len, named) = (image.checked.len, Named(&image.digest, &X4_PRO));
     let _ = writeln!(report, "{what} {len} B {ms} ms {named}");
     report.save();
 }

@@ -1,11 +1,12 @@
-//! The chip's SHA accelerator as `purestwhite_ota::digest::Sha256`, for checking firmware images.
-//! A digest dropped unfinished is finished then: the unit could otherwise still be busy with it
-//! when the next starts.
+//! The chip's SHA accelerator as `purestwhite_ota::digest::Sha256`, for checking firmware images,
+//! and as the SD updater's `purestwhite_updater::Hashes`. A digest dropped unfinished is finished
+//! then: the unit could otherwise still be busy with it when the next starts.
 
 use core::convert::Infallible;
 use esp_hal::sha::{Sha, Sha256 as Algorithm, ShaDigest};
 use purestwhite_ota::digest::Sha256;
 use purestwhite_ota::image::DIGEST;
+use purestwhite_updater::Hashes;
 
 /// A SHA-256 on the accelerator, borrowed for as long as it is computed.
 pub struct HwSha<'a, 'd>(Option<ShaDigest<'d, Algorithm, &'a mut Sha<'d>>>);
@@ -14,6 +15,20 @@ impl<'a, 'd> HwSha<'a, 'd> {
     #[must_use]
     pub fn new(sha: &'a mut Sha<'d>) -> Self {
         HwSha(Some(sha.start::<Algorithm>()))
+    }
+}
+
+/// The accelerator lent to the SD updater, which starts one digest on it at a time.
+pub struct ShaUnit<'a, 'd>(pub &'a mut Sha<'d>);
+
+impl<'d> Hashes for ShaUnit<'_, 'd> {
+    type Sha<'s>
+        = HwSha<'s, 'd>
+    where
+        Self: 's;
+
+    fn start(&mut self) -> HwSha<'_, 'd> {
+        HwSha::new(self.0)
     }
 }
 

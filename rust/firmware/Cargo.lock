@@ -1406,6 +1406,7 @@ dependencies = [
  "purestwhite-rtc",
  "purestwhite-services",
  "purestwhite-touch",
+ "purestwhite-updater",
  "sdio",
 ]
 
@@ -1463,6 +1464,16 @@ name = "purestwhite-touch"
 version = "0.1.0"
 dependencies = [
  "purestwhite-gt911",
+]
+
+[[package]]
+name = "purestwhite-updater"
+version = "0.1.0"
+dependencies = [
+ "aligned",
+ "embedded-storage",
+ "purestwhite-fat",
+ "purestwhite-ota",
 ]
 
 [[package]]

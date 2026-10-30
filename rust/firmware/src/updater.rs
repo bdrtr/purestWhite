@@ -1,30 +1,21 @@
-//! The SD updater (rust/firmware/DESIGN.md, the SD updater): the C++ firmware's release on the card
-//! (`RECOVERY_FILE`) written into the C++ firmware's slot, within phase 2's limits
-//! (`purestwhite_ota::plan`): only a release the updater knows, and only over the same release,
-//! which proves the write path on the real slot and changes nothing, or over a slot whose image no
-//! longer passes and which the bootloader has just refused. It identifies the slot and the card's
-//! release (the first pass, nothing written), writes the release sector by sector, each read back
-//! (the second pass, whose digest must be the first's), and identifies the slot once more
-//! (`install`). Then `end` resets into the C++ firmware (`purestwhite_ota::plan::resets`), or
-//! sleeps (bounded) until Power or a timer rather than reset straight back into the image that
-//! runs the updater: a bootloader that checks images falls back to that image while the slot holds
-//! none, or keeps refusing an image the updater's own check passes. Used by install-check and by
-//! the recovery mode of the `purestwhite` image.
-#![allow(
-    clippy::cast_possible_truncation,
-    reason = "the ESP32-S3's usize is 32 bits, and a slot is at most 16 MB"
-)]
+//! The SD updater on the X4 Pro (rust/firmware/DESIGN.md, the SD updater): `purestwhite-updater`'s
+//! steps over the device's parts. The C++ firmware's slot is a flash of its own (its partition's
+//! region, which cannot write outside it), the card is read over the blocking bus, digests come from
+//! the chip's SHA unit, the RTC watchdog is fed between pieces, and each step is noted in the
+//! report. Then `end` resets into the C++ firmware (`purestwhite_updater::Done::resets`), or sleeps
+//! (bounded) until Power or a timer rather than reset straight back into the image that runs the
+//! updater: a bootloader that checks images falls back to that image while the slot holds none, or
+//! keeps refusing an image the updater's own check passes. Used by install-check and by the
+//! recovery mode of the `purestwhite` image.
 
 use crate::board::CardParts;
 use crate::boot::{self, BoundedSleep, Report};
-use crate::images::{SlotError, identify_file, identify_partition, install_file};
-use crate::ready;
-use crate::releases::{Named, RECOVERY_FILE, release};
-use crate::sd::{self, CardVolume};
-use crate::sha::HwSha;
+use crate::sd::{self, BlockingBus, CardBlocks, OpenError, SpinDelay};
+use crate::sha::ShaUnit;
 use crate::sleep::Rails;
 use crate::slots::ota_slots;
-use esp_bootloader_esp_idf::partitions::{Error as FlashError, FlashStorage, PartitionEntry};
+use core::fmt::{Arguments, Debug, Formatter};
+use esp_bootloader_esp_idf::partitions::FlashStorage;
 use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
 use esp_hal::peripherals::{GPIO2, GPIO3, GPIO14, GPIO40, GPIO41, GPIO42, LPWR, SDHOST, SHA};
 use esp_hal::rtc_cntl::Rtc;
@@ -32,9 +23,10 @@ use esp_hal::rtc_cntl::sleep::LowPower;
 use esp_hal::sdmmc::{Config as SdConfig, SdHostController};
 use esp_hal::sha::Sha;
 use esp_hal::time::{Duration, Instant};
-use purestwhite_ota::digest::Identified;
-use purestwhite_ota::plan::{InSlot, Plan, plan, resets};
-use purestwhite_ota::slot::SECTOR;
+use purestwhite_fat::Volume;
+use purestwhite_ota::plan::InSlot;
+use purestwhite_updater::releases::X4_PRO;
+use purestwhite_updater::{Card, Done, Notes, Updater};
 
 /// The sleep when a reset would only bring the bootloader back to the image that runs the
 /// updater: Power or the timer ends it, and the bootloader decides again.
@@ -57,7 +49,7 @@ pub struct Parts {
 }
 
 /// What `install` leaves `end`: whether to reset into the C++ firmware
-/// (`purestwhite_ota::plan::resets`), and the parts the sleep needs otherwise.
+/// (`purestwhite_updater::Done::resets`), and the parts the sleep needs otherwise.
 pub struct Finished {
     pub resets: bool,
     sd_power: Output<'static>,
@@ -87,15 +79,22 @@ pub fn install(
     } = parts.card;
     // Off until its first try (`sd::mount`).
     let mut sd_power = Output::new(supply, Level::High, OutputConfig::default());
-    let mut run = Updater {
+    let mut card = SdCard {
+        parts: Some((sdhost, (clk, cmd, dat0))),
+        controller: None,
+        supply: &mut sd_power,
+    };
+    let done = update(
         storage,
-        sha: &mut sha,
+        &mut ShaUnit(&mut sha),
         rtc,
         report,
-    };
-    let (after, wrote) = update(&mut run, sdhost, (clk, cmd, dat0), &mut sd_power, fell_back);
+        &mut card,
+        fell_back,
+    );
+    drop(card);
     Finished {
-        resets: resets(after, wrote, fell_back),
+        resets: done.resets(fell_back),
         sd_power,
         touch_supply: parts.touch_supply,
         panel_reset: parts.panel_reset,
@@ -142,184 +141,99 @@ pub fn note_earlier(report: &mut Report, earlier: Option<Report>) {
     report.note(format_args!("earlier: {last}"));
 }
 
-/// What the updater borrows from the run: the one flash storage, the SHA unit, the RTC (its
-/// watchdog is fed between pieces) and the report it notes each step in.
-struct Updater<'a, 's, 'h, 'r> {
-    storage: &'a mut FlashStorage<'s>,
-    sha: &'a mut Sha<'h>,
-    rtc: &'a mut Rtc<'r>,
-    report: &'a mut Report,
-}
-
-impl Updater<'_, '_, '_, '_> {
-    /// The image in `target`, measured and hashed where it lies, and how long that took in ms.
-    fn identify(&mut self, target: PartitionEntry) -> (Found, u64) {
-        let start = Instant::now();
-        let rtc = &mut *self.rtc;
-        let found = identify_partition(self.storage, target, HwSha::new(self.sha), || {
-            rtc.rwdt.feed();
-        });
-        (found, start.elapsed().as_millis())
-    }
-
-    /// What `target` (the C++ firmware's slot) holds, noted.
-    fn slot_state(&mut self, target: PartitionEntry) -> InSlot {
-        let (found, ms) = self.identify(target);
-        match &found {
-            Ok(image) => {
-                let (len, named) = (image.checked.len, Named(&image.digest));
-                self.report
-                    .note(format_args!("slot {len} B {ms} ms {named}"));
-            }
-            Err(SlotError::Flash(at, e)) => {
-                self.report
-                    .note(format_args!("slot: read at {at:x}: {e:?}"));
-            }
-            Err(e) => self.report.note(format_args!("slot: {e:?}")),
-        }
-        in_slot(&found)
-    }
-
-    /// The release on the card, at most `limit` bytes (the slot it would go to), checked and
-    /// hashed as it streams in (the first pass), noted.
-    fn card_release(&mut self, volume: &mut CardVolume<'_>, limit: usize) -> Option<Identified> {
-        let start = Instant::now();
-        let rtc = &mut *self.rtc;
-        let sha = HwSha::new(self.sha);
-        let found = ready(identify_file(volume, RECOVERY_FILE, limit, sha, || {
-            rtc.rwdt.feed();
-        }));
-        let ms = start.elapsed().as_millis();
-        match found {
-            Some(Ok(image)) => {
-                let (len, named) = (image.checked.len, Named(&image.digest));
-                self.report
-                    .note(format_args!("card {len} B {ms} ms {named}"));
-                Some(image)
-            }
-            Some(Err(e)) => {
-                self.report.note(format_args!("card: {e:?}"));
-                None
-            }
-            None => {
-                self.report.note(format_args!("card: not ready"));
-                None
-            }
-        }
-    }
-
-    /// Writes the card's release, as the first pass found it (`card`), into `target` (the second
-    /// pass), noting how it went after `plan`'s name.
-    fn write(
-        &mut self,
-        volume: &mut CardVolume<'_>,
-        target: PartitionEntry,
-        card: &Identified,
-        plan: Plan,
-    ) {
-        let start = Instant::now();
-        let mut region = target.as_flash_region(self.storage);
-        let rtc = &mut *self.rtc;
-        let written = match region.as_nor_flash() {
-            Ok(mut flash) => {
-                let sha = HwSha::new(self.sha);
-                ready(install_file(
-                    volume,
-                    RECOVERY_FILE,
-                    &mut flash,
-                    &card.digest,
-                    sha,
-                    || {
-                        rtc.rwdt.feed();
-                    },
-                ))
-            }
-            Err(e) => return self.report.note(format_args!("region: {e:?}")),
-        };
-        let ms = start.elapsed().as_millis();
-        let sectors = card.checked.len.div_ceil(SECTOR);
-        match written {
-            Some(Ok(_)) => self
-                .report
-                .note(format_args!("{plan:?}: {sectors} sectors {ms} ms")),
-            Some(Err(e)) => self.report.note(format_args!("{plan:?}: {e:?}")),
-            None => self.report.note(format_args!("{plan:?}: not ready")),
-        }
-    }
-
-    /// What `target` holds after the write: noted when it is an image that passes
-    /// (`installed: same digest` for the card's release); otherwise the write's own line says why,
-    /// and the sleep line follows.
-    fn installed(&mut self, target: PartitionEntry, card: &Identified) -> InSlot {
-        let (found, _) = self.identify(target);
-        match &found {
-            Ok(image) if image.digest == card.digest => {
-                self.report.note(format_args!("installed: same digest"));
-            }
-            Ok(image) => self
-                .report
-                .note(format_args!("installed: {}", Named(&image.digest))),
-            Err(_) => {}
-        }
-        in_slot(&found)
-    }
-}
-
-/// A slot's image, identified where it lies.
-type Found = Result<Identified, SlotError<FlashError>>;
-
-/// What a slot holds, as `found` says.
-fn in_slot(found: &Found) -> InSlot {
-    match found {
-        Ok(image) => InSlot::Image(image.digest),
-        Err(SlotError::Flash(..)) => InSlot::Unreadable,
-        Err(_) => InSlot::Broken,
-    }
-}
-
-/// The updater's steps: what the C++ firmware's slot holds at the end, and whether the updater
-/// wrote the card's release there (it reads back as that release). `supply` is the card's
-/// (`sd::open_volume`).
+/// The updater's steps on the C++ firmware's slot: the slot this image does not run from.
 fn update(
-    run: &mut Updater<'_, '_, '_, '_>,
-    sdhost: SDHOST<'_>,
-    pins: (GPIO41<'_>, GPIO42<'_>, GPIO40<'_>),
-    supply: &mut Output<'_>,
+    storage: &mut FlashStorage<'_>,
+    hashes: &mut ShaUnit<'_, '_>,
+    rtc: &mut Rtc<'_>,
+    report: &mut Report,
+    card: &mut SdCard<'_>,
     fell_back: bool,
-) -> (InSlot, bool) {
-    let target = match ota_slots(run.storage) {
+) -> Done {
+    let unreadable = Done {
+        after: InSlot::Unreadable,
+        wrote: false,
+    };
+    let target = match ota_slots(storage) {
         Ok(slots) => slots.other,
         Err(e) => {
-            run.report.note(format_args!("slot: {e}"));
-            return (InSlot::Unreadable, false);
+            report.note(format_args!("slot: {e}"));
+            return unreadable;
         }
     };
-    let in_slot = run.slot_state(target);
-    let Ok(controller) = SdHostController::new(sdhost, SdConfig::default()) else {
-        run.report.note(format_args!("card: no controller"));
-        return (in_slot, false);
-    };
-    let rtc = &mut *run.rtc;
-    let mut volume = match sd::open_volume(&controller, pins, supply, |_| rtc.rwdt.feed()) {
-        Ok(volume) => volume,
+    let mut region = target.as_flash_region(storage);
+    let mut slot = match region.as_nor_flash() {
+        Ok(slot) => slot,
         Err(e) => {
-            run.report.note(format_args!("card: {e:?}"));
-            return (in_slot, false);
+            report.note(format_args!("slot: read at 0: {e:?}"));
+            return unreadable;
         }
     };
-    let Some(card) = run.card_release(&mut volume, target.len() as usize) else {
-        return (in_slot, false);
-    };
-    let known = release(&card.digest).is_some();
-    match plan(&card.digest, known, in_slot, fell_back) {
-        Plan::Refuse(why) => {
-            run.report.note(format_args!("refused: {why:?}"));
-            (in_slot, false)
+    Updater {
+        known: &X4_PRO,
+        hashes,
+        notes: report,
+        feed: || rtc.rwdt.feed(),
+        now_ms,
+    }
+    .update(&mut slot, card, fell_back)
+}
+
+/// Milliseconds since the chip started, for the times the updater notes.
+fn now_ms() -> u64 {
+    Instant::now().duration_since_epoch().as_millis()
+}
+
+impl Notes for Report {
+    fn note(&mut self, line: Arguments<'_>) {
+        Report::note(self, line);
+    }
+}
+
+/// The card's pins, until it is opened.
+type CardPins = (
+    SDHOST<'static>,
+    (GPIO41<'static>, GPIO42<'static>, GPIO40<'static>),
+);
+
+/// The card, opened once through a controller made then (`sd::open_volume`), with its supply
+/// (`sd::mount`).
+struct SdCard<'a> {
+    parts: Option<CardPins>,
+    controller: Option<SdHostController<'static>>,
+    supply: &'a mut Output<'static>,
+}
+
+/// Why the card could not be opened, as the report names it.
+enum CardError {
+    /// It was opened before (the updater opens it once).
+    Opened,
+    NoController,
+    Open(OpenError),
+}
+
+impl Debug for CardError {
+    fn fmt(&self, out: &mut Formatter<'_>) -> core::fmt::Result {
+        match self {
+            CardError::Opened => out.write_str("opened before"),
+            CardError::NoController => out.write_str("no controller"),
+            CardError::Open(e) => e.fmt(out),
         }
-        plan => {
-            run.write(&mut volume, target, &card, plan);
-            let after = run.installed(target, &card);
-            (after, after == InSlot::Image(card.digest))
-        }
+    }
+}
+
+impl Card for SdCard<'_> {
+    type Blocks<'c>
+        = CardBlocks<BlockingBus<'c>, SpinDelay>
+    where
+        Self: 'c;
+    type Error = CardError;
+
+    fn open(&mut self, feed: &mut dyn FnMut()) -> Result<Volume<Self::Blocks<'_>>, CardError> {
+        let (sdhost, pins) = self.parts.take().ok_or(CardError::Opened)?;
+        let controller = SdHostController::new(sdhost, SdConfig::default())
+            .map_err(|_| CardError::NoController)?;
+        let controller = self.controller.insert(controller);
+        sd::open_volume(controller, pins, self.supply, |_| feed()).map_err(CardError::Open)
     }
 }

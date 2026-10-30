@@ -22,8 +22,8 @@ pub mod digest;
 pub mod image;
 pub mod plan;
 pub mod slot;
-#[cfg(test)]
-mod testing;
+#[cfg(any(test, feature = "testing"))]
+pub mod testing;
 #[cfg(test)]
 mod tests;
 pub mod window;

@@ -1,0 +1,17 @@
+[package]
+name = "purestwhite-updater"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+# Reads a sector at a time into a word-aligned buffer (the card's DMA and esp-storage want it).
+aligned = "=0.4.3"
+embedded-storage = "=0.3.2"
+purestwhite-fat = { path = "../purestwhite-fat" }
+purestwhite-ota = { path = "../purestwhite-ota" }
+
+[dev-dependencies]
+# Images built to order, SHA-256 and a NOR flash in memory.
+purestwhite-ota = { path = "../purestwhite-ota", features = ["testing"] }

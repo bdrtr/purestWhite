@@ -1058,11 +1058,14 @@ without breaking the C++ firmware's slot; the fell-back entry stays build-only s
     `firmware-arsiv/cihaz-raporlari/2026-10-29-main-3-plain.txt`.
 - [ ] **Only with the owner's go-ahead: this step writes the C++ firmware's slot, as install-check
   did.** With Right held. Plug in USB power (charging only) and keep it in. Put
-  `purestwhite-recovery.bin` back on the card (from the archive) beside main-3. Settings > System >
-  SD Card Firmware Update > choose `purestwhite-baremetal-main-3.bin`, not
-  `purestwhite-recovery.bin` > Confirm. Press Right when "Updating..." shows, and keep holding it
-  until 15 seconds after "Update complete" shows (the C++ firmware restarts 1.5 s after that text,
-  and the image reads Right as it starts); then let go. The screen stays on "Update complete"
+  `purestwhite-recovery.bin` back on the card (from the archive) and, in place of main-3,
+  `purestwhite-baremetal-main-4.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`): the
+  same image with the updater's steps moved into `purestwhite-updater`, where the recovery mode's
+  scenarios now run on the host; its lines are the same, and install-check's emulator scenarios pass
+  with it. Settings > System > SD Card Firmware Update > choose `purestwhite-baremetal-main-4.bin`,
+  not `purestwhite-recovery.bin` > Confirm. Press Right when "Updating..." shows, and keep holding
+  it until 15 seconds after "Update complete" shows (the C++ firmware restarts 1.5 s after that
+  text, and the image reads Right as it starts); then let go. The screen stays on "Update complete"
   while it works, about a minute more; do not press anything until the C++ firmware is back.
   Expected, in this order:
   - "purestWhite"

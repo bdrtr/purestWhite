@@ -35,14 +35,15 @@ use esp_hal::rtc_cntl::Rtc;
 use esp_hal::sha::Sha;
 use purestwhite_firmware::board::Board;
 use purestwhite_firmware::boot::{Report, Started, start};
-use purestwhite_firmware::images::{SlotError, identify_partition};
-use purestwhite_firmware::releases::{Named, release};
+use purestwhite_firmware::images::identify_partition;
 use purestwhite_firmware::sha::HwSha;
 use purestwhite_firmware::slots::{OtaSlots, ota_slots};
 use purestwhite_firmware::test_image::select_this_image;
 use purestwhite_ota::digest::{HeldBack, Identified};
 use purestwhite_ota::image::{DIGEST, ImageCheck};
 use purestwhite_ota::slot::SECTOR;
+use purestwhite_updater::images::SlotError;
+use purestwhite_updater::releases::{Named, X4_PRO, release};
 
 esp_bootloader_esp_idf::esp_app_desc!();
 
@@ -175,19 +176,19 @@ impl Run<'_, '_> {
                 .note(format_args!("skipped: the bootloader fell back"));
             return false;
         }
-        if release(&own.digest).is_some() {
+        if release(&X4_PRO, &own.digest).is_some() {
             self.report
                 .note(format_args!("skipped: own image is a release"));
             return false;
         }
         match self.identify(slots.other) {
-            Ok(cpp) if release(&cpp.digest).is_some() => {
-                let (len, named) = (cpp.checked.len, Named(&cpp.digest));
+            Ok(cpp) if release(&X4_PRO, &cpp.digest).is_some() => {
+                let (len, named) = (cpp.checked.len, Named(&cpp.digest, &X4_PRO));
                 self.report.note(format_args!("C++ slot {len} B {named}"));
                 true
             }
             Ok(cpp) => {
-                let named = Named(&cpp.digest);
+                let named = Named(&cpp.digest, &X4_PRO);
                 self.report.note(format_args!("skipped: C++ slot {named}"));
                 false
             }
