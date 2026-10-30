@@ -117,3 +117,24 @@ fn is_black_reads_what_the_canvas_drew_at_the_corners_and_white_off_the_screen()
     assert!(!is_black(&frame, WIDTH, 0));
     assert!(!is_black(&frame, 0, HEIGHT));
 }
+
+#[test]
+fn a_pixel_set_black_reads_back_black_and_only_it() {
+    let mut frame = vec![0xFFu8; FRAME_BYTES];
+    for (x, y) in [
+        (0, 0),
+        (WIDTH - 1, 0),
+        (0, HEIGHT - 1),
+        (WIDTH - 1, HEIGHT - 1),
+        (7, 9),
+    ] {
+        set_black(&mut frame, x, y);
+        assert!(is_black(&frame, x, y), "{x},{y}");
+    }
+    let black: u32 = frame.iter().map(|b| (!b).count_ones()).sum();
+    assert_eq!(black, 5);
+    // Off the screen: nothing.
+    set_black(&mut frame, -1, 0);
+    set_black(&mut frame, WIDTH, HEIGHT);
+    assert_eq!(frame.iter().map(|b| (!b).count_ones()).sum::<u32>(), 5);
+}

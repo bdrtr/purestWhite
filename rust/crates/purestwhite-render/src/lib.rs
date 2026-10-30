@@ -13,7 +13,7 @@ mod sleep;
 mod tests;
 pub mod text;
 
-pub use frame::{FRAME_BYTES, HEIGHT, WIDTH, canvas, is_black};
+pub use frame::{FRAME_BYTES, HEIGHT, WIDTH, canvas, is_black, set_black};
 use purestwhite_app::view::View;
 pub use text::{FaceError, Text, Writer};
 

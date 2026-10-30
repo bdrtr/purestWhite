@@ -700,10 +700,13 @@ dependencies = [
 name = "purestwhite-services"
 version = "0.1.0"
 dependencies = [
+ "aligned",
+ "bembeyaz-bmp",
  "embassy-futures",
  "embassy-sync",
  "embassy-time",
  "purestwhite-app",
+ "purestwhite-fat",
  "purestwhite-render",
 ]
 

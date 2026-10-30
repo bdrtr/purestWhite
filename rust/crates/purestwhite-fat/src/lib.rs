@@ -32,6 +32,8 @@ mod bytes;
 mod dir;
 mod file;
 mod short;
+#[cfg(feature = "testing")]
+pub mod testing;
 #[cfg(test)]
 mod tests;
 mod upcase;

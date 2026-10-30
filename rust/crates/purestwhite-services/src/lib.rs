@@ -17,8 +17,12 @@
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 
+#[cfg(test)]
+extern crate std;
+
 mod app;
 mod draw;
+pub mod pages;
 mod panel;
 #[cfg(test)]
 mod tests;

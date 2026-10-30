@@ -6,3 +6,8 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
+
+[features]
+# `testing`: a card in memory, formatted by the host's mkfs.fat, for the tests and the host
+# simulator of the crates built on this one; never in the firmware.
+testing = []

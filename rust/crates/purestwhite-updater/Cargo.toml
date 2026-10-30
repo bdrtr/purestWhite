@@ -13,5 +13,7 @@ purestwhite-fat = { path = "../purestwhite-fat" }
 purestwhite-ota = { path = "../purestwhite-ota" }
 
 [dev-dependencies]
+# A card in memory, formatted by mkfs.fat.
+purestwhite-fat = { path = "../purestwhite-fat", features = ["testing"] }
 # Images built to order, SHA-256 and a NOR flash in memory.
 purestwhite-ota = { path = "../purestwhite-ota", features = ["testing"] }

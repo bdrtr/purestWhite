@@ -298,7 +298,14 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   app refreshes fast with a half refresh every 15th; the C++ image viewer refreshes differently
   (mostly half refreshes, `BmpViewerActivity.cpp`), so step 4 makes both use the same refreshes
   before measuring. Neither parses a book, so the comparison is the
-  platform's power alone.
+  platform's power alone. The C++ image viewer turns pages only on a key, so the C++ side needs an
+  automatic mode for the measurement too (step 4, tested on the device).
+- The pages: `purestwhite-pages/001.bmp` on in the card's root, upright 480 by 800, in any depth
+  the C++ image viewer reads (`bembeyaz-bmp`). `purestwhite_services::pages` counts them (from 001
+  until one is missing) and reads one into a frame a chunk of rows at a time (word-aligned, for the
+  card's DMA), yielding to the other loops between chunks; a pixel darker than half is black.
+  Tested on a card in memory formatted by mkfs.fat (`purestwhite-fat`'s `testing` feature, which the
+  updater's tests and the simulator use too).
 - The gauge's charge and voltage every 5 minutes (12 samples) go into the RTC report (they fit in
   its 248 bytes), so nothing is written to the card before gate 4; the books card is never
   written.

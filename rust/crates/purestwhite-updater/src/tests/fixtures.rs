@@ -7,14 +7,13 @@ use core::fmt::Arguments;
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};
 use embedded_storage::nor_flash::{ErrorType, NorFlash, ReadNorFlash};
+use purestwhite_fat::testing::test_card;
 use purestwhite_fat::{BLOCK, Block, BlockDevice, BlockWrite, Volume};
 use purestwhite_ota::image::DIGEST;
 use purestwhite_ota::testing::{FakeError, FakeFlash, Sha};
 use std::collections::BTreeSet;
 use std::format;
-use std::process::Command;
 use std::string::{String, ToString};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::vec::Vec;
 
 /// Runs a future of the fakes below, which are always ready.
@@ -125,8 +124,6 @@ impl Card for TestCard {
     }
 }
 
-static NEXT: AtomicU32 = AtomicU32::new(0);
-
 /// A FAT16 card of 4 MiB from mkfs.fat, holding `release` as the recovery file when given;
 /// `None` when mkfs.fat is not there and `PW_FAT_SKIP_TOOLS` is set (the test then passes).
 pub fn card_with(release: Option<&[u8]>) -> Option<TestCard> {
@@ -144,33 +141,9 @@ pub fn card_with(release: Option<&[u8]>) -> Option<TestCard> {
     Some(TestCard(Some(volume.into_inner())))
 }
 
-/// An empty FAT16 volume of 4 MiB, 512-byte clusters, made by mkfs.fat.
+/// An empty FAT16 volume of 4 MiB, made by mkfs.fat (`purestwhite_fat::testing::test_card`).
 fn formatted() -> Option<Disk> {
-    let n = NEXT.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!("pw-updater-{}-{n}.img", std::process::id()));
-    let made = Command::new("mkfs.fat")
-        .args([
-            "-C", "-F", "16", "-s", "1", "-n", "PWTEST", "-i", "1234ABCD",
-        ])
-        .arg(&path)
-        .arg("4096")
-        .output();
-    let Ok(out) = made else {
-        assert!(
-            std::env::var_os("PW_FAT_SKIP_TOOLS").is_some(),
-            "mkfs.fat is required (PW_FAT_SKIP_TOOLS=1 skips these tests)"
-        );
-        std::eprintln!("skipped: mkfs.fat is not installed");
-        return None;
-    };
-    let bytes = std::fs::read(&path);
-    let _ = std::fs::remove_file(&path);
-    assert!(
-        out.status.success(),
-        "mkfs.fat: {}",
-        String::from_utf8_lossy(&out.stderr)
-    );
-    Some(Disk::new(bytes.unwrap()))
+    test_card(4096).map(|card| Disk::new(card.0))
 }
 
 /// The C++ firmware's slot, of `super::SLOT` bytes, holding `image` (and old bytes after it).

@@ -1,8 +1,7 @@
 // The tests unwrap and index what must be there, and fail when the loops do not settle.
 #![allow(clippy::unwrap_used, clippy::indexing_slicing, clippy::panic)]
 
-extern crate std;
-
+mod pages;
 mod timers;
 
 use super::*;
