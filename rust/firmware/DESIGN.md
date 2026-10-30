@@ -306,6 +306,17 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   card's DMA), yielding to the other loops between chunks; a pixel darker than half is black.
   Tested on a card in memory formatted by mkfs.fat (`purestwhite-fat`'s `testing` feature, which the
   updater's tests and the simulator use too).
+- The page loop (`purestwhite-app`): the app counts the pages at the start (`Job::CountPages`);
+  Right on the home screen starts the loop when there are any. Each page is read by the storage
+  loop (`Job::LoadPage`, answered `PageLoaded` or `PageFailed`) into the page buffer and shown, the
+  first with a full refresh and then fast ones with the cadence's half every 15th, one every
+  `PAGE_MS` (30 s); after `LOOP_PAGES` (120, an hour) the device sleeps. Left goes back home; the
+  idle sleep waits while the loop runs, and the home screen's updates are kept, not shown. The
+  page buffer (a third 48,000-byte buffer, in PSRAM on the device) is held by the storage loop
+  while it reads and by drawing while it copies (`PageSlot`); the app keeps them apart by asking
+  for the next page only once the panel has answered for every view shown. Without a card or a
+  page buffer the pages count as none and Right is a key like any other. The `purestwhite` image
+  does not run the storage loop yet, so on the device Right does nothing new.
 - The gauge's charge and voltage every 5 minutes (12 samples) go into the RTC report (they fit in
   its 248 bytes), so nothing is written to the card before gate 4; the books card is never
   written.
@@ -323,7 +334,10 @@ panel loop has put the panel to rest (later lines are not taken). The clock is t
 own and moves only on `wait:S` (seconds, as eink-qemu's `wait`): to each timer due meanwhile in
 turn, so that each fires at its time, then to the wait's end. A scenario of hours runs at once and
 the same every time; each shot keeps the time it was shown. Embassy's `std` executor is not used:
-its clock is the PC's. The rest of this section comes with the steps that need it.
+its clock is the PC's. The storage loop runs over a FAT image in memory (`--card`, or one made by
+mkfs.fat in the tests): the page loop's tests read pages written by `pw-sim`'s BMP writer back
+byte for byte, and run the hour of pages to the sleep. The rest of this section comes with the
+steps that need it.
 
 Later, the app, draw and service loops run over a simulated board:
 
@@ -332,8 +346,9 @@ Later, the app, draw and service loops run over a simulated board:
 - `Keys` and `TouchPanel`: raw samples from a scenario script (`press:left`, `tap:240,400`,
   `swipe:left`, the eink-qemu words where they overlap), classified by the real
   `purestwhite-buttons` and `purestwhite-touch`;
-- `Card`: a FAT image file through `purestwhite-fat`, made with `mkfs.fat` and `mtools` as the FAT
-  tests do; the flash and otadata through `purestwhite-ota` over a fake flash;
+- `Card`: a FAT image through `purestwhite-fat` (done for the storage loop); the flash and
+  otadata through `purestwhite-ota` over a fake flash (the updater's steps run on the host in
+  `purestwhite-updater`'s tests);
 - `Gauge`, `Clock`: scripted values; `Power`: sleep is noted, not done.
 
 It checks the app, the renderer, the classifiers, the channels and their backpressure, FAT on an

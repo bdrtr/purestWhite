@@ -11,7 +11,7 @@ use std::vec;
 use std::vec::Vec;
 
 /// The luminance of the test pattern at (`x`, `y`): stripes, a diagonal, and a gray ramp.
-fn pattern(x: i32, y: i32) -> u8 {
+pub(super) fn pattern(x: i32, y: i32) -> u8 {
     if (x + 2 * y) % 37 < 5 || x == y {
         0
     } else {
@@ -21,7 +21,13 @@ fn pattern(x: i32, y: i32) -> u8 {
 
 /// A BMP of `width` by `height` at `bpp` (1 with a black and white palette, or 24), whose pixels
 /// have the luminance `lum(x, y)` upright; rows bottom-up unless `top_down`.
-fn bmp(bpp: u16, top_down: bool, width: i32, height: i32, lum: impl Fn(i32, i32) -> u8) -> Vec<u8> {
+pub(super) fn bmp(
+    bpp: u16,
+    top_down: bool,
+    width: i32,
+    height: i32,
+    lum: impl Fn(i32, i32) -> u8,
+) -> Vec<u8> {
     let row_bytes = (width * i32::from(bpp) + 31) / 32 * 4;
     let palette: &[u8] = if bpp == 1 {
         &[0, 0, 0, 0, 255, 255, 255, 0]
@@ -60,7 +66,7 @@ fn bmp(bpp: u16, top_down: bool, width: i32, height: i32, lum: impl Fn(i32, i32)
 }
 
 /// A card with the pages `pages` (`(n, bytes)`) in `purestwhite-pages/`.
-fn card(pages: &[(u16, Vec<u8>)]) -> Option<Volume<MemCard>> {
+pub(super) fn card(pages: &[(u16, Vec<u8>)]) -> Option<Volume<MemCard>> {
     let mut volume = ready(Volume::mount(test_card(4096)?)).unwrap().unwrap();
     ready(volume.mkdir("purestwhite-pages")).unwrap().unwrap();
     for (n, bytes) in pages {
@@ -76,7 +82,7 @@ fn card(pages: &[(u16, Vec<u8>)]) -> Option<Volume<MemCard>> {
     Some(volume)
 }
 
-fn frame() -> Box<[u8; FRAME_BYTES]> {
+pub(super) fn frame() -> Box<[u8; FRAME_BYTES]> {
     vec![0u8; FRAME_BYTES]
         .into_boxed_slice()
         .try_into()
@@ -91,7 +97,7 @@ fn load(volume: &mut Volume<MemCard>) -> (Result<(), PageError<()>>, Box<[u8; FR
 }
 
 /// Whether `frame` is black exactly where `pattern` is dark.
-fn shows_pattern(frame: &[u8; FRAME_BYTES]) -> bool {
+pub(super) fn shows_pattern(frame: &[u8; FRAME_BYTES]) -> bool {
     (0..HEIGHT).all(|y| (0..WIDTH).all(|x| is_black(frame, x, y) == (pattern(x, y) < 128)))
 }
 

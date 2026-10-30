@@ -719,6 +719,7 @@ dependencies = [
  "embassy-time",
  "png",
  "purestwhite-app",
+ "purestwhite-fat",
  "purestwhite-render",
  "purestwhite-services",
 ]

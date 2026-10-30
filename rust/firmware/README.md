@@ -307,8 +307,8 @@ itself with `--panel uc8179`.
 a scenario script (`rust/sim/scenarios/`, one step per line: `battery:N`, `time:HH:MM`,
 `press:left|right|power|home`, `sleep`, and `wait:S`, S seconds on the simulator's own clock, which
 fires the application's timers at their time; `#` starts a comment; see
-[script.rs](../sim/src/script.rs)), and writes each frame the panel shows as an upright PNG, printing
-the time it was shown. It checks what does not depend on hardware; real timing, interrupts and sleep
+[script.rs](../sim/src/script.rs)), with a FAT image as the SD card when given (`--card`), and
+writes each frame the panel shows as an upright PNG, printing the time it was shown. It checks what does not depend on hardware; real timing, interrupts and sleep
 stay on the device and in the emulator. From `rust/`:
 
 ```sh

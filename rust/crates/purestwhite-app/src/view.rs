@@ -19,6 +19,8 @@ pub struct Home {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum View {
     Home(Home),
+    /// Page n of the card's pages (from 1), as the storage loop read it last.
+    Page(u16),
     /// What the panel keeps showing while the device sleeps.
     Sleep,
 }

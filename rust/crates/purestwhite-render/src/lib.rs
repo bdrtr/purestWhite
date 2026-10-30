@@ -18,11 +18,12 @@ use purestwhite_app::view::View;
 pub use text::{FaceError, Text, Writer};
 
 /// Draws `view` over the whole of `frame` (`FRAME_BYTES` long, a bit per pixel, 1 white), with
-/// its text in `text` when given.
+/// its text in `text` when given. A page comes from the card whole (the draw loop copies it):
+/// here it is left white.
 pub fn draw(view: &View, frame: &mut [u8], text: Option<&mut Text<'_>>) {
-    let mut canvas = canvas(frame);
     match view {
-        View::Home(home) => home::draw(&mut canvas, *home, text),
-        View::Sleep => sleep::draw(&mut canvas, text),
+        View::Home(home) => home::draw(&mut canvas(frame), *home, text),
+        View::Page(_) => frame.fill(0xFF),
+        View::Sleep => sleep::draw(&mut canvas(frame), text),
     }
 }

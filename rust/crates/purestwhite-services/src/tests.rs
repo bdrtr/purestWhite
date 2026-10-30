@@ -2,16 +2,19 @@
 #![allow(clippy::unwrap_used, clippy::indexing_slicing, clippy::panic)]
 
 mod pages;
+mod storage;
 mod timers;
 
 use super::*;
 use embassy_futures::block_on;
-use embassy_futures::select::{Either, Either4, select, select4};
+use embassy_futures::select::{Either3, Either4, select3, select4};
 use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::Duration;
 use purestwhite_app::view::{Time, View};
 use purestwhite_app::{App, Show};
+use purestwhite_fat::Volume;
+use purestwhite_fat::testing::MemCard;
 use std::boxed::Box;
 use std::vec;
 use std::vec::Vec;
@@ -114,50 +117,57 @@ struct Outcome {
     rested: Option<Result<(), ScreenError>>,
 }
 
-/// Runs the loops: the first screen, then `steps`; once settled, when the application asked to
-/// sleep, the panel is asked to rest, as the power loop does.
+/// Takes `steps` once the first screen has settled; once settled again, when the application
+/// asked to sleep, asks the panel to rest, as the power loop does, and waits for the panel loop to
+/// end the run.
+async fn script(steps: &[Step], links: &Links<NoopRawMutex>) {
+    settle(links).await;
+    for &step in steps {
+        match step {
+            Step::Send(event) => links.events.try_send(event).unwrap(),
+            Step::Turns(turns) => {
+                for _ in 0..turns {
+                    yield_now().await;
+                }
+            }
+            Step::Settle => settle(links).await,
+            Step::Rest => {
+                links.panel_rest.signal(());
+                core::future::pending::<()>().await;
+            }
+        }
+    }
+    settle(links).await;
+    if links.sleep.signaled() {
+        links.panel_rest.signal(());
+        core::future::pending::<()>().await;
+    }
+}
+
+/// Runs the loops (the storage loop without a card) and `steps`.
 fn run(steps: &[Step], screen: Recorder) -> Outcome {
     let links: Links<NoopRawMutex> = Links::new();
     assert!(links.give_frames(frames()));
     let mut app = App::new();
     let mut screen = screen;
-    let script = async {
-        settle(&links).await;
-        for &step in steps {
-            match step {
-                Step::Send(event) => links.events.try_send(event).unwrap(),
-                Step::Turns(turns) => {
-                    for _ in 0..turns {
-                        yield_now().await;
-                    }
-                }
-                Step::Settle => settle(&links).await,
-                Step::Rest => {
-                    links.panel_rest.signal(());
-                    core::future::pending::<()>().await;
-                }
-            }
-        }
-        settle(&links).await;
-        if links.sleep.signaled() {
-            links.panel_rest.signal(());
-            core::future::pending::<()>().await;
-        }
-    };
     let rested = block_on(async {
         match select4(
             run_app(&mut app, links.app_links()),
             run_draw(links.draw_links(), None),
             run_panel(&mut screen, links.panel_links(), LIMIT),
-            select(script, run_timers(&EmbassyClock, links.timer_links())),
+            select3(
+                script(steps, &links),
+                run_timers(&EmbassyClock, links.timer_links()),
+                run_storage(None::<Volume<MemCard>>, links.storage_links()),
+            ),
         )
         .await
         {
             Either4::First(never)
             | Either4::Second(never)
-            | Either4::Fourth(Either::Second(never)) => match never {},
+            | Either4::Fourth(Either3::Second(never) | Either3::Third(never)) => match never {},
             Either4::Third(rested) => Some(rested),
-            Either4::Fourth(Either::First(())) => None,
+            Either4::Fourth(Either3::First(())) => None,
         }
     });
     Outcome {

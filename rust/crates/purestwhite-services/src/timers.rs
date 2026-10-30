@@ -38,7 +38,7 @@ impl Clock for EmbassyClock {
 }
 
 /// How many timers there are: one per `Timer`.
-const TIMERS: usize = 1;
+const TIMERS: usize = Timer::COUNT;
 
 /// A timer armed: when it fires, once the timer loop has seen it.
 #[derive(Clone, Copy)]
@@ -54,13 +54,6 @@ pub struct Timers<M: RawMutex> {
     changed: Signal<M, ()>,
 }
 
-/// Where `timer`'s arming is kept.
-fn slot(timer: Timer) -> usize {
-    match timer {
-        Timer::Idle => 0,
-    }
-}
-
 impl<M: RawMutex> Timers<M> {
     #[must_use]
     pub const fn new() -> Self {
@@ -73,7 +66,7 @@ impl<M: RawMutex> Timers<M> {
     /// Arms `arm.timer`, over its earlier arming; never waits.
     pub fn arm(&self, arm: Arm) {
         self.update(|armed| {
-            if let Some(entry) = armed.get_mut(slot(arm.timer)) {
+            if let Some(entry) = armed.get_mut(arm.timer.index()) {
                 *entry = Some(Armed { arm, due: None });
             }
         });

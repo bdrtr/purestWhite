@@ -1,5 +1,6 @@
-//! `pw-sim [--font FONT.cpfont] [--out DIR] SCRIPT`: runs a scenario of the bare-metal firmware's
-//! application on the PC and writes each frame the panel showed as `DIR/NNNN-<refresh>.png`
+//! `pw-sim [--font FONT.cpfont] [--card CARD.img] [--out DIR] SCRIPT`: runs a scenario of the
+//! bare-metal firmware's application on the PC, with the FAT volume in `CARD.img` as the SD card
+//! when given, and writes each frame the panel showed as `DIR/NNNN-<refresh>.png`
 //! (`DIR` is `target/sim-out` by default; the shots of an earlier run there are removed first).
 //! It prints a line per frame, with the simulator's time it was shown, and `sleep` when the
 //! application asked to sleep.
@@ -7,6 +8,7 @@
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 
+use purestwhite_fat::testing::MemCard;
 use purestwhite_sim::{RunError, Script, clear_shots, run, shot_name, write_png};
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -14,25 +16,34 @@ use std::process::ExitCode;
 /// The command line.
 struct Args {
     font: Option<PathBuf>,
+    card: Option<PathBuf>,
     out: PathBuf,
     script: PathBuf,
 }
 
 fn args() -> Result<Args, String> {
     let mut font = None;
+    let mut card = None;
     let mut out = PathBuf::from("target/sim-out");
     let mut script = None;
     let mut it = std::env::args().skip(1);
     while let Some(arg) = it.next() {
         match arg.as_str() {
             "--font" => font = Some(it.next().ok_or("--font needs a file")?.into()),
+            "--card" => card = Some(it.next().ok_or("--card needs an image")?.into()),
             "--out" => out = it.next().ok_or("--out needs a directory")?.into(),
             _ if script.is_none() && !arg.starts_with("--") => script = Some(arg.into()),
             _ => return Err(format!("unexpected argument {arg:?}")),
         }
     }
-    let script = script.ok_or("usage: pw-sim [--font FONT.cpfont] [--out DIR] SCRIPT")?;
-    Ok(Args { font, out, script })
+    let script =
+        script.ok_or("usage: pw-sim [--font FONT.cpfont] [--card CARD.img] [--out DIR] SCRIPT")?;
+    Ok(Args {
+        font,
+        card,
+        out,
+        script,
+    })
 }
 
 fn read(path: &PathBuf) -> Result<Vec<u8>, String> {
@@ -45,8 +56,10 @@ fn main_inner() -> Result<(), String> {
         .map_err(|_| format!("{}: not UTF-8", args.script.display()))?;
     let script = Script::parse(&text).map_err(|e| e.to_string())?;
     let font = args.font.as_ref().map(read).transpose()?;
-    let run = run(&script, font.as_deref()).map_err(|e| match e {
+    let card = args.card.as_ref().map(read).transpose()?.map(MemCard);
+    let run = run(&script, font.as_deref(), card).map_err(|e| match e {
         RunError::Font(e) => format!("font: {e:?}"),
+        RunError::Card(e) => format!("card: {e:?}"),
         RunError::Stuck(None) => "the loops did not settle on the first screen".into(),
         RunError::Stuck(Some(i)) => {
             format!("the loops did not settle after the script's step {}", i + 1)

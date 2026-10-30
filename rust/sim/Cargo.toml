@@ -18,5 +18,7 @@ embassy-sync = "=0.8.0"
 embassy-time = { version = "=0.5.1", features = ["std", "generic-queue-8"] }
 png = "=0.17.16"
 purestwhite-app = { path = "../crates/purestwhite-app" }
+# The card: an image in memory (`--card`), or one made by mkfs.fat in the tests.
+purestwhite-fat = { path = "../crates/purestwhite-fat", features = ["testing"] }
 purestwhite-render = { path = "../crates/purestwhite-render" }
 purestwhite-services = { path = "../crates/purestwhite-services" }

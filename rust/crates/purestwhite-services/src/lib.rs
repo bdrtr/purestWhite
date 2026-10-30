@@ -6,7 +6,9 @@
 //! - [`run_draw`]: draws the latest view into a free frame (`purestwhite-render`);
 //! - [`run_panel`]: shows each drawn frame on a [`Screen`], hands the frame back, and tells the
 //!   application whether the panel showed it; when asked to rest, puts the panel to sleep;
-//! - [`run_timers`]: fires the application's timers on a [`Clock`].
+//! - [`run_timers`]: fires the application's timers on a [`Clock`];
+//! - [`run_storage`]: does the application's jobs on the card, and reads pages into the page
+//!   buffer the drawing loop copies them from.
 //!
 //! The loops are generic over the devices and over the channels' mutex, so the firmware can run
 //! them in Embassy tasks over the X4 Pro's drivers (step 2), and the host simulator and the tests
@@ -24,6 +26,7 @@ mod app;
 mod draw;
 pub mod pages;
 mod panel;
+mod storage;
 #[cfg(test)]
 mod tests;
 mod timers;
@@ -37,6 +40,7 @@ use embassy_sync::signal::Signal;
 pub use panel::{PanelLinks, Screen, ScreenError, run_panel};
 use purestwhite_app::{Event, Refresh};
 use purestwhite_render::FRAME_BYTES;
+pub use storage::{Jobs, PageSlot, StorageLinks, run_storage};
 pub use timers::{Clock, EmbassyClock, TimerLinks, Timers, run_timers};
 pub use views::Views;
 
@@ -68,6 +72,10 @@ pub struct Links<M: RawMutex> {
     pub views: Views<M>,
     /// From the application to the timer loop.
     pub timers: Timers<M>,
+    /// From the application to the storage loop.
+    pub jobs: Jobs<M>,
+    /// The page the storage loop reads and drawing copies (`give_page` puts the buffer here).
+    pub page: PageSlot<M>,
     /// From drawing to the panel.
     pub drawn: Channel<M, Drawn, FRAMES>,
     /// From the panel back to drawing (`give_frames` puts the frames here first).
@@ -88,6 +96,8 @@ impl<M: RawMutex> Links<M> {
             events: Channel::new(),
             views: Views::new(),
             timers: Timers::new(),
+            jobs: Jobs::new(),
+            page: PageSlot::new(),
             drawn: Channel::new(),
             empty: Channel::new(),
             sleep: Signal::new(),
@@ -103,7 +113,18 @@ impl<M: RawMutex> Links<M> {
             events: self.events.dyn_receiver(),
             views: &self.views,
             timers: &self.timers,
+            jobs: &self.jobs,
             sleep: &self.sleep,
+        }
+    }
+
+    /// The storage loop's ends.
+    #[must_use]
+    pub fn storage_links(&self) -> StorageLinks<'_, M> {
+        StorageLinks {
+            jobs: &self.jobs,
+            page: &self.page,
+            events: self.events.dyn_sender(),
         }
     }
 
@@ -121,6 +142,7 @@ impl<M: RawMutex> Links<M> {
     pub fn draw_links(&self) -> DrawLinks<'_, M> {
         DrawLinks {
             views: &self.views,
+            page: &self.page,
             empty: self.empty.dyn_receiver(),
             drawn: self.drawn.dyn_sender(),
             unshown: self.drawn.dyn_receiver(),
@@ -147,14 +169,16 @@ impl<M: RawMutex> Links<M> {
     }
 
     /// Whether nothing is left to handle, draw or show: no event waiting, no view, every frame
-    /// back, every timer armed seen by the timer loop. Meaningful between the loops' turns on one
-    /// executor, where each loop runs until it waits (the host simulator and the tests).
+    /// back, every timer armed seen by the timer loop, every job answered. Meaningful between the
+    /// loops' turns on one executor, where each loop runs until it waits (the host simulator and
+    /// the tests).
     #[must_use]
     pub fn is_idle(&self) -> bool {
         self.events.is_empty()
             && self.views.is_empty()
             && self.empty.len() == FRAMES
             && self.timers.is_settled()
+            && self.jobs.is_idle()
     }
 }
 

@@ -1,13 +1,12 @@
 // The tests index what must be there and fail on what is not: a failure fails the test.
-#![allow(clippy::indexing_slicing, clippy::panic)]
+#![allow(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 use super::view::Home;
 use super::*;
 use std::vec::Vec;
 
-extern crate std;
-
 mod idle;
+mod pages;
 
 fn list(commands: Commands) -> Vec<Command> {
     commands.into_iter().collect()
@@ -46,11 +45,15 @@ fn refresh(commands: Commands) -> Refresh {
 }
 
 #[test]
-fn it_starts_on_the_home_screen_with_a_full_refresh_and_the_idle_timer() {
+fn it_starts_on_the_home_screen_with_the_idle_timer_and_counts_the_pages() {
     let mut app = App::new();
     assert_eq!(
         list(app.start()),
-        [home(0, None, None, Refresh::Full), idle(0)]
+        [
+            home(0, None, None, Refresh::Full),
+            idle(0),
+            Command::Run(Job::CountPages)
+        ]
     );
 }
 
@@ -212,5 +215,10 @@ fn commands_keep_their_order() {
     assert_eq!(
         list(Commands::two(show, Command::Sleep)),
         [show, Command::Sleep]
+    );
+    let run = Command::Run(Job::CountPages);
+    assert_eq!(
+        list(Commands::three(show, run, Command::Sleep)),
+        [show, run, Command::Sleep]
     );
 }

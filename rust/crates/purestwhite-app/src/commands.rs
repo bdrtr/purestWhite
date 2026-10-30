@@ -2,9 +2,9 @@
 
 use crate::Command;
 
-/// Room for two commands (the start calls for two, each event for one so far); raised when a
-/// handler needs more.
-const MAX: usize = 2;
+/// Room for three commands (the start calls for three, an event for two at most so far); raised
+/// when a handler needs more.
+const MAX: usize = 3;
 
 /// Commands in the order they are to be carried out.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -21,14 +21,21 @@ impl Commands {
     #[must_use]
     pub fn one(command: Command) -> Self {
         Commands {
-            items: [Some(command), None],
+            items: [Some(command), None, None],
         }
     }
 
     #[must_use]
     pub fn two(first: Command, second: Command) -> Self {
         Commands {
-            items: [Some(first), Some(second)],
+            items: [Some(first), Some(second), None],
+        }
+    }
+
+    #[must_use]
+    pub fn three(first: Command, second: Command, third: Command) -> Self {
+        Commands {
+            items: [Some(first), Some(second), Some(third)],
         }
     }
 

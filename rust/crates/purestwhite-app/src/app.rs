@@ -1,8 +1,12 @@
 //! The application's state and how each event changes it.
 
+pub(crate) mod pages;
+
+use crate::armings::Armings;
 use crate::cadence::Cadence;
 use crate::view::{Home, View};
-use crate::{Arm, Command, Commands, Event, Refresh, Show, Timer};
+use crate::{Arm, Command, Commands, Event, Job, Key, Refresh, Show, Timer};
+use pages::PageLoop;
 
 /// How many times in a row a screen the panel failed to show is shown again, with a full refresh.
 const RETRIES: u8 = 2;
@@ -35,10 +39,15 @@ pub struct App {
     full_after: Option<u32>,
     /// The panel's failures in a row.
     failures: u8,
-    /// The idle timer's latest `Arm::id`; a firing of an earlier one is out of date.
-    idle: Option<u32>,
-    /// The next `Arm::id`.
-    next_arm: u32,
+    /// The latest `seq` the panel answered for, shown or failed.
+    answered: Option<u32>,
+    armings: Armings,
+    /// The pages on the card, once counted.
+    pages: u16,
+    /// The page loop, while it runs (`pages`).
+    page_loop: Option<PageLoop>,
+    /// A page is being read: its answer comes even after the loop ended.
+    reading: bool,
 }
 
 impl App {
@@ -47,11 +56,16 @@ impl App {
         App::default()
     }
 
-    /// The first commands: the home screen, with a full refresh, and the idle timer.
+    /// The first commands: the home screen, with a full refresh, the idle timer, and the card's
+    /// pages counted.
     #[must_use]
     pub fn start(&mut self) -> Commands {
         let home = self.show(View::Home(self.home), Refresh::Full);
-        Commands::two(Command::Show(home), Command::Arm(self.arm_idle()))
+        Commands::three(
+            Command::Show(home),
+            Command::Arm(self.arm_idle()),
+            Command::Run(Job::CountPages),
+        )
     }
 
     /// The commands `event` calls for; once the sleep screen is asked for, only the panel's
@@ -87,18 +101,58 @@ impl App {
                 ..self.home
             }),
             Event::SleepRequested => self.sleep(),
-            Event::Fired(Timer::Idle, id) if self.idle == Some(id) => self.sleep(),
             Event::Shown(seq) => {
-                self.failures = 0;
-                if self.full_after.is_some_and(|failed| seq > failed) {
-                    self.full_after = None;
-                }
-                Commands::none()
+                self.shown(seq);
+                self.page_after_answer()
             }
             Event::ScreenFailed(seq) => self.failed(seq),
-            Event::Pressed(_) => Commands::one(Command::Arm(self.arm_idle())),
+            Event::Pressed(key) => self.pressed(key),
+            Event::Fired(timer, id) if self.armings.is_latest(timer, id) => self.fired(timer),
             Event::Fired(..) => Commands::none(),
+            Event::Pages(count) => {
+                self.pages = count;
+                Commands::none()
+            }
+            Event::PageLoaded(n) => self.page_loaded(n),
+            Event::PageFailed(n) => self.page_failed(n),
         }
+    }
+
+    /// A key: the page loop's, or else the idle timer armed again.
+    fn pressed(&mut self, key: Key) -> Commands {
+        self.page_key(key)
+            .unwrap_or_else(|| Commands::one(Command::Arm(self.arm_idle())))
+    }
+
+    /// The latest arming of `timer` fired.
+    fn fired(&mut self, timer: Timer) -> Commands {
+        match timer {
+            Timer::Idle => self.sleep(),
+            Timer::Page => self.page_due(),
+        }
+    }
+
+    /// The panel showed `seq`: its failures in a row are over, and a full refresh owed for an
+    /// earlier failure is no longer.
+    fn shown(&mut self, seq: u32) {
+        self.answer(seq);
+        self.failures = 0;
+        if self.full_after.is_some_and(|failed| seq > failed) {
+            self.full_after = None;
+        }
+    }
+
+    /// Notes that the panel answered for `seq`.
+    fn answer(&mut self, seq: u32) {
+        if self.answered.is_none_or(|answered| seq > answered) {
+            self.answered = Some(seq);
+        }
+    }
+
+    /// Whether the panel has answered for every view shown.
+    fn is_quiet(&self) -> bool {
+        self.answered
+            .is_some_and(|answered| answered.wrapping_add(1) == self.next_seq)
     }
 
     /// The sleep screen, on its way to the panel; the sleep follows the panel's answer.
@@ -110,35 +164,34 @@ impl App {
 
     /// The idle timer, armed from now: at the start and at each key press.
     fn arm_idle(&mut self) -> Arm {
-        let id = self.next_arm;
-        self.next_arm = id.wrapping_add(1);
-        self.idle = Some(id);
-        Arm {
-            timer: Timer::Idle,
-            after_ms: IDLE_MS,
-            id,
-        }
+        self.armings.arm(Timer::Idle, IDLE_MS)
     }
 
-    /// The home screen redrawn with a fast refresh when `home` changed it.
+    /// The home screen redrawn with a fast refresh when `home` changed it, unless the page loop
+    /// shows its pages.
     fn update(&mut self, home: Home) -> Commands {
         if home == self.home {
             return Commands::none();
         }
         self.home = home;
+        if self.in_page_loop() {
+            return Commands::none();
+        }
         Commands::one(Command::Show(self.show(View::Home(home), Refresh::Fast)))
     }
 
     /// After the panel failed to show `seq`, the next show is a full refresh. When nothing newer
-    /// is on its way, the current screen is shown again, up to `RETRIES` times in a row.
+    /// is on its way, the current screen is shown again, up to `RETRIES` times in a row; after
+    /// that, a page waiting for the panel's answer is read.
     fn failed(&mut self, seq: u32) -> Commands {
+        self.answer(seq);
         self.full_after = Some(seq);
         self.failures = self.failures.saturating_add(1);
         let latest = seq.wrapping_add(1) == self.next_seq;
         if latest && self.failures <= RETRIES {
             Commands::one(Command::Show(self.show(self.current, Refresh::Full)))
         } else {
-            Commands::none()
+            self.page_after_answer()
         }
     }
 

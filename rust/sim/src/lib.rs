@@ -11,6 +11,7 @@
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 
+pub mod bmp;
 mod clock;
 pub mod script;
 mod shots;
@@ -19,14 +20,16 @@ mod tests;
 
 use clock::SimClock;
 use embassy_futures::block_on;
-use embassy_futures::select::{Either, Either4, select, select4};
+use embassy_futures::select::{Either3, Either4, select3, select4};
 use embassy_futures::yield_now;
 use embassy_sync::blocking_mutex::raw::NoopRawMutex;
 use embassy_time::Duration;
 use purestwhite_app::{App, Refresh};
+use purestwhite_fat::Volume;
+use purestwhite_fat::testing::{MemCard, ready};
 use purestwhite_render::{FRAME_BYTES, FaceError, Text};
 use purestwhite_services::{
-    Clock, Frame, Links, Screen, ScreenError, run_app, run_draw, run_panel, run_timers,
+    Clock, Frame, Links, Screen, ScreenError, run_app, run_draw, run_panel, run_storage, run_timers,
 };
 pub use script::{Script, ScriptError, Step};
 pub use shots::{clear_shots, shot_name, write_png};
@@ -58,6 +61,8 @@ pub struct Run {
 pub enum RunError {
     /// The font cannot be read.
     Font(FaceError),
+    /// The card holds no FAT volume the firmware reads.
+    Card(purestwhite_fat::Error<()>),
     /// The loops did not settle after the script's step with this index (from 0), or before
     /// the first step when `None`.
     Stuck(Option<usize>),
@@ -90,22 +95,25 @@ impl Screen for Panel<'_> {
     }
 }
 
-/// Runs `script` with text in the font `font` (a `.cpfont`, style 0) when given. The first
+/// Runs `script` with text in the font `font` (a `.cpfont`, style 0) and the card `card` (an image
+/// of a FAT volume) when given. The first
 /// screen is shown, then the steps are taken one by one, each once the loops have settled (nothing
 /// left to handle, draw or show). The run ends after the last step, or once the application has
 /// asked to sleep and the panel was put to rest, as the power loop does: later steps are not
 /// taken.
 ///
 /// # Errors
-/// The font cannot be read, or the loops do not settle.
-pub fn run(script: &Script, font: Option<&[u8]>) -> Result<Run, RunError> {
+/// The font or the card cannot be read, or the loops do not settle.
+pub fn run(script: &Script, font: Option<&[u8]>, card: Option<MemCard>) -> Result<Run, RunError> {
     let mut table = vec![0u8; 8192];
     let mut text = font
         .map(|bytes| Text::open(bytes, 0, &mut table))
         .transpose()
         .map_err(RunError::Font)?;
+    let volume = card.map(mount).transpose()?;
     let links: Links<NoopRawMutex> = Links::new();
     links.give_frames(core::array::from_fn(|_| frame()));
+    links.page.give(frame());
     let mut app = App::new();
     let clock = SimClock::default();
     let mut panel = Panel {
@@ -117,8 +125,9 @@ pub fn run(script: &Script, font: Option<&[u8]>) -> Result<Run, RunError> {
             run_app(&mut app, links.app_links()),
             run_draw(links.draw_links(), text.as_mut()),
             run_panel(&mut panel, links.panel_links(), PANEL_LIMIT),
-            select(
+            select3(
                 run_timers(&clock, links.timer_links()),
+                run_storage(volume, links.storage_links()),
                 drive(script, &links, &clock),
             ),
         )
@@ -126,9 +135,9 @@ pub fn run(script: &Script, font: Option<&[u8]>) -> Result<Run, RunError> {
         {
             Either4::First(never)
             | Either4::Second(never)
-            | Either4::Fourth(Either::First(never)) => match never {},
+            | Either4::Fourth(Either3::First(never) | Either3::Second(never)) => match never {},
             Either4::Third(rested) => Ok(rested.is_ok()),
-            Either4::Fourth(Either::Second(driven)) => driven.map(|()| false),
+            Either4::Fourth(Either3::Third(driven)) => driven.map(|()| false),
         }
     })?;
     Ok(Run {
@@ -137,10 +146,17 @@ pub fn run(script: &Script, font: Option<&[u8]>) -> Result<Run, RunError> {
     })
 }
 
+/// The FAT volume on `card` (its reads are ready at once).
+fn mount(card: MemCard) -> Result<Volume<MemCard>, RunError> {
+    ready(Volume::mount(card))
+        .ok_or(RunError::Card(purestwhite_fat::Error::NoVolume))?
+        .map_err(RunError::Card)
+}
+
 /// A white frame, for the run.
 #[allow(
     clippy::large_stack_arrays,
-    reason = "48 KB on the PC's stack, for a moment, twice a run"
+    reason = "48 KB on the PC's stack, for a moment, three times a run"
 )]
 fn frame() -> Frame {
     Box::leak(Box::new([0xFF; FRAME_BYTES]))

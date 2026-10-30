@@ -9,13 +9,18 @@
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 
+#[cfg(test)]
+extern crate std;
+
 mod app;
+mod armings;
 mod cadence;
 mod commands;
 #[cfg(test)]
 mod tests;
 pub mod view;
 
+pub use app::pages::{LOOP_PAGES, PAGE_MS};
 pub use app::{App, IDLE_MS};
 pub use commands::Commands;
 use view::{Time, View};
@@ -46,6 +51,12 @@ pub enum Event {
     ScreenFailed(u32),
     /// The timer armed with this `Arm::id` fired.
     Fired(Timer, u32),
+    /// The card holds this many pages (`Job::CountPages`).
+    Pages(u16),
+    /// The page is read, ready to draw (`Job::LoadPage`).
+    PageLoaded(u16),
+    /// The page could not be read.
+    PageFailed(u16),
 }
 
 /// A timer of the application's.
@@ -53,6 +64,31 @@ pub enum Event {
 pub enum Timer {
     /// No key pressed for a while: the device sleeps, as the C++ firmware's auto-sleep.
     Idle,
+    /// The next page of the page loop.
+    Page,
+}
+
+impl Timer {
+    /// How many timers there are.
+    pub const COUNT: usize = 2;
+
+    /// The timer's place among `COUNT`.
+    #[must_use]
+    pub fn index(self) -> usize {
+        match self {
+            Timer::Idle => 0,
+            Timer::Page => 1,
+        }
+    }
+}
+
+/// Work on the card, done by the storage loop, which answers with an event.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Job {
+    /// How many pages the card holds: `Event::Pages`.
+    CountPages,
+    /// Read page n (from 1) for drawing: `Event::PageLoaded` or `Event::PageFailed`.
+    LoadPage(u16),
 }
 
 /// A timer to arm: `timer` fires `after_ms` from when the services see it, unless armed again
@@ -104,6 +140,8 @@ pub enum Command {
     Show(Show),
     /// Arm a timer.
     Arm(Arm),
+    /// Do work on the card.
+    Run(Job),
     /// Put the device to sleep: the sleep screen is shown, or the panel failed to show it.
     Sleep,
 }
