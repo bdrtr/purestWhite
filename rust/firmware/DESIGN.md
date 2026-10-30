@@ -317,6 +317,11 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   for the next page only once the panel has answered for every view shown. Without a card or a
   page buffer the pages count as none and Right is a key like any other. The `purestwhite` image
   does not run the storage loop yet, so on the device Right does nothing new.
+- The pages are made on the PC by `pw-pages` (`rust/sim`): a text (or built-in sentences) set in
+  one style of a `.cpfont` within margins, the page's number at its foot, written as 1-bit BMPs
+  (`rust/sim/src/typeset.rs`, `bmp.rs`); the same files go on the card for both firmwares.
+- The gauge's voltage: `Cw2017::millivolts`, read as freeink-sdk's `BatteryMonitor` reads it (VCELL,
+  14 bits over 0x02 and 0x03, 0.3125 mV a step); host-tested, not yet read on the device.
 - The gauge's charge and voltage every 5 minutes (12 samples) go into the RTC report (they fit in
   its 248 bytes), so nothing is written to the card before gate 4; the books card is never
   written.

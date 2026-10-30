@@ -316,6 +316,14 @@ cargo run -p purestwhite-sim --bin pw-sim -- \
     --font crates/bembeyaz-font/testdata/noto-serif-14.cpfont sim/scenarios/home.txt
 ```
 
+`pw-pages` makes the battery measurement's pages (120 by default, `target/purestwhite-pages/001.bmp`
+on), to copy onto the card as `/purestwhite-pages`:
+
+```sh
+cargo run -p purestwhite-sim --bin pw-pages -- \
+    --font crates/bembeyaz-font/testdata/noto-serif-14.cpfont
+```
+
 It writes to `target/sim-out` (`--out DIR` for another directory), first removing the shots of an
 earlier run there, and prints the files it wrote (`0001-full.png`, `0002-fast.png`, ...: the
 order and the refresh) and `sleep` when the application asked to sleep. A run stops at the sleep

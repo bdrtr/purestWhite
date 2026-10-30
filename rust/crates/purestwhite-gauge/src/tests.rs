@@ -219,3 +219,19 @@ fn the_retry_window_survives_a_clock_wrap() {
         Some(20)
     );
 }
+
+#[test]
+fn the_cells_voltage_is_read_as_the_stock_firmware_reads_it() {
+    let mut chip = Chip::ready(50);
+    // 3.8 V: 12160 (0x2F80) steps of 0.3125 mV; the top two bits of the high byte are not the
+    // voltage's.
+    chip.regs[0x02] = 0xC0 | 0x2F;
+    chip.regs[0x03] = 0x80;
+    assert_eq!(block_on(Cw2017::millivolts(&mut chip, 0x63)), Some(3800));
+    chip.regs[0x02] = 0x33;
+    chip.regs[0x03] = 0x44;
+    // (0x3344 * 5 + 8) >> 4 = 4101: rounded down from 4101.75, as the SDK's formula does.
+    assert_eq!(block_on(Cw2017::millivolts(&mut chip, 0x63)), Some(4101));
+    chip.fail_all = true;
+    assert_eq!(block_on(Cw2017::millivolts(&mut chip, 0x63)), None);
+}

@@ -11,6 +11,10 @@ publish.workspace = true
 name = "pw-sim"
 path = "src/main.rs"
 
+[[bin]]
+name = "pw-pages"
+path = "src/pages_main.rs"
+
 [dependencies]
 embassy-futures = "=0.1.2"
 embassy-sync = "=0.8.0"

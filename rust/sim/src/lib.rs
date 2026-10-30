@@ -17,6 +17,7 @@ pub mod script;
 mod shots;
 #[cfg(test)]
 mod tests;
+pub mod typeset;
 
 use clock::SimClock;
 use embassy_futures::block_on;

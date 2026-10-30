@@ -194,3 +194,23 @@ impl Cw2017 {
         soc
     }
 }
+
+// Added after the rest of the file, so that the lines above keep their numbers: the C++ firmware
+// links this crate, and panic locations carry line numbers into its image, which must stay the
+// release the SD updater knows (rust/firmware/DESIGN.md).
+
+/// The cell's voltage: 14 bits, big-endian over this register and the next.
+const VCELL: u8 = 0x02;
+
+impl Cw2017 {
+    /// The cell's voltage in millivolts, as the stock firmware reads it (freeink-sdk's
+    /// `BatteryMonitor`: 0.3125 mV a step, rounded down); `None` when the gauge does not answer.
+    /// Unlike the state of charge, it needs no profile.
+    pub async fn millivolts(bus: &mut impl I2c, addr: u8) -> Option<u16> {
+        let high = read(bus, addr, VCELL).await?;
+        let low = read(bus, addr, VCELL + 1).await?;
+        let raw = u32::from(u16::from(high & 0x3F) << 8 | u16::from(low));
+        // At most (0x3FFF * 5 + 8) >> 4, 5120.
+        u16::try_from((raw * 5 + 8) >> 4).ok()
+    }
+}

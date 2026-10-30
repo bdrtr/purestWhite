@@ -5,6 +5,7 @@ use super::*;
 use purestwhite_app::Refresh::{Fast, Full};
 
 mod pages;
+mod typeset;
 
 /// Noto Serif at 14 px (bembeyaz-font's test data).
 fn font() -> Vec<u8> {
