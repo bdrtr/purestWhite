@@ -321,10 +321,19 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   one style of a `.cpfont` within margins, the page's number at its foot, written as 1-bit BMPs
   (`rust/sim/src/typeset.rs`, `bmp.rs`); the same files go on the card for both firmwares.
 - The gauge's voltage: `Cw2017::millivolts`, read as freeink-sdk's `BatteryMonitor` reads it (VCELL,
-  14 bits over 0x02 and 0x03, 0.3125 mV a step); host-tested, not yet read on the device.
-- The gauge's charge and voltage every 5 minutes (12 samples) go into the RTC report (they fit in
-  its 248 bytes), so nothing is written to the card before gate 4; the books card is never
-  written.
+  14 bits over 0x02 and 0x03, 0.3125 mV a step); host-tested, not yet read on the device. The C++
+  firmware links `purestwhite-gauge` (and the other crates `bembeyaz-ffi` names): a change there
+  that moves existing lines changes the C++ image, which must stay the release the SD updater
+  knows, so new code goes after the old, and `pio run -e x4pro` must still give digest c746bebf.
+- The gauge's charge and voltage at the start and every 5 minutes (`run_gauge`, on the timer
+  loop's `Clock`) go into the battery log (`BatteryLog`): its first 13 readings, an hour's, in one
+  line (`battery: 87/4012 86/3998 - ...`, `-` for a reading the gauge did not give) of at most
+  125 bytes, for the RTC report, so nothing is written to the card before gate 4; the books card
+  is never written. Each reading's charge also goes to the app (`Event::Battery`). The main image's
+  report lines take most of its 248 bytes today, so a measurement run must make room: which lines
+  give way, or an RTC area of the log's own (the C++ firmware would have to save it too), is
+  decided with the firmware wiring. Host-tested on a fake gauge and the test clock; not run on the
+  device yet.
 
 ## The host simulator (`rust/sim`)
 

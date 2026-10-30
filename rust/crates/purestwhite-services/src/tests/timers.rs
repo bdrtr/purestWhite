@@ -12,7 +12,7 @@ use purestwhite_app::{Arm, Event, Timer};
 
 /// A clock that moves only when the test moves it.
 #[derive(Default)]
-struct TestClock {
+pub(super) struct TestClock {
     now: Cell<u64>,
     moved: Signal<NoopRawMutex, ()>,
 }
@@ -32,7 +32,7 @@ impl Clock for TestClock {
 impl TestClock {
     /// Moves the clock to `ms`, then lets the timer loop take its turns (a timer armed just before
     /// is seen then, at `ms`).
-    async fn move_to(&self, ms: u64) {
+    pub(super) async fn move_to(&self, ms: u64) {
         self.now.set(ms);
         self.moved.signal(());
         for _ in 0..10 {

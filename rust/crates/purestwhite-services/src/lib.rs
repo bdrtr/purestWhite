@@ -8,7 +8,9 @@
 //!   application whether the panel showed it; when asked to rest, puts the panel to sleep;
 //! - [`run_timers`]: fires the application's timers on a [`Clock`];
 //! - [`run_storage`]: does the application's jobs on the card, and reads pages into the page
-//!   buffer the drawing loop copies them from.
+//!   buffer the drawing loop copies them from;
+//! - [`run_gauge`]: reads the battery's [`Gauge`] every five minutes, for the application and the
+//!   battery log.
 //!
 //! The loops are generic over the devices and over the channels' mutex, so the firmware can run
 //! them in Embassy tasks over the X4 Pro's drivers (step 2), and the host simulator and the tests
@@ -23,6 +25,7 @@
 extern crate std;
 
 mod app;
+mod battery;
 mod draw;
 pub mod pages;
 mod panel;
@@ -33,6 +36,7 @@ mod timers;
 mod views;
 
 pub use app::{AppLinks, run_app};
+pub use battery::{BatteryLog, GAUGE_MS, Gauge, GaugeLinks, LOG, Reading, Readings, run_gauge};
 pub use draw::{DrawLinks, run_draw};
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::Channel;
@@ -74,8 +78,10 @@ pub struct Links<M: RawMutex> {
     pub timers: Timers<M>,
     /// From the application to the storage loop.
     pub jobs: Jobs<M>,
-    /// The page the storage loop reads and drawing copies (`give_page` puts the buffer here).
+    /// The page the storage loop reads and drawing copies (`PageSlot::give` puts the buffer here).
     pub page: PageSlot<M>,
+    /// The gauge loop's readings, for the report.
+    pub battery: BatteryLog<M>,
     /// From drawing to the panel.
     pub drawn: Channel<M, Drawn, FRAMES>,
     /// From the panel back to drawing (`give_frames` puts the frames here first).
@@ -98,6 +104,7 @@ impl<M: RawMutex> Links<M> {
             timers: Timers::new(),
             jobs: Jobs::new(),
             page: PageSlot::new(),
+            battery: BatteryLog::new(),
             drawn: Channel::new(),
             empty: Channel::new(),
             sleep: Signal::new(),
@@ -115,6 +122,15 @@ impl<M: RawMutex> Links<M> {
             timers: &self.timers,
             jobs: &self.jobs,
             sleep: &self.sleep,
+        }
+    }
+
+    /// The gauge loop's ends.
+    #[must_use]
+    pub fn gauge_links(&self) -> GaugeLinks<'_, M> {
+        GaugeLinks {
+            log: &self.battery,
+            events: self.events.dyn_sender(),
         }
     }
 

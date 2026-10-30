@@ -1,6 +1,7 @@
 // The tests unwrap and index what must be there, and fail when the loops do not settle.
 #![allow(clippy::unwrap_used, clippy::indexing_slicing, clippy::panic)]
 
+mod battery;
 mod pages;
 mod storage;
 mod timers;
