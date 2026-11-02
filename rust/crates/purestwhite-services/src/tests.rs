@@ -166,7 +166,8 @@ fn run(steps: &[Step], screen: Recorder) -> Outcome {
         {
             Either4::First(never)
             | Either4::Second(never)
-            | Either4::Fourth(Either3::Second(never) | Either3::Third(never)) => match never {},
+            | Either4::Fourth(Either3::Second(never)) => match never {},
+            Either4::Fourth(Either3::Third(())) => panic!("nothing asked the storage loop to rest"),
             Either4::Third(rested) => Some(rested),
             Either4::Fourth(Either3::First(())) => None,
         }

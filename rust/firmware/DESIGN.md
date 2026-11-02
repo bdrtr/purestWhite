@@ -327,8 +327,8 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   knows, so new code goes after the old, and `pio run -e x4pro` must still give digest c746bebf.
 - The gauge's charge and voltage at the start and every 5 minutes (`run_gauge`, on the timer
   loop's `Clock`) go into the battery log (`BatteryLog`): its first 13 readings, an hour's, in one
-  line (`battery: 87/4012 86/3998 - ...`, `-` for a reading the gauge did not give) of at most
-  125 bytes, for the RTC report, so nothing is written to the card before gate 4; the books card
+  line (`battery: 87% 4012 3998 - ... 83%`: each reading's millivolts, `-` for one the gauge did
+  not give, between the first and the last charge) of at most 85 bytes, for the RTC report, so nothing is written to the card before gate 4; the books card
   is never written. Each reading's charge also goes to the app (`Event::Battery`). The main image's
   report lines take most of its 248 bytes today, so a measurement run must make room: which lines
   give way, or an RTC area of the log's own (the C++ firmware would have to save it too), is

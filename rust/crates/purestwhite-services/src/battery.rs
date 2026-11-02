@@ -1,13 +1,16 @@
 //! The gauge loop and the battery log of the battery measurement (rust/firmware/DESIGN.md, gate
 //! 1): the gauge read at the start and every `GAUGE_MS`, each reading's charge sent to the
-//! application, and the first `LOG` readings kept for the report, in one short line.
+//! application, and the first `LOG` readings kept for the report, in one short line. Asked to
+//! rest, the loop ends between two readings, so that a reading is never cut short on the bus.
 
 use crate::Clock;
 use core::cell::Cell;
 use core::fmt::{self, Display, Formatter};
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::DynamicSender;
+use embassy_sync::signal::Signal;
 use purestwhite_app::Event;
 
 /// How often the gauge is read: every five minutes.
@@ -60,16 +63,26 @@ impl Readings {
     }
 }
 
-/// `battery: 87/4012 86/3998 - 85/3990`: percent and millivolts of each reading, `-` for one the
-/// gauge did not give; at most 125 bytes for `LOG` readings.
+/// `battery: 87% 4012 3998 - 3990 86%`: the millivolts of each reading, `-` for one the gauge
+/// did not give, between the charge of the first reading given and of the last; at most 85 bytes
+/// for `LOG` readings, to fit the report beside its other lines.
 impl Display for Readings {
     fn fmt(&self, out: &mut Formatter<'_>) -> fmt::Result {
         out.write_str("battery:")?;
-        for reading in self.readings.iter().take(self.count) {
+        let noted = self.readings.get(..self.count).unwrap_or_default();
+        let mut given = noted.iter().flatten();
+        let (first, last) = (given.next(), given.next_back());
+        if let Some(first) = first {
+            write!(out, " {}%", first.percent)?;
+        }
+        for reading in noted {
             match reading {
-                Some(r) => write!(out, " {}/{}", r.percent, r.millivolts)?,
+                Some(r) => write!(out, " {}", r.millivolts)?,
                 None => out.write_str(" -")?,
             }
+        }
+        if let Some(last) = last.or(first) {
+            write!(out, " {}%", last.percent)?;
         }
         Ok(())
     }
@@ -117,19 +130,24 @@ pub struct GaugeLinks<'a, M: RawMutex> {
     pub log: &'a BatteryLog<M>,
     /// Each reading's charge, to the application.
     pub events: DynamicSender<'a, Event>,
+    /// Set by the power loop: the gauge loop is to rest.
+    pub rest: &'a Signal<M, ()>,
 }
 
 /// Reads `gauge` at the start and every `GAUGE_MS` on `clock`, on a fixed beat (a slow reading
-/// does not shift the next): each reading is noted in `links.log` and its charge sent to the
-/// application.
+/// does not shift the next), until `links.rest` is set: each reading is noted in `links.log` and
+/// its charge sent to the application. A reading under way when `links.rest` is set is finished
+/// first.
 pub async fn run_gauge<M: RawMutex, G: Gauge, C: Clock>(
     gauge: &mut G,
     clock: &C,
     links: GaugeLinks<'_, M>,
-) -> ! {
+) {
     let mut next = clock.now_ms();
     loop {
-        clock.at(next).await;
+        if let Either::First(()) = select(links.rest.wait(), clock.at(next)).await {
+            return;
+        }
         let reading = gauge.read().await;
         links.log.note(reading);
         if let Some(reading) = reading {

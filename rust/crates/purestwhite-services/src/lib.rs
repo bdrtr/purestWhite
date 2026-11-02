@@ -8,9 +8,9 @@
 //!   application whether the panel showed it; when asked to rest, puts the panel to sleep;
 //! - [`run_timers`]: fires the application's timers on a [`Clock`];
 //! - [`run_storage`]: does the application's jobs on the card, and reads pages into the page
-//!   buffer the drawing loop copies them from;
+//!   buffer the drawing loop copies them from; when asked to rest, ends between two jobs;
 //! - [`run_gauge`]: reads the battery's [`Gauge`] every five minutes, for the application and the
-//!   battery log.
+//!   battery log; when asked to rest, ends between two readings.
 //!
 //! The loops are generic over the devices and over the channels' mutex, so the firmware can run
 //! them in Embassy tasks over the X4 Pro's drivers (step 2), and the host simulator and the tests
@@ -93,6 +93,10 @@ pub struct Links<M: RawMutex> {
     pub panel_rest: Signal<M, ()>,
     /// Set by the power loop: the key loop is to rest (it is the firmware's: it reads the pins).
     pub keys_rest: Signal<M, ()>,
+    /// Set by the power loop: the storage loop is to rest (`run_storage`).
+    pub storage_rest: Signal<M, ()>,
+    /// Set by the power loop: the gauge loop is to rest (`run_gauge`).
+    pub gauge_rest: Signal<M, ()>,
 }
 
 impl<M: RawMutex> Links<M> {
@@ -110,6 +114,8 @@ impl<M: RawMutex> Links<M> {
             sleep: Signal::new(),
             panel_rest: Signal::new(),
             keys_rest: Signal::new(),
+            storage_rest: Signal::new(),
+            gauge_rest: Signal::new(),
         }
     }
 
@@ -131,6 +137,7 @@ impl<M: RawMutex> Links<M> {
         GaugeLinks {
             log: &self.battery,
             events: self.events.dyn_sender(),
+            rest: &self.gauge_rest,
         }
     }
 
@@ -141,6 +148,7 @@ impl<M: RawMutex> Links<M> {
             jobs: &self.jobs,
             page: &self.page,
             events: self.events.dyn_sender(),
+            rest: &self.storage_rest,
         }
     }
 

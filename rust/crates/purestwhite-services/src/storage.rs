@@ -1,12 +1,15 @@
 //! The storage loop: the application's jobs on the card (`purestwhite_app::Job`), each answered
-//! with an event, and the page buffer it reads pages into for the drawing loop to copy.
+//! with an event, and the page buffer it reads pages into for the drawing loop to copy. Asked to
+//! rest, it ends between two jobs, so that a card read is never cut short.
 
 use crate::Frame;
 use crate::pages::{count_pages, load_page};
 use core::cell::Cell;
+use embassy_futures::select::{Either, select};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::{Channel, DynamicSender};
+use embassy_sync::signal::Signal;
 use purestwhite_app::{Event, Job};
 use purestwhite_fat::{BlockDevice, Volume};
 use purestwhite_render::FRAME_BYTES;
@@ -62,6 +65,8 @@ impl<M: RawMutex> Default for Jobs<M> {
 /// next page only once the panel has answered for every view (`purestwhite_app::PAGE_MS`).
 pub struct PageSlot<M: RawMutex> {
     page: Mutex<M, Cell<Option<Frame>>>,
+    /// How many pages the storage loop has read whole into it.
+    loaded: Mutex<M, Cell<u16>>,
 }
 
 impl<M: RawMutex> PageSlot<M> {
@@ -69,6 +74,7 @@ impl<M: RawMutex> PageSlot<M> {
     pub const fn new() -> Self {
         PageSlot {
             page: Mutex::new(Cell::new(None)),
+            loaded: Mutex::new(Cell::new(0)),
         }
     }
 
@@ -93,6 +99,12 @@ impl<M: RawMutex> PageSlot<M> {
         true
     }
 
+    /// How many pages were read whole so far: more than none once the page loop runs.
+    #[must_use]
+    pub fn loaded(&self) -> u16 {
+        self.loaded.lock(Cell::get)
+    }
+
     fn take(&self) -> Option<Frame> {
         self.page.lock(Cell::take)
     }
@@ -114,16 +126,23 @@ pub struct StorageLinks<'a, M: RawMutex> {
     pub page: &'a PageSlot<M>,
     /// The answers, to the application.
     pub events: DynamicSender<'a, Event>,
+    /// Set by the power loop: the storage loop is to rest.
+    pub rest: &'a Signal<M, ()>,
 }
 
-/// Runs the application's jobs on `volume`, each answered with an event; without a card
-/// (`None`), every job finds nothing.
+/// Runs the application's jobs on `volume`, each answered with an event, until `links.rest` is
+/// set; without a card (`None`), every job finds nothing. The job under way when `links.rest` is
+/// set is finished and answered first; a job still waiting then is left (the device is going to
+/// sleep).
 pub async fn run_storage<M: RawMutex, D: BlockDevice>(
     mut volume: Option<Volume<D>>,
     links: StorageLinks<'_, M>,
-) -> ! {
+) {
     loop {
-        let job = links.jobs.queue.receive().await;
+        let job = match select(links.rest.wait(), links.jobs.queue.receive()).await {
+            Either::First(()) => return,
+            Either::Second(job) => job,
+        };
         let answer = match (volume.as_mut(), job) {
             (Some(volume), Job::CountPages) => Event::Pages(count_pages(volume).await),
             (Some(volume), Job::LoadPage(n)) => load(volume, n, links.page).await,
@@ -147,7 +166,11 @@ async fn load<M: RawMutex, D: BlockDevice>(
     let loaded = load_page(volume, n, page).await;
     slot.put(page);
     match loaded {
-        Ok(()) => Event::PageLoaded(n),
+        Ok(()) => {
+            slot.loaded
+                .lock(|loaded| loaded.set(loaded.get().saturating_add(1)));
+            Event::PageLoaded(n)
+        }
         Err(_) => Event::PageFailed(n),
     }
 }

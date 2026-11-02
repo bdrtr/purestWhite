@@ -20,6 +20,7 @@ mod tests;
 pub mod typeset;
 
 use clock::SimClock;
+use core::convert::Infallible;
 use embassy_futures::block_on;
 use embassy_futures::select::{Either3, Either4, select3, select4};
 use embassy_futures::yield_now;
@@ -128,7 +129,7 @@ pub fn run(script: &Script, font: Option<&[u8]>, card: Option<MemCard>) -> Resul
             run_panel(&mut panel, links.panel_links(), PANEL_LIMIT),
             select3(
                 run_timers(&clock, links.timer_links()),
-                run_storage(volume, links.storage_links()),
+                storage(volume, &links),
                 drive(script, &links, &clock),
             ),
         )
@@ -136,7 +137,8 @@ pub fn run(script: &Script, font: Option<&[u8]>, card: Option<MemCard>) -> Resul
         {
             Either4::First(never)
             | Either4::Second(never)
-            | Either4::Fourth(Either3::First(never) | Either3::Second(never)) => match never {},
+            | Either4::Fourth(Either3::First(never)) => match never {},
+            Either4::Fourth(Either3::Second(never)) => match never {},
             Either4::Third(rested) => Ok(rested.is_ok()),
             Either4::Fourth(Either3::Third(driven)) => driven.map(|()| false),
         }
@@ -145,6 +147,13 @@ pub fn run(script: &Script, font: Option<&[u8]>, card: Option<MemCard>) -> Resul
         shots: panel.shots,
         slept,
     })
+}
+
+/// The storage loop, which only the power loop asks to rest: here, with no power loop, it never
+/// ends.
+async fn storage(volume: Option<Volume<MemCard>>, links: &Links<NoopRawMutex>) -> Infallible {
+    run_storage(volume, links.storage_links()).await;
+    core::future::pending().await
 }
 
 /// The FAT volume on `card` (its reads are ready at once).

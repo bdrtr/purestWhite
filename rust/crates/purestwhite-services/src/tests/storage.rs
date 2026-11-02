@@ -1,5 +1,5 @@
 //! The storage loop: the application's jobs answered with events, pages read into the page buffer
-//! for drawing to copy, and nothing found without a card.
+//! for drawing to copy and counted, nothing found without a card, and the rest between two jobs.
 
 use super::pages::{bmp, card, frame, pattern, shows_pattern};
 use crate::{Links, run_storage};
@@ -29,7 +29,7 @@ fn answers(
         answers
     };
     match block_on(select(run_storage(volume, links.storage_links()), script)) {
-        Either::First(never) => match never {},
+        Either::First(()) => panic!("nothing asked the storage loop to rest"),
         Either::Second(answers) => answers,
     }
 }
@@ -48,6 +48,7 @@ fn pages_are_counted_and_read_into_the_page_drawing_copies() {
         [Event::Pages(2), Event::PageLoaded(2), Event::PageFailed(3)]
     );
     assert!(links.jobs.is_idle());
+    assert_eq!(links.page.loaded(), 1, "page 2 read whole, page 3 missing");
     let mut drawn = frame();
     assert!(links.page.copy_into(&mut drawn));
     assert!(shows_pattern(&drawn));
@@ -70,6 +71,7 @@ fn without_a_card_or_a_page_buffer_nothing_is_found() {
         [Event::PageFailed(1)]
     );
     assert!(!links.page.copy_into(&mut frame()));
+    assert_eq!(links.page.loaded(), 0);
 }
 
 #[test]
@@ -77,4 +79,23 @@ fn the_page_buffer_is_given_once() {
     let links: Links<NoopRawMutex> = Links::new();
     assert!(links.page.give(Box::leak(frame())));
     assert!(!links.page.give(Box::leak(frame())));
+}
+
+#[test]
+fn asked_to_rest_the_loop_ends_before_the_next_job() {
+    let links: Links<NoopRawMutex> = Links::new();
+    let script = async {
+        links.storage_rest.signal(());
+        links.jobs.give(Job::CountPages);
+        core::future::pending::<()>().await;
+    };
+    let rested = block_on(select(
+        run_storage(None::<Volume<MemCard>>, links.storage_links()),
+        script,
+    ));
+    assert!(matches!(rested, Either::First(())), "the loop ended");
+    assert!(
+        links.events.is_empty(),
+        "the job given with the rest is not taken"
+    );
 }

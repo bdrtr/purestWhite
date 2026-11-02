@@ -1,5 +1,6 @@
 //! The gauge loop on a clock the test moves: a reading at the start and every five minutes, its
-//! charge to the application, and the first readings in the log's one line.
+//! charge to the application, the first readings in the log's one line, and the rest between two
+//! readings.
 
 use super::timers::TestClock;
 use crate::{GAUGE_MS, Gauge, LOG, Links, Reading, run_gauge};
@@ -50,7 +51,7 @@ fn run(readings: Vec<Option<Reading>>, minutes: &[u64]) -> (Vec<Event>, std::str
         run_gauge(&mut gauge, &clock, links.gauge_links()),
         script,
     )) {
-        Either::First(never) => match never {},
+        Either::First(()) => panic!("nothing asked the gauge loop to rest"),
         Either::Second(events) => (events, links.battery.readings().to_string()),
     }
 }
@@ -68,7 +69,7 @@ fn the_gauge_is_read_at_the_start_and_every_five_minutes() {
         events,
         [Event::Battery(87), Event::Battery(86), Event::Battery(86)]
     );
-    assert_eq!(line, "battery: 87/4012 86/3998 86/3990");
+    assert_eq!(line, "battery: 87% 4012 3998 3990 86%");
     assert_eq!(GAUGE_MS, 5 * 60 * 1000);
 }
 
@@ -77,7 +78,7 @@ fn a_reading_the_gauge_does_not_give_is_a_gap_and_no_event() {
     let readings = [Some(reading(80, 3900)), None, Some(reading(79, 3890))].into();
     let (events, line) = run(readings, &[0, 5, 10]);
     assert_eq!(events, [Event::Battery(80), Event::Battery(79)]);
-    assert_eq!(line, "battery: 80/3900 - 79/3890");
+    assert_eq!(line, "battery: 80% 3900 - 3890 79%");
 }
 
 #[test]
@@ -90,6 +91,37 @@ fn the_log_keeps_the_first_hour_and_fits_the_report() {
         21,
         "every reading still goes to the application"
     );
-    assert_eq!(line, format!("battery:{}", " 100/4200".repeat(LOG)));
-    assert!(line.len() <= 125);
+    assert_eq!(line, format!("battery: 100%{} 100%", " 4200".repeat(LOG)));
+    assert!(line.len() <= 85);
+}
+
+#[test]
+fn without_a_reading_given_the_line_has_no_charge() {
+    let (_, none) = run([None].into(), &[0, 5]);
+    assert_eq!(none, "battery: - -");
+    let readings = [None, Some(reading(64, 3800)), None].into();
+    let (_, one) = run(readings, &[0, 5, 10]);
+    assert_eq!(one, "battery: 64% - 3800 - 64%");
+}
+
+#[test]
+fn asked_to_rest_the_loop_ends_between_two_readings() {
+    let clock = TestClock::default();
+    let links: Links<NoopRawMutex> = Links::new();
+    let mut gauge = FakeGauge([Some(reading(90, 4100))].into(), 0);
+    let script = async {
+        clock.move_to(GAUGE_MS).await;
+        links.gauge_rest.signal(());
+        clock.move_to(3 * GAUGE_MS).await;
+    };
+    let rested = block_on(select(
+        run_gauge(&mut gauge, &clock, links.gauge_links()),
+        script,
+    ));
+    assert!(matches!(rested, Either::First(())), "the loop ended");
+    assert_eq!(
+        gauge.1, 2,
+        "read at the start and at five minutes, not after the rest"
+    );
+    assert_eq!(links.battery.readings().len(), 2);
 }
