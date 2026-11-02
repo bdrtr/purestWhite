@@ -125,15 +125,28 @@ path = "./src/bin/rollback_check.rs"
 test = false
 bench = false
 
+[[bin]]
+name = "wifi-check"
+path = "./src/bin/wifi_check.rs"
+test = false
+bench = false
+required-features = ["wifi"]
+
 [features]
 # The PSRAM at 80 MHz without timing tuning, for a test image only (see src/board.rs).
 psram-80mhz = []
+# Wi-Fi through esp-radio (`crate::wifi`, wifi-check). A feature of its own: it links esp-radio's
+# binary blobs and esp-rtos's scheduler hooks for the radio into every image built with it, so the
+# other images, the ones the emulator runs among them, are built without it.
+wifi = ["dep:esp-radio", "esp-rtos/esp-radio"]
 
 [dependencies]
 esp-hal = { version = "=1.2.2", features = ["esp32s3", "log-04", "unstable"] }
 esp-rtos = { version = "=0.4.0", features = ["embassy", "esp-alloc", "esp32s3", "log-04"] }
 esp-bootloader-esp-idf = { version = "=0.6.0", features = ["embedded-storage", "esp32s3", "log-04"] }
 esp-alloc = "=0.11.0"
+# The release that matches esp-hal 1.2 and esp-rtos 0.4 (1.0.0-beta.2 was yanked).
+esp-radio = { version = "=1.0.0-beta.1", optional = true, features = ["esp-alloc", "esp32s3", "log-04", "wifi"] }
 esp-backtrace = { version = "=0.20.0", features = ["esp32s3", "panic-handler", "println", "custom-halt"] }
 esp-println = { version = "=0.18.0", features = ["esp32s3", "log-04"] }
 embassy-executor = { version = "=0.10.0", features = ["log"] }
@@ -180,3 +193,7 @@ codegen-units = 1
 debug = 2
 lto = "fat"
 opt-level = "s"
+
+# esp-radio: "the radio blobs require optimization level 2 or 3", or Wi-Fi may fail to connect.
+[profile.release.package.esp-radio]
+opt-level = 3

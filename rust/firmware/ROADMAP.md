@@ -37,7 +37,10 @@ path unchanged.
    the shared I2C bus behind a mutex.
 2. The update gate (below), in the main from its first version.
 3. The battery measurement (gate 1): the cheapest check and the one that decides most.
-4. Wi-Fi and HTTPS (gate 2), then BLE (gate 3), then writing to the card (gate 4).
+4. Wi-Fi and HTTPS (gate 2), then BLE (gate 3), then writing to the card (gate 4). Gate 2's
+   first step is written: `wifi-check` scans with esp-radio 1.0.0-beta.1 (the release that
+   matches esp-hal 1.2 and esp-rtos 0.4), behind the `wifi` feature. Next: joining a network the
+   owner gives (station mode, DHCP through embassy-net), then a download over HTTPS.
 5. Only then the user interface and the rest of the features.
 
 ## The repository
@@ -64,8 +67,11 @@ next key press (`HalPowerManager`). The bare-metal firmware could use more power
   BUSY) has to be set for light sleep, or a press is missed; drivers that must not be interrupted
   take a wake lock. The idle hook freezes the other core while one sleeps (a known esp-rtos
   limitation); we run on one core.
-- **Rails and pins left on in sleep.** The SD lines must be held low in sleep as the SDK does (the
-  test images do not do it yet); unused pins must not float.
+- **Rails and pins left on in sleep.** The SD lines must not feed the card's supply in sleep: the
+  `purestwhite` image leaves them as inputs without pull-ups once the card rests, as the SDK does
+  (`SDCardManager::shutdown`), which covers the time before the sleep; in the sleep the pads are
+  not held (the SDK isolates them, `esp_sleep_config_gpio_isolate`), not yet measured on the
+  device. The test images do not do it. Unused pins must not float.
 - **Longer active time.** The PSRAM at 40 MHz instead of 80 MHz makes PSRAM-heavy work (fonts,
   images) take longer.
 - **Wi-Fi.** ESP-IDF's Wi-Fi power save is well tuned; esp-radio's is younger (esp-hal tracks

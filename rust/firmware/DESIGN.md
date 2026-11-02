@@ -354,9 +354,11 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   `pio run -e x4pro` must still give digest c746bebf (it does after this wiring, which leaves those
   crates as they were).
 - Open: the C++ firmware's image viewer needs its automatic page mode for the other half of the
-  comparison (a new C++ release); the SDMMC pins (40-42) stay routed with their pull-ups through
-  the deep sleep after the card rests, which may back-feed the card's supply, as the C++ firmware
-  found for its own (`SDCardManager::shutdown`), a sleep-current question for later.
+  comparison (a new C++ release). The SDMMC pins (40-42) would keep the slot's pull-ups through the
+  deep sleep and feed the card's supply, as the C++ firmware found for its own
+  (`SDCardManager::shutdown`): the card task leaves them as inputs without pull-ups once it rests,
+  as the C++ firmware does. That covers the time before the sleep; the deep sleep powers the pads'
+  settings down and does not hold them (the C++ firmware isolates them), not yet measured.
 
 ## The host simulator (`rust/sim`)
 

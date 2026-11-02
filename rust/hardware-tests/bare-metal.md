@@ -1163,7 +1163,9 @@ the home screen starts the battery measurement's page loop: a page from
 keeps only the title, the runs line, the battery line, the panel line and the sleep line. Nothing
 here writes the card or the C++ firmware's slot: the image is installed into the other slot by SD
 Card Firmware Update, as every test image. The image is `purestwhite-baremetal-main-5.bin` (in the
-archive, its checksum in `SHA256-bare-metal.txt`). On the device only.
+archive, its checksum in `SHA256-bare-metal.txt`), built at 644f4699, before the card task let its
+bus pins float at the rest: that changes the deep sleep only, not the hour awake. On the device
+only.
 
 Before both steps: **take `purestwhite-recovery.bin` off the card** (the archive keeps it). With
 it gone, nothing in this test can write the C++ firmware's slot, even if Right is held as the
@@ -1188,3 +1190,23 @@ shows) or while waking the device.
   give), "panel: N ok, 0 failed, 0 given up, ..., asleep" with N about 124 (the home screen and
   its battery update, 120 pages, the crescent and the panel's sleep), "sleep: deep, hour ...". If it
   shows "sleep: deep, time up", the backstop ended the loop (75 minutes after the start).
+
+## Wi-Fi, a scan ("firmware: wifi-check, esp-radio's Wi-Fi scan")
+
+The first step of gate 2 (rust/firmware/ROADMAP.md): esp-radio's Wi-Fi on the device. The image
+starts Wi-Fi in station mode, scans once, notes how many networks it found, the strongest signal
+and its channel (no network names), and resets into the C++ firmware. It joins no network and
+sends nothing. The image is `purestwhite-baremetal-wifi-1.bin` (in the archive, its checksum in
+`SHA256-bare-metal.txt`). On the device only.
+
+- [ ] Put `purestwhite-baremetal-wifi-1.bin` in the card's root (with no `purestwhite-recovery.bin`
+  there); Settings > System > SD Card Firmware Update > choose it > Confirm. The screen stays on the
+  update page for a few seconds, then the C++ firmware comes back by itself. Give me the card.
+  Expected: "purestWhite bare-metal Wi-Fi check", "next boot: C++ firmware", then "wifi: N
+  networks, best -D dBm on channel C, T ms" and "done". N counts each access point (a dual-band
+  or mesh router counts more than once, `64+` at the most it copies out, weak networks may be
+  missed), so it is only roughly a phone's list (2.4 GHz only: the ESP32-S3 has no 5 GHz); T about
+  a second or two. "wifi: no networks, T ms" means the radio works but heard nothing. "wifi:
+  Start(...)" or "wifi: Scan(...)" names the radio's error; "wifi: no answer in 20 s" means the
+  scan never ended; a report that stops at "wifi: scanning", or "PANIC", means it stopped there
+  and reset.

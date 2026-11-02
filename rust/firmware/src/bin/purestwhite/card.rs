@@ -1,8 +1,8 @@
 //! The card task: the SD card mounted over the interrupt-driven bus (`sd::AsyncBus`), as
 //! tasks-check mounted it on the device, and the services' storage loop run on its volume (the
-//! battery measurement's pages). Asked to rest, it hands the card's supply back to the power
-//! loop, which turns the card off for the sleep. Without the card the loop still answers, with
-//! nothing found.
+//! battery measurement's pages). Asked to rest, it lets the card's bus pins float and hands the
+//! card's supply back to the power loop, which turns the card off for the sleep. Without the card
+//! the loop still answers, with nothing found.
 
 use crate::tasks::{LINKS, Mutex};
 use alloc::boxed::Box;
@@ -10,7 +10,8 @@ use core::sync::atomic::{AtomicU8, Ordering};
 use embassy_executor::Spawner;
 use embassy_sync::signal::Signal;
 use embassy_time::Delay;
-use esp_hal::gpio::{Level, Output, OutputConfig};
+use esp_hal::gpio::{Input, InputConfig, Level, Output, OutputConfig, Pull};
+use esp_hal::peripherals::{GPIO40, GPIO41, GPIO42};
 use esp_hal::sdmmc::{Config as SdConfig, SdHostController, SlotConfig};
 use purestwhite_fat::Volume;
 use purestwhite_firmware::board::CardParts;
@@ -57,7 +58,28 @@ async fn storage(card: Option<AsyncCard<'static>>, mut enable: Output<'static>) 
         None
     };
     run_storage(volume, LINKS.storage_links()).await;
+    float_bus();
     CARD_RESTED.signal(enable);
+}
+
+/// The card's bus pins (CLK 41, CMD 42, DAT0 40) as inputs without pull-ups, as the C++ firmware
+/// leaves them before its sleep (`SDCardManager::shutdown`): left to the slot, CMD and DAT0 stay
+/// driven high and all three keep its pull-ups, which feed the card's supply through the bus once
+/// the power loop turns the card off. The deep sleep powers the pads' settings down (they are not
+/// held), so this covers the time from the rest to the sleep; what the pads do in the sleep is for
+/// a current measurement to show.
+fn float_bus() {
+    // SAFETY: no card, slot or volume is alive once the storage loop has ended (or none was made).
+    // The slot's pin guards stay in esp-hal's static slot state, and nothing in this image sets up
+    // slot 1's pins again, so they never act on these pins after this.
+    let (clk, cmd, dat0) = unsafe { (GPIO41::steal(), GPIO42::steal(), GPIO40::steal()) };
+    let floating = InputConfig::default().with_pull(Pull::None);
+    // esp-hal's `Input` has no `Drop`: the pins stay as set once these go.
+    let _ = (
+        Input::new(clk, floating),
+        Input::new(cmd, floating),
+        Input::new(dat0, floating),
+    );
 }
 
 /// The card mounted as the C++ firmware mounts it (`sd::mount_with`, `enable` its supply) and its

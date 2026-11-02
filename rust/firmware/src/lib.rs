@@ -30,6 +30,8 @@ pub mod slots;
 pub mod storage;
 pub mod test_image;
 pub mod updater;
+#[cfg(feature = "wifi")]
+pub mod wifi;
 
 use core::pin::pin;
 use core::task::{Context, Poll, Waker};
