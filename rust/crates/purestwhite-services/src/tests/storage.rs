@@ -1,5 +1,5 @@
 //! The storage loop: the application's jobs answered with events, pages read into the page buffer
-//! for drawing to copy and counted, nothing found without a card, and the rest between two jobs.
+//! for drawing to copy, nothing found without a card, and the rest between two jobs.
 
 use super::pages::{bmp, card, frame, pattern, shows_pattern};
 use crate::{Links, run_storage};
@@ -48,7 +48,6 @@ fn pages_are_counted_and_read_into_the_page_drawing_copies() {
         [Event::Pages(2), Event::PageLoaded(2), Event::PageFailed(3)]
     );
     assert!(links.jobs.is_idle());
-    assert_eq!(links.page.loaded(), 1, "page 2 read whole, page 3 missing");
     let mut drawn = frame();
     assert!(links.page.copy_into(&mut drawn));
     assert!(shows_pattern(&drawn));
@@ -71,7 +70,6 @@ fn without_a_card_or_a_page_buffer_nothing_is_found() {
         [Event::PageFailed(1)]
     );
     assert!(!links.page.copy_into(&mut frame()));
-    assert_eq!(links.page.loaded(), 0);
 }
 
 #[test]
@@ -98,4 +96,29 @@ fn asked_to_rest_the_loop_ends_before_the_next_job() {
         links.events.is_empty(),
         "the job given with the rest is not taken"
     );
+}
+
+#[test]
+fn asked_to_rest_while_a_page_is_read_the_loop_answers_it_first() {
+    let Some(volume) = card(&[(1, bmp(1, false, WIDTH, HEIGHT, pattern))]) else {
+        return;
+    };
+    let links: Links<NoopRawMutex> = Links::new();
+    assert!(links.page.give(Box::leak(frame())));
+    let script = async {
+        links.jobs.give(Job::LoadPage(1));
+        // The storage loop takes the job and reads the page a chunk of rows at a time, yielding
+        // between them: the rest comes while it reads.
+        embassy_futures::yield_now().await;
+        assert!(!links.jobs.is_idle(), "not answered yet");
+        links.storage_rest.signal(());
+        core::future::pending::<()>().await;
+    };
+    let rested = block_on(select(
+        run_storage(Some(volume), links.storage_links()),
+        script,
+    ));
+    assert!(matches!(rested, Either::First(())), "the loop ended");
+    assert_eq!(links.events.try_receive(), Ok(Event::PageLoaded(1)));
+    assert!(links.jobs.is_idle());
 }

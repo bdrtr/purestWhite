@@ -1,10 +1,10 @@
 //! The application's loop: its first commands, then the commands each event calls for.
 
-use crate::{Jobs, Timers, Views};
+use crate::{BatteryLog, Jobs, Timers, Views};
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::DynamicReceiver;
 use embassy_sync::signal::Signal;
-use purestwhite_app::{App, Command, Commands, Event};
+use purestwhite_app::{App, Command, Commands, Event, SleepReason};
 
 /// The ends of the channels the application's loop uses.
 pub struct AppLinks<'a, M: RawMutex> {
@@ -12,12 +12,14 @@ pub struct AppLinks<'a, M: RawMutex> {
     pub views: &'a Views<M>,
     pub timers: &'a Timers<M>,
     pub jobs: &'a Jobs<M>,
-    pub sleep: &'a Signal<M, ()>,
+    pub battery: &'a BatteryLog<M>,
+    pub sleep: &'a Signal<M, SleepReason>,
 }
 
 /// Runs `app` on the events from `links.events`: each view goes to `links.views`, each timer to
-/// `links.timers`, each job to `links.jobs`, and `links.sleep` is set when the application asks to
-/// sleep. Only the events are waited for.
+/// `links.timers`, each job to `links.jobs`, the measurement's begin and end to `links.battery`,
+/// and `links.sleep` is set, with the reason, when the application asks to sleep. Only the events
+/// are waited for.
 pub async fn run_app<M: RawMutex>(app: &mut App, links: AppLinks<'_, M>) -> ! {
     carry_out(app.start(), &links);
     loop {
@@ -33,7 +35,8 @@ fn carry_out<M: RawMutex>(commands: Commands, links: &AppLinks<'_, M>) {
             Command::Show(show) => links.views.put(show),
             Command::Arm(arm) => links.timers.arm(arm),
             Command::Run(job) => links.jobs.give(job),
-            Command::Sleep => links.sleep.signal(()),
+            Command::Measure(measure) => links.battery.measure(measure),
+            Command::Sleep(why) => links.sleep.signal(why),
         }
     }
 }

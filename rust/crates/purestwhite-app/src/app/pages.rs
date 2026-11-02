@@ -1,12 +1,13 @@
 //! The page loop of the battery measurement (rust/firmware/DESIGN.md, gate 1): Right on the home
 //! screen starts it when the card holds pages; it shows them in turn, one every `PAGE_MS`, and
 //! after `LOOP_PAGES` the device sleeps. Left goes back home. The idle sleep waits while it runs.
+//! The measurement spans the loop: `Measure::Begin` as it starts, `Measure::End` however it ends.
 //! The next page is read only once the panel has answered for every view shown, so the storage
 //! loop never reads into the page while drawing copies it.
 
 use super::App;
 use crate::view::View;
-use crate::{Command, Commands, Job, Key, Refresh, Timer};
+use crate::{Command, Commands, Job, Key, Measure, Refresh, SleepReason, Timer};
 
 /// How long each page is shown.
 pub const PAGE_MS: u32 = 30_000;
@@ -42,7 +43,10 @@ impl App {
                     shown: 0,
                     waiting: false,
                 });
-                Some(self.read(1))
+                Some(Commands::two(
+                    Command::Measure(Measure::Begin),
+                    self.read(1),
+                ))
             }
             (None, _) => None,
         }
@@ -79,13 +83,13 @@ impl App {
             return Commands::none();
         };
         if page_loop.shown >= LOOP_PAGES {
-            return self.sleep();
+            return self.sleep(SleepReason::LoopDone);
         }
         page_loop.page = page_loop.page % page_loop.count + 1;
         page_loop.waiting = !quiet;
         let page = page_loop.page;
         if quiet {
-            self.read(page)
+            Commands::one(self.read(page))
         } else {
             Commands::none()
         }
@@ -98,16 +102,16 @@ impl App {
             Some(page_loop) if page_loop.waiting && quiet => {
                 page_loop.waiting = false;
                 let page = page_loop.page;
-                self.read(page)
+                Commands::one(self.read(page))
             }
             _ => Commands::none(),
         }
     }
 
     /// Page `n` to be read.
-    fn read(&mut self, n: u16) -> Commands {
+    fn read(&mut self, n: u16) -> Command {
         self.reading = true;
-        Commands::one(Command::Run(Job::LoadPage(n)))
+        Command::Run(Job::LoadPage(n))
     }
 
     /// Whether the page loop runs: the home screen's updates are kept, not shown.
@@ -115,12 +119,27 @@ impl App {
         self.page_loop.is_some()
     }
 
-    /// The loop ended: home, with a full refresh, and the idle timer again.
+    /// The loop ended (Left, or a page that cannot be read): the measurement's end, home with a
+    /// full refresh, and the idle timer again.
     fn stop_pages(&mut self) -> Commands {
-        self.page_loop = None;
-        self.armings.disarm(Timer::Page);
+        let Some(end) = self.end_pages() else {
+            return Commands::none();
+        };
         let home = self.show(View::Home(self.home), Refresh::Full);
         let idle = self.arm_idle();
-        Commands::two(Command::Show(home), Command::Arm(idle))
+        Commands::three(
+            Command::Measure(end),
+            Command::Show(home),
+            Command::Arm(idle),
+        )
+    }
+
+    /// The loop, if one runs, ended: its page timer out of date; the measurement's end.
+    pub(super) fn end_pages(&mut self) -> Option<Measure> {
+        let page_loop = self.page_loop.take()?;
+        self.armings.disarm(Timer::Page);
+        Some(Measure::End {
+            shown: page_loop.shown,
+        })
     }
 }

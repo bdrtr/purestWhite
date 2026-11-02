@@ -1,16 +1,30 @@
 //! The page loop: started by Right when the card holds pages, a page read and shown every
 //! `PAGE_MS`, the next read only once the panel has answered, the sleep after `LOOP_PAGES`, and
-//! Left back home.
+//! Left back home; the measurement's begin and its end, however the loop ends.
 
 use super::{idle, list};
 use crate::view::{Home, View};
 use crate::{
-    App, Arm, Command, Commands, Event, Job, Key, LOOP_PAGES, PAGE_MS, Refresh, Show, Timer,
+    App, Arm, Command, Commands, Event, Job, Key, LOOP_PAGES, Measure, PAGE_MS, Refresh, Show,
+    SleepReason, Timer,
 };
 use std::vec::Vec;
 
 fn load(n: u16) -> Command {
     Command::Run(Job::LoadPage(n))
+}
+
+const BEGIN: Command = Command::Measure(Measure::Begin);
+
+fn end(shown: u16) -> Command {
+    Command::Measure(Measure::End { shown })
+}
+
+/// The measurement's command in `commands`, if any.
+fn measure(commands: Commands) -> Option<Command> {
+    commands
+        .into_iter()
+        .find(|c| matches!(c, Command::Measure(_)))
 }
 
 /// The views `commands` shows, with their refresh.
@@ -59,7 +73,10 @@ fn right_without_pages_is_a_key_like_any_other() {
 #[test]
 fn right_starts_the_loop_with_page_one_and_the_idle_sleep_waits() {
     let mut app = started(3);
-    assert_eq!(list(app.handle(Event::Pressed(Key::Right))), [load(1)]);
+    assert_eq!(
+        list(app.handle(Event::Pressed(Key::Right))),
+        [BEGIN, load(1)]
+    );
     let commands = app.handle(Event::PageLoaded(1));
     assert_eq!(shows(commands), [(View::Page(1), Refresh::Full)]);
     assert!(page_timer(commands).is_some());
@@ -112,7 +129,11 @@ fn after_an_hour_of_pages_the_device_sleeps() {
     }
     let last = app.handle(Event::Fired(Timer::Page, arm.id));
     assert_eq!(shows(last), [(View::Sleep, Refresh::Full)]);
-    let _ = app.handle(Event::Shown(u32::from(LOOP_PAGES) + 1));
+    assert_eq!(measure(last), Some(end(LOOP_PAGES)));
+    assert_eq!(
+        list(app.handle(Event::Shown(u32::from(LOOP_PAGES) + 1))),
+        [Command::Sleep(SleepReason::LoopDone)]
+    );
     assert!(app.is_asleep());
 }
 
@@ -130,6 +151,7 @@ fn left_goes_back_home_with_what_changed_meanwhile() {
         time: None,
     });
     assert_eq!(shows(back), [(home, Refresh::Full)]);
+    assert_eq!(measure(back), Some(end(1)));
     assert!(
         back.into_iter()
             .any(|c| matches!(c, Command::Arm(a) if a.timer == Timer::Idle))
@@ -147,6 +169,7 @@ fn a_page_that_cannot_be_read_ends_the_loop() {
         shows(commands),
         [(View::Home(Home::default()), Refresh::Full)]
     );
+    assert_eq!(measure(commands), Some(end(0)));
     // A late answer for another page changes nothing.
     assert!(app.handle(Event::PageLoaded(2)).is_empty());
 }
@@ -159,5 +182,34 @@ fn right_waits_for_a_page_read_for_a_loop_that_ended() {
     let _ = app.handle(Event::Pressed(Key::Left));
     assert_eq!(list(app.handle(Event::Pressed(Key::Right))), [idle(2)]);
     assert!(app.handle(Event::PageLoaded(1)).is_empty());
-    assert_eq!(list(app.handle(Event::Pressed(Key::Right))), [load(1)]);
+    assert_eq!(
+        list(app.handle(Event::Pressed(Key::Right))),
+        [BEGIN, load(1)]
+    );
+}
+
+#[test]
+fn power_held_during_the_loop_ends_the_measurement_and_sleeps() {
+    let mut app = started(3);
+    let _ = app.handle(Event::Pressed(Key::Right));
+    let arm = show_page(&mut app, 1, 1);
+    let commands = app.handle(Event::SleepRequested);
+    assert_eq!(
+        list(commands)[0],
+        end(1),
+        "the end comes before the sleep screen"
+    );
+    assert_eq!(shows(commands), [(View::Sleep, Refresh::Full)]);
+    // The page timer armed before is out of date, and the measurement ends once.
+    assert!(app.handle(Event::Fired(Timer::Page, arm.id)).is_empty());
+    assert_eq!(
+        list(app.handle(Event::Shown(2))),
+        [Command::Sleep(SleepReason::Power)]
+    );
+}
+
+#[test]
+fn a_sleep_without_the_loop_ends_no_measurement() {
+    let mut app = started(3);
+    assert_eq!(measure(app.handle(Event::SleepRequested)), None);
 }

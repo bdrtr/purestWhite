@@ -130,7 +130,10 @@ fn power_held_shows_the_sleep_screen_and_sleeps_once_it_is_shown() {
     assert!(app.handle(Event::SleepRequested).is_empty());
     assert!(app.handle(Event::Shown(1)).is_empty());
     assert!(!app.is_asleep());
-    assert_eq!(list(app.handle(Event::Shown(2))), [Command::Sleep]);
+    assert_eq!(
+        list(app.handle(Event::Shown(2))),
+        [Command::Sleep(SleepReason::Power)]
+    );
     assert!(app.is_asleep());
     assert!(app.handle(Event::Shown(2)).is_empty());
     assert!(app.handle(Event::Battery(5)).is_empty());
@@ -141,7 +144,10 @@ fn a_panel_that_fails_the_sleep_screen_does_not_keep_the_device_awake() {
     let mut app = App::new();
     let _ = app.start();
     let _ = app.handle(Event::SleepRequested);
-    assert_eq!(list(app.handle(Event::ScreenFailed(1))), [Command::Sleep]);
+    assert_eq!(
+        list(app.handle(Event::ScreenFailed(1))),
+        [Command::Sleep(SleepReason::Power)]
+    );
 }
 
 #[test]
@@ -212,13 +218,8 @@ fn commands_keep_their_order() {
     let show = home(0, None, None, Refresh::Full);
     assert_eq!(list(Commands::none()), []);
     assert_eq!(list(Commands::one(show)), [show]);
-    assert_eq!(
-        list(Commands::two(show, Command::Sleep)),
-        [show, Command::Sleep]
-    );
+    let sleep = Command::Sleep(SleepReason::Power);
+    assert_eq!(list(Commands::two(show, sleep)), [show, sleep]);
     let run = Command::Run(Job::CountPages);
-    assert_eq!(
-        list(Commands::three(show, run, Command::Sleep)),
-        [show, run, Command::Sleep]
-    );
+    assert_eq!(list(Commands::three(show, run, sleep)), [show, run, sleep]);
 }

@@ -143,5 +143,27 @@ pub enum Command {
     /// Do work on the card.
     Run(Job),
     /// Put the device to sleep: the sleep screen is shown, or the panel failed to show it.
-    Sleep,
+    Sleep(SleepReason),
+    /// The battery measurement begins or ends (the page loop's span).
+    Measure(Measure),
+}
+
+/// Why the device sleeps.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SleepReason {
+    /// Power was held (`Event::SleepRequested`).
+    Power,
+    /// No key was pressed for `IDLE_MS`.
+    Idle,
+    /// The page loop showed its `LOOP_PAGES`.
+    LoopDone,
+}
+
+/// The span of the battery measurement (rust/firmware/DESIGN.md, gate 1): the page loop's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Measure {
+    /// The page loop starts: the battery log begins.
+    Begin,
+    /// The page loop ended, after showing `shown` pages.
+    End { shown: u16 },
 }

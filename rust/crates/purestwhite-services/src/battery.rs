@@ -1,30 +1,23 @@
 //! The gauge loop and the battery log of the battery measurement (rust/firmware/DESIGN.md, gate
-//! 1): the gauge read at the start and every `GAUGE_MS`, each reading's charge sent to the
-//! application, and the first `LOG` readings kept for the report, in one short line. Asked to
-//! rest, the loop ends between two readings, so that a reading is never cut short on the bus.
+//! 1). The gauge is read every `GAUGE_MS` from the start, each charge sent to the application.
+//! The log keeps only the measurement's readings, which the application spans with
+//! `Measure::Begin` and `Measure::End`: at its begin the gauge is read at once and the beat starts
+//! again from there; at its end it is read once more, and the log notes the pages shown (see
+//! `Readings`). Asked to rest, the loop ends between two readings, so that a reading is never cut
+//! short on the bus.
 
 use crate::Clock;
+use crate::readings::{Reading, Readings};
 use core::cell::Cell;
-use core::fmt::{self, Display, Formatter};
-use embassy_futures::select::{Either, select};
+use embassy_futures::select::{Either3, select3};
 use embassy_sync::blocking_mutex::Mutex;
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::DynamicSender;
 use embassy_sync::signal::Signal;
-use purestwhite_app::Event;
+use purestwhite_app::{Event, Measure};
 
 /// How often the gauge is read: every five minutes.
 pub const GAUGE_MS: u64 = 5 * 60 * 1000;
-/// How many readings the log keeps: the start's and an hour's.
-pub const LOG: usize = 13;
-
-/// A reading of the gauge.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Reading {
-    /// The state of charge, 0 to 100.
-    pub percent: u8,
-    pub millivolts: u16,
-}
 
 /// The battery's fuel gauge.
 #[allow(
@@ -32,89 +25,92 @@ pub struct Reading {
     reason = "the loops run on a single-threaded executor; no `Send` bound is wanted"
 )]
 pub trait Gauge {
-    /// A reading; `None` when the gauge gives none now.
-    async fn read(&mut self) -> Option<Reading>;
+    /// A reading, each part `None` when the gauge gives it not now.
+    async fn read(&mut self) -> Reading;
 }
 
-/// The first `LOG` readings, a failed one kept as a gap.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Readings {
-    readings: [Option<Reading>; LOG],
-    count: usize,
+/// Where the log is.
+#[derive(Clone, Copy, Default)]
+struct State {
+    readings: Readings,
+    /// A measurement began this run.
+    begun: bool,
+    /// The measurement runs: readings on the beat are kept.
+    running: bool,
 }
 
-impl Readings {
-    /// How many readings were noted, failed ones included.
-    #[must_use]
-    pub fn len(&self) -> usize {
-        self.count
-    }
-
-    #[must_use]
-    pub fn is_empty(&self) -> bool {
-        self.count == 0
-    }
-
-    fn note(&mut self, reading: Option<Reading>) {
-        if let Some(entry) = self.readings.get_mut(self.count) {
-            *entry = reading;
-            self.count += 1;
-        }
-    }
-}
-
-/// `battery: 87% 4012 3998 - 3990 86%`: the millivolts of each reading, `-` for one the gauge
-/// did not give, between the charge of the first reading given and of the last; at most 85 bytes
-/// for `LOG` readings, to fit the report beside its other lines.
-impl Display for Readings {
-    fn fmt(&self, out: &mut Formatter<'_>) -> fmt::Result {
-        out.write_str("battery:")?;
-        let noted = self.readings.get(..self.count).unwrap_or_default();
-        let mut given = noted.iter().flatten();
-        let (first, last) = (given.next(), given.next_back());
-        if let Some(first) = first {
-            write!(out, " {}%", first.percent)?;
-        }
-        for reading in noted {
-            match reading {
-                Some(r) => write!(out, " {}", r.millivolts)?,
-                None => out.write_str(" -")?,
-            }
-        }
-        if let Some(last) = last.or(first) {
-            write!(out, " {}%", last.percent)?;
-        }
-        Ok(())
-    }
-}
-
-/// The log the gauge loop keeps, for whoever writes the report.
+/// The measurement's log, kept by the gauge loop for whoever writes the report; the application's
+/// loop hands it the measurement's begin and end (`run_app`).
 pub struct BatteryLog<M: RawMutex> {
-    readings: Mutex<M, Cell<Readings>>,
+    state: Mutex<M, Cell<State>>,
+    /// The begin or end the gauge loop has not acted on yet.
+    asked: Signal<M, Measure>,
 }
 
 impl<M: RawMutex> BatteryLog<M> {
     #[must_use]
     pub const fn new() -> Self {
         BatteryLog {
-            readings: Mutex::new(Cell::new(Readings {
-                readings: [None; LOG],
-                count: 0,
+            state: Mutex::new(Cell::new(State {
+                readings: Readings::new(),
+                begun: false,
+                running: false,
             })),
+            asked: Signal::new(),
         }
     }
 
-    /// The readings so far.
+    /// The current measurement's readings so far.
     #[must_use]
     pub fn readings(&self) -> Readings {
-        self.readings.lock(Cell::get)
+        self.state.lock(Cell::get).readings
     }
 
-    fn note(&self, reading: Option<Reading>) {
-        self.readings.lock(|cell| {
-            let mut readings = cell.get();
-            readings.note(reading);
-            cell.set(readings);
+    /// Whether a measurement began this run.
+    #[must_use]
+    pub fn begun(&self) -> bool {
+        self.state.lock(Cell::get).begun
+    }
+
+    /// The measurement begins (its readings start afresh) or ends; the gauge loop reads the gauge
+    /// at once either way.
+    pub fn measure(&self, measure: Measure) {
+        self.update(|state| match measure {
+            Measure::Begin => {
+                *state = State {
+                    readings: Readings::new(),
+                    begun: true,
+                    running: true,
+                };
+            }
+            Measure::End { .. } => state.running = false,
+        });
+        self.asked.signal(measure);
+    }
+
+    fn note_beat(&self, reading: Reading) {
+        self.update(|state| {
+            if state.running {
+                state.readings.note_beat(reading);
+            }
+        });
+    }
+
+    /// The end's reading; dropped when a new measurement began meanwhile (Left, then Right at
+    /// once), whose log it would not belong to.
+    fn note_end(&self, reading: Reading, pages: u16) {
+        self.update(|state| {
+            if state.begun && !state.running {
+                state.readings.note_end(reading, pages);
+            }
+        });
+    }
+
+    fn update(&self, change: impl FnOnce(&mut State)) {
+        self.state.lock(|cell| {
+            let mut state = cell.get();
+            change(&mut state);
+            cell.set(state);
         });
     }
 }
@@ -135,9 +131,10 @@ pub struct GaugeLinks<'a, M: RawMutex> {
 }
 
 /// Reads `gauge` at the start and every `GAUGE_MS` on `clock`, on a fixed beat (a slow reading
-/// does not shift the next), until `links.rest` is set: each reading is noted in `links.log` and
-/// its charge sent to the application. A reading under way when `links.rest` is set is finished
-/// first.
+/// does not shift the next), until `links.rest` is set; at the measurement's begin and end too
+/// (`BatteryLog::measure`), the begin starting the beat again. Each charge goes to the
+/// application, and the measurement's readings to `links.log`. A reading under way when
+/// `links.rest` is set is finished first.
 pub async fn run_gauge<M: RawMutex, G: Gauge, C: Clock>(
     gauge: &mut G,
     clock: &C,
@@ -145,14 +142,27 @@ pub async fn run_gauge<M: RawMutex, G: Gauge, C: Clock>(
 ) {
     let mut next = clock.now_ms();
     loop {
-        if let Either::First(()) = select(links.rest.wait(), clock.at(next)).await {
-            return;
+        match select3(links.rest.wait(), links.log.asked.wait(), clock.at(next)).await {
+            Either3::First(()) => return,
+            Either3::Second(Measure::Begin) => next = clock.now_ms(),
+            Either3::Second(Measure::End { shown }) => {
+                let reading = gauge.read().await;
+                links.log.note_end(reading, shown);
+                send(&links, reading).await;
+            }
+            Either3::Third(()) => {
+                let reading = gauge.read().await;
+                links.log.note_beat(reading);
+                send(&links, reading).await;
+                next = next.saturating_add(GAUGE_MS);
+            }
         }
-        let reading = gauge.read().await;
-        links.log.note(reading);
-        if let Some(reading) = reading {
-            links.events.send(Event::Battery(reading.percent)).await;
-        }
-        next = next.saturating_add(GAUGE_MS);
+    }
+}
+
+/// The reading's charge, if any, to the application.
+async fn send<M: RawMutex>(links: &GaugeLinks<'_, M>, reading: Reading) {
+    if let Some(percent) = reading.percent {
+        links.events.send(Event::Battery(percent)).await;
     }
 }

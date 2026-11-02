@@ -9,8 +9,9 @@
 //! - [`run_timers`]: fires the application's timers on a [`Clock`];
 //! - [`run_storage`]: does the application's jobs on the card, and reads pages into the page
 //!   buffer the drawing loop copies them from; when asked to rest, ends between two jobs;
-//! - [`run_gauge`]: reads the battery's [`Gauge`] every five minutes, for the application and the
-//!   battery log; when asked to rest, ends between two readings.
+//! - [`run_gauge`]: reads the battery's [`Gauge`] every five minutes, for the application, and
+//!   keeps the battery measurement's readings in its log; when asked to rest, ends between two
+//!   readings.
 //!
 //! The loops are generic over the devices and over the channels' mutex, so the firmware can run
 //! them in Embassy tasks over the X4 Pro's drivers (step 2), and the host simulator and the tests
@@ -29,6 +30,7 @@ mod battery;
 mod draw;
 pub mod pages;
 mod panel;
+mod readings;
 mod storage;
 #[cfg(test)]
 mod tests;
@@ -36,14 +38,15 @@ mod timers;
 mod views;
 
 pub use app::{AppLinks, run_app};
-pub use battery::{BatteryLog, GAUGE_MS, Gauge, GaugeLinks, LOG, Reading, Readings, run_gauge};
+pub use battery::{BatteryLog, GAUGE_MS, Gauge, GaugeLinks, run_gauge};
 pub use draw::{DrawLinks, run_draw};
 use embassy_sync::blocking_mutex::raw::RawMutex;
 use embassy_sync::channel::Channel;
 use embassy_sync::signal::Signal;
 pub use panel::{PanelLinks, Screen, ScreenError, run_panel};
-use purestwhite_app::{Event, Refresh};
+use purestwhite_app::{Event, Refresh, SleepReason};
 use purestwhite_render::FRAME_BYTES;
+pub use readings::{LOG, Reading, Readings};
 pub use storage::{Jobs, PageSlot, StorageLinks, run_storage};
 pub use timers::{Clock, EmbassyClock, TimerLinks, Timers, run_timers};
 pub use views::Views;
@@ -80,15 +83,15 @@ pub struct Links<M: RawMutex> {
     pub jobs: Jobs<M>,
     /// The page the storage loop reads and drawing copies (`PageSlot::give` puts the buffer here).
     pub page: PageSlot<M>,
-    /// The gauge loop's readings, for the report.
+    /// The battery measurement's readings, for the report.
     pub battery: BatteryLog<M>,
     /// From drawing to the panel.
     pub drawn: Channel<M, Drawn, FRAMES>,
     /// From the panel back to drawing (`give_frames` puts the frames here first).
     pub empty: Channel<M, Frame, FRAMES>,
-    /// Set by the application when the device is to sleep. One loop listens (power), and asks
-    /// each service in turn to quiesce.
-    pub sleep: Signal<M, ()>,
+    /// Set by the application when the device is to sleep, and why. One loop listens (power), and
+    /// asks each service in turn to quiesce.
+    pub sleep: Signal<M, SleepReason>,
     /// Set by the power loop: the panel is to rest (`run_panel`).
     pub panel_rest: Signal<M, ()>,
     /// Set by the power loop: the key loop is to rest (it is the firmware's: it reads the pins).
@@ -127,6 +130,7 @@ impl<M: RawMutex> Links<M> {
             views: &self.views,
             timers: &self.timers,
             jobs: &self.jobs,
+            battery: &self.battery,
             sleep: &self.sleep,
         }
     }

@@ -5,7 +5,7 @@ pub(crate) mod pages;
 use crate::armings::Armings;
 use crate::cadence::Cadence;
 use crate::view::{Home, View};
-use crate::{Arm, Command, Commands, Event, Job, Key, Refresh, Show, Timer};
+use crate::{Arm, Command, Commands, Event, Job, Key, Refresh, Show, SleepReason, Timer};
 use pages::PageLoop;
 
 /// How many times in a row a screen the panel failed to show is shown again, with a full refresh.
@@ -19,8 +19,9 @@ pub const IDLE_MS: u32 = 10 * 60 * 1000;
 enum Phase {
     #[default]
     Awake,
-    /// The sleep screen, with this `seq`, is on its way to the panel.
-    Sleeping(u32),
+    /// The sleep screen, with this `seq`, is on its way to the panel; then the sleep, for this
+    /// reason.
+    Sleeping(u32, SleepReason),
     Asleep,
 }
 
@@ -74,13 +75,13 @@ impl App {
     pub fn handle(&mut self, event: Event) -> Commands {
         match (self.phase, event) {
             (Phase::Awake, _) => self.awake(event),
-            (Phase::Sleeping(screen), Event::Shown(seq) | Event::ScreenFailed(seq))
+            (Phase::Sleeping(screen, why), Event::Shown(seq) | Event::ScreenFailed(seq))
                 if seq >= screen =>
             {
                 self.phase = Phase::Asleep;
-                Commands::one(Command::Sleep)
+                Commands::one(Command::Sleep(why))
             }
-            (Phase::Sleeping(_) | Phase::Asleep, _) => Commands::none(),
+            (Phase::Sleeping(..) | Phase::Asleep, _) => Commands::none(),
         }
     }
 
@@ -100,7 +101,7 @@ impl App {
                 time: Some(time),
                 ..self.home
             }),
-            Event::SleepRequested => self.sleep(),
+            Event::SleepRequested => self.sleep(SleepReason::Power),
             Event::Shown(seq) => {
                 self.shown(seq);
                 self.page_after_answer()
@@ -127,7 +128,7 @@ impl App {
     /// The latest arming of `timer` fired.
     fn fired(&mut self, timer: Timer) -> Commands {
         match timer {
-            Timer::Idle => self.sleep(),
+            Timer::Idle => self.sleep(SleepReason::Idle),
             Timer::Page => self.page_due(),
         }
     }
@@ -155,11 +156,17 @@ impl App {
             .is_some_and(|answered| answered.wrapping_add(1) == self.next_seq)
     }
 
-    /// The sleep screen, on its way to the panel; the sleep follows the panel's answer.
-    fn sleep(&mut self) -> Commands {
-        let show = self.show(View::Sleep, Refresh::Full);
-        self.phase = Phase::Sleeping(show.seq);
-        Commands::one(Command::Show(show))
+    /// The sleep screen, on its way to the panel; the sleep, for `why`, follows the panel's
+    /// answer. A page loop under way ends first, and with it the measurement.
+    fn sleep(&mut self, why: SleepReason) -> Commands {
+        let ended = self.end_pages();
+        let screen = self.show(View::Sleep, Refresh::Full);
+        self.phase = Phase::Sleeping(screen.seq, why);
+        let show = Command::Show(screen);
+        match ended {
+            Some(end) => Commands::two(Command::Measure(end), show),
+            None => Commands::one(show),
+        }
     }
 
     /// The idle timer, armed from now: at the start and at each key press.

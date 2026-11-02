@@ -3,7 +3,7 @@
 
 use super::{idle, list};
 use crate::view::View;
-use crate::{App, Command, Event, Key, Refresh, Show, Timer};
+use crate::{App, Command, Event, Key, Refresh, Show, SleepReason, Timer};
 
 /// The sleep screen, shown with `seq`.
 fn sleep_screen(seq: u32) -> Command {
@@ -32,7 +32,10 @@ fn the_idle_timer_sleeps_as_power_held_does() {
         [sleep_screen(1)]
     );
     assert!(app.handle(Event::Fired(Timer::Idle, 0)).is_empty());
-    assert_eq!(list(app.handle(Event::Shown(1))), [Command::Sleep]);
+    assert_eq!(
+        list(app.handle(Event::Shown(1))),
+        [Command::Sleep(SleepReason::Idle)]
+    );
     assert!(app.is_asleep());
 }
 

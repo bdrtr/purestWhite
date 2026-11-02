@@ -65,8 +65,6 @@ impl<M: RawMutex> Default for Jobs<M> {
 /// next page only once the panel has answered for every view (`purestwhite_app::PAGE_MS`).
 pub struct PageSlot<M: RawMutex> {
     page: Mutex<M, Cell<Option<Frame>>>,
-    /// How many pages the storage loop has read whole into it.
-    loaded: Mutex<M, Cell<u16>>,
 }
 
 impl<M: RawMutex> PageSlot<M> {
@@ -74,7 +72,6 @@ impl<M: RawMutex> PageSlot<M> {
     pub const fn new() -> Self {
         PageSlot {
             page: Mutex::new(Cell::new(None)),
-            loaded: Mutex::new(Cell::new(0)),
         }
     }
 
@@ -97,12 +94,6 @@ impl<M: RawMutex> PageSlot<M> {
         frame.copy_from_slice(&page[..]);
         self.put(page);
         true
-    }
-
-    /// How many pages were read whole so far: more than none once the page loop runs.
-    #[must_use]
-    pub fn loaded(&self) -> u16 {
-        self.loaded.lock(Cell::get)
     }
 
     fn take(&self) -> Option<Frame> {
@@ -166,11 +157,7 @@ async fn load<M: RawMutex, D: BlockDevice>(
     let loaded = load_page(volume, n, page).await;
     slot.put(page);
     match loaded {
-        Ok(()) => {
-            slot.loaded
-                .lock(|loaded| loaded.set(loaded.get().saturating_add(1)));
-            Event::PageLoaded(n)
-        }
+        Ok(()) => Event::PageLoaded(n),
         Err(_) => Event::PageFailed(n),
     }
 }
