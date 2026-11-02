@@ -1,17 +1,24 @@
 //! During phase 2 the image comes back to the C++ firmware without the owner: `MOST` after the
 //! start the backstop asks the application for the sleep itself (as Power held does), unless the
 //! sleep has begun; and if the power loop has not begun the sleep `GRACE` after that, it notes it
-//! and resets into the C++ firmware. It goes away in phase 3, when this image is the firmware.
+//! and resets into the C++ firmware. The application sleeps on its own before that: after
+//! `IDLE_MS` without a key, or at the end of the page loop's hour, which may start as late as the
+//! idle sleep would come. It goes away in phase 3, when this image is the firmware.
 
 use crate::power::{FEED, SLEEPING, TIME_UP};
 use crate::tasks::{LINKS, PANEL_LIMIT};
 use core::sync::atomic::Ordering;
 use embassy_time::{Duration, Instant, Timer};
-use purestwhite_app::Event;
+use purestwhite_app::{Event, IDLE_MS, LOOP_PAGES, PAGE_MS};
 use purestwhite_firmware::boot::Report;
 
-/// How long after the start the backstop asks for the sleep.
-const MOST: Duration = Duration::from_secs(10 * 60);
+/// How long after the start the backstop asks for the sleep: an hour's page loop started just
+/// before the idle sleep would come, run to its end, and margin. A loop started later (keys
+/// pressed before Right put the idle sleep off) is cut short, its sleep noted `time up`.
+const MOST: Duration =
+    Duration::from_millis(IDLE_MS as u64 + LOOP_PAGES as u64 * PAGE_MS as u64 + MARGIN_MS);
+/// The backstop's margin over the application's latest sleep.
+const MARGIN_MS: u64 = 5 * 60 * 1000;
 /// How long after that the power loop may take to begin the sleep.
 const GRACE: Duration = Duration::from_secs(60);
 /// How often a request that did not fit in the events channel is tried again.

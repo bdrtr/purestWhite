@@ -20,14 +20,14 @@ use esp_backtrace as _;
 use esp_hal::Async;
 use esp_hal::clock::CpuClock;
 use esp_hal::gpio::{Flex, Level, Output, OutputConfig};
-use esp_hal::i2c::master::{Config as I2cConfig, I2c, SoftwareTimeout};
-use esp_hal::time::{Duration, Rate};
+use esp_hal::i2c::master::I2c;
 use esp_hal::timer::systimer::SystemTimer;
 use log::info;
 use purestwhite_epd::uc8279x4::Refresh;
 use purestwhite_firmware::board::Board;
 use purestwhite_firmware::board::{I2cParts, PanelParts, TouchParts};
 use purestwhite_firmware::boot::{Report, Started, start};
+use purestwhite_firmware::i2c;
 use purestwhite_firmware::input::{TOUCH, TouchPins};
 use purestwhite_firmware::panel::{self, Lines, OpenError, Opened, Panel};
 use purestwhite_firmware::test_image::note_touch;
@@ -216,13 +216,8 @@ async fn open_i2c(
     parts: I2cParts,
 ) -> (Option<I2c<'static, Async>>, Output<'static>) {
     let supply = Output::new(parts.supply, Level::Low, OutputConfig::default());
-    Timer::after_millis(50).await;
-    let config = I2cConfig::default()
-        .with_frequency(Rate::from_khz(400))
-        .with_software_timeout(SoftwareTimeout::Transaction(Duration::from_millis(50)));
-    let bus = I2c::new(parts.i2c, config)
-        .map(|i2c| i2c.with_sda(parts.sda).with_scl(parts.scl).into_async())
-        .ok();
+    Timer::after_millis(i2c::SUPPLY_MS).await;
+    let bus = i2c::open_bus(parts.i2c, parts.sda, parts.scl);
     if bus.is_none() {
         let _ = writeln!(report, "i2c: not set up");
     }

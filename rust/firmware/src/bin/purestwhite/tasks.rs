@@ -12,7 +12,9 @@ use purestwhite_firmware::input::ButtonPins;
 use purestwhite_firmware::keys::run_keys;
 use purestwhite_firmware::screen::{DeviceScreen, ScreenStats};
 use purestwhite_render::FRAME_BYTES;
-use purestwhite_services::{Links, Screen, ScreenError, run_app, run_draw, run_panel};
+use purestwhite_services::{
+    EmbassyClock, Links, Screen, ScreenError, run_app, run_draw, run_panel, run_timers,
+};
 
 /// The channels' mutex: a plain `static` needs one that is `Sync`.
 pub type Mutex = CriticalSectionRawMutex;
@@ -67,6 +69,12 @@ pub const PANEL_LIMIT: Duration = Duration::from_secs(20);
 pub async fn app() -> ! {
     let mut app = App::new();
     run_app(&mut app, LINKS.app_links()).await
+}
+
+/// The application's timers (the idle sleep, the page loop's beat) on embassy-time's clock.
+#[embassy_executor::task]
+pub async fn timers() -> ! {
+    run_timers(&EmbassyClock, LINKS.timer_links()).await
 }
 
 /// Without a font for now: the screens' shapes only.

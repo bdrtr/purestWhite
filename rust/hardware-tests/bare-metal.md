@@ -1153,3 +1153,38 @@ without breaking the C++ firmware's slot; the fell-back entry stays build-only s
     saw Right stay unexplained (a state not reproduced, or the key not pressed as the image
     started). Next: the recovery mode's second step again. Report:
     `firmware-arsiv/cihaz-raporlari/2026-10-29-right-2-after-sleep.txt`.
+
+## The battery measurement's wiring ("services: the storage and gauge loops rest before the sleep", "firmware: the battery measurement in the purestwhite image")
+
+The `purestwhite` image now runs the application's timers (the idle sleep after ten minutes
+without a key), the card (mounted over the interrupt-driven bus) and the fuel gauge, and Right on
+the home screen starts the battery measurement's page loop: a page from
+`/purestwhite-pages/001.bmp` on every 30 s for an hour, then the sleep. During the loop the report
+keeps only the title, the runs line, the battery line, the panel line and the sleep line. Nothing
+here writes the card or the C++ firmware's slot: the image is installed into the other slot by SD
+Card Firmware Update, as every test image. The image is `purestwhite-baremetal-main-5.bin` (in the
+archive, its checksum in `SHA256-bare-metal.txt`). On the device only.
+
+Before both steps: **take `purestwhite-recovery.bin` off the card** (the archive keeps it). With
+it gone, nothing in this test can write the C++ firmware's slot, even if Right is held as the
+image starts. Take `purestwhite-baremetal-main-3.bin` off the card too. Run on battery, USB
+unplugged. Do not hold Right while the image starts (until the white screen with its black line
+shows) or while waking the device.
+
+- [ ] Without pages. Put `purestwhite-baremetal-main-5.bin` in the card's root; Settings > System >
+  SD Card Firmware Update > choose it > Confirm. Wait on the white screen with its black line for
+  40 s, press nothing; then hold Power for a second (the crescent, then the sleep); wake it as
+  usual and give me the card. Expected: "runs: 0 unfinished", "psram 8192 KB, frames ok", "panel
+  UC8179", "card: try 1", "healthy: 30 s", the panel line, "sleep: deep, power ...". Right does
+  nothing new here (no pages on the card).
+- [ ] The measurement, about 65 minutes. Charge the device first (not full: the gauge's charge
+  should be able to fall), then unplug USB. Copy the folder `purestwhite-pages` from the archive
+  (120 pages, made by `pw-pages`) to the card's root. Install `purestwhite-baremetal-main-5.bin`
+  as above; on the white screen press Right once, within a minute: the first page shows with a
+  full refresh, then a new page every 30 s. Leave the device alone for the hour, upright, at room
+  temperature. After 120 pages the crescent shows and it sleeps by itself; wake it with Power (or
+  it wakes itself 10 minutes later) and give me the card. Expected: "runs: 0 unfinished", then
+  "battery: P% M M ... M P%, 120 pages" with 13 millivolt values (`-` for one the gauge did not
+  give), "panel: N ok, 0 failed, 0 given up, ..., asleep" with N about 124 (the home screen and
+  its battery update, 120 pages, the crescent and the panel's sleep), "sleep: deep, hour ...". If it
+  shows "sleep: deep, time up", the backstop ended the loop (75 minutes after the start).

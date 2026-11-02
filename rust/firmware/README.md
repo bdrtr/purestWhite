@@ -138,17 +138,23 @@ it knows and the recovery mode's scenarios, run on a FAT image and a flash in me
 `purestwhite` (`src/bin/purestwhite/`) is the Embassy main of [DESIGN.md](DESIGN.md), the image that
 grows into the real firmware. During phase 2 it starts as every test image does (`boot::start`: the
 next boot handed back to the C++ firmware first). It runs the application through the services'
-loops as Embassy tasks (`tasks.rs`: app, draw, panel, keys), with the two frames in the PSRAM heap:
-the home screen, and when Power is held longer than 400 ms (`POWER_HOLD_MS`, with Right up) the
-sleep screen. Then `power.rs` runs the sleep handshake: the panel rests (its deep sleep) and hands
-back its reset line, the keys rest and hand back their pins, it waits up to 10 s for Power to be
-released, and the chip sleeps deeply until Power, whose wake boots the C++ firmware. Until then it
-feeds the watchdog every 10 s, so a stuck executor resets into the C++ firmware. During phase 2 it
-also comes back to the C++ firmware on its own: the backstop task (`backstop.rs`) asks for the sleep
-after 10 minutes and resets if the sleep has not begun a minute later; a loop that does not rest
-within about a minute resets too; and the sleep is `boot`'s bounded one (`report_and_sleep`): it
-ends after 10 minutes at most, and the watchdog resets the chip if it has not woken 2 minutes after
-that. There is no font, battery or clock yet: the screens show their shapes only. Its report:
+loops as Embassy tasks (`tasks.rs`: app, draw, panel, keys, timers; `card.rs`: the card and the
+storage loop; `battery.rs`: the fuel gauge), with three frames in the PSRAM heap (two for drawing,
+one for the battery measurement's pages): the home screen; when Power is held longer than 400 ms
+(`POWER_HOLD_MS`, with Right up), or after ten minutes without a key, the sleep screen; and Right on
+the home screen starts the page loop when the card holds `/purestwhite-pages/001.bmp` on (made by
+`pw-pages`, below): a page every 30 s for an hour, then the sleep; Left goes back home. Then
+`power.rs` runs the sleep handshake: the panel rests (its deep sleep) and hands back its reset
+line, the keys rest and hand back their pins, the card and the gauge rest (the card hands back its
+supply), it waits up to 10 s for Power to be released, and the chip sleeps deeply until Power,
+whose wake boots the C++ firmware. Until then it feeds the watchdog every 10 s, so a stuck executor
+resets into the C++ firmware. During phase 2 it also comes back to the C++ firmware on its own: the
+backstop task (`backstop.rs`) asks for the sleep after 75 minutes (the idle sleep, an hour's page
+loop, and margin: start the loop within about 10 minutes of the start) and resets if the sleep has
+not begun a minute later; a loop that does not rest within about a minute resets too; and the sleep
+is `boot`'s bounded one (`report_and_sleep`): it ends after 10 minutes at most, and the watchdog
+resets the chip if it has not woken 2 minutes after that. There is no font or clock yet: the
+screens show their shapes only. Its report:
 
 ```
 purestWhite
@@ -156,15 +162,30 @@ next boot: C++ firmware
 runs: 0 unfinished
 psram 8192 KB, frames ok
 panel UC8179
+card: try 1
 healthy: 30 s
 panel: 3 ok, 0 failed, 0 given up, longest N ms, asleep
 sleep: deep, power i<hex> p<hex> a r s
 ```
 
-`panel:` counts the panel's calls (the home screen, the sleep screen, its own sleep); calls given
-up, or a longest frame near the panel loop's 20 s, mean BUSY's interrupt did not wake the task. The
-sleep line says `time up` when the backstop asked for it; the C++ firmware adds what woke and reset
-the chip. Needs esp-rtos: device only.
+`card:` says how the card came up: the try that mounted it, or `no slot`, `not mounted`, `no
+volume`; `i2c: not set up` notes a bus the gauge cannot have. `panel:` counts the panel's calls (the
+home screen, the sleep screen, its own sleep); calls given up, or a longest frame near the panel
+loop's 20 s, mean BUSY's interrupt did not wake the task. The sleep line says why: `power`, `idle`,
+`hour` (the page loop's end), or `time up` when the backstop asked for it; the C++ firmware adds what
+woke and reset the chip. Needs esp-rtos: device only.
+
+Once the page loop starts, the run is a battery measurement, and the report makes room for it: it
+starts again with the title and the runs line, then the battery line, written again with each new
+reading (the begin's, one every 5 minutes, the end's), then the panel's and the sleep's lines:
+
+```
+purestWhite
+runs: 0 unfinished
+battery: 98% 4150 4141 4133 ... 4062 96%, 120 pages
+panel: 122 ok, 0 failed, 0 given up, longest N ms, asleep
+sleep: deep, hour i<hex> p<hex> a r s
+```
 
 Before any task it may enter the recovery mode instead (`recovery.rs`): when the bootloader fell
 back to it (it refused the C++ firmware's slot), or when Right is held as it starts. It notes

@@ -1,10 +1,11 @@
 //! The bare-metal firmware's device layers: the X4 Pro's wiring (`board`), the buttons and touch
 //! panel (`input`), deep sleep (`sleep`), and for now the panel (`panel`) and the SD card (`sd`)
 //! through blocking calls. For the Embassy main: the buttons on their interrupts (`keys`), the
-//! PSRAM as a heap of its own (`memory`) and the panel as the services' `Screen` (`screen`). What
-//! every image shares while the C++ firmware is the known-good one (the watchdog, the next boot
-//! handed back to it, the report, the bounded deep sleep), and the boot counter's record, is in
-//! `boot`; what only the test images use is in `test_image`, out of the real firmware's way.
+//! PSRAM as a heap of its own (`memory`), the panel as the services' `Screen` (`screen`), the
+//! shared I2C bus (`i2c`) and the fuel gauge on it as their `Gauge` (`gauge`). What every image shares while the C++ firmware is the
+//! known-good one (the watchdog, the next boot handed back to it, the report, the bounded deep
+//! sleep), and the boot counter's record, is in `boot`; what only the test images use is in
+//! `test_image`, out of the real firmware's way.
 #![no_std]
 #![warn(clippy::pedantic)]
 
@@ -14,6 +15,8 @@ use esp_alloc as _;
 
 pub mod board;
 pub mod boot;
+pub mod gauge;
+pub mod i2c;
 pub mod images;
 pub mod input;
 pub mod keys;

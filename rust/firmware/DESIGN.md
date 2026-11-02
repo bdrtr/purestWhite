@@ -98,9 +98,8 @@ purestwhite-services   no_std, host-buildable: the device traits and the service
   id, so a firing already on its way when a key armed the timer again is out of date. The loop
   runs on a `Clock`: embassy-time's on the device (`EmbassyClock`), the script's in the simulator.
   The first timer is the idle sleep: ten minutes without a key press put the device to sleep, as
-  the C++ firmware's default auto-sleep (`IDLE_MS`). The `purestwhite` image does not run the
-  timer loop yet (its armings stay in the slot): during phase 2 the backstop's sleep stands in,
-  and the loop comes with the next device test of the image.
+  the C++ firmware's default auto-sleep (`IDLE_MS`). The `purestwhite` image runs the timer loop
+  in a task of its own; during phase 2 the backstop stays behind it (`backstop.rs`).
 - Channels are bounded; a full channel makes the sender wait.
 
 ## Memory
@@ -315,8 +314,14 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   page buffer (a third 48,000-byte buffer, in PSRAM on the device) is held by the storage loop
   while it reads and by drawing while it copies (`PageSlot`); the app keeps them apart by asking
   for the next page only once the panel has answered for every view shown. Without a card or a
-  page buffer the pages count as none and Right is a key like any other. The `purestwhite` image
-  does not run the storage loop yet, so on the device Right does nothing new.
+  page buffer the pages count as none and Right is a key like any other. The measurement spans
+  the loop: the app sends `Command::Measure(Measure::Begin)` as it starts and
+  `Measure::End { shown }` however it ends (its hour, Left, a page that cannot be read, or a sleep
+  asked for meanwhile), and says why it sleeps (`Command::Sleep(SleepReason)`: Power, idle, or the
+  loop's end). In the `purestwhite` image the card task mounts the card over the interrupt-driven
+  bus and runs the storage loop (`card.rs`); the page buffer is a third frame in the PSRAM heap,
+  which nothing DMAs into (the card's DMA fills `CardBlocks`' buffer in the task's static future, in
+  internal RAM, 42 KB, and the bytes are copied from there).
 - The pages are made on the PC by `pw-pages` (`rust/sim`): a text (or built-in sentences) set in
   one style of a `.cpfont` within margins, the page's number at its foot, written as 1-bit BMPs
   (`rust/sim/src/typeset.rs`, `bmp.rs`); the same files go on the card for both firmwares.
@@ -325,15 +330,33 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   firmware links `purestwhite-gauge` (and the other crates `bembeyaz-ffi` names): a change there
   that moves existing lines changes the C++ image, which must stay the release the SD updater
   knows, so new code goes after the old, and `pio run -e x4pro` must still give digest c746bebf.
-- The gauge's charge and voltage at the start and every 5 minutes (`run_gauge`, on the timer
-  loop's `Clock`) go into the battery log (`BatteryLog`): its first 13 readings, an hour's, in one
-  line (`battery: 87% 4012 3998 - ... 83%`: each reading's millivolts, `-` for one the gauge did
-  not give, between the first and the last charge) of at most 85 bytes, for the RTC report, so nothing is written to the card before gate 4; the books card
-  is never written. Each reading's charge also goes to the app (`Event::Battery`). The main image's
-  report lines take most of its 248 bytes today, so a measurement run must make room: which lines
-  give way, or an RTC area of the log's own (the C++ firmware would have to save it too), is
-  decided with the firmware wiring. Host-tested on a fake gauge and the test clock; not run on the
-  device yet.
+- The gauge is read at the start and every 5 minutes (`run_gauge`, on the timer loop's `Clock`),
+  each charge sent to the app (`Event::Battery`); a reading's charge and voltage are read apart,
+  so a voltage is kept when the charge is not given. The battery log (`BatteryLog`) keeps only the
+  measurement's readings: at `Measure::Begin` the gauge is read at once and the beat starts again
+  from there; at `Measure::End` it is read once more and the log notes the pages shown. It keeps 13
+  readings: the begin's, the beat's while a place is left beside the end's, and the end's; an
+  hour's loop fills them. Its line (`battery: 87% 4012 3998 - ... 83%, 120 pages`: each reading's
+  millivolts, `-` for one the gauge did not give, between the first and the last charge) is at
+  most 94 bytes, for the RTC report, so nothing is written to the card before gate 4; the books
+  card is never written. In the `purestwhite` image the gauge task runs the loop on the CW2017
+  (`battery.rs`, `crate::gauge`) over the shared bus (`crate::i2c`), the touch panel's supply on
+  for it and the touch controller held in reset, off the bus. The C++ firmware runs its touch
+  controller, so the measurement's comparison has to account for that difference.
+- The report during a measurement (`battery::Measurement`): it starts again with its title and its
+  runs line, and the other lines give way to the battery line, written again with each new
+  reading; the panel's and the sleep's lines follow at the sleep, the sleep line with the reason
+  (`power`, `idle`, `hour`, or `time up` from the backstop). About 230 bytes of the 248; with both
+  `recovery due` and `power held` the last marks of the sleep line may be cut, but the line itself
+  always starts within the room. The C++ firmware links `purestwhite-gauge` (and the other crates
+  `bembeyaz-ffi` names): a change there that moves existing lines changes the C++ image, which
+  must stay the release the SD updater knows, so new code goes after the old, and
+  `pio run -e x4pro` must still give digest c746bebf (it does after this wiring, which leaves those
+  crates as they were).
+- Open: the C++ firmware's image viewer needs its automatic page mode for the other half of the
+  comparison (a new C++ release); the SDMMC pins (40-42) stay routed with their pull-ups through
+  the deep sleep after the card rests, which may back-feed the card's supply, as the C++ firmware
+  found for its own (`SDCardManager::shutdown`), a sleep-current question for later.
 
 ## The host simulator (`rust/sim`)
 
@@ -404,9 +427,12 @@ hand-back).
    in between, `emu/baremetal-count-cpp.txt`); and the recovery mode's first slice (`updater`, the
    `purestwhite` image's `recovery`; its device test waits), whose steps and scenarios run on the
    host (`purestwhite-updater`). Left: its line of text on the panel, and the check at power-on.
-4. The battery page loop and its RTC log; the two-firmware measurement. Before it, who owns the
-   report: now the power task does, and the phase-2 backstop writes it once, just before a
-   reset; a battery log in its own task needs a shared report in `boot` or an RTC area of its own.
+4. The battery page loop and its RTC log; the two-firmware measurement. Written, for the device
+   test: the `purestwhite` image's timer, card and gauge tasks, the page buffer, the rest of the
+   card and the gauge before the sleep (each ends between two jobs or readings; the card hands its
+   supply back), and the report's measurement shape, kept by the power task, which owns the report;
+   the backstop now asks for the sleep after 75 minutes (the idle sleep, an hour's loop and
+   margin). Left: the C++ image viewer's automatic mode, and the measurement on both firmwares.
 
 Each step: host tests, sim scenarios, `cargo clippy` with the 50-line limit, the emulator's
 hand-back scenarios, and the reviews the project's rules ask for (memory, build and flash
