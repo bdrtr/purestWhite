@@ -13,6 +13,7 @@
 #include <cstring>
 
 #include "network/HttpDownloader.h"
+#include "network/LcpDeviceStore.h"
 
 // Injected from CI secrets into official release builds; self-compiled
 // firmware carries the empty default and does everything except LCP.
@@ -27,34 +28,6 @@ namespace lcpdevice {
 namespace {
 
 constexpr const char* LCP_ENROLL_URL = "https://lcp.freeink.org/enroll";
-
-// One enrolled identity per device, persisted like the other credential
-// stores: the private key obfuscated with the device key, the id plain.
-class LcpDeviceStore : public PersistableStore<LcpDeviceStore> {
- private:
-  LcpDeviceStore() = default;
-  friend class PersistableStore<LcpDeviceStore>;
-
- public:
-  std::string deviceId;
-  std::string privHex;  // 64 hex chars
-
-  static const char* getFilePath() { return "/.crosspoint/lcp_device.json"; }
-  void toJson(JsonDocument& doc) const {
-    doc["device_id"] = deviceId;
-    doc["priv_obf"] = obfuscation::obfuscateToBase64(privHex);
-  }
-  bool fromJson(JsonVariantConst doc) {
-    deviceId = doc["device_id"] | "";
-    bool ok = false;
-    bool tooLong = false;
-    privHex = obfuscation::deobfuscateFromBase64(doc["priv_obf"] | "", 64, &ok, &tooLong);
-    return true;
-  }
-  bool valid() const { return !deviceId.empty() && privHex.size() == 64; }
-};
-
-#define LCP_DEVICE LcpDeviceStore::getInstance()
 
 bool hexToBytes32(const std::string& hex, uint8_t out[32]) {
   if (hex.size() != 64) return false;
