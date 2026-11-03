@@ -2,7 +2,9 @@
 //! `lib/Serialization/PersistableStore.h`) read and written as the C++ stores did with
 //! ArduinoJson: the same JSON out, the same values from any file, a field of the wrong type
 //! falling back to its default. One module per store, each with `read` and `write`; each one's
-//! golden corpus is that store's C++ answers.
+//! golden corpus is that store's C++ answers. Where the bare-metal firmware needs a store's
+//! decisions too (which items it keeps, whether it saves again), they are here beside its `read`,
+//! checked against the same corpus: [`wifi_credentials::keep`].
 //!
 //! - [`state`]: `CrossPointState` (`state.json`): the open book, the recent sleep images; corpus
 //!   from `test/crosspoint_state/make_corpus.py`.

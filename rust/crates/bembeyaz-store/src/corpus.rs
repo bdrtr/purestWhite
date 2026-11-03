@@ -69,3 +69,16 @@ pub(crate) fn fuzz(corpus: &str, every: usize, mut read: impl FnMut(&[u8])) {
         }
     }
 }
+
+/// The drivers' stand-in for the device's obfuscation (`test/json_oracle`'s `ObfuscationFake.cpp`):
+/// `~` and the bytes in hex; anything else does not decode.
+pub(crate) fn deobfuscate(text: &[u8]) -> Option<Vec<u8>> {
+    let digits = text.strip_prefix(b"~")?;
+    if digits.len() % 2 != 0 {
+        return None;
+    }
+    let digits = core::str::from_utf8(digits).ok()?;
+    (0..digits.len() / 2)
+        .map(|i| u8::from_str_radix(&digits[2 * i..2 * i + 2], 16).ok())
+        .collect()
+}

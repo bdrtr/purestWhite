@@ -1231,7 +1231,8 @@ the device only.
   joined on channel C, -D dBm, T ms" (the dBm when the radio gives it) with T a few seconds,
   "dhcp: address in T ms" with T under a few seconds, "done". What else it may say:
   - "saved: no card", "saved: no file", "saved: broken file": the card, the file, or the JSON in
-    it could not be read; "saved: 0 networks": none the C++ firmware would use.
+    it could not be read; "saved: file too large": wifi.json is over 16 KiB (the C++ firmware
+    writes a few KB); "saved: no memory": the heap ran out while reading it; "saved: 0 networks": none the C++ firmware would use.
   - "wifi: joining" as the last line, or "PANIC": it stopped there and reset.
   - "wifi: not joined (...)" names why the router refused: "FourWayHandshakeTimeout" most likely
     a wrong password; "NoAccessPointFound" no such network around;

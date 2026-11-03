@@ -4,8 +4,9 @@
 //! `bb_store_write` callback, so no Rust buffer outlives a call.
 
 use crate::store::{BbNumber, Text, Write, hand_over};
-use bembeyaz_store::wifi_credentials::{Saved, read, write};
+use bembeyaz_store::wifi_credentials::{Saved, read_each, write};
 use core::ffi::{c_char, c_void};
+use core::ops::ControlFlow;
 
 /// store_wifi_credentials.h's `bb_store_wifi_stored`.
 #[repr(C)]
@@ -94,28 +95,33 @@ pub unsafe extern "C" fn bb_store_wifi_credentials_read(
     context: *mut c_void,
 ) -> *const c_char {
     // SAFETY: as documented.
-    let file = match read(unsafe { crate::view(text.cast::<u8>(), len) }) {
-        Ok(file) => file,
-        Err(error) => return error.c_name().as_ptr(),
-    };
-    let last = &file.last_connected_ssid;
-    if let Some(last_connected) = last_connected {
-        // SAFETY: `last` is readable for the call; the caller vouches for the rest.
-        unsafe { last_connected(last.as_ptr().cast(), last.len(), context) };
+    let text = unsafe { crate::view(text.cast::<u8>(), len) };
+    let handed = read_each(
+        text,
+        |last| {
+            if let Some(last_connected) = last_connected {
+                // SAFETY: `last` is readable for the call; the caller vouches for the rest.
+                unsafe { last_connected(last.as_ptr().cast(), last.len(), context) };
+            }
+        },
+        |c, count| {
+            if let Some(stored) = stored {
+                let entry = BbStored {
+                    ssid: Text::of(c.ssid),
+                    password_obf: Text::of(c.password_obf),
+                    password: Text::of(c.password),
+                    password_len: BbNumber::of(c.password_len),
+                    password_crc32: BbNumber::of(c.password_crc32),
+                };
+                // SAFETY: `entry`'s texts are readable for the call; the caller vouches for stored
+                // and context.
+                unsafe { stored(&raw const entry, count, context) };
+            }
+            ControlFlow::Continue(())
+        },
+    );
+    match handed {
+        Ok(()) => core::ptr::null(),
+        Err(error) => error.c_name().as_ptr(),
     }
-    if let Some(stored) = stored {
-        for c in &file.credentials {
-            let entry = BbStored {
-                ssid: Text::of(&c.ssid),
-                password_obf: Text::of(&c.password_obf),
-                password: Text::of(&c.password),
-                password_len: BbNumber::of(c.password_len),
-                password_crc32: BbNumber::of(c.password_crc32),
-            };
-            // SAFETY: `entry`'s texts are readable for the call; the caller vouches for stored
-            // and context.
-            unsafe { stored(&raw const entry, file.credentials.len(), context) };
-        }
-    }
-    core::ptr::null()
 }

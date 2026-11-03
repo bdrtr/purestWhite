@@ -256,9 +256,11 @@ its scenario in `emu/`.
   nothing. Needs esp-rtos: device only.
 - `wifi-join` (built with `--features wifi`): gate 2's second step. Reads the C++ firmware's
   saved networks from the card (`/.crosspoint/wifi.json`: `purestwhite-wifistore` decodes the
-  passwords with the device's eFuse base MAC address, as `WifiCredentialStore` keeps them), joins
+  passwords with the device's eFuse base MAC address and keeps the networks through
+  `bembeyaz_store::wifi_credentials`, the C++ store's own Rust code, on the global heap), joins
   the one it joined last and asks DHCP for an address, then leaves and resets. Its report:
-  `saved: N networks` (or `saved: no card`, `no file`, `broken file`), `wifi: joining` while it
+  `saved: N networks` (or `saved: no card`, `no file`, `broken file`, `file too large` past 16 KiB,
+  `no memory`), `wifi: joining` while it
   joins, then `wifi: joined on channel C, -D dBm, T ms` (or `wifi: not joined (why)` with
   esp-radio's reason, `wifi: no answer in 30 s`), `dhcp: address in T ms` (or `dhcp: no address
   in 20 s`), `done`; never a network's name, a password or an address. The watchdog is fed

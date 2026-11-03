@@ -130,7 +130,12 @@ settings; its `byte` is ArduinoJson's `as<uint8_t>()` for a field read with no `
 C++ decides nothing on crosses as the value Rust read that way, whatever its type (texts, bools, the
 bookmarks' and CrossPointState's numbers); a field C++ decides on, by its presence, its type, or a
 check of its value against a C++ constant or enum, crosses with its kind (KOReader's `cfgVersion`,
-`matchMethod`, `serverType`, `syncBehavior`), and those decisions stay in C++. ABI types stay in the
+`matchMethod`, `serverType`, `syncBehavior`), and on the C++ firmware those decisions stay in C++.
+Where the bare-metal firmware needs a store's decisions, they are written in Rust beside its `read`
+(`wifi_credentials::keep`, used by `purestwhite-wifistore`) and checked against the same corpus;
+while C++ keeps its own copy, a change to one must be made in the other. The direction is for Rust
+to own them: a store whose decisions the bare-metal firmware needs next (KOReader's) gets them in
+Rust once, the C++ store calling them, and C++ gives only the obfuscation. ABI types stay in the
 store's `.cpp`, out of its header. Each store's file format (its keys and their order) is Rust's;
 `CrossPointSettings` is the exception: its keys come from C++'s `SettingsList` table, shared with
 the web settings page, so it will read through a parsed document with typed getters instead: `*_new`
@@ -177,7 +182,11 @@ to `check_shim.sh` (the OPDS test still mirrors that glue).
   `removeCredential` over the host stand-ins of `test/json_oracle`: 1,000 seeded steps and 11 edge
   steps, in `rust/crates/bembeyaz-store/testdata/wifi-credentials-corpus.txt`. The Rust tests replay
   the stored-text layers the driver prints (what a file holds, what a save writes); `check_shim.sh`
-  checks the C++ store's answers through the shim.
+  checks the C++ store's answers through the shim. Its keep-or-drop decisions are also in Rust,
+  `wifi_credentials::keep` (the password decoder given), checked against the same corpus's answers
+  with the host stand-in; the bare-metal firmware's `purestwhite-wifistore` keeps its networks
+  through `keep`, so it makes the C++ firmware's decisions, with its own limits on top: it leaves out
+  a name longer than Wi-Fi's 32 bytes, refuses a file over 16 KiB, and reports running out of memory.
 - **KOReader sync account ✅**: `KOReaderCredentialStore` reads and writes its JSON (`koreader.json`:
   the sync account, its password obfuscated, the server, its type, the document match method, the
   sync behavior, two flags and two extra headers) through the `koreader_credentials` module of

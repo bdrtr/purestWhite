@@ -2,8 +2,8 @@
 #![allow(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 use super::base64::{DecodeError, decode};
-use super::crc32::crc32;
-use super::{KEY_LEN, NETWORKS_MOST, ReadError, Saved, read};
+use super::{JSON_MOST, KEY_LEN, NETWORKS_MOST, ReadError, Saved, read};
+use bembeyaz_store::wifi_credentials::crc32;
 use std::format;
 use std::string::String;
 use std::vec::Vec;
@@ -171,6 +171,8 @@ fn a_broken_file_is_an_error_and_other_fields_are_skipped() {
         read(br#"{"credentials":[tru]}"#, &KEY),
         Err(ReadError::Json)
     );
+    let large = format!(r#"{{"credentials":[],"x":"{}"}}"#, "a".repeat(JSON_MOST));
+    assert_eq!(read(large.as_bytes(), &KEY), Err(ReadError::TooLarge));
     let extra = network("Home", "secret12").replace('{', r#"{"note":{"a":[1,2]},"#);
     let json =
         format!(r#"{{"version":3,"credentials":[{extra}],"lastConnectedSsid":"Home","x":null}}"#);
@@ -204,32 +206,52 @@ fn base64_decodes_rfc_4648s_vectors_and_refuses_the_rest() {
         let text = decode::<8>(encoded.as_bytes()).unwrap();
         assert_eq!(text.as_bytes(), decoded.as_bytes(), "{encoded}");
     }
-    for bad in ["Zg=", "Z===", "Zg=a", "Z=g=", "Zm 9v", "Zm9v\n"] {
+    // mbedtls 3.6 skips line breaks anywhere, and spaces before one or at the end.
+    let spaced = [
+        ("Zm9v\n", "foo"),
+        ("Zm\r\n9v", "foo"),
+        ("Zm9v  ", "foo"),
+        ("Zm  \n9v", "foo"),
+        ("Zg=\n=", "f"),
+        ("  ", ""),
+        ("\n", ""),
+    ];
+    for (encoded, decoded) in spaced {
+        let text = decode::<8>(encoded.as_bytes()).unwrap();
+        assert_eq!(text.as_bytes(), decoded.as_bytes(), "{encoded:?}");
+    }
+    for bad in [
+        "Zg=",
+        "Z===",
+        "Zg=a",
+        "Z=g=",
+        "Zm 9v",
+        " Zm9v",
+        "Zm9v\r",
+        "Zm\r9v",
+        "Z\u{80}9v",
+        "Zm9vY",
+    ] {
         assert_eq!(
             decode::<8>(bad.as_bytes()),
             Err(DecodeError::Invalid),
-            "{bad}"
+            "{bad:?}"
         );
     }
     assert_eq!(decode::<5>(b"Zm9vYmFy"), Err(DecodeError::TooLong));
 }
 
 #[test]
-fn crc32_is_ieees() {
-    assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
-    assert_eq!(crc32(b""), 0);
-}
-
-#[test]
-fn a_file_cut_short_or_with_more_after_it_is_broken_as_for_the_cpp_firmware() {
+fn a_file_cut_short_is_broken_and_text_after_it_is_ignored_as_for_the_cpp_firmware() {
     let whole = file(
         "Home",
         &[network("Home", "secret12"), network("Cafe", "latte123")],
     );
     let cut = &whole[..whole.len() - 20];
     assert_eq!(read(cut.as_bytes(), &KEY), Err(ReadError::Json));
+    // ArduinoJson stops at the end of an object root: what follows it is not read.
     let more = format!("{whole} {{}}");
-    assert_eq!(read(more.as_bytes(), &KEY), Err(ReadError::Json));
+    assert_eq!(read(more.as_bytes(), &KEY).map(|s| s.len()), Ok(2));
     assert!(read(format!("{whole}\n").as_bytes(), &KEY).is_ok());
 }
 

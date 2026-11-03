@@ -1,20 +1,25 @@
 //! `WifiCredentialStore`'s JSON (`src/WifiCredentialStore.cpp`, `/.crosspoint/wifi.json`): the
 //! Wi-Fi networks saved and the one connected last. Each password is kept obfuscated with the
-//! device's key, with its length and CRC-32 so a corrupted one is noticed. Deciding which
-//! networks to keep (the password decoded, its length and checksum checked, at most
-//! `MAX_NETWORKS` kept) and whether to save again stays in C++, so this reads each item's stored
-//! fields as they are, each number with its kind, and writes what C++ gives.
+//! device's key, with its length and CRC-32 so a corrupted one is noticed. On the C++ firmware,
+//! deciding which networks to keep (the password decoded, its length and checksum checked, at most
+//! `MAX_NETWORKS` kept) and whether to save again stays in C++: [`read_each`] hands over each
+//! item's stored fields as they are, each number with its kind, and [`write`] writes what C++
+//! gives. [`keep`] makes the same decisions in Rust for the bare-metal firmware
+//! (`purestwhite-wifistore`); it is checked against the same corpus, so a change to the C++
+//! checks must be made in `keep` too.
 
-use crate::field::Number;
+use crate::field::{Kind, Number};
 use alloc::vec::Vec;
 use bembeyaz_jsondoc::{Error, Value, Writer, items, or_str, parse};
+use core::ops::ControlFlow;
 
-/// A credential as a file holds it, for C++ to decide on. `password` is a legacy plain password.
+/// A credential as a file holds it, for the store to decide on. `password` is a legacy plain
+/// password. `S` is the text: views into the parsed file, or owned.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Stored {
-    pub ssid: Vec<u8>,
-    pub password_obf: Vec<u8>,
-    pub password: Vec<u8>,
+pub struct Stored<S = Vec<u8>> {
+    pub ssid: S,
+    pub password_obf: S,
+    pub password: S,
     pub password_len: Number,
     pub password_crc32: Number,
 }
@@ -68,28 +73,255 @@ pub fn write<S: AsRef<[u8]>>(
     w.finish()
 }
 
-/// Reads `wifi.json`'s text (`deserializeJson`): the network connected last, and every item of
-/// the "credentials" array (none when it has no such array), its texts read as strings, up to a
-/// NUL as C++ reads a `const char*` (an item that is not an object, or a field that is not a
-/// string, gives empty text).
+/// Reads `wifi.json`'s text (`deserializeJson`) and hands `last` the network connected last, then
+/// `each` every item of the "credentials" array (none when it has no such array) with how many
+/// there are, until `each` breaks; texts are read as strings, up to a NUL as C++ reads a
+/// `const char*` (an item that is not an object, or a field that is not a string, gives empty
+/// text), as views into the parsed text, valid during the call.
 ///
 /// # Errors
-/// When the text is not JSON, with the error `deserializeJson` gives; the C++ store then keeps its
-/// current networks.
-pub fn read(text: &[u8]) -> Result<File, Error> {
+/// When the text is not JSON, with the error `deserializeJson` gives; neither is called, and the
+/// C++ store then keeps its current networks.
+pub fn read_each(
+    text: &[u8],
+    last: impl FnOnce(&[u8]),
+    mut each: impl FnMut(&Stored<&[u8]>, usize) -> ControlFlow<()>,
+) -> Result<(), Error> {
+    fn field<'a>(item: &'a Value, key: &[u8]) -> &'a [u8] {
+        or_str(item.get(key), b"")
+    }
     let doc = parse(text)?;
-    let field = |item: &Value, key: &[u8]| or_str(item.get(key), b"").to_vec();
-    Ok(File {
-        last_connected_ssid: field(&doc, b"lastConnectedSsid"),
-        credentials: items(doc.get(b"credentials"))
-            .iter()
-            .map(|item| Stored {
-                ssid: field(item, b"ssid"),
-                password_obf: field(item, b"password_obf"),
-                password: field(item, b"password"),
-                password_len: Number::of(item.get(b"password_len")),
-                password_crc32: Number::of(item.get(b"password_crc32")),
-            })
-            .collect(),
+    last(field(&doc, b"lastConnectedSsid"));
+    let credentials = items(doc.get(b"credentials"));
+    for item in credentials {
+        let stored = Stored {
+            ssid: field(item, b"ssid"),
+            password_obf: field(item, b"password_obf"),
+            password: field(item, b"password"),
+            password_len: Number::of(item.get(b"password_len")),
+            password_crc32: Number::of(item.get(b"password_crc32")),
+        };
+        if each(&stored, credentials.len()).is_break() {
+            break;
+        }
+    }
+    Ok(())
+}
+
+/// [`read_each`]'s file, copied out.
+///
+/// # Errors
+/// As [`read_each`].
+pub fn read(text: &[u8]) -> Result<File, Error> {
+    let mut file = File::default();
+    let mut credentials = Vec::new();
+    read_each(
+        text,
+        |last| file.last_connected_ssid = last.to_vec(),
+        |s, _| {
+            credentials.push(Stored {
+                ssid: s.ssid.to_vec(),
+                password_obf: s.password_obf.to_vec(),
+                password: s.password.to_vec(),
+                password_len: s.password_len,
+                password_crc32: s.password_crc32,
+            });
+            ControlFlow::Continue(())
+        },
+    )?;
+    file.credentials = credentials;
+    Ok(file)
+}
+
+/// What decoding a stored password gave (`obfuscation::deobfuscateFromBase64`): the text, whether
+/// it decoded, and whether it was longer than asked for (then the text is empty).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Decoded {
+    pub text: Vec<u8>,
+    pub ok: bool,
+    pub too_long: bool,
+}
+
+/// A network kept: its name and plain password.
+#[derive(Clone, PartialEq, Eq)]
+pub struct Kept {
+    pub ssid: Vec<u8>,
+    pub password: Vec<u8>,
+}
+
+/// The name's length and whether there is a password: never the password, nor the name.
+impl core::fmt::Debug for Kept {
+    fn fmt(&self, out: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
+        out.debug_struct("Kept")
+            .field("ssid_len", &self.ssid.len())
+            .field("has_password", &!self.password.is_empty())
+            .finish()
+    }
+}
+
+/// The networks a file gives, as `WifiCredentialStore` keeps them, and whether it saves the file
+/// again (an older shape, or a network dropped).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Networks {
+    pub last_connected_ssid: Vec<u8>,
+    pub kept: Vec<Kept>,
+    pub resave: bool,
+}
+
+/// The limits `WifiCredentialStore` keeps to (`MAX_NETWORKS`, `MAX_PASSWORD_LENGTH`).
+#[derive(Clone, Copy, Debug)]
+pub struct Limits {
+    pub networks: usize,
+    pub password: usize,
+}
+
+/// The networks `wifi.json`'s text gives, decided as `WifiCredentialStore::fromJsonText` decides
+/// them (`addRead` and `checkIntegrity` in `src/WifiCredentialStore.cpp`, which this must follow):
+/// `decode(text, most)` decodes a stored password (at most `most` bytes). Only the networks kept
+/// are copied out of the parsed text, and each copy may fail, so a file that leaves too little
+/// memory after it is parsed is an error, not an abort.
+///
+/// # Errors
+/// When the text is not JSON, as [`read_each`]; [`Error::NoMemory`] when a copy runs out of memory.
+pub fn keep(
+    text: &[u8],
+    limits: Limits,
+    decode: impl Fn(&[u8], usize) -> Decoded,
+) -> Result<Networks, Error> {
+    let mut last_connected = Ok(Vec::new());
+    let mut kept = Vec::new();
+    let mut resave = false;
+    let mut failed = None;
+    read_each(
+        text,
+        |last| last_connected = copied(last),
+        |stored, _| {
+            if kept.len() >= limits.networks {
+                return ControlFlow::Break(());
+            }
+            let one = decide(stored, limits.password, &decode, &mut resave);
+            match one.and_then(|one| {
+                kept.try_reserve(1)
+                    .map(|()| one)
+                    .map_err(|_| Error::NoMemory)
+            }) {
+                Ok(Some(one)) => kept.push(one),
+                Ok(None) => resave = true,
+                Err(error) => {
+                    failed = Some(error);
+                    return ControlFlow::Break(());
+                }
+            }
+            ControlFlow::Continue(())
+        },
+    )?;
+    if let Some(error) = failed {
+        wipe(&mut kept);
+        return Err(error);
+    }
+    Ok(Networks {
+        last_connected_ssid: last_connected?,
+        kept,
+        resave,
     })
+}
+
+/// `text` copied, or [`Error::NoMemory`].
+fn copied(text: &[u8]) -> Result<Vec<u8>, Error> {
+    let mut copy = Vec::new();
+    copy.try_reserve_exact(text.len())
+        .map_err(|_| Error::NoMemory)?;
+    copy.extend_from_slice(text);
+    Ok(copy)
+}
+
+/// The plain passwords of `kept`, wiped before they are freed.
+fn wipe(kept: &mut [Kept]) {
+    for one in kept {
+        one.password.fill(0);
+    }
+}
+
+/// One network kept, or `None` when the C++ store drops it (which saves the file again).
+fn decide(
+    stored: &Stored<&[u8]>,
+    most: usize,
+    decode: &impl Fn(&[u8], usize) -> Decoded,
+    resave: &mut bool,
+) -> Result<Option<Kept>, Error> {
+    let length = &stored.password_len;
+    if length.kind == Kind::Other || (length.kind == Kind::U32 && usize_of(length.value) > most) {
+        return Ok(None);
+    }
+    let Some(mut password) = stored_password(stored, most, decode, resave)? else {
+        return Ok(None);
+    };
+    if !integrity_valid(&password, stored, resave) {
+        password.fill(0); // a plain password, wiped before it is freed
+        return Ok(None);
+    }
+    match copied(stored.ssid) {
+        Ok(ssid) => Ok(Some(Kept { ssid, password })),
+        Err(error) => {
+            password.fill(0);
+            Err(error)
+        }
+    }
+}
+
+fn usize_of(n: u32) -> usize {
+    usize::try_from(n).unwrap_or(usize::MAX)
+}
+
+/// The password (`obfuscation::readStoredPassword`): `password_obf` decoded, else the legacy plain
+/// one, which asks for the file to be saved again; none when either is longer than `most`.
+fn stored_password(
+    stored: &Stored<&[u8]>,
+    most: usize,
+    decode: &impl Fn(&[u8], usize) -> Decoded,
+    resave: &mut bool,
+) -> Result<Option<Vec<u8>>, Error> {
+    let decoded = decode(stored.password_obf, most);
+    if decoded.too_long {
+        return Ok(None);
+    }
+    if decoded.ok {
+        return Ok(Some(decoded.text));
+    }
+    if stored.password.len() > most {
+        return Ok(None);
+    }
+    *resave |= !stored.password.is_empty();
+    copied(stored.password).map(Some)
+}
+
+/// Whether the password matches its stored length and CRC-32 (`checkIntegrity`); an older file
+/// without them is kept and saved again with them.
+fn integrity_valid(password: &[u8], stored: &Stored<&[u8]>, resave: &mut bool) -> bool {
+    let mut valid = true;
+    if stored.password_len.kind == Kind::Missing {
+        *resave = true;
+    } else if password.len() != usize_of(stored.password_len.value) {
+        valid = false;
+    }
+    match stored.password_crc32.kind {
+        Kind::U32 => valid &= crc32(password) == stored.password_crc32.value,
+        Kind::Missing => *resave = true,
+        Kind::Other => valid = false,
+    }
+    valid
+}
+
+/// IEEE CRC-32 (`credential_integrity::crc32`).
+#[must_use]
+pub fn crc32(data: &[u8]) -> u32 {
+    let mut crc = 0xFFFF_FFFFu32;
+    for &byte in data {
+        crc ^= u32::from(byte);
+        for _ in 0..8 {
+            let mask = 0u32.wrapping_sub(crc & 1);
+            crc = (crc >> 1) ^ (0xEDB8_8320 & mask);
+        }
+    }
+    !crc
 }

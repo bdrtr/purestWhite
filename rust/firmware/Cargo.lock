@@ -74,10 +74,14 @@ name = "bembeyaz-gfx"
 version = "0.1.0"
 
 [[package]]
-name = "bembeyaz-json"
+name = "bembeyaz-jsondoc"
+version = "0.1.0"
+
+[[package]]
+name = "bembeyaz-store"
 version = "0.1.0"
 dependencies = [
- "bembeyaz-utf8",
+ "bembeyaz-jsondoc",
 ]
 
 [[package]]
@@ -2029,7 +2033,8 @@ dependencies = [
 name = "purestwhite-wifistore"
 version = "0.1.0"
 dependencies = [
- "bembeyaz-json",
+ "bembeyaz-jsondoc",
+ "bembeyaz-store",
 ]
 
 [[package]]

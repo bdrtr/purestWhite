@@ -1,7 +1,7 @@
-//! Standard base64 (RFC 4648, with padding), decoded as mbedtls's `mbedtls_base64_decode` takes
-//! what the C++ firmware writes: `=` only at the end. mbedtls also skips line breaks, which the C++
-//! firmware never writes; here they make the text not base64. The whole text is checked before its
-//! length, so a text that is not base64 is that, however long.
+//! Standard base64 (RFC 4648, with padding), decoded as mbedtls 3.6's `mbedtls_base64_decode`
+//! decodes it: line breaks (`\n`, `\r\n`) are skipped anywhere, spaces only before a line break or
+//! at the end, and `=` only at the end. The whole text is checked before its length, so a text that
+//! is not base64 is that, however long.
 
 use crate::text::Text;
 
@@ -27,50 +27,82 @@ pub enum DecodeError {
     TooLong,
 }
 
+/// How many digits and `=` `encoded` holds, and how many of them are `=`: mbedtls's first pass.
+fn symbols(encoded: &[u8]) -> Result<(usize, usize), DecodeError> {
+    let (mut count, mut equals, mut at) = (0usize, 0usize, 0usize);
+    while at < encoded.len() {
+        let spaces_from = at;
+        while encoded.get(at) == Some(&b' ') {
+            at += 1;
+        }
+        let Some(&c) = encoded.get(at) else {
+            break; // spaces at the end
+        };
+        at += 1;
+        if c == b'\n' || (c == b'\r' && encoded.get(at) == Some(&b'\n')) {
+            continue;
+        }
+        if at - 1 > spaces_from {
+            return Err(DecodeError::Invalid); // a space inside a line
+        }
+        if c == b'=' {
+            equals += 1;
+            if equals > 2 {
+                return Err(DecodeError::Invalid);
+            }
+        } else if equals != 0 || digit(c).is_none() {
+            return Err(DecodeError::Invalid);
+        }
+        count += 1;
+    }
+    if (count - equals) % 4 == 1 || !count.is_multiple_of(4) {
+        return Err(DecodeError::Invalid);
+    }
+    Ok((count, equals))
+}
+
 /// `encoded` decoded into text of up to `N` bytes.
 ///
 /// # Errors
 /// `encoded` is not base64, or decodes to more than `N` bytes.
 pub fn decode<const N: usize>(encoded: &[u8]) -> Result<Text<N>, DecodeError> {
-    if !encoded.len().is_multiple_of(4) {
-        return Err(DecodeError::Invalid);
-    }
-    let padding = encoded.iter().rev().take_while(|&&c| c == b'=').count();
-    let digits = encoded.get(..encoded.len() - padding).unwrap_or_default();
-    if padding > 2 || digits.iter().any(|&c| digit(c).is_none()) {
-        return Err(DecodeError::Invalid);
-    }
-    if (encoded.len() / 4 * 3).saturating_sub(padding) > N {
+    let (count, equals) = symbols(encoded)?;
+    let len = count / 4 * 3 - equals;
+    if len > N {
         return Err(DecodeError::TooLong);
     }
     let mut out = [0u8; N];
-    let mut len = 0;
-    for quad in encoded.chunks(4) {
-        let mut value = 0u32;
-        let mut digits = 0;
-        for &c in quad.iter().filter(|&&c| c != b'=') {
-            value = value << 6 | digit(c).ok_or(DecodeError::Invalid)?;
-            digits += 1;
+    let mut written = 0;
+    let mut put = |byte: u32| {
+        if let Some(slot) = out.get_mut(written) {
+            *slot = byte.to_le_bytes()[0]; // its low byte
+            written += 1;
         }
-        let bytes: usize = match digits {
-            4 => 3,
-            3 => 2,
-            2 => 1,
-            _ => return Err(DecodeError::Invalid),
+    };
+    let (mut value, mut digits) = (0u32, 0);
+    for &c in encoded {
+        if c == b'=' {
+            break;
+        }
+        let Some(d) = digit(c) else {
+            continue; // a line break or a space
         };
-        value <<= 6 * (4 - digits);
-        for shift in [16, 8, 0].into_iter().take(bytes) {
-            *out.get_mut(len).ok_or(DecodeError::TooLong)? = (value >> shift).to_le_bytes()[0]; // its low byte
-            len += 1;
+        value = value << 6 | d;
+        digits += 1;
+        if digits == 4 {
+            digits = 0;
+            put(value >> 16);
+            put(value >> 8);
+            put(value);
         }
     }
-    // `=` only in the last quad, after its digits.
-    if encoded
-        .iter()
-        .take(encoded.len() - padding)
-        .any(|&c| c == b'=')
-    {
-        return Err(DecodeError::Invalid);
+    match digits {
+        3 => {
+            put(value >> 10);
+            put(value >> 2);
+        }
+        2 => put(value >> 4),
+        _ => {}
     }
     Text::from_bytes(out.get(..len).unwrap_or_default()).ok_or(DecodeError::TooLong)
 }

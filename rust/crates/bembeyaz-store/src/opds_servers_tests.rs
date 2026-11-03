@@ -5,7 +5,7 @@
 //! file steps (`loadFromFile`, `saveToFile`).
 #![allow(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
-use crate::corpus::{bytes, fuzz, hex, replay};
+use crate::corpus::{bytes, deobfuscate, fuzz, hex, replay};
 use crate::headers::{HEADERS, Header, Headers};
 use crate::opds_servers::{Server, read, write};
 use std::format;
@@ -34,18 +34,6 @@ fn obfuscate(plain: &[u8]) -> Vec<u8> {
         return Vec::new();
     }
     format!("~{}", hex(plain)).into_bytes()
-}
-
-/// The stand-in's decoding: the text, or none when it does not decode.
-fn deobfuscate(text: &[u8]) -> Option<Vec<u8>> {
-    let digits = text.strip_prefix(b"~")?;
-    if digits.len() % 2 != 0 {
-        return None;
-    }
-    let digits = core::str::from_utf8(digits).ok()?;
-    (0..digits.len() / 2)
-        .map(|i| u8::from_str_radix(&digits[2 * i..2 * i + 2], 16).ok())
-        .collect()
 }
 
 impl Store {

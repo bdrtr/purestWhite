@@ -4,9 +4,9 @@
 //! C++ store's decisions on them are checked by `test/wifi_credentials/check_shim.sh`.
 #![allow(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
-use crate::corpus::{bytes, fuzz, hex};
+use crate::corpus::{bytes, deobfuscate, fuzz, hex};
 use crate::field::Number;
-use crate::wifi_credentials::{Saved, read, write};
+use crate::wifi_credentials::{Decoded, Limits, Saved, crc32, keep, read, write};
 use core::fmt::Write as _;
 use std::format;
 use std::string::String;
@@ -90,4 +90,55 @@ fn broken_wifi_files_are_read_without_a_fault() {
     fuzz(CORPUS, 20, |input| {
         let _ = read(input);
     });
+}
+
+/// The host stand-in's decoding (`test/json_oracle/stubs/ObfuscationFake.cpp`): `~` and the text
+/// in hex.
+fn fake_decode(text: &[u8], most: usize) -> Decoded {
+    match deobfuscate(text) {
+        None => Decoded::default(),
+        Some(text) if text.len() > most => Decoded {
+            too_long: true,
+            ..Decoded::default()
+        },
+        Some(text) => Decoded {
+            text,
+            ok: true,
+            too_long: false,
+        },
+    }
+}
+
+#[test]
+fn every_load_keeps_the_networks_the_cpp_store_kept() {
+    let limits = Limits {
+        networks: 8,
+        password: 64,
+    };
+    let mut lines = CORPUS.lines();
+    let mut loads = 0;
+    while let Some(line) = lines.next() {
+        let answer = lines.next().unwrap().strip_prefix("  = ").unwrap();
+        let (Some(file), Some(networks)) = (line.strip_prefix("load "), answer.strip_prefix("ok "))
+        else {
+            continue;
+        };
+        let json_at = answer.find(" | ").unwrap();
+        let resaved = !answer[json_at + 3..].starts_with("- | read ");
+        let got = keep(&bytes(file), limits, fake_decode).unwrap();
+        let mut kept = format!("{} {}", hex(&got.last_connected_ssid), got.kept.len());
+        for k in &got.kept {
+            let _ = write!(kept, " {},{}", hex(&k.ssid), hex(&k.password));
+        }
+        assert_eq!(kept, networks[..json_at - 3], "{line}");
+        assert_eq!(got.resave, resaved, "{line}");
+        loads += 1;
+    }
+    assert!(loads > 600, "{loads} loads");
+}
+
+#[test]
+fn crc32_is_ieees() {
+    assert_eq!(crc32(b""), 0);
+    assert_eq!(crc32(b"123456789"), 0xCBF4_3926);
 }

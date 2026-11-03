@@ -3,34 +3,35 @@
 //! and the one it joined last. The C++ firmware keeps each password masked (XOR) with the device's
 //! factory MAC address (its eFuse base MAC, 6 bytes) and base64-encoded (`password_obf`), with its
 //! length (`password_len`) and CRC-32 (`password_crc32`); older files hold it plain (`password`).
-//! A network is kept only as `WifiCredentialStore::fromJson` would keep it, at most eight, for
-//! every file the C++ firmware writes. Hand-edited files may differ in corners the C++ firmware
-//! never writes: a non-object among the `credentials`, a lone UTF-16 surrogate, or line breaks
-//! in a password's base64 (mbedtls skips them, this does not).
+//! The file is read by the C++ store's own Rust reader (`bembeyaz_store::wifi_credentials`), and
+//! its networks are kept by `keep`, the C++ store's decisions in Rust, checked against its corpus;
+//! so a network is kept as `WifiCredentialStore` keeps it, at most eight. This decodes the
+//! passwords as mbedtls does, and leaves out a network whose name is longer than Wi-Fi's 32 bytes.
+//! A file larger than [`JSON_MOST`] is refused: the C++ firmware writes a few KB at most.
 //!
 //! A password never leaves a `Network` except through [`Network::password`]: no `Debug` or
-//! `Display` shows it. Nothing here allocates or panics.
+//! `Display` shows it, and its decoded copies on the heap are wiped (the file's bytes and the
+//! parsed file, which hold it masked or, in an older file, plain, are not). Reading allocates the
+//! parsed file and the networks kept on the global heap, as the C++ store does; running out of
+//! memory there is an error, not an abort, but for a decoded password's copy (64 bytes at most).
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 #![forbid(unsafe_code)]
 
+extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
 mod base64;
-mod crc32;
-mod entry;
-mod reader;
 #[cfg(test)]
 mod tests;
 mod text;
 
-use bembeyaz_json::Parser;
+use base64::{DecodeError, decode};
+use bembeyaz_jsondoc::Error;
+use bembeyaz_store::wifi_credentials::{self, Decoded, Limits};
 use core::fmt;
-use core::mem::MaybeUninit;
-use entry::Field;
-use reader::Reader;
 pub use text::Text;
 
 /// The longest network name Wi-Fi allows.
@@ -41,6 +42,9 @@ pub const PASSWORD_MOST: usize = 64;
 pub const NETWORKS_MOST: usize = 8;
 /// The length of the key the passwords are masked (XOR) with: a MAC address.
 pub const KEY_LEN: usize = 6;
+/// The largest file read: eight networks with the longest names and passwords take about 2 KB, so
+/// this leaves room for hand edits while keeping what is parsed and copied small.
+pub const JSON_MOST: usize = 16 * 1024;
 
 /// A saved network.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -112,37 +116,86 @@ impl Saved {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ReadError {
     /// The JSON is broken (a bad escape or literal, nesting too deep, an object that never ends,
-    /// as a write cut short leaves it, or something after it): the C++ firmware keeps no network
-    /// then either.
+    /// as a write cut short leaves it): the C++ firmware keeps no network then either.
     Json,
+    /// Memory ran out while the file was read.
+    Memory,
+    /// The file is larger than [`JSON_MOST`].
+    TooLarge,
 }
 
 /// The networks in `json` (the file's bytes), their passwords decoded with `key` (the device's
 /// base MAC address).
 ///
 /// # Errors
-/// The JSON is broken; a network the C++ firmware would discard is only left out.
+/// The JSON is broken, or the file too large; a network the C++ firmware would discard is only
+/// left out.
 pub fn read(json: &[u8], key: &[u8; KEY_LEN]) -> Result<Saved, ReadError> {
-    let mut slot = MaybeUninit::uninit();
-    let parser = Parser::init(&mut slot);
-    // A string too long for the buffer is cut, and so too long for its field, not dropped.
-    parser.truncate_long_strings(true);
-    let mut reader = Reader::new(key);
-    parser.feed(json, &mut reader);
-    if parser.has_error() || !reader.whole {
-        return Err(ReadError::Json);
+    if json.len() > JSON_MOST {
+        return Err(ReadError::TooLarge);
     }
-    let last = match reader.last {
-        Field::Given(ssid) if !ssid.is_empty() => reader
-            .networks
-            .iter()
-            .take(reader.count)
-            .position(|n| n.is_some_and(|n| n.ssid == ssid)),
-        _ => None,
+    let limits = Limits {
+        networks: NETWORKS_MOST,
+        password: PASSWORD_MOST,
     };
-    Ok(Saved {
-        networks: reader.networks,
-        count: reader.count,
-        last,
-    })
+    let mut kept = wifi_credentials::keep(json, limits, |text, most| decoded(text, most, *key))
+        .map_err(|error| match error {
+            Error::NoMemory => ReadError::Memory,
+            _ => ReadError::Json,
+        })?;
+    let mut saved = Saved {
+        networks: [None; NETWORKS_MOST],
+        count: 0,
+        last: None,
+    };
+    for network in &kept.kept {
+        let (Some(ssid), Some(password)) = (
+            Text::from_bytes(&network.ssid),
+            Text::from_bytes(&network.password),
+        ) else {
+            continue;
+        };
+        if let Some(slot) = saved.networks.get_mut(saved.count) {
+            *slot = Some(Network { ssid, password });
+            saved.count += 1;
+        }
+    }
+    // The plain passwords are in `saved` now; the heap's copies are wiped before they are freed.
+    for network in &mut kept.kept {
+        network.password.fill(0);
+    }
+    let last = &kept.last_connected_ssid;
+    saved.last = (!last.is_empty())
+        .then(|| {
+            saved
+                .networks()
+                .position(|n| n.ssid.as_bytes() == last.as_slice())
+        })
+        .flatten();
+    Ok(saved)
+}
+
+/// A stored password decoded as `obfuscation::deobfuscateFromBase64` decodes it: empty text does
+/// not decode (text of only spaces or line breaks decodes to an empty password), text that is not
+/// base64 does not, text that decodes to more than `most` bytes is too long, and the rest is
+/// unmasked (XOR) with `key`.
+fn decoded(text: &[u8], most: usize, key: [u8; KEY_LEN]) -> Decoded {
+    if text.is_empty() {
+        return Decoded::default();
+    }
+    match decode::<PASSWORD_MOST>(text) {
+        Ok(mut password) if password.len() <= most => {
+            password.xor(&key);
+            Decoded {
+                text: password.as_bytes().to_vec(),
+                ok: true,
+                too_long: false,
+            }
+        }
+        Ok(_) | Err(DecodeError::TooLong) => Decoded {
+            too_long: true,
+            ..Decoded::default()
+        },
+        Err(DecodeError::Invalid) => Decoded::default(),
+    }
 }

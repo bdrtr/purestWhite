@@ -6,4 +6,5 @@ license.workspace = true
 publish.workspace = true
 
 [dependencies]
-bembeyaz-json = { path = "../bembeyaz-json" }
+bembeyaz-jsondoc = { path = "../bembeyaz-jsondoc" }
+bembeyaz-store = { path = "../bembeyaz-store" }

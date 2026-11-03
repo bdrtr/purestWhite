@@ -57,5 +57,9 @@ fn read_saved(
     let bytes = ready(load_whole(&mut volume, SAVED, Global))
         .and_then(Result::ok)
         .ok_or("no file")?;
-    purestwhite_wifistore::read(&bytes, &device_key()).map_err(|_| "broken file")
+    purestwhite_wifistore::read(&bytes, &device_key()).map_err(|why| match why {
+        purestwhite_wifistore::ReadError::Json => "broken file",
+        purestwhite_wifistore::ReadError::TooLarge => "file too large",
+        purestwhite_wifistore::ReadError::Memory => "no memory",
+    })
 }

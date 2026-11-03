@@ -791,7 +791,8 @@ dependencies = [
 name = "purestwhite-wifistore"
 version = "0.1.0"
 dependencies = [
- "bembeyaz-json",
+ "bembeyaz-jsondoc",
+ "bembeyaz-store",
 ]
 
 [[package]]
