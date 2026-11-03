@@ -108,15 +108,30 @@ JSON. A store whose JSON is read and written in Rust gives `toJsonText`/`fromJso
 resave for both kinds. The stores go to the `bembeyaz-store` crate one by one (a module with
 `read` and `write` each), over `bembeyaz-jsondoc` (its `|` and `is<T>` are pinned by
 `test/json_conversions`). Their C ABIs are `rust/include/bembeyaz/store_*.h`, with the
-`bb_store_write` callback of `store.h`: a store with a fixed set of fields crosses as a `repr(C)`
-struct; a list (recent books, servers) or a large table (`CrossPointSettings`) will cross one
-item or field per callback, as `bb_kosync_field` does. The oracles share `test/json_oracle`.
+`bb_store_write` callback and `bb_store_text` of `store.h` (on the C++ side,
+`lib/Serialization/StoreText.h`): a store with a fixed set of fields crosses as a `repr(C)`
+struct; a list crosses as an array of item structs when written and one item per callback when
+read, the C++ store giving its limit (`MAX_RECENT_BOOKS`) so it is defined once; a large table
+(`CrossPointSettings`) will cross one field per callback. The text is written by
+`bembeyaz_jsondoc::Writer` straight into one buffer, and a store's `write` returns `None` when
+memory runs out, so the old file is kept. For the stores still to come: a `read` that upgrades a legacy
+shape reports it (a `bool* resave` out-parameter, so C++ calls `requestResave()`); passwords stay
+obfuscated in C++ (`ObfuscationUtils`, keyed by the eFuse MAC) and cross as the raw
+`password_obf`/`password` texts; a nested list with a fixed limit (an OPDS server's custom
+headers) is a fixed array of name/value texts and a count inside its item. The oracles share
+`test/json_oracle`.
 
 - **App state ✅**: `CrossPointState` (`state.json`: the open book, the reader's load count, the
   rings of recent sleep images and their legacy `lastSleepImage`) calls the `state` module of
   `bembeyaz-store`. `test/crosspoint_state` writes the C++ store's answers on 1,500 seeded steps
   and 13 edge steps to `rust/crates/bembeyaz-store/testdata/state-corpus.txt`, which the crate's
   tests replay; its `check_shim.sh` runs the same steps through the C++ shim over Rust.
+- **Recent books ✅**: `RecentBooksStore` reads and writes its JSON (`recent.json`: up to 10
+  books with their path, title, author and cover path) through the `recent_books` module of
+  `bembeyaz-store`. Adding, moving and pruning them stays in C++. `test/recent_books` writes
+  the C++ store's answers on 1,000 seeded steps and 10 edge steps to
+  `rust/crates/bembeyaz-store/testdata/recent-books-corpus.txt`; its `check_shim.sh` runs them
+  through the C++ shim over Rust.
 
 ## `src/` activities
 

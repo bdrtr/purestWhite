@@ -6,6 +6,8 @@
 //!
 //! - [`state`]: `CrossPointState` (`state.json`): the open book, the recent sleep images; corpus
 //!   from `test/crosspoint_state/make_corpus.py`.
+//! - [`recent_books`]: `RecentBooksStore` (`recent.json`): the books opened last; corpus from
+//!   `test/recent_books/make_corpus.py`.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -15,6 +17,12 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+#[cfg(test)]
+mod corpus;
+
+pub mod recent_books;
+#[cfg(test)]
+mod recent_books_tests;
 pub mod state;
 #[cfg(test)]
 mod state_tests;

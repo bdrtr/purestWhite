@@ -2,33 +2,13 @@
 //! `test/crosspoint_state/make_corpus.py`).
 #![allow(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
+use crate::corpus::{bytes, fuzz, hex, replay};
 use crate::state::{RECENT, Ring, State, read, write};
-use core::fmt::Write as _;
 use std::format;
 use std::string::{String, ToString};
 use std::vec::Vec;
 
 const CORPUS: &str = include_str!("../testdata/state-corpus.txt");
-
-fn bytes(hex: &str) -> Vec<u8> {
-    if hex == "-" {
-        return Vec::new();
-    }
-    (0..hex.len() / 2)
-        .map(|i| u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).unwrap())
-        .collect()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    if bytes.is_empty() {
-        return "-".into();
-    }
-    bytes.iter().fold(String::new(), |mut out, b| {
-        let _ = write!(out, "{b:02x}");
-        out
-    })
-}
-
 fn list(images: &[u16]) -> String {
     images
         .iter()
@@ -64,7 +44,7 @@ fn state_of(s: &State) -> String {
 }
 
 fn json_of(s: &State) -> String {
-    String::from_utf8(write(s)).unwrap()
+    String::from_utf8(write(s).unwrap()).unwrap()
 }
 
 fn from(a: &[&str]) -> String {
@@ -110,39 +90,16 @@ fn to(a: &[&str]) -> String {
 
 #[test]
 fn every_step_of_the_corpus_is_the_stores() {
-    let mut lines = CORPUS.lines();
-    let (mut steps, mut failed) = (0, Vec::new());
-    while let Some(line) = lines.next() {
-        let want = lines.next().unwrap().strip_prefix("  = ").unwrap();
-        let a: Vec<&str> = line.split(' ').collect();
-        let got = match a[0] {
-            "from" => from(&a),
-            "to" => to(&a),
-            other => panic!("unknown step {other}"),
-        };
-        steps += 1;
-        if got != want {
-            failed.push(format!("{line}\n  want {want}\n  got  {got}"));
-        }
-    }
-    assert!(steps > 1500, "{steps} steps");
-    assert!(
-        failed.is_empty(),
-        "{} of {steps} differ:\n{}",
-        failed.len(),
-        failed[..failed.len().min(6)].join("\n")
-    );
+    replay(CORPUS, 1500, |a| match a[0] {
+        "from" => from(a),
+        "to" => to(a),
+        other => panic!("unknown step {other}"),
+    });
 }
 
 #[test]
 fn broken_state_files_are_read_without_a_fault() {
-    for line in CORPUS.lines().filter(|l| l.starts_with("from ")).step_by(5) {
-        let input = bytes(line.split(' ').nth(1).unwrap());
-        for len in 0..input.len() {
-            let _ = read(&input[..len]);
-            let mut bad = input.clone();
-            bad[len] ^= 0x5A;
-            let _ = read(&bad);
-        }
-    }
+    fuzz(CORPUS, 5, |input| {
+        let _ = read(input);
+    });
 }

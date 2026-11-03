@@ -1,5 +1,6 @@
 #include "CrossPointState.h"
 
+#include <StoreText.h>
 #include <bembeyaz/store_state.h>
 
 #include <cstddef>
@@ -28,17 +29,6 @@ void takeRing(const bb_store_state_ring& ring, uint16_t* images, uint8_t& pos, u
   std::memcpy(images, ring.images, sizeof(ring.images));
   pos = ring.pos;
   fill = ring.fill;
-}
-
-// The text Rust writes, appended to json; ok turns false when the String cannot grow.
-struct Text {
-  String& json;
-  bool ok;
-};
-
-void appendTo(const char* data, const size_t len, void* context) {
-  auto* text = static_cast<Text*>(context);
-  text->ok = text->ok && text->json.concat(data, static_cast<unsigned int>(len));
 }
 
 void assignTo(const char* data, const size_t len, void* context) {
@@ -75,9 +65,8 @@ bool CrossPointState::toJsonText(String& json) const {
   state.reader_activity_load_count = readerActivityLoadCount;
   state.last_sleep_from_reader = lastSleepFromReader;
   state.show_boot_screen = showBootScreen;
-  Text text{json, true};
-  bb_store_state_write(&state, openEpubPath.data(), openEpubPath.size(), appendTo, &text);
-  return text.ok;
+  StoreJsonSink sink{json, true};
+  return bb_store_state_write(&state, openEpubPath.data(), openEpubPath.size(), appendStoreJson, &sink) && sink.ok;
 }
 
 const char* CrossPointState::fromJsonText(const String& json) {

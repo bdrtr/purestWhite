@@ -27,26 +27,9 @@
 #include <vector>
 
 #include "CrossPointState.h"
+#include "driver_util.h"
 
 namespace {
-std::string text(const std::string& hex) {
-  std::string out;
-  if (hex == "-") return out;
-  for (size_t i = 0; i + 1 < hex.size(); i += 2)
-    out.push_back(static_cast<char>(std::stoi(hex.substr(i, 2), nullptr, 16)));
-  return out;
-}
-
-std::string hexOf(const std::string& s) {
-  std::string out;
-  char b[3];
-  for (const unsigned char c : s) {
-    std::snprintf(b, sizeof(b), "%02x", c);
-    out += b;
-  }
-  return out.empty() ? "-" : out;
-}
-
 std::string list(const uint16_t* v) {
   std::string out;
   for (int i = 0; i < CrossPointState::SLEEP_RECENT_COUNT; i++) out += (i ? "," : "") + std::to_string(v[i]);
@@ -106,7 +89,7 @@ bool load(CrossPointState& s, const std::string& input, std::string& error) {
 
 void from(const std::vector<std::string>& a, CrossPointState& s) {
   std::string error;
-  if (!load(s, text(a.at(1)), error)) {
+  if (!load(s, bytesOf(a.at(1)), error)) {
     std::printf("  = err %s\n", error.c_str());
     return;
   }
@@ -123,7 +106,7 @@ void from(const std::vector<std::string>& a, CrossPointState& s) {
 }
 
 void to(const std::vector<std::string>& a, CrossPointState& s) {
-  s.openEpubPath = text(a.at(1));
+  s.openEpubPath = bytesOf(a.at(1));
   parseList(a.at(2), s.recentSleepImages);
   s.recentSleepPos = static_cast<uint8_t>(std::stoul(a.at(3)));
   s.recentSleepFill = static_cast<uint8_t>(std::stoul(a.at(4)));

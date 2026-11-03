@@ -8,13 +8,15 @@
 //   from <json>                          read the store from <json>; = err <name> |
 //                                        = <books> | <written json>
 //   add <path> <title> <author> <cover>  addBook (its fields in hex), then = <books> | <written json>
-//   long <n>                             the store read from {"books":[{"title":<n t's>}]}, then a
-//                                        book added with a title of n t's: = <read> | <added>,
-//                                        each err <name> or <count> <first title's length>
-//                                        <written json's length>
+//   long <n>                             the store read from {"books":[{"title":"<n t's>"}]}, then
+//                                        a book added with a title of n t's: = <read> | <added>,
+//                                        where <read> is err <name> or <count> <first title's
+//                                        length> <written json's length>, and <added> the same
+//                                        three numbers after the add
 //
-// <books> is the count, then each book's four fields in hex ("-" when empty), comma-separated; the
-// written JSON is serializeJson's text (one line: it escapes control characters).
+// <books> is the count, then one space-separated item per book: its four fields in hex ("-" when
+// empty), comma-separated; the written JSON is serializeJson's text (one line: it escapes control
+// characters).
 #define ARDUINOJSON_ENABLE_ARDUINO_STRING 0
 #include <ArduinoJson.h>
 
@@ -25,6 +27,7 @@
 #include <vector>
 
 #include "RecentBooksStore.h"
+#include "driver_util.h"
 
 // The store saves after addBook; the file is not part of its answers.
 #ifdef SHIM
@@ -34,25 +37,6 @@ bool PersistableStoreBase::writeDocToFile(const char*, const JsonDocument&) { re
 #endif
 
 namespace {
-std::string text(const std::string& hex) {
-  std::string out;
-  if (hex == "-") return out;
-  for (size_t i = 0; i + 1 < hex.size(); i += 2) {
-    out.push_back(static_cast<char>(std::stoi(hex.substr(i, 2), nullptr, 16)));
-  }
-  return out;
-}
-
-std::string hexOf(const std::string& s) {
-  std::string out;
-  char b[3];
-  for (const unsigned char c : s) {
-    std::snprintf(b, sizeof(b), "%02x", c);
-    out += b;
-  }
-  return out.empty() ? "-" : out;
-}
-
 #ifdef SHIM
 std::string jsonOf(const RecentBooksStore& s) {
   String json;
@@ -119,13 +103,13 @@ int main() {
     std::printf("%s\n", line.c_str());
     if (a[0] == "from") {
       std::string error;
-      if (!load(store, text(a.at(1)), error)) {
+      if (!load(store, bytesOf(a.at(1)), error)) {
         std::printf("  = err %s\n", error.c_str());
         continue;
       }
       answer(store);
     } else if (a[0] == "add") {
-      store.addBook(text(a.at(1)), text(a.at(2)), text(a.at(3)), text(a.at(4)));
+      store.addBook(bytesOf(a.at(1)), bytesOf(a.at(2)), bytesOf(a.at(3)), bytesOf(a.at(4)));
       answer(store);
     } else if (a[0] == "long") {
       longs(store, std::stoul(a.at(1)));

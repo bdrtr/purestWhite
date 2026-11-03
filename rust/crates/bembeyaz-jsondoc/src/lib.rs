@@ -12,6 +12,9 @@
 //! - The `as_*`, `is_*` and `or_*` functions (on a value or a missing member) and
 //!   [`Value::is_null`]: ArduinoJson's `as<T>()`, `is<T>()`, `variant | fallback` and `isNull()`;
 //!   [`items`] and [`members`]: a `JsonArrayConst` or `JsonObjectConst` of a value.
+//! - [`Writer`]: the same text as [`Value::to_json`], written value by value into one buffer
+//!   with no document first; a failed allocation makes [`Writer::finish`] return `None` instead
+//!   of aborting.
 //!
 //! The golden corpora are ArduinoJson's own output on seeded scenarios: testdata/kosync-corpus.txt
 //! (`test/kosync_messages/make_corpus.py`) and testdata/conversions-corpus.txt
@@ -37,6 +40,7 @@ mod parse;
 #[cfg(test)]
 mod tests;
 mod write;
+mod writer;
 
 use alloc::vec::Vec;
 
@@ -48,6 +52,7 @@ pub use convert::{
     or_bool, or_f32, or_integer, or_str,
 };
 pub use parse::{Error, parse};
+pub use writer::Writer;
 
 /// A value as ArduinoJson stores it: integers in 32 bits when they fit, floats as `float` when
 /// that loses nothing, strings and keys as bytes (they may hold a NUL).

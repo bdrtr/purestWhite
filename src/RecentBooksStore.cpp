@@ -2,38 +2,47 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
+#include <StoreText.h>
+#include <bembeyaz/store_recent_books.h>
 
 #include <algorithm>
+#include <cstddef>
 
-void RecentBooksStore::toJson(JsonDocument& doc) const {
-  JsonArray arr = doc["books"].to<JsonArray>();
+// The JSON is Rust's (bembeyaz_store::recent_books); this file passes the books to Rust and takes
+// them back. Adding, moving and pruning books stays here.
+namespace {
+static_assert(sizeof(bb_store_recent_book) == 4 * sizeof(bb_store_text) &&
+                  offsetof(bb_store_recent_book, title) == sizeof(bb_store_text) &&
+                  offsetof(bb_store_recent_book, cover_bmp_path) == 3 * sizeof(bb_store_text),
+              "bb_store_recent_book layout");
+
+void addRead(const bb_store_recent_book* book, const size_t count, void* context) {
+  auto* books = static_cast<std::vector<RecentBook>*>(context);
+  if (books->empty()) books->reserve(count);
+  books->push_back({storeString(book->path), storeString(book->title), storeString(book->author),
+                    storeString(book->cover_bmp_path)});
+}
+}  // namespace
+
+bool RecentBooksStore::toJsonText(String& json) const {
+  std::vector<bb_store_recent_book> books;
+  books.reserve(recentBooks.size());
   for (const auto& book : recentBooks) {
-    JsonObject obj = arr.add<JsonObject>();
-    obj["path"] = book.path;
-    obj["title"] = book.title;
-    obj["author"] = book.author;
-    obj["coverBmpPath"] = book.coverBmpPath;
+    books.push_back(
+        {storeText(book.path), storeText(book.title), storeText(book.author), storeText(book.coverBmpPath)});
   }
+  StoreJsonSink sink{json, true};
+  return bb_store_recent_books_write(books.data(), books.size(), appendStoreJson, &sink) && sink.ok;
 }
 
-bool RecentBooksStore::fromJson(JsonVariantConst doc) {
-  // Tolerate a missing/invalid 'books' key (treat as empty list); only a
-  // JSON parse error is fatal. A null JsonArray iterates zero times.
-  recentBooks.clear();
-  JsonArrayConst arr = doc["books"].as<JsonArrayConst>();
-  recentBooks.reserve(std::min(arr.size(), static_cast<size_t>(MAX_RECENT_BOOKS)));
-  for (JsonObjectConst obj : arr) {
-    if (getCount() >= MAX_RECENT_BOOKS) break;
-    RecentBook book;
-    book.path = obj["path"] | "";
-    book.title = obj["title"] | "";
-    book.author = obj["author"] | "";
-    book.coverBmpPath = obj["coverBmpPath"] | "";
-    recentBooks.push_back(book);
-  }
-
+const char* RecentBooksStore::fromJsonText(const String& json) {
+  // A missing or invalid 'books' key reads as an empty list; only a JSON parse error is fatal.
+  std::vector<RecentBook> books;
+  const char* error = bb_store_recent_books_read(json.c_str(), json.length(), MAX_RECENT_BOOKS, addRead, &books);
+  if (error) return error;
+  recentBooks = std::move(books);
   LOG_DBG("RBS", "Recent books loaded from file (%d entries)", getCount());
-  return true;
+  return nullptr;
 }
 
 void RecentBooksStore::addBook(const std::string& path, const std::string& title, const std::string& author,

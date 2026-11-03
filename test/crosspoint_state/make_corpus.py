@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Builds driver.cpp over the C++ version of src/CrossPointState (taken from git, commit 9038566b:
-the store in the tree is now the Rust shim) with ArduinoJson 7.4.2 and the host stubs in stubs/,
-runs it on seeded scenarios and writes the transcript as the golden corpus the Rust tests replay:
-rust/crates/bembeyaz-store/testdata/state-corpus.txt.
+the store in the tree is now the Rust shim) with ArduinoJson 7.4.2 and the host stubs of
+test/json_oracle, runs it on seeded scenarios and writes the transcript as the golden corpus the
+Rust tests replay: rust/crates/bembeyaz-store/testdata/state-corpus.txt.
 
   test/crosspoint_state/make_corpus.py [STEPS]    (default 1500 random steps, and the edge steps)
   test/crosspoint_state/make_corpus.py --check DRIVER
@@ -121,7 +121,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         store = oracle.from_git(tmp, ORACLE, ORACLE_FILES)
         driver = oracle.build(Path(tmp) / "driver", [here / "driver.cpp", store[1]],
-                              [f"-I{tmp}", f"-I{here / 'stubs'}"])
+                              [f"-I{tmp}"])
         transcript = oracle.run(driver, steps(count))
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_bytes(transcript)

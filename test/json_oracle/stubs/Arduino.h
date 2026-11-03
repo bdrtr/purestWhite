@@ -1,5 +1,5 @@
-// Host stub: a minimal String for the stores' JSON text (toJsonText/fromJsonText); the oracle
-// build does not use it.
+// Host stub: a minimal String, for PersistableStore.h's text functions and the stores' JSON text
+// (toJsonText/fromJsonText).
 #pragma once
 #include <string>
 

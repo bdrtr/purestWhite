@@ -2,6 +2,7 @@
 //! read and written by `bembeyaz_store::state`, and its recent-image rings. Text goes to the
 //! caller's `bb_store_write` callback, so no Rust buffer crosses the boundary.
 
+use crate::store::{Write, hand_over};
 use bembeyaz_store::state::{RECENT, Ring, State, read, write};
 use core::ffi::{c_char, c_void};
 
@@ -37,9 +38,6 @@ const _: () = {
     );
 };
 
-/// store.h's `bb_store_write`.
-type Write = unsafe extern "C" fn(*const c_char, usize, *mut c_void);
-
 impl From<BbRing> for Ring {
     fn from(r: BbRing) -> Ring {
         Ring {
@@ -60,7 +58,8 @@ impl From<Ring> for BbRing {
     }
 }
 
-/// Hands `write_text` the `state.json` text for `state` and `path` (the open book), in one call.
+/// Hands `write_text` the `state.json` text for `state` and `path` (the open book), in one call;
+/// false when it could not be made (memory ran out) and `write_text` was not called.
 ///
 /// # Safety
 /// `state` is NULL or readable; `path` is NULL or `path_len` readable bytes; `write_text` takes
@@ -72,10 +71,10 @@ pub unsafe extern "C" fn bb_store_state_write(
     path_len: usize,
     write_text: Option<Write>,
     context: *mut c_void,
-) {
+) -> bool {
     // SAFETY: as documented.
-    let (Some(s), Some(write_text)) = (unsafe { state.as_ref() }, write_text) else {
-        return;
+    let Some(s) = (unsafe { state.as_ref() }) else {
+        return false;
     };
     let state = State {
         // SAFETY: as documented.
@@ -86,9 +85,8 @@ pub unsafe extern "C" fn bb_store_state_write(
         last_sleep_from_reader: s.last_sleep_from_reader,
         show_boot_screen: s.show_boot_screen,
     };
-    let json = write(&state);
-    // SAFETY: `json` is readable for the call; the caller vouches for write_text and context.
-    unsafe { write_text(json.as_ptr().cast(), json.len(), context) };
+    // SAFETY: as documented.
+    unsafe { hand_over(write(&state).as_deref(), write_text, context) }
 }
 
 /// Reads `state.json`'s text; NULL when it was read (the path handed to `path`, the rest in

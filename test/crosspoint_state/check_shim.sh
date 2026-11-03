@@ -6,5 +6,5 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 exec "$root/test/json_oracle/check_shim.sh" "$root/test/crosspoint_state" -DSHIM \
-  -I"$root/test/crosspoint_state/stubs" -I"$root/lib/Serialization" -I"$root/src" \
+  -I"$root/lib/Serialization" -I"$root/src" \
   "$root/src/CrossPointState.cpp"

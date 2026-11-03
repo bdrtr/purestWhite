@@ -3,7 +3,7 @@
 //! a sleep screen does not repeat one too soon.
 
 use alloc::vec::Vec;
-use bembeyaz_jsondoc::{Error, Value, items, or_bool, or_integer, or_str, parse};
+use bembeyaz_jsondoc::{Error, Value, Writer, items, or_bool, or_integer, or_str, parse};
 
 /// The images each ring remembers (`SLEEP_RECENT_COUNT`).
 pub const RECENT: u8 = 16;
@@ -84,45 +84,43 @@ impl Default for State {
     }
 }
 
-/// Writes `state.json`'s text for `state` (`toJson`, then `serializeJson`).
+/// Writes `state.json`'s text for `state` (`toJson`, then `serializeJson`); none when memory ran
+/// out.
 #[must_use]
-pub fn write(state: &State) -> Vec<u8> {
-    let ring = |r: &Ring| {
-        Value::Array(
-            r.images
-                .iter()
-                .map(|i| Value::unsigned((*i).into()))
-                .collect(),
-        )
+pub fn write(state: &State) -> Option<Vec<u8>> {
+    let ring = |w: &mut Writer, key: &[u8], r: &Ring| {
+        w.key(key);
+        w.array(|w| r.images.iter().for_each(|i| w.unsigned((*i).into())));
     };
-    let small = |n: u8| Value::unsigned(n.into());
-    let mut doc = Value::Object(Vec::new());
-    doc.set(b"openEpubPath", Value::string(&state.open_epub_path));
-    doc.set(b"recentSleepImages", ring(&state.recent_sleep));
-    doc.set(b"recentSleepPos", small(state.recent_sleep.pos));
-    doc.set(b"recentSleepFill", small(state.recent_sleep.fill));
-    doc.set(
-        b"recentOverlaySleepImages",
-        ring(&state.recent_overlay_sleep),
-    );
-    doc.set(
-        b"recentOverlaySleepPos",
-        small(state.recent_overlay_sleep.pos),
-    );
-    doc.set(
-        b"recentOverlaySleepFill",
-        small(state.recent_overlay_sleep.fill),
-    );
-    doc.set(
-        b"readerActivityLoadCount",
-        small(state.reader_activity_load_count),
-    );
-    doc.set(
-        b"lastSleepFromReader",
-        Value::Bool(state.last_sleep_from_reader),
-    );
-    doc.set(b"showBootScreen", Value::Bool(state.show_boot_screen));
-    doc.to_json()
+    let small = |w: &mut Writer, key: &[u8], n: u8| {
+        w.key(key);
+        w.unsigned(n.into());
+    };
+    let mut w = Writer::with_capacity(512 + state.open_epub_path.len());
+    w.object(|w| {
+        w.key(b"openEpubPath");
+        w.string(&state.open_epub_path);
+        ring(w, b"recentSleepImages", &state.recent_sleep);
+        small(w, b"recentSleepPos", state.recent_sleep.pos);
+        small(w, b"recentSleepFill", state.recent_sleep.fill);
+        ring(w, b"recentOverlaySleepImages", &state.recent_overlay_sleep);
+        small(w, b"recentOverlaySleepPos", state.recent_overlay_sleep.pos);
+        small(
+            w,
+            b"recentOverlaySleepFill",
+            state.recent_overlay_sleep.fill,
+        );
+        small(
+            w,
+            b"readerActivityLoadCount",
+            state.reader_activity_load_count,
+        );
+        w.key(b"lastSleepFromReader");
+        w.bool(state.last_sleep_from_reader);
+        w.key(b"showBootScreen");
+        w.bool(state.show_boot_screen);
+    });
+    w.finish()
 }
 
 /// The state a parsed `state.json` holds (`fromJson`): every field read, any of them missing or

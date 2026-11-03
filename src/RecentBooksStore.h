@@ -1,5 +1,4 @@
 #pragma once
-#include <ArduinoJson.h>
 #include <PersistableStore.h>
 
 #include <string>
@@ -28,8 +27,10 @@ class RecentBooksStore : public PersistableStore<RecentBooksStore> {
 
  public:
   static const char* getFilePath() { return "/.crosspoint/recent.json"; }
-  void toJson(JsonDocument& doc) const;
-  bool fromJson(JsonVariantConst doc);
+  // recent.json's text, read and written by Rust (bembeyaz_store::recent_books). See
+  // PersistableStore.
+  bool toJsonText(String& json) const;
+  const char* fromJsonText(const String& json);
 
   // Add a book to the recent list (moves to front if already exists)
   void addBook(const std::string& path, const std::string& title, const std::string& author,

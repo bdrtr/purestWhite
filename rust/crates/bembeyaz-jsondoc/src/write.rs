@@ -53,7 +53,7 @@ fn write(value: &Value, out: &mut Vec<u8>) {
     }
 }
 
-fn unsigned(n: u64, out: &mut Vec<u8>) {
+pub(crate) fn unsigned(n: u64, out: &mut Vec<u8>) {
     let mut digits = [0u8; 20];
     let mut at = digits.len();
     let mut n = n;
@@ -70,7 +70,7 @@ fn unsigned(n: u64, out: &mut Vec<u8>) {
     out.extend_from_slice(digits.get(at..).unwrap_or_default());
 }
 
-fn signed(n: i64, out: &mut Vec<u8>) {
+pub(crate) fn signed(n: i64, out: &mut Vec<u8>) {
     if n < 0 {
         out.push(b'-');
     }
@@ -79,7 +79,7 @@ fn signed(n: i64, out: &mut Vec<u8>) {
 
 /// A float as `TextFormatter::writeFloat`: `null` for a NaN or an infinity, a sign, the integral
 /// digits, the decimals and an exponent.
-fn float(value: f64, places: u32, out: &mut Vec<u8>) {
+pub(crate) fn float(value: f64, places: u32, out: &mut Vec<u8>) {
     if value.is_nan() || value.is_infinite() {
         out.extend_from_slice(b"null");
         return;
@@ -111,9 +111,19 @@ fn float(value: f64, places: u32, out: &mut Vec<u8>) {
     }
 }
 
+/// How many bytes `string` writes for `s`, its quotes included.
+pub(crate) fn string_len(s: &[u8]) -> usize {
+    let escaped = |c: &u8| match c {
+        b'"' | b'\\' | 0x08 | 0x0C | b'\n' | b'\r' | b'\t' => 2,
+        0 => 6,
+        _ => 1,
+    };
+    s.iter().map(escaped).sum::<usize>() + 2
+}
+
 /// A string as `TextFormatter::writeString`: `"` and `\` and five controls escaped, a NUL as
 /// `\u0000`, every other byte as it is.
-fn string(s: &[u8], out: &mut Vec<u8>) {
+pub(crate) fn string(s: &[u8], out: &mut Vec<u8>) {
     out.push(b'"');
     for &c in s {
         let escape = match c {

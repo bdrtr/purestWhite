@@ -154,9 +154,12 @@ def from_git(tmp, commit, names):
 
 
 def build(driver, sources, flags):
-    """`driver` built from `sources` with ArduinoJson and the extra compiler `flags`."""
+    """`driver` built from `sources` with ArduinoJson, the extra compiler `flags`, then this
+    directory (driver_util.h) and its stubs/ (Arduino.h, Logging.h) on the include path."""
+    here = Path(__file__).parent
     subprocess.run(["c++", "-std=c++17", "-O1", "-Wall", "-Wextra", f"-isystem{JSON}", *flags,
-                    *map(str, sources), "-o", str(driver)], check=True)
+                    f"-I{here}", f"-I{here / 'stubs'}", *map(str, sources), "-o", str(driver)],
+                   check=True)
     return driver
 
 

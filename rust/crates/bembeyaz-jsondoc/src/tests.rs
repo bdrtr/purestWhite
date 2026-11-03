@@ -133,3 +133,52 @@ fn a_string_far_past_the_limit_is_refused_once_it_ends() {
     let escaped = [b"[\"", "\\u00e7".repeat(1 << 16).as_bytes(), b"\"]"].concat();
     assert_eq!(parse(&escaped), Err(crate::Error::NoMemory));
 }
+
+#[test]
+fn the_writer_writes_what_a_document_writes() {
+    use crate::{Value, Writer};
+    let long = "x".repeat(65_536);
+    let mut doc = Value::Object(Vec::new());
+    doc.set(b"a\"b", Value::string(b"q\"\\\x08\x0c\n\r\t\0z"));
+    doc.set(
+        b"list",
+        Value::Array(std::vec![
+            Value::unsigned(u64::MAX),
+            Value::signed(i64::MIN),
+            Value::F32(-6.871_31e-34),
+            Value::Bool(true),
+            Value::Null,
+            Value::Object(Vec::new()),
+            Value::Array(Vec::new()),
+            Value::string(long.as_bytes()),
+        ]),
+    );
+    doc.set(b"last", Value::Bool(false));
+    let mut w = Writer::with_capacity(16);
+    w.object(|w| {
+        w.key(b"a\"b");
+        w.string(b"q\"\\\x08\x0c\n\r\t\0z");
+        w.key(b"list");
+        w.array(|w| {
+            w.unsigned(u64::MAX);
+            w.signed(i64::MIN);
+            w.f32(-6.871_31e-34);
+            w.bool(true);
+            w.null();
+            w.object(|_| {});
+            w.array(|_| {});
+            w.string(long.as_bytes());
+        });
+        w.key(b"last");
+        w.bool(false);
+    });
+    assert_eq!(w.finish().unwrap(), doc.to_json());
+}
+
+#[test]
+fn a_strings_written_length_is_counted_exactly() {
+    let s = b"q\"\\\x08\x0c\n\r\t\0z\x01";
+    let mut out = Vec::new();
+    crate::write::string(s, &mut out);
+    assert_eq!(crate::write::string_len(s), out.len());
+}

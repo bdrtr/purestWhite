@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Builds driver.cpp over the C++ version of src/RecentBooksStore (taken from git, commit ORACLE:
-the store in the tree is now the Rust shim) with ArduinoJson 7.4.2 and the host stubs in stubs/,
-runs it on seeded scenarios and writes the transcript as the golden corpus the Rust tests replay:
-rust/crates/bembeyaz-store/testdata/recent-books-corpus.txt.
+"""Builds driver.cpp over the C++ version of src/RecentBooksStore (taken from git, commit 6a089cc7:
+the store in the tree is now the Rust shim) with ArduinoJson 7.4.2 and the host stubs (stubs/, and
+those of test/json_oracle), runs it on seeded scenarios and writes the transcript as the golden
+corpus the Rust tests replay: rust/crates/bembeyaz-store/testdata/recent-books-corpus.txt.
 
   test/recent_books/make_corpus.py [STEPS]    (default 1000 random steps, and the edge steps)
   test/recent_books/make_corpus.py --check DRIVER
@@ -18,7 +18,8 @@ test/recent_books/check_shim.sh. The corpus only ever holds the C++ behavior.
 Scenarios: recent.json files with lists of any length (past the store's 10), items that are not
 objects, fields of any type (the shared value generator, test/json_oracle/oracle.py), a missing
 or wrong-typed "books", broken text; books added after them (any bytes in their fields, a NUL
-too); edges: the longest string ArduinoJson keeps and one byte more, read and written.
+too); edges: roots that are not objects or have no "books" array, read and written; and, each
+after {} empties the store, the longest string ArduinoJson keeps and one byte more.
 """
 import random
 import sys
