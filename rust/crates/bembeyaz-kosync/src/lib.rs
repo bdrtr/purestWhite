@@ -1,5 +1,6 @@
 //! `KOReader` positions in a chapter's XHTML, as `test/koreader_xpath_resolver` pins them: the path of the Nth paragraph, the path and
-//! text offset of a visible codepoint, and the number of visible codepoints.
+//! text offset of a visible codepoint, and the number of visible codepoints. The `progress` module
+//! decides which of two reading positions is further on.
 //!
 //! Visible text is every codepoint inside `<body>` outside `head`, `style`, `script`, `title` and
 //! `rp` (any case), with HTML entities as the chapter parser shows them: lib/Epub's
@@ -22,6 +23,7 @@ use bembeyaz_xml::{Error, Flow, Handler, Parser, StartTag, Str};
 use core::fmt::Write;
 
 pub mod locate;
+pub mod progress;
 
 /// What to look for.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

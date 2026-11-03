@@ -1,5 +1,5 @@
-// C ABI of rust/crates/bembeyaz-ffi/src/kosync.rs. Use lib/KOReaderSync/ChapterXPathResolver.h and
-// ProgressMapper.h instead.
+// C ABI of rust/crates/bembeyaz-ffi/src/kosync.rs. Use lib/KOReaderSync/ChapterXPathResolver.h,
+// ProgressMapper.h and ProgressComparison.h instead.
 #pragma once
 
 #include <stdbool.h>
@@ -112,6 +112,39 @@ typedef struct {
 } bb_kosync_location;
 
 void bb_kosync_locator_get_location(const bb_kosync_locator* locator, bb_kosync_location* out);
+
+// Which of two reading positions is further on (bembeyaz_kosync::progress).
+
+// A position as the comparison reads it.
+typedef struct {
+  int32_t spine;
+  int32_t page;
+  // The zero-based visible codepoint the page starts at.
+  uint32_t offset;
+  // spine came from local state or a content anchor, not a percentage.
+  bool spine_resolved;
+  // page came from local layout data, not percentage scaling.
+  bool page_mapped;
+  // offset is known.
+  bool has_offset;
+} bb_kosync_position;
+
+// bb_kosync_compare_progress's answers, in ProgressComparison's order.
+enum {
+  BB_KOSYNC_LOCAL_AHEAD = 0,
+  BB_KOSYNC_SYNCHRONIZED = 1,
+  BB_KOSYNC_REMOTE_AHEAD = 2,
+  BB_KOSYNC_UNKNOWN = 3,
+};
+
+// Which of local and remote is further on (BB_KOSYNC_*): by place when both chapters are trusted,
+// else by percentage, within 0.001 being the same place; UNKNOWN for a NULL position.
+uint8_t bb_kosync_compare_progress(const bb_kosync_position* local, float local_percentage,
+                                   const bb_kosync_position* remote, float remote_percentage);
+// 1 when the alternate remote record is strictly further on than the primary one, else 0 (0 for a
+// NULL one).
+uint8_t bb_kosync_select_remote(const bb_kosync_position* primary, float primary_percentage,
+                                const bb_kosync_position* alternate, float alternate_percentage);
 
 #ifdef __cplusplus
 }

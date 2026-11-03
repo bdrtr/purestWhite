@@ -57,6 +57,10 @@ The checks on paths that come from the network are in the `web` module of `bembe
   `>` in a comment or in quotes, differently from the sending half. It may move to
   `bembeyaz-xml` later; a round-trip test ties the two halves together. Reading the chapter from
   the book, the Section cache and the page mapping are in C++.
+- **Progress comparison ✅**: `compareProgress` and `selectRemoteRecord` in `ProgressComparison`
+  call the `progress` module of `bembeyaz-kosync`, which decides which of two reading positions
+  is further on: by chapter, then page or text offset when both chapters are trusted, otherwise
+  by percentage within 0.001. `test/progress_comparison` pins the old answers.
 
 ## ClippingStore
 

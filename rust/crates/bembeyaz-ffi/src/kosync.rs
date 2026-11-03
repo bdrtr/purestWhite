@@ -1,10 +1,12 @@
-//! Exports for `lib/KOReaderSync/ChapterXPathResolver` (see `rust/include/bembeyaz/kosync.h`).
+//! Exports for `lib/KOReaderSync/ChapterXPathResolver` and `ProgressComparison` (see
+//! `rust/include/bembeyaz/kosync.h`).
 //!
 //! A resolver lives in a Rust heap block that `bb_kosync_new` hands out and `bb_kosync_free` takes back;
 //! a locator likewise with `bb_kosync_locator_new` and `bb_kosync_locator_free`.
 
 use alloc::alloc::{Layout, alloc, dealloc};
 use bembeyaz_kosync::locate::{Locator, Step, XPath};
+use bembeyaz_kosync::progress::{self, Choice, Comparison, Position};
 use bembeyaz_kosync::{Resolver, Target};
 use core::ffi::{c_char, c_int};
 use core::ptr;
@@ -276,4 +278,59 @@ pub unsafe extern "C" fn bb_kosync_locator_get_location(
         anchor: anchor.map_or(ptr::null(), |a| a.as_ptr().cast()),
         anchor_len: anchor.map_or(0, <[u8]>::len),
     };
+}
+
+// kosync.h's bb_kosync_position.
+const _: () = {
+    use core::mem::offset_of;
+    assert!(
+        size_of::<Position>() == 16
+            && offset_of!(Position, page) == 4
+            && offset_of!(Position, offset) == 8
+            && offset_of!(Position, spine_resolved) == 12
+            && offset_of!(Position, page_mapped) == 13
+            && offset_of!(Position, has_offset) == 14
+    );
+};
+
+/// `BB_KOSYNC_*` comparison: which of `local` and `remote` is further on; unknown for a NULL one.
+///
+/// # Safety
+/// `local` and `remote` are NULL or readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_kosync_compare_progress(
+    local: *const Position,
+    local_percentage: f32,
+    remote: *const Position,
+    remote_percentage: f32,
+) -> u8 {
+    // SAFETY: as documented.
+    match unsafe { (local.as_ref(), remote.as_ref()) } {
+        (Some(local), Some(remote)) => {
+            progress::compare(local, local_percentage, remote, remote_percentage) as u8
+        }
+        _ => Comparison::Unknown as u8,
+    }
+}
+
+/// Whether to take the alternate remote record: 1 only when it is strictly further on than the
+/// primary one (0 for a NULL one).
+///
+/// # Safety
+/// `primary` and `alternate` are NULL or readable.
+#[unsafe(no_mangle)]
+pub unsafe extern "C" fn bb_kosync_select_remote(
+    primary: *const Position,
+    primary_percentage: f32,
+    alternate: *const Position,
+    alternate_percentage: f32,
+) -> u8 {
+    // SAFETY: as documented.
+    match unsafe { (primary.as_ref(), alternate.as_ref()) } {
+        (Some(primary), Some(alternate)) => {
+            progress::select_remote(primary, primary_percentage, alternate, alternate_percentage)
+                as u8
+        }
+        _ => Choice::Primary as u8,
+    }
 }
