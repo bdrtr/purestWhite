@@ -8,6 +8,8 @@
 //!   from `test/crosspoint_state/make_corpus.py`.
 //! - [`recent_books`]: `RecentBooksStore` (`recent.json`): the books opened last; corpus from
 //!   `test/recent_books/make_corpus.py`.
+//! - [`opds_servers`]: `OpdsServerStore` (`opds.json`): the OPDS catalogs, their sign-ins and
+//!   headers as stored; corpus from `test/opds_servers/make_corpus.py`.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -20,6 +22,10 @@ extern crate std;
 #[cfg(test)]
 mod corpus;
 
+pub mod headers;
+pub mod opds_servers;
+#[cfg(test)]
+mod opds_servers_tests;
 pub mod recent_books;
 #[cfg(test)]
 mod recent_books_tests;

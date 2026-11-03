@@ -1,5 +1,6 @@
 //! What the settings stores' exports share (`rust/include/bembeyaz/store.h`).
 
+use bembeyaz_store::headers::{HEADERS, Header, Headers};
 use core::ffi::{c_char, c_void};
 
 /// store.h's `bb_store_text`.
@@ -34,6 +35,45 @@ impl Text {
     pub(crate) unsafe fn bytes<'a>(self) -> &'a [u8] {
         // SAFETY: as documented.
         unsafe { crate::view(self.data.cast(), self.len) }
+    }
+}
+
+/// store.h's `bb_store_header`.
+#[repr(C)]
+pub(crate) struct BbHeader {
+    name: Text,
+    value_obf: Text,
+}
+
+const _: () = {
+    assert!(size_of::<BbHeader>() == 2 * size_of::<Text>());
+    assert!(core::mem::offset_of!(BbHeader, value_obf) == size_of::<Text>());
+};
+
+impl BbHeader {
+    /// Views of `headers`' slots, valid while they are.
+    pub(crate) fn of(headers: &Headers) -> [BbHeader; HEADERS] {
+        headers.slots.each_ref().map(|h| BbHeader {
+            name: Text::of(&h.name),
+            value_obf: Text::of(&h.value_obf),
+        })
+    }
+
+    /// The first `count` of `slots` (at most all of them).
+    ///
+    /// # Safety
+    /// The texts are NULL or readable and outlive `'a`.
+    pub(crate) unsafe fn view<'a>(slots: &[BbHeader; HEADERS], count: usize) -> Headers<&'a [u8]> {
+        Headers {
+            // SAFETY: as documented.
+            slots: slots.each_ref().map(|h| unsafe {
+                Header {
+                    name: h.name.bytes(),
+                    value_obf: h.value_obf.bytes(),
+                }
+            }),
+            count: count.min(HEADERS),
+        }
     }
 }
 

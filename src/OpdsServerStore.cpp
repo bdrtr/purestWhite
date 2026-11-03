@@ -2,62 +2,87 @@
 
 #include <Logging.h>
 #include <ObfuscationUtils.h>
+#include <StoreText.h>
+#include <StoredPassword.h>
+#include <bembeyaz/store_opds_servers.h>
 
 #include <algorithm>
+#include <cstddef>
 #include <cstring>
 
-void OpdsServerStore::toJson(JsonDocument& doc) const {
-  JsonArray arr = doc["servers"].to<JsonArray>();
-  for (const auto& server : servers) {
-    JsonObject obj = arr.add<JsonObject>();
-    obj["name"] = server.name;
-    obj["url"] = server.url;
-    obj["username"] = server.username;
-    obj["password_obf"] = obfuscation::obfuscateToBase64(server.password);
-    JsonArray headers = obj["headers"].to<JsonArray>();
-    for (const auto& header : server.customHeaders) {
-      JsonObject headerObj = headers.add<JsonObject>();
-      headerObj["name"] = header.name;
-      headerObj["value_obf"] = obfuscation::obfuscateToBase64(header.value);
-    }
+// The JSON is Rust's (bembeyaz_store::opds_servers); this file obfuscates the passwords and header
+// values, passes the servers to Rust and takes them back. Adding, changing and removing servers
+// stays here.
+namespace {
+static_assert(OpdsServer::MAX_CUSTOM_HEADERS == BB_STORE_HEADERS, "bb_store_opds_server's headers");
+static_assert(sizeof(bb_store_header) == 2 * sizeof(bb_store_text) &&
+                  offsetof(bb_store_header, value_obf) == sizeof(bb_store_text),
+              "bb_store_header layout");
+static_assert(sizeof(bb_store_opds_server) == 9 * sizeof(bb_store_text) + sizeof(size_t) &&
+                  offsetof(bb_store_opds_server, password) == 4 * sizeof(bb_store_text) &&
+                  offsetof(bb_store_opds_server, headers) == 5 * sizeof(bb_store_text) &&
+                  offsetof(bb_store_opds_server, header_count) == 9 * sizeof(bb_store_text),
+              "bb_store_opds_server layout");
+
+// The servers read, and whether a legacy plain password was among them.
+struct Read {
+  std::vector<OpdsServer>& servers;
+  bool needsResave;
+};
+
+void addRead(const bb_store_opds_server* stored, const size_t count, void* context) {
+  auto* read = static_cast<Read*>(context);
+  if (read->servers.empty()) read->servers.reserve(count);
+  OpdsServer server;
+  server.name = storeString(stored->name);
+  server.url = storeString(stored->url);
+  server.username = storeString(stored->username);
+  server.password = obfuscation::readStoredPassword(storeString(stored->password_obf).c_str(),
+                                                    storeString(stored->password).c_str(), read->needsResave);
+  for (size_t i = 0; i < stored->header_count && i < OpdsServer::MAX_CUSTOM_HEADERS; i++) {
+    server.customHeaders[i].name = storeString(stored->headers[i].name);
+    server.customHeaders[i].value =
+        obfuscation::deobfuscateFromBase64(storeString(stored->headers[i].value_obf).c_str());
   }
+  read->servers.push_back(std::move(server));
+}
+}  // namespace
+
+bool OpdsServerStore::toJsonText(String& json) const {
+  ObfuscatedTexts obfuscated;
+  std::vector<bb_store_opds_server> stored(servers.size());
+  for (size_t i = 0; i < servers.size(); i++) {
+    const OpdsServer& server = servers[i];
+    bb_store_opds_server& out = stored[i];
+    out.name = storeText(server.name);
+    out.url = storeText(server.url);
+    out.username = storeText(server.username);
+    out.password_obf = obfuscated.add(server.password);
+    out.password = bb_store_text{nullptr, 0};
+    for (size_t h = 0; h < OpdsServer::MAX_CUSTOM_HEADERS; h++) {
+      out.headers[h].name = storeText(server.customHeaders[h].name);
+      out.headers[h].value_obf = obfuscated.add(server.customHeaders[h].value);
+    }
+    out.header_count = OpdsServer::MAX_CUSTOM_HEADERS;
+  }
+  if (!obfuscated.ok()) return false;
+  StoreJsonSink sink{json, true};
+  return bb_store_opds_servers_write(stored.data(), stored.size(), appendStoreJson, &sink) && sink.ok;
 }
 
-bool OpdsServerStore::fromJson(JsonVariantConst doc) {
-  // Tolerate a missing/invalid 'servers' key (treat as empty list); only a
-  // JSON parse error is fatal. A null JsonArray iterates zero times.
-  servers.clear();
-  JsonArrayConst arr = doc["servers"].as<JsonArrayConst>();
-  servers.reserve(std::min(arr.size(), MAX_SERVERS));
-  bool needsResave = false;
-
-  for (JsonObjectConst obj : arr) {
-    if (servers.size() >= OpdsServerStore::MAX_SERVERS) break;
-    OpdsServer server;
-    server.name = obj["name"] | "";
-    server.url = obj["url"] | "";
-    server.username = obj["username"] | "";
-    server.password = extractPassword(obj, needsResave);
-
-    size_t headerIndex = 0;
-    for (JsonObjectConst headerObj : obj["headers"].as<JsonArrayConst>()) {
-      if (headerIndex >= OpdsServer::MAX_CUSTOM_HEADERS) break;
-      server.customHeaders[headerIndex].name = headerObj["name"] | "";
-      server.customHeaders[headerIndex].value = obfuscation::deobfuscateFromBase64(headerObj["value_obf"] | "");
-      headerIndex++;
-    }
-
-    servers.push_back(std::move(server));
-  }
-
+const char* OpdsServerStore::fromJsonText(const String& json) {
+  // A missing or invalid 'servers' key reads as an empty list; only a JSON parse error is fatal.
+  std::vector<OpdsServer> read;
+  Read context{read, false};
+  const char* error = bb_store_opds_servers_read(json.c_str(), json.length(), MAX_SERVERS, addRead, &context);
+  if (error) return error;
+  servers = std::move(read);
   LOG_DBG("OPS", "Loaded %zu OPDS servers from file", servers.size());
-
-  if (needsResave) {
+  if (context.needsResave) {
     LOG_DBG("OPS", "Resaving JSON with obfuscated passwords");
     requestResave();
   }
-
-  return true;
+  return nullptr;
 }
 
 bool OpdsServerStore::addServer(const OpdsServer& server) {

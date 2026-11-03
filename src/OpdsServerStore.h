@@ -1,5 +1,4 @@
 #pragma once
-#include <ArduinoJson.h>
 #include <HttpHeader.h>
 #include <PersistableStore.h>
 
@@ -42,8 +41,10 @@ class OpdsServerStore : public PersistableStore<OpdsServerStore> {
 
  public:
   static const char* getFilePath() { return "/.crosspoint/opds.json"; }
-  void toJson(JsonDocument& doc) const;
-  bool fromJson(JsonVariantConst doc);
+  // opds.json's text, read and written by Rust (bembeyaz_store::opds_servers); the obfuscation of
+  // passwords and header values stays here. See PersistableStore.
+  bool toJsonText(String& json) const;
+  const char* fromJsonText(const String& json);
 
   bool addServer(const OpdsServer& server);
   bool updateServer(size_t index, const OpdsServer& server);

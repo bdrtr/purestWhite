@@ -51,12 +51,12 @@ pub(crate) fn replay(corpus: &str, least: usize, mut step: impl FnMut(&[&str]) -
     );
 }
 
-/// Every `every`th `from` file of `corpus`, cut at each byte and with each byte changed, read by
-/// `read` without a fault.
+/// Every `every`th `from` or `load` file of `corpus`, cut at each byte and with each byte
+/// changed, read by `read` without a fault.
 pub(crate) fn fuzz(corpus: &str, every: usize, mut read: impl FnMut(&[u8])) {
     for line in corpus
         .lines()
-        .filter(|l| l.starts_with("from "))
+        .filter(|l| l.starts_with("from ") || l.starts_with("load "))
         .step_by(every)
     {
         let input = bytes(line.split(' ').nth(1).unwrap());

@@ -2,9 +2,8 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
-#include <ObfuscationUtils.h>
+#include <StoredPassword.h>
 
-#include <cstring>
 #include <limits>
 
 bool PersistableStoreBase::writeDocToFile(const char* path, const JsonDocument& doc) {
@@ -54,25 +53,5 @@ std::string PersistableStoreBase::extractPassword(JsonVariantConst doc, bool& ne
 
 std::string PersistableStoreBase::extractPassword(JsonVariantConst doc, bool& needsResave, const size_t maxLength,
                                                   bool& valid) {
-  valid = true;
-  bool ok = false;
-  bool tooLong = false;
-  std::string pass = obfuscation::deobfuscateFromBase64(doc["password_obf"] | "", maxLength, &ok, &tooLong);
-  if (tooLong) {
-    valid = false;
-    return "";
-  }
-  if (!ok) {
-    // Deobfuscation failed — fall back to legacy plaintext password.
-    const char* legacyPassword = doc["password"] | "";
-    const size_t legacyLength = strlen(legacyPassword);
-    if (legacyLength > maxLength) {
-      valid = false;
-      return "";
-    }
-    pass.assign(legacyPassword, legacyLength);
-    if (!pass.empty()) needsResave = true;
-  }
-  // A successfully decoded empty string is a legitimate value; preserve as-is.
-  return pass;
+  return obfuscation::readStoredPassword(doc["password_obf"] | "", doc["password"] | "", maxLength, needsResave, valid);
 }

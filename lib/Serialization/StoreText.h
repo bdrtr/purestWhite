@@ -4,6 +4,7 @@
 #include <bembeyaz/store.h>
 
 #include <cstddef>
+#include <deque>
 #include <string>
 
 // What the stores whose JSON is Rust's share at the C ABI (rust/include/bembeyaz/store.h).
@@ -25,6 +26,20 @@ inline void appendStoreJson(const char* data, const size_t len, void* context) {
 
 // A view of s, valid while s is not changed.
 inline bb_store_text storeText(const std::string& s) { return bb_store_text{s.data(), s.size()}; }
+inline bb_store_text storeText(const String& s) { return bb_store_text{s.c_str(), s.length()}; }
+
+// Texts obfuscated for saving (ObfuscationUtils), kept while Rust writes them: each add() gives a
+// view that stays valid while this lives. ok turns false when one could not be made (memory ran
+// out), so the store saves nothing rather than lose a password.
+class ObfuscatedTexts {
+ public:
+  bb_store_text add(const std::string& plain);
+  bool ok() const { return ok_; }
+
+ private:
+  std::deque<String> texts_;
+  bool ok_ = true;
+};
 
 // A copy of t's bytes.
 inline std::string storeString(const bb_store_text& t) { return t.len ? std::string(t.data, t.len) : std::string(); }

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Builds driver.cpp over the C++ versions of src/OpdsServerStore and lib/Serialization's
-PersistableStore (taken from git, commit 485d3886: the ones in the tree are now the Rust shim) with
-ArduinoJson 7.4.2 and the host stubs (stubs/, and those of test/json_oracle), runs it on seeded
-scenarios and writes the transcript as the golden corpus the Rust tests replay:
-rust/crates/bembeyaz-store/testdata/opds-servers-corpus.txt.
+PersistableStore (taken from git, commit 485d3886: the store in the tree is now the Rust shim, and
+PersistableStore has changed with it) with ArduinoJson 7.4.2 and the host stubs (stubs/, and those
+of test/json_oracle), runs it on seeded scenarios and writes the transcript as the golden corpus the
+Rust tests replay: rust/crates/bembeyaz-store/testdata/opds-servers-corpus.txt.
 
   test/opds_servers/make_corpus.py [STEPS]    (default 1000 random steps, and the edge steps)
   test/opds_servers/make_corpus.py --check DRIVER
@@ -16,12 +16,14 @@ Needs a host C++17 compiler (`c++`), ArduinoJson's headers (.pio/libdeps after a
 build) and git. After regenerating, run `cargo test -p bembeyaz-store` in rust/ and
 test/opds_servers/check_shim.sh. The corpus only ever holds the C++ behavior.
 
-Scenarios: opds.json files with server lists of any length (past the store's 8), items that are
-not objects, fields of any type (the shared value generator, test/json_oracle/oracle.py),
-obfuscated passwords that decode, do not decode or are empty, legacy plain passwords (which the
-store resaves obfuscated), header lists of any length (past 2) and kind, a missing or wrong-typed
-"servers", broken and empty files; servers added after them (past the limit too); edges: roots
-that are not objects, and the longest string ArduinoJson keeps and one byte more.
+Scenarios: opds.json files with server lists of any length (past the store's 8), items that are not
+objects, fields of any type (the shared value generator, test/json_oracle/oracle.py), obfuscated
+passwords that decode, do not decode or are empty, legacy plain passwords (which the store resaves
+obfuscated), header lists of any length (past 2) and kind, a missing or wrong-typed "servers",
+broken and empty files; servers added after them (past the limit too); edges: roots that are not
+objects, a "servers" that is not an array, an empty file, a legacy plain password alone, with an
+undecodable obfuscated one, and both empty, and the longest string ArduinoJson keeps and one byte
+more.
 """
 import random
 import sys

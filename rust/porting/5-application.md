@@ -105,21 +105,28 @@ The stores built on `lib/Serialization/PersistableStore.h` keep their files in `
 JSON. A store whose JSON is read and written in Rust gives `toJsonText`/`fromJsonText` in place of
 `toJson`/`fromJson` (`fromJsonText` returns nullptr, or ArduinoJson's error name, and may call
 `requestResave()`); `PersistableStore` keeps the file steps, the lock, the parse-error log and the
-resave for both kinds. The stores go to the `bembeyaz-store` crate one by one (a module with
-`read` and `write` each), over `bembeyaz-jsondoc` (its `|` and `is<T>` are pinned by
+resave for both kinds. The stores go to the `bembeyaz-store` crate one by one (a module with `read`
+and `write` each), over `bembeyaz-jsondoc` (its `|` and `is<T>` are pinned by
 `test/json_conversions`). Their C ABIs are `rust/include/bembeyaz/store_*.h`, with the
 `bb_store_write` callback and `bb_store_text` of `store.h` (on the C++ side,
-`lib/Serialization/StoreText.h`): a store with a fixed set of fields crosses as a `repr(C)`
-struct; a list crosses as an array of item structs when written and one item per callback when
-read, the C++ store giving its limit (`MAX_RECENT_BOOKS`) so it is defined once; a large table
+`lib/Serialization/StoreText.h`): a store with a fixed set of fields crosses as a `repr(C)` struct;
+a list crosses as an array of item structs when written and one item per callback when read, the C++
+store giving its limit (`MAX_RECENT_BOOKS`) so it is defined once; a large table
 (`CrossPointSettings`) will cross one field per callback. The text is written by
 `bembeyaz_jsondoc::Writer` straight into one buffer, and a store's `write` returns `None` when
-memory runs out, so the old file is kept. For the stores still to come: a `read` that upgrades a legacy
-shape reports it (a `bool* resave` out-parameter, so C++ calls `requestResave()`); passwords stay
-obfuscated in C++ (`ObfuscationUtils`, keyed by the eFuse MAC) and cross as the raw
-`password_obf`/`password` texts; a nested list with a fixed limit (an OPDS server's custom
-headers) is a fixed array of name/value texts and a count inside its item. The oracles share
-`test/json_oracle`.
+memory runs out, so the old file is kept. Passwords and other secrets stay obfuscated in C++
+(`ObfuscationUtils`, keyed by the eFuse MAC) and cross as their stored texts; C++ reads a password
+from them with `obfuscation::readStoredPassword` (`StoredPassword.h`) and obfuscates for saving with
+`ObfuscatedTexts` (`StoreText.h`), which also refuses the save when obfuscating fails. A legacy
+shape is upgraded, and resaved, where its inputs are: in C++ when it depends on a decoded value or
+on C++ state (the OPDS plain `password`); only a shape that Rust alone can see would be reported
+back, for example with a `bool* resave` out-parameter. A field whose type or presence the C++ store
+decides on (the Wi-Fi password's length and CRC-32, KOReader's `cfgVersion`) will cross as a typed
+field with its kind (missing, the expected type, another type), so C++ keeps deciding. A nested list
+with a fixed limit is a fixed array and a count inside its item (`bb_store_header`, shared by the
+OPDS servers and the KOReader server). The oracles share `test/json_oracle`; from the next store on,
+a store's Rust test replays `read` and `write` against what the driver prints of the stored texts
+and leaves the C++ glue to `check_shim.sh` (the OPDS test still mirrors that glue).
 
 - **App state ✅**: `CrossPointState` (`state.json`: the open book, the reader's load count, the
   rings of recent sleep images and their legacy `lastSleepImage`) calls the `state` module of
@@ -132,6 +139,14 @@ headers) is a fixed array of name/value texts and a count inside its item. The o
   the C++ store's answers on 1,000 seeded steps and 10 edge steps to
   `rust/crates/bembeyaz-store/testdata/recent-books-corpus.txt`; its `check_shim.sh` runs them
   through the C++ shim over Rust.
+- **OPDS servers ✅**: `OpdsServerStore` reads and writes its JSON (`opds.json`: up to 8 catalogs
+  with their name, URL, user name, password and two extra headers) through the `opds_servers` module
+  of `bembeyaz-store`, the password and header values as stored: their obfuscation, and the resave
+  of a legacy plain password (`obfuscation::readStoredPassword`, `StoredPassword.h`), stay in C++.
+  `test/opds_servers` goes through the store's `loadFromFile` and `addServer` over a host stand-in
+  for the obfuscation, so PersistableStore's file steps and the resave are in its answers too: 1,000
+  seeded steps and 12 edge steps, in `rust/crates/bembeyaz-store/testdata/opds-servers-corpus.txt`;
+  its `check_shim.sh` runs them through the C++ shim over Rust.
 
 ## `src/` activities
 

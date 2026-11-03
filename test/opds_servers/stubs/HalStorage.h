@@ -1,5 +1,5 @@
-// Host stub: one file. The driver puts the next file read in storageFile (a missing file when
-// storageExists is false) and finds what the store wrote in storageWritten.
+// Host stub: one file. The driver puts the next file read in storageFile and finds what the store
+// wrote in storageWritten (storageExists, a missing file when false, is always true here).
 #pragma once
 
 #include <Arduino.h>
