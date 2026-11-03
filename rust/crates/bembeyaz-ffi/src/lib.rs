@@ -48,6 +48,7 @@ mod png_cover;
 mod rtc;
 mod section;
 mod store;
+mod store_koreader_credentials;
 mod store_opds_servers;
 mod store_recent_books;
 mod store_state;

@@ -19,11 +19,12 @@ name, password and server here is made up.
 
 Scenarios: koreader.json files from every config version (1 to 3 and past it), with each setting
 missing, in range, out of range or of another type (floats, bools, strings, containers; the shared
-value generator, test/json_oracle/oracle.py), obfuscated passwords that decode, do not decode or
-are empty, legacy plain passwords, the default, the old default, custom and empty server URLs,
-header lists of any length and kind, broken and empty files; every setting set and saved (out of
-range too), credentials cleared; edges: roots that are not objects, an empty file, and the longest
-string ArduinoJson keeps and one byte more.
+value generator, test/json_oracle/oracle.py), obfuscated passwords that decode, do not decode or are
+empty, legacy plain passwords, the default, the old default, custom and empty server URLs, header
+lists of any length and kind, broken and empty files; every setting set and saved (out of range
+too), credentials cleared; edges: an empty object, roots that are not objects, an empty file, a v1
+config with credentials with and without a server URL, a v3 config with its server type and sync
+behavior, and the longest string ArduinoJson keeps and one byte more.
 """
 import random
 import sys

@@ -8,6 +8,8 @@
 //!   from `test/crosspoint_state/make_corpus.py`.
 //! - [`recent_books`]: `RecentBooksStore` (`recent.json`): the books opened last; corpus from
 //!   `test/recent_books/make_corpus.py`.
+//! - [`koreader_credentials`]: `KOReaderCredentialStore` (`koreader.json`): the KOReader sync
+//!   account and settings as stored; corpus from `test/koreader_credentials/make_corpus.py`.
 //! - [`opds_servers`]: `OpdsServerStore` (`opds.json`): the OPDS catalogs, their sign-ins and
 //!   headers as stored; corpus from `test/opds_servers/make_corpus.py`.
 //! - [`wifi_credentials`]: `WifiCredentialStore` (`wifi.json`): the saved Wi-Fi networks, their
@@ -26,6 +28,9 @@ mod corpus;
 
 pub mod field;
 pub mod headers;
+pub mod koreader_credentials;
+#[cfg(test)]
+mod koreader_credentials_tests;
 pub mod opds_servers;
 #[cfg(test)]
 mod opds_servers_tests;

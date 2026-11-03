@@ -11,7 +11,6 @@
 // The JSON is Rust's (bembeyaz_store::wifi_credentials); this file obfuscates the passwords, checks
 // what a file holds and decides which networks to keep, as the ArduinoJson version did.
 namespace {
-static_assert(sizeof(bb_store_number) == 8 && offsetof(bb_store_number, value) == 4, "bb_store_number layout");
 static_assert(sizeof(bb_store_wifi_stored) == 3 * sizeof(bb_store_text) + 16 &&
                   offsetof(bb_store_wifi_stored, password_len) == 3 * sizeof(bb_store_text) &&
                   offsetof(bb_store_wifi_stored, password_crc32) == 3 * sizeof(bb_store_text) + 8,

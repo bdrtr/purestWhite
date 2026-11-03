@@ -21,12 +21,13 @@ enum {
   BB_STORE_OTHER = 2,    // anything else (a float, a string, an integer out of range...)
 };
 
-// A number field whose presence and type the C++ store decides on; value is 0 unless kind is
-// BB_STORE_U32. A field the store reads with as<T>() and no is<T>() check (KOReader's serverType)
-// also needs the number ArduinoJson converts from the other kinds; that field will need more than
-// this struct.
+// A number field whose presence and type the C++ store decides on: value is 0 unless kind is
+// BB_STORE_U32; byte is ArduinoJson's as<uint8_t>() of it, whatever its kind (a float, bool or
+// string converted too, 0 when it cannot be), for a field the store reads with as<uint8_t>()
+// (KOReader's serverType).
 typedef struct {
   uint8_t kind;
+  uint8_t byte;
   uint32_t value;
 } bb_store_number;
 

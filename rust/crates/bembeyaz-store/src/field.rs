@@ -1,7 +1,8 @@
 //! A stored field whose presence and type the C++ store decides on: what it is, as
-//! ArduinoJson's `isNull()` and `is<uint32_t>()` see it, and its value when it is a `u32`.
+//! ArduinoJson's `isNull()` and `is<uint32_t>()` see it, its value when it is a `u32`, and what
+//! `as<uint8_t>()` makes of it whatever it is.
 
-use bembeyaz_jsondoc::{Value, is_integer, or_integer};
+use bembeyaz_jsondoc::{Value, as_number, is_integer, or_integer};
 
 /// What a number field holds; its value is store.h's code for it.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -16,27 +17,37 @@ pub enum Kind {
     Other = 2,
 }
 
-/// A number field: its kind, and its value when the kind is [`Kind::U32`] (else 0).
+/// A number field: its kind, its value when the kind is [`Kind::U32`] (else 0), and
+/// ArduinoJson's `as<uint8_t>()` of it (a float, bool or string converted too, 0 when it cannot
+/// be).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Number {
     pub kind: Kind,
     pub value: u32,
+    pub byte: u8,
 }
 
 impl Number {
-    /// The kind and value of the field `value` (`Kind::Missing` when it is missing or null).
+    /// The kind, value and `as<uint8_t>()` of the field `value` (`Kind::Missing` when it is missing
+    /// or null).
     pub(crate) fn of(value: Option<&Value>) -> Number {
+        let byte = as_number::<u8>(value);
         if Value::is_null(value) {
-            Number::default()
+            Number {
+                byte,
+                ..Number::default()
+            }
         } else if is_integer::<u32>(value) {
             Number {
                 kind: Kind::U32,
                 value: or_integer(value, 0),
+                byte,
             }
         } else {
             Number {
                 kind: Kind::Other,
                 value: 0,
+                byte,
             }
         }
     }

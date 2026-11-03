@@ -1,4 +1,4 @@
-//! The extra request headers a server keeps (OPDS servers, the `KOReader` sync server): a name and
+//! The extra request headers a server keeps (OPDS servers, the KOReader sync server): a name and
 //! the value as stored, obfuscated (its obfuscation stays in C++). Stored as an array of
 //! `{"name", "value_obf"}` objects.
 

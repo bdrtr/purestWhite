@@ -113,9 +113,8 @@ and `write` each), over `bembeyaz-jsondoc` (its `|` and `is<T>` are pinned by
 a list crosses as an array of item structs when written and one item per callback when read, the C++
 store giving its limit (`MAX_RECENT_BOOKS`) so it is defined once, when every item read is kept;
 when the limit counts only the items C++ keeps (Wi-Fi's `MAX_NETWORKS`, and the OPDS token and LCP
-stores'), Rust hands over every item and C++ applies the limit in its callback; a large table
-(`CrossPointSettings`) will cross one field per callback. The text is written by
-`bembeyaz_jsondoc::Writer` straight into one buffer, and a store's `write` returns `None` when
+stores'), Rust hands over every item and C++ applies the limit in its callback. The text is written
+by `bembeyaz_jsondoc::Writer` straight into one buffer, and a store's `write` returns `None` when
 memory runs out, so the old file is kept. Passwords and other secrets stay obfuscated in C++
 (`ObfuscationUtils`, keyed by the eFuse MAC) and cross as their stored texts; C++ reads a password
 from them with `obfuscation::readStoredPassword` (`StoredPassword.h`) and obfuscates for saving with
@@ -124,13 +123,20 @@ shape is upgraded, and resaved, where its inputs are: in C++ when it depends on 
 on C++ state (the OPDS plain `password`); only a shape that Rust alone can see would be reported
 back, for example with a `bool* resave` out-parameter. A field whose type or presence the C++ store
 decides on crosses as a `bb_store_number` with its kind (missing, a `u32`, another type;
-`bembeyaz_store::field`), so C++ keeps deciding: the Wi-Fi password's length and CRC-32 now;
-KOReader's fields next, where one read with `as<uint8_t>()` will also need ArduinoJson's conversion
-of the other kinds. A nested list with a fixed limit is a fixed array and a count inside its item
-(`bb_store_header`, shared by the OPDS servers and the KOReader server). The oracles share
-`test/json_oracle`; from the Wi-Fi store on, a store's Rust test replays `read` and `write` against
-the stored-text layers the driver prints, and leaves the C++ glue to `check_shim.sh` (the OPDS test
-still mirrors that glue).
+`bembeyaz_store::field`), so C++ keeps deciding: the Wi-Fi password's length and CRC-32, KOReader's
+settings; its `byte` is ArduinoJson's `as<uint8_t>()` for a field read with no `is<T>()` check
+(KOReader's `serverType`), and a field read with `| fallback` for a `uint8_t` uses `storeByteOr`
+(`StoreText.h`) on its kind and value. So the rule is: a text or bool read with a plain fallback (`|
+""`, `| false`, `| true`) crosses as the value Rust read that way, and so does a number whose
+default and checks moved to Rust with the store (CrossPointState's); a number whose default or
+checks the C++ store decides on crosses with its kind, and those stay in C++. ABI types stay in the
+store's `.cpp`, out of its header. `CrossPointSettings`, whose keys come from C++'s `SettingsList`
+table, will read through a parsed document with typed getters instead (`*_new`/`*_free`), so C++
+keeps its table and its migrations. A nested list with a fixed limit is a fixed array and a count
+inside its item (`bb_store_header`, shared by the OPDS servers and the KOReader server). The oracles
+share `test/json_oracle`; from the Wi-Fi store on, a store's Rust test replays `read` and `write`
+against the stored-text layers the driver prints, and leaves the C++ glue to `check_shim.sh` (the
+OPDS test still mirrors that glue).
 
 - **App state ✅**: `CrossPointState` (`state.json`: the open book, the reader's load count, the
   rings of recent sleep images and their legacy `lastSleepImage`) calls the `state` module of
@@ -162,6 +168,18 @@ still mirrors that glue).
   steps, in `rust/crates/bembeyaz-store/testdata/wifi-credentials-corpus.txt`. The Rust tests replay
   the stored-text layers the driver prints (what a file holds, what a save writes); `check_shim.sh`
   checks the C++ store's answers through the shim.
+- **KOReader sync account ✅**: `KOReaderCredentialStore` reads and writes its JSON (`koreader.json`:
+  the sync account, its password obfuscated, the server, its type, the document match method, the
+  sync behavior, two flags and two extra headers) through the `koreader_credentials` module of
+  `bembeyaz-store`. Rust hands over the file's settings as stored, each number with its kind and its
+  `as<uint8_t>()` (`bb_store_number`'s `byte`, for `serverType`); C++ copies them out of the
+  callback and then decides as before: the upgrades of a pre-v2 config (the old default server
+  pinned) and of a pre-v3 one (the server type from the URL), the check of each setting, and the
+  resave. Header slots the file does not have keep what they held, as before.
+  `test/koreader_credentials` goes through `loadFromFile`, the setters with `saveToFile`, and
+  `clearCredentials`: 1,000 seeded steps and 10 edge steps, in
+  `rust/crates/bembeyaz-store/testdata/koreader-credentials-corpus.txt`; the Rust tests replay its
+  stored-text layers, and `check_shim.sh` the C++ store's answers through the shim.
 
 ## `src/` activities
 

@@ -1,5 +1,4 @@
 #pragma once
-#include <ArduinoJson.h>
 #include <HttpHeader.h>
 #include <PersistableStore.h>
 
@@ -63,8 +62,11 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
   static constexpr size_t MAX_CUSTOM_HEADERS = KOREADER_MAX_CUSTOM_HEADERS;
 
   static const char* getFilePath() { return "/.crosspoint/koreader.json"; }
-  void toJson(JsonDocument& doc) const;
-  bool fromJson(JsonVariantConst doc);
+  // koreader.json's text, read and written by Rust (bembeyaz_store::koreader_credentials); the
+  // obfuscation, the upgrades of older configs and the checks of each setting stay here. See
+  // PersistableStore.
+  bool toJsonText(String& json) const;
+  const char* fromJsonText(const String& json);
 
   // Credential management
   void setCredentials(const std::string& user, const std::string& pass);

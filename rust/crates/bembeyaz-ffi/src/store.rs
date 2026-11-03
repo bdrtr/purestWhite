@@ -46,11 +46,14 @@ const _: () = assert!(Kind::Missing as u8 == 0 && Kind::U32 as u8 == 1 && Kind::
 #[repr(C)]
 pub(crate) struct BbNumber {
     kind: u8,
+    byte: u8,
     value: u32,
 }
 
 const _: () = {
-    assert!(size_of::<BbNumber>() == 8 && core::mem::offset_of!(BbNumber, value) == 4);
+    use core::mem::offset_of;
+    assert!(size_of::<BbNumber>() == 8 && offset_of!(BbNumber, byte) == 1);
+    assert!(offset_of!(BbNumber, value) == 4);
 };
 
 impl BbNumber {
@@ -58,6 +61,7 @@ impl BbNumber {
     pub(crate) fn of(number: Number) -> BbNumber {
         BbNumber {
             kind: number.kind as u8,
+            byte: number.byte,
             value: number.value,
         }
     }

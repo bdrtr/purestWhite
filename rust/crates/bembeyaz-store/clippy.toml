@@ -1,3 +1,3 @@
-doc-valid-idents = ["CrossPoint", "ArduinoJson", ".."]
+doc-valid-idents = ["CrossPoint", "ArduinoJson", "KOReader", ".."]
 # Functions stay short and single-purpose: no god functions (counts code lines only).
 too-many-lines-threshold = 50
