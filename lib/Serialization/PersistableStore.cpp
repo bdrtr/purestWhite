@@ -33,6 +33,10 @@ bool PersistableStoreBase::readTextFromFile(const char* path, String& json) {
   return true;
 }
 
+void PersistableStoreBase::logParseError(const char* path, const char* error) {
+  LOG_ERR("PERSIST", "JSON parse error in %s: %s", path, error);
+}
+
 bool PersistableStoreBase::readDocFromFile(const char* path, JsonDocument& doc) {
   String json;
   if (!readTextFromFile(path, json)) {
@@ -40,7 +44,7 @@ bool PersistableStoreBase::readDocFromFile(const char* path, JsonDocument& doc) 
   }
   auto error = deserializeJson(doc, json);
   if (error) {
-    LOG_ERR("PERSIST", "JSON parse error in %s: %s", path, error.c_str());
+    logParseError(path, error.c_str());
     return false;
   }
   return true;

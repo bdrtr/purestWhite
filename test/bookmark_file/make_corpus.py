@@ -16,13 +16,14 @@ Needs a host C++17 compiler (`c++`), ArduinoJson's headers (.pio/libdeps after a
 build) and git. After regenerating, run `cargo test -p bembeyaz-store` in rust/ and
 test/bookmark_file/check_shim.sh. The corpus only ever holds the C++ behavior.
 
-Scenarios: bookmark files with lists of any length, items that are not objects, fields of any
-type (the shared value generator, test/json_oracle/oracle.py), names up to and past the 128 bytes
-kept, percentages of every float kind, page numbers at and past u16's edges, visible-text offsets
-present, null, missing or of another type, a missing or wrong-typed "bookmarks", broken and empty
-files; bookmarks saved (names past 128 refused, NaN and infinite percentages, with and without an
-offset); edges: roots that are not objects, an empty file, and the longest string ArduinoJson keeps
-and one byte more.
+Scenarios: bookmark files with lists of any length, items that are not objects, fields of any type
+(the shared value generator, test/json_oracle/oracle.py), names up to and past the 128 bytes kept,
+percentages of every float kind, page numbers at and past u16's edges, visible-text offsets present,
+null, missing or of another type, a missing or wrong-typed "bookmarks", broken and empty files;
+bookmarks saved (names past 128 refused, NaN and infinite percentages, with and without an offset);
+edges: an empty object, roots that are not objects, an empty file, a "bookmarks" that is not an
+array, an offset that is null or a string, and the longest string ArduinoJson keeps and one byte
+more.
 """
 import random
 import struct

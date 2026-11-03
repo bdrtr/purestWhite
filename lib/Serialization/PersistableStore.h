@@ -61,6 +61,8 @@ class PersistableStoreBase {
   static bool writeTextToFile(const char* path, const String& json);
   // False silently when the file does not exist; logs when it is empty.
   static bool readTextFromFile(const char* path, String& json);
+  // Logs that path's text is not JSON (error: ArduinoJson's name for why).
+  static void logParseError(const char* path, const char* error);
 
  protected:
   /**
@@ -167,7 +169,7 @@ class PersistableStore : public PersistableStoreBase {
         }
         const char* error = static_cast<T*>(this)->fromJsonText(json);
         if (error) {
-          LOG_ERR("PERSIST", "JSON parse error in %s: %s", T::getFilePath(), error);
+          logParseError(T::getFilePath(), error);
           return false;
         }
         ok = true;

@@ -8,6 +8,8 @@
 //!   from `test/crosspoint_state/make_corpus.py`.
 //! - [`recent_books`]: `RecentBooksStore` (`recent.json`): the books opened last; corpus from
 //!   `test/recent_books/make_corpus.py`.
+//! - [`bookmarks`]: `BookmarkFile` (`bookmarks/<book>.json`): a book's bookmarks; corpus from
+//!   `test/bookmark_file/make_corpus.py`.
 //! - [`koreader_credentials`]: `KOReaderCredentialStore` (`koreader.json`): the KOReader sync
 //!   account and settings as stored; corpus from `test/koreader_credentials/make_corpus.py`.
 //! - [`records`]: the OPDS tokens, the LCP passphrases and the LCP device identity, records of
@@ -28,6 +30,9 @@ extern crate std;
 #[cfg(test)]
 mod corpus;
 
+pub mod bookmarks;
+#[cfg(test)]
+mod bookmarks_tests;
 pub mod field;
 pub mod headers;
 pub mod koreader_credentials;

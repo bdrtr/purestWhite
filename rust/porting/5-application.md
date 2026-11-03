@@ -126,19 +126,27 @@ decides on crosses as a `bb_store_number` with its kind (missing, a `u32`, anoth
 `bembeyaz_store::field`), so C++ keeps deciding: the Wi-Fi password's length and CRC-32, KOReader's
 settings; its `byte` is ArduinoJson's `as<uint8_t>()` for a field read with no `is<T>()` check
 (KOReader's `serverType`), and a field read with `| fallback` for a `uint8_t` uses `storeByteOr`
-(`StoreText.h`) on its kind and value. So the rule is: a text or bool read with a plain fallback (`|
-""`, `| false`, `| true`) crosses as the value Rust read that way, and so does a number whose
-default and checks moved to Rust with the store (CrossPointState's); a number whose default or
-checks the C++ store decides on crosses with its kind, and those stay in C++. ABI types stay in the
+(`StoreText.h`) on its kind and value. So the rule is: a field read with a plain `| literal` that
+C++ decides nothing on crosses as the value Rust read that way, whatever its type (texts, bools, the
+bookmarks' and CrossPointState's numbers); a field C++ decides on, by its presence, its type, or a
+check of its value against a C++ constant or enum, crosses with its kind (KOReader's `cfgVersion`,
+`matchMethod`, `serverType`, `syncBehavior`), and those decisions stay in C++. ABI types stay in the
 store's `.cpp`, out of its header. Each store's file format (its keys and their order) is Rust's;
 `CrossPointSettings` is the exception: its keys come from C++'s `SettingsList` table, shared with
-the web settings page, so it will read through a parsed document with typed getters instead
-(`*_new`/`*_free`), and C++ keeps its table and its migrations. `BookmarkFile` (a list of items with
-a float and optional members, and no store class) will have a module of its own. A nested list with
-a fixed limit is a fixed array and a count inside its item (`bb_store_header`, shared by the OPDS
-servers and the KOReader server). The oracles share `test/json_oracle`; from the Wi-Fi store on, a
-store's Rust test replays `read` and `write` against the stored-text layers the driver prints, and
-leaves the C++ glue to `check_shim.sh` (the OPDS test still mirrors that glue).
+the web settings page, so it will read through a parsed document with typed getters instead: `*_new`
+parses the text in Rust's heap and `*_free` frees it, and every view it gives is valid until then. A
+number comes with its kind and `byte`, a text with its kind, and a bool or byte with its `|
+default`; a key's presence can be asked too. It will write through a C ABI over
+`bembeyaz_jsondoc::Writer` or a list of typed key/value entries, and C++ keeps its table and its
+migrations. After it no store reads an ArduinoJson document: `readDocFromFile`/`writeDocToFile`,
+`StoresJsonDoc` and the `JsonVariantConst` `extractPassword` overloads go. ArduinoJson itself stays
+in the firmware for its other users (the web server, clippings sync, LCP, plugins, font download,
+the BLE page turner's settings). `BookmarkFile` (a list of items with a float and optional members,
+and no store class) has a module of its own, `bookmarks`. A nested list with a fixed limit is a
+fixed array and a count inside its item (`bb_store_header`, shared by the OPDS servers and the
+KOReader server). The oracles share `test/json_oracle`; from the Wi-Fi store on, a store's Rust test
+replays `read` and `write` against the stored-text layers the driver prints, and leaves the C++ glue
+to `check_shim.sh` (the OPDS test still mirrors that glue).
 
 - **App state ✅**: `CrossPointState` (`state.json`: the open book, the reader's load count, the
   rings of recent sleep images and their legacy `lastSleepImage`) calls the `state` module of
@@ -192,6 +200,14 @@ leaves the C++ glue to `check_shim.sh` (the OPDS test still mirrors that glue).
   and the obfuscation stay in C++. `test/token_stores` drives all three: 700 seeded steps and 23
   edge steps, in `rust/crates/bembeyaz-store/testdata/token-stores-corpus.txt`; the Rust tests
   replay its record layers, and `check_shim.sh` the C++ stores' answers through the shims.
+- **Bookmarks ✅**: `BookmarkFile` (a book's `bookmarks/<book>.json`; no store class: it reads and
+  writes through `PersistableStoreBase`'s text steps) reads and writes its JSON through the
+  `bookmarks` module of `bembeyaz-store`: each field with its plain fallback (the percentage
+  `| 0.0f`, the pages `| uint16_t(0)`, the visible-text offset when it is not null), an empty name
+  and a missing offset not written. Cutting a name to 128 bytes, and refusing to save a longer one,
+  stay in C++. `test/bookmark_file` drives `load` and `save`: 1,000 seeded steps and 10 edge steps,
+  in `rust/crates/bembeyaz-store/testdata/bookmark-file-corpus.txt`; the Rust tests replay its
+  bookmark layers, and `check_shim.sh` the C++ side's answers through the shim.
 
 ## `src/` activities
 

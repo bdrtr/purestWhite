@@ -1,5 +1,10 @@
-// Host stub: the store's logs are not part of its answers.
+// Host stub: the stores' logs are not part of their answers. The macros still take their arguments,
+// so a variable used only in a log is not reported as unused.
 #pragma once
-#define LOG_ERR(...) ((void)0)
-#define LOG_DBG(...) ((void)0)
-#define LOG_INF(...) ((void)0)
+
+template <typename... Args>
+inline void logStub(const char*, Args&&...) {}
+
+#define LOG_ERR(...) logStub(__VA_ARGS__)
+#define LOG_DBG(...) logStub(__VA_ARGS__)
+#define LOG_INF(...) logStub(__VA_ARGS__)

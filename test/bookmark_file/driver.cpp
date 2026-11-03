@@ -15,16 +15,18 @@
 //   load <json>          BookmarkFile::load with <json> as the file, then save of what it loaded
 //   save <bookmark>...   BookmarkFile::save of the bookmarks given (each as in a layer)
 //   long <n>             load a file whose first xpath is n letters, then save it
-//                        = <load> <save> <count> <written json's length>, each ok|fail
+//                        = <load> <save> <count> <written json's length>, where <load> and
+//                        <save> are ok|fail
 //
 // Each step but long answers = <load>,<save> (load: both; save: - and save's) <bookmarks> |
 // <written json> | read <layer> | save <layer>, where <bookmarks> is the list held after the step,
-// <written json> is what was written ("-" for nothing), the read layer is "-" (no file read),
-// err <name>, or the file's bookmarks, and the save layer is "-" (nothing written) or the bookmarks
+// <written json> is what was written ("-" for nothing), the read layer is "-" (no file read), err
+// <name>, or the file's bookmarks, and the save layer is "-" (nothing written) or the bookmarks
 // given to write. A list is its count, then one space-separated entry per bookmark:
 // xpath,summary,name (hex), percentage (the float's bits in hex), si,pc,pp (decimal), vo (decimal,
 // or "-" when it has none). The file's are read as the store reads them: each field `| ""`, `|
-// 0.0f` or `| uint16_t(0)`, the name whole, vo when not null as `| uint32_t(0)`.
+// 0.0f` or `| uint16_t(0)`, the name not yet cut to MAX_NAME_LENGTH, vo when not null as `|
+// uint32_t(0)`.
 #include <ArduinoJson.h>
 
 #include <cstdint>
