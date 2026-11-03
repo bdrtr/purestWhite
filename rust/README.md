@@ -32,7 +32,9 @@ and the Arduino layer goes away.
 - Host tests:
   `cmake -S test -B build/test && cmake --build build/test && ctest --test-dir build/test`
   CMake builds the Rust library for the host and links it into every test.
-- Rust only: `cd rust && cargo test`
+- Rust only: `cd rust && cargo test`. `purestwhite-tls` builds wolfSSL from the
+  `rust/third_party/wolfssl` submodule (v5.7.2-stable, the C++ firmware's release): after a clone,
+  `git submodule update --init rust/third_party/wolfssl` first.
 - The bare-metal firmware's application on the PC, as PNG files: see
   [Run in the host simulator](firmware/README.md#run-in-the-host-simulator).
 

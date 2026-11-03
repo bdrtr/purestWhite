@@ -2,3 +2,7 @@
 	path = freeink-sdk
 	url = https://github.com/Free-Ink/freeink-sdk.git
 	branch = main
+[submodule "rust/third_party/wolfssl"]
+	path = rust/third_party/wolfssl
+	url = https://github.com/wolfSSL/wolfssl.git
+	shallow = true

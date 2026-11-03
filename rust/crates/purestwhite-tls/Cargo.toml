@@ -1,0 +1,18 @@
+[package]
+name = "purestwhite-tls"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+publish.workspace = true
+# The wolfSSL it builds (rust/third_party/wolfssl, the C++ firmware's 5.7.2) is linked once.
+links = "wolfssl"
+
+[features]
+# wolfSSL's server too: for the host tests only, which shake hands with it.
+test-server = []
+
+[build-dependencies]
+cc = "=1.10.0"
+
+[dev-dependencies]
+purestwhite-tls = { path = ".", features = ["test-server"] }

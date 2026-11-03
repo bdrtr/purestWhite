@@ -8,9 +8,10 @@ behind. Agreed with the owner on 2026-10-29.
 Phase 2 of the [platform plan](../porting/6-platform.md): a separate firmware in the second OTA
 slot. On the device so far: the panel (UC8279, UC8179 with its gray passes), touch, the buttons,
 deep sleep, the PSRAM (at 40 MHz), reading the SD card, Embassy tasks, text from the card's font.
-Not started: Wi-Fi, HTTPS, BLE, the web server (file transfer, WebDAV), update over Wi-Fi, the
-network side of KOSync and OPDS, writing to the card on the device, and the whole user interface
-(menus, settings, themes, languages, the reader): about 41,000 lines of C++ in `src/`.
+Written, for the device test: Wi-Fi (a scan, the saved network joined, DHCP) and a download over
+HTTPS with wolfSSL (gate 2). Not started: BLE, the web server (file transfer, WebDAV), update over
+Wi-Fi, the network side of KOSync and OPDS, writing to the card on the device, and the whole user
+interface (menus, settings, themes, languages, the reader): about 41,000 lines of C++ in `src/`.
 
 ## The decision gate before phase 3
 
@@ -42,7 +43,11 @@ path unchanged.
    matches esp-hal 1.2 and esp-rtos 0.4), behind the `wifi` feature. The second, `wifi-join`,
    joins the network the C++ firmware saved (owner's choice, 2026-11-03: the firmware reads the
    C++ firmware's `wifi.json`, no file of its own) and gets an address from DHCP through
-   embassy-net 0.9.1. Next: a download over HTTPS (DNS, TCP, wolfSSL through FFI).
+   embassy-net 0.9.1. The third, `https-check`, downloads a file over HTTPS with wolfSSL 5.7.2
+   (the C++ firmware's release, built from a submodule into `purestwhite-tls`, over memory
+   buffers; the chain, the name and the dates checked) and hashes it; gate 2 also asks to write it
+   to the card, which waits for gate 4's card writes. Left after the device run: the measurement of
+   the handshake's time and memory, and more roots (the C++ firmware trusts ESP-IDF's bundle).
 5. Only then the user interface and the rest of the features.
 
 ## The repository

@@ -1654,10 +1654,12 @@ dependencies = [
  "purestwhite-fat",
  "purestwhite-gauge",
  "purestwhite-gt911",
+ "purestwhite-http",
  "purestwhite-ota",
  "purestwhite-render",
  "purestwhite-rtc",
  "purestwhite-services",
+ "purestwhite-tls",
  "purestwhite-touch",
  "purestwhite-updater",
  "purestwhite-wifistore",
@@ -1678,6 +1680,10 @@ version = "0.1.0"
 dependencies = [
  "embedded-hal-async",
 ]
+
+[[package]]
+name = "purestwhite-http"
+version = "0.1.0"
 
 [[package]]
 name = "purestwhite-ota"
@@ -1714,6 +1720,13 @@ dependencies = [
  "purestwhite-app",
  "purestwhite-fat",
  "purestwhite-render",
+]
+
+[[package]]
+name = "purestwhite-tls"
+version = "0.1.0"
+dependencies = [
+ "cc",
 ]
 
 [[package]]

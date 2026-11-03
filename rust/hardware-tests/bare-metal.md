@@ -1240,3 +1240,33 @@ the device only.
   - "wifi: no answer in 30 s", "dhcp: no address in 20 s": a step that never ended.
   - "wifi: not started", "wifi: not set up (...)", "wifi: radio error (...)", "wifi: saved network
     does not fit", "dhcp: no interface": the radio or the stack could not be had.
+
+## HTTPS, a download ("firmware: https-check, a file over HTTPS with wolfSSL")
+
+Gate 2's download: the image reads the battery-backed clock, joins the network the C++ firmware
+saved (as wifi-join), and downloads a file that never changes (this repository's ROADMAP.md at an
+old commit, 10,246 bytes) from GitHub over HTTPS, with wolfSSL checking GitHub's certificate chain,
+its name and its dates. It notes the result and resets into the C++ firmware. Nothing is written to
+the card; the report holds no network name, password or address. The image is
+`purestwhite-baremetal-https-1.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`). On
+the device only.
+
+- [ ] As in the wifi-join test: the Wi-Fi saved in the C++ firmware, no `purestwhite-recovery.bin`
+  on the card, the router near. Check that the time the C++ firmware shows is right; if it is not,
+  Settings > System > Clock > Sync clock now (the C++ firmware sets the clock by itself only the
+  first time it joins Wi-Fi). Install `purestwhite-baremetal-https-1.bin` with
+  SD Card Firmware Update; the C++ firmware comes back by itself within about a minute. Give me
+  the card. Expected: "purestWhite HTTPS check", "next boot: C++ firmware", "clock: <today's date
+  and time> UTC", "saved: N networks", "wifi: joined on channel C, -D dBm, T ms", "dhcp: address
+  in T ms", "https: 200, 10246 B, sha c4e5578c, ms A/B/C/D" (the time DNS, TCP, TLS and the body
+  took), "done". The size and "sha c4e5578c" prove the file came whole and unchanged. What else it
+  may say:
+  - "clock: not set": the clock lost its time; TLS then refuses the certificate's dates
+    ("https: tls (Wolf(-150))" or "(Wolf(-151))").
+  - "https: tls (Wolf(-188))": the chain does not lead to the roots trusted (GitHub may have
+    changed its certificate's issuer); "(Wolf(-322))": the name does not match.
+  - "https: fetching" as the last line, "https: no end in 40 s" or "PANIC": it stopped there.
+  - "https: Dns", "https: Tcp", "https: Wire": the name lookup, the connection, or the connection
+    later failed.
+  - Anything else after "https:" (another status than 200, "NoResponse", "response (...)", "tls
+    (Roots)" and the like): give me the card all the same.

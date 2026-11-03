@@ -18,6 +18,8 @@ extern crate alloc;
 
 pub mod board;
 pub mod boot;
+#[cfg(feature = "wifi")]
+pub mod clock;
 pub mod gauge;
 pub mod i2c;
 pub mod images;

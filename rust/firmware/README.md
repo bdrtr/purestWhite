@@ -40,13 +40,19 @@ the emulator, so an image without one drives their async calls over blocking bus
 - `i2c`: the shared I2C bus (touch panel, clock, fuel gauge) at 400 kHz over the async driver
   (`open_bus`), once the touch panel's supply has been on for `SUPPLY_MS`; `gauge`: the CW2017 as
   the services' `Gauge` (charge and voltage read apart).
+- `clock` (the `wifi` feature only): the battery-backed clock (BM8563 on the shared bus) read as
+  the time TLS checks certificates' dates against.
 - `wifi` (the `wifi` feature only): Wi-Fi through esp-radio. `scan` starts it in station mode,
   scans once and stops it: how many networks, the strongest signal and its channel, no names.
   `saved::saved_network` reads the network the C++ firmware saved from the card (decoded by
   `purestwhite-wifistore` with `saved::device_key`, the eFuse base MAC address), over the
   blocking bus before the scheduler; `join::join` joins it (WPA2
   Personal with its password, open without one); `net::station_stack` is embassy-net on the
-  station interface, asking DHCP for an address (its runner runs in a task of the image's).
+  station interface, asking DHCP for an address; `steps` the join and DHCP steps the Wi-Fi images
+  share, each with its report line; `https::get` a file over HTTPS: DNS, TCP on port 443, TLS
+  with wolfSSL (`purestwhite-tls`: wolfSSL 5.7.2 over memory buffers, the server's chain and name
+  checked against the roots given, its dates against the clock), a GET (`purestwhite-http`,
+  HTTP/1.0), the body hashed as it arrives.
 - `images`: an OTA app slot's image identified through the partition table
   (`identify_partition`: the slot's own flash region, then `purestwhite-updater`'s
   `identify_slot`).
@@ -235,6 +241,14 @@ its scenario in `emu/`.
   in 20 s`), `done`; never a network's name, a password or an address. The watchdog is fed
   between the steps. esp-radio 1.0.0-beta.1 has no WPA3: a WPA2/WPA3 network joins over WPA2, a
   WPA3-only one not at all. Needs esp-rtos: device only.
+- `https-check` (built with `--features wifi`): gate 2's download. Reads the clock (`clock: ...
+  UTC`, or `clock: not set`: then certificates' dates cannot be checked and TLS fails), joins the
+  saved network as `wifi-join` does, and fetches a file that never changes (this repository's
+  ROADMAP.md at commit 6afcf308, 10,246 bytes, SHA-256 `c4e5578c...`) from
+  raw.githubusercontent.com, trusting ISRG Root X1 and X2 (`certs/isrg-roots.pem`). Its line:
+  `https: 200, 10246 B, sha c4e5578c, ms DNS/TCP/TLS/BODY` (or `https: fetching` while it runs,
+  `https: tls (Wolf(N))` with wolfSSL's code, `https: Dns`, `Tcp`, `Wire`, `NoResponse`, `Cut`
+  (the body ended before its `Content-Length`), `https: response (...)`, `https: no end in 40 s`). Nothing is written to the card. Needs esp-rtos: device only.
 - `smoke-check`: starts esp-rtos and Embassy, runs the clock, fuel gauge and touch drivers on
   esp-hal's I2C, reads touches for 15 s with the panel black, then paints it white. Needs esp-rtos:
   device only.
@@ -324,8 +338,10 @@ cargo build --release
 ```
 
 This builds every image into `rust/firmware/target/xtensa-esp32s3-none-elf/release/<image>`,
-except `wifi-check` and `wifi-join`: build each alone with
-`cargo build --release --features wifi --bin wifi-check` (or `--bin wifi-join`).
+except `wifi-check`, `wifi-join` and `https-check`: build each alone with
+`cargo build --release --features wifi --bin wifi-check` (or `--bin wifi-join`,
+`--bin https-check`; the last builds wolfSSL from the `rust/third_party/wolfssl` submodule with
+Espressif's GCC).
 A build with the feature links esp-radio into every image it builds, so build the others, and the
 ones the emulator runs, without it. To
 make a `.bin` the device can flash, from the repository root:
