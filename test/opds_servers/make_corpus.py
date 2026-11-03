@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Builds driver.cpp over the C++ versions of src/OpdsServerStore and lib/Serialization's
 PersistableStore (taken from git, commit 485d3886: the store in the tree is now the Rust shim, and
-PersistableStore has changed with it) with ArduinoJson 7.4.2 and the host stubs (stubs/, and those
-of test/json_oracle), runs it on seeded scenarios and writes the transcript as the golden corpus the
-Rust tests replay: rust/crates/bembeyaz-store/testdata/opds-servers-corpus.txt.
+PersistableStore has changed with it) with ArduinoJson 7.4.2 and the host stubs of test/json_oracle,
+runs it on seeded scenarios and writes the transcript as the golden corpus the Rust tests replay:
+rust/crates/bembeyaz-store/testdata/opds-servers-corpus.txt.
 
   test/opds_servers/make_corpus.py [STEPS]    (default 1000 random steps, and the edge steps)
   test/opds_servers/make_corpus.py --check DRIVER
@@ -44,7 +44,7 @@ TEXTS = ["", "Kitaplık", "https://opds.example.org/catalog", "http://192.0.2.1:
 
 
 def obf(text):
-    """The host fake's obfuscation (stubs/ObfuscationFake.cpp)."""
+    """The host fake's obfuscation (test/json_oracle/stubs/ObfuscationFake.cpp)."""
     return "~" + text.encode().hex() if text else ""
 
 
@@ -133,7 +133,7 @@ def steps(count):
 
 def flags(store_dir):
     here = Path(__file__).parent
-    return ["-DARDUINOJSON_ENABLE_ARDUINO_STRING=1", f"-I{store_dir}", f"-I{here / 'stubs'}", f"-I{oracle.ROOT / 'lib/Serialization'}",
+    return ["-DARDUINOJSON_ENABLE_ARDUINO_STRING=1", f"-I{store_dir}", f"-I{oracle.ROOT / 'lib/Serialization'}",
             f"-I{oracle.ROOT / 'lib/HttpHeader'}", f"-I{oracle.ROOT / 'src'}"]
 
 
@@ -144,7 +144,7 @@ def main():
     here = Path(__file__).parent
     with tempfile.TemporaryDirectory() as tmp:
         files = oracle.from_git(tmp, ORACLE, ORACLE_FILES)
-        sources = [here / "driver.cpp", here / "stubs/ObfuscationFake.cpp", files[0], files[2]]
+        sources = [here / "driver.cpp", oracle.STUBS / "ObfuscationFake.cpp", files[0], files[2]]
         driver = oracle.build(Path(tmp) / "driver", sources, flags(tmp))
         transcript = oracle.run(driver, steps(count))
     OUT.parent.mkdir(parents=True, exist_ok=True)

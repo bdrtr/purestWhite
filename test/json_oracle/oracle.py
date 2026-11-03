@@ -15,6 +15,8 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 # ArduinoJson's headers, the version the firmware pins (after `pio run -e x4pro`).
 JSON = ROOT / ".pio/libdeps/x4pro/ArduinoJson/src"
+# The host stubs every driver gets (Arduino.h, Logging.h, HalStorage.h, ObfuscationFake.cpp).
+STUBS = Path(__file__).resolve().parent / "stubs"
 
 INTS = [0, 1, -1, 7, 255, 256, 65535, 65536, -32768, 2147483647, 2147483648, -2147483648,
         -2147483649, 4294967295, 4294967296, 9223372036854775807, 9223372036854775808,

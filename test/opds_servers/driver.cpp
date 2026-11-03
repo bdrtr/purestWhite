@@ -1,12 +1,12 @@
 // Oracle for the Rust port of src/OpdsServerStore's JSON: runs one scenario through the store's
 // loadFromFile and addServer (so its saveToFile, its resave of a legacy password, and its fromJson
 // and toJson over ArduinoJson 7.4.2, the firmware's; over the shim, fromJsonText/toJsonText) and
-// prints each answer. The file is stubs/HalStorage.h's; the obfuscation is
-// stubs/ObfuscationFake.cpp's. make_corpus.py builds it over the C++ store and PersistableStore from
-// git (the store in the tree is now the Rust shim, and PersistableStore has changed with it) and
-// keeps the transcript as the Rust tests'
-// golden corpus: rust/crates/bembeyaz-store/testdata/opds-servers-corpus.txt. check_shim.sh builds
-// it over the shim; the driver is the same for both.
+// prints each answer. The file is test/json_oracle/stubs/HalStorage.h's; the obfuscation is its
+// stubs/ObfuscationFake.cpp's. make_corpus.py builds it over the C++ store and PersistableStore
+// from git (the store in the tree is now the Rust shim, and PersistableStore has changed with it)
+// and keeps the transcript as the Rust tests' golden corpus:
+// rust/crates/bembeyaz-store/testdata/opds-servers-corpus.txt. check_shim.sh builds it over the
+// shim; the driver is the same for both.
 //
 //   load <json>       loadFromFile with <json> as the file  = ok|fail <servers> | <written json>
 //   add <8 fields>    addServer: name url username password header1 name/value header2

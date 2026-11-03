@@ -15,11 +15,11 @@ Google Test is fetched via CMake FetchContent on first configure; the pinned
 version lives in test/CMakeLists.txt.
 
 Some directories are not CMake suites: ble_hid_decoder, ble_key_binding,
-crosspoint_state, json_conversions, kosync_messages, opds_servers and
-recent_books hold a make_corpus.py that writes a golden corpus for a Rust
-crate's tests (see the script's docstring); kosync_messages, crosspoint_state,
-opds_servers and recent_books also have a check_shim.sh, which runs the
-corpus's steps through the C++ shim over Rust. json_oracle holds what they
-share (oracle.py: the JSON value generator, the build over C++ from git,
---check; check_shim.sh: the build over a shim; driver_util.h and stubs/: the
-drivers' hex helpers and host stubs).
+crosspoint_state, json_conversions, kosync_messages, opds_servers,
+recent_books and wifi_credentials hold a make_corpus.py that writes a golden
+corpus for a Rust crate's tests (see the script's docstring); kosync_messages,
+crosspoint_state, opds_servers and recent_books also have a check_shim.sh,
+which runs the corpus's steps through the C++ shim over Rust. json_oracle
+holds what they share (oracle.py: the JSON value generator, the build over C++
+from git, --check; check_shim.sh: the build over a shim; driver_util.h and
+stubs/: the drivers' hex helpers and host stubs).

@@ -7,8 +7,8 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 exec "$root/test/json_oracle/check_shim.sh" "$root/test/opds_servers" -DARDUINOJSON_ENABLE_ARDUINO_STRING=1 \
-  -I"$root/test/opds_servers/stubs" -I"$root/lib/Serialization" -I"$root/lib/HttpHeader" \
+  -I"$root/lib/Serialization" -I"$root/lib/HttpHeader" \
   -I"$root/src" \
-  "$root/test/opds_servers/stubs/ObfuscationFake.cpp" "$root/src/OpdsServerStore.cpp" \
+  "$root/test/json_oracle/stubs/ObfuscationFake.cpp" "$root/src/OpdsServerStore.cpp" \
   "$root/lib/Serialization/PersistableStore.cpp" "$root/lib/Serialization/StoredPassword.cpp" \
   "$root/lib/Serialization/StoreText.cpp"

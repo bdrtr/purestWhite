@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """Builds driver.cpp over the C++ version of src/RecentBooksStore (taken from git, commit 6a089cc7:
-the store in the tree is now the Rust shim) with ArduinoJson 7.4.2 and the host stubs (stubs/, and
-those of test/json_oracle), runs it on seeded scenarios and writes the transcript as the golden
-corpus the Rust tests replay: rust/crates/bembeyaz-store/testdata/recent-books-corpus.txt.
+the store in the tree is now the Rust shim) with ArduinoJson 7.4.2 and the host stubs of
+test/json_oracle, runs it on seeded scenarios and writes the transcript as the golden corpus the
+Rust tests replay: rust/crates/bembeyaz-store/testdata/recent-books-corpus.txt.
 
   test/recent_books/make_corpus.py [STEPS]    (default 1000 random steps, and the edge steps)
   test/recent_books/make_corpus.py --check DRIVER
@@ -101,7 +101,7 @@ def main():
     with tempfile.TemporaryDirectory() as tmp:
         store = oracle.from_git(tmp, ORACLE, ORACLE_FILES)
         driver = oracle.build(Path(tmp) / "driver", [here / "driver.cpp", store[0]],
-                              [f"-I{tmp}", f"-I{here / 'stubs'}"])
+                              [f"-I{tmp}"])
         transcript = oracle.run(driver, steps(count))
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_bytes(transcript)

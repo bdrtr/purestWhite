@@ -6,5 +6,5 @@
 set -euo pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd)"
 exec "$root/test/json_oracle/check_shim.sh" "$root/test/recent_books" -DSHIM \
-  -I"$root/test/recent_books/stubs" -I"$root/lib/Serialization" -I"$root/src" \
+  -I"$root/lib/Serialization" -I"$root/src" \
   "$root/src/RecentBooksStore.cpp"
