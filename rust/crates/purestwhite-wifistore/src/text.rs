@@ -49,13 +49,6 @@ impl<const N: usize> Text<N> {
     pub fn as_str(&self) -> Option<&str> {
         core::str::from_utf8(self.as_bytes()).ok()
     }
-
-    /// Each byte masked (XOR) with `key`'s, in turn (the C++ firmware's `xorTransform`).
-    pub(crate) fn xor(&mut self, key: &[u8]) {
-        for (byte, k) in self.bytes.iter_mut().take(self.len).zip(key.iter().cycle()) {
-            *byte ^= k;
-        }
-    }
 }
 
 /// The length only: a `Text` may hold a password.

@@ -8,3 +8,4 @@ publish.workspace = true
 [dependencies]
 bembeyaz-jsondoc = { path = "../bembeyaz-jsondoc" }
 bembeyaz-store = { path = "../bembeyaz-store" }
+purestwhite-obfuscation = { path = "../purestwhite-obfuscation" }

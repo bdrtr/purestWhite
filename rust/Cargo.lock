@@ -710,6 +710,14 @@ name = "purestwhite-http"
 version = "0.1.0"
 
 [[package]]
+name = "purestwhite-obfuscation"
+version = "0.1.0"
+dependencies = [
+ "bembeyaz-jsondoc",
+ "bembeyaz-store",
+]
+
+[[package]]
 name = "purestwhite-ota"
 version = "0.1.0"
 dependencies = [
@@ -793,6 +801,7 @@ version = "0.1.0"
 dependencies = [
  "bembeyaz-jsondoc",
  "bembeyaz-store",
+ "purestwhite-obfuscation",
 ]
 
 [[package]]

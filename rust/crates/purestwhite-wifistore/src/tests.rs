@@ -1,7 +1,6 @@
 // The tests index what must be there and fail on what is not: a failure fails the test.
 #![allow(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
-use super::base64::{DecodeError, decode};
 use super::{JSON_MOST, KEY_LEN, NETWORKS_MOST, ReadError, Saved, read};
 use bembeyaz_store::wifi_credentials::crc32;
 use std::format;
@@ -192,56 +191,6 @@ fn debug_shows_neither_a_password_nor_a_name() {
 }
 
 #[test]
-fn base64_decodes_rfc_4648s_vectors_and_refuses_the_rest() {
-    let vectors = [
-        ("", ""),
-        ("Zg==", "f"),
-        ("Zm8=", "fo"),
-        ("Zm9v", "foo"),
-        ("Zm9vYg==", "foob"),
-        ("Zm9vYmE=", "fooba"),
-        ("Zm9vYmFy", "foobar"),
-    ];
-    for (encoded, decoded) in vectors {
-        let text = decode::<8>(encoded.as_bytes()).unwrap();
-        assert_eq!(text.as_bytes(), decoded.as_bytes(), "{encoded}");
-    }
-    // mbedtls 3.6 skips line breaks anywhere, and spaces before one or at the end.
-    let spaced = [
-        ("Zm9v\n", "foo"),
-        ("Zm\r\n9v", "foo"),
-        ("Zm9v  ", "foo"),
-        ("Zm  \n9v", "foo"),
-        ("Zg=\n=", "f"),
-        ("  ", ""),
-        ("\n", ""),
-    ];
-    for (encoded, decoded) in spaced {
-        let text = decode::<8>(encoded.as_bytes()).unwrap();
-        assert_eq!(text.as_bytes(), decoded.as_bytes(), "{encoded:?}");
-    }
-    for bad in [
-        "Zg=",
-        "Z===",
-        "Zg=a",
-        "Z=g=",
-        "Zm 9v",
-        " Zm9v",
-        "Zm9v\r",
-        "Zm\r9v",
-        "Z\u{80}9v",
-        "Zm9vY",
-    ] {
-        assert_eq!(
-            decode::<8>(bad.as_bytes()),
-            Err(DecodeError::Invalid),
-            "{bad:?}"
-        );
-    }
-    assert_eq!(decode::<5>(b"Zm9vYmFy"), Err(DecodeError::TooLong));
-}
-
-#[test]
 fn a_file_cut_short_is_broken_and_text_after_it_is_ignored_as_for_the_cpp_firmware() {
     let whole = file(
         "Home",
@@ -297,9 +246,5 @@ fn a_long_text_that_is_not_base64_falls_back_to_the_plain_password() {
     assert_eq!(
         saved.first_choice().unwrap().password().as_str(),
         Some("plain")
-    );
-    assert_eq!(
-        decode::<4>(not_base64.as_bytes()),
-        Err(DecodeError::Invalid)
     );
 }

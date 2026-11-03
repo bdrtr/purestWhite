@@ -6,7 +6,8 @@
 //! The file is read by the C++ store's own Rust reader (`bembeyaz_store::wifi_credentials`), and
 //! its networks are kept by `keep`, the C++ store's decisions in Rust, checked against its corpus;
 //! so a network is kept as `WifiCredentialStore` keeps it, at most eight. This decodes the
-//! passwords as mbedtls does, and leaves out a network whose name is longer than Wi-Fi's 32 bytes.
+//! passwords as the C++ firmware does (`purestwhite-obfuscation`), and leaves out a network whose
+//! name is longer than Wi-Fi's 32 bytes.
 //! A file larger than [`JSON_MOST`] is refused: the C++ firmware writes a few KB at most.
 //!
 //! A password never leaves a `Network` except through [`Network::password`]: no `Debug` or
@@ -23,16 +24,14 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
-mod base64;
 #[cfg(test)]
 mod tests;
 mod text;
 
-use base64::{DecodeError, decode};
 use bembeyaz_jsondoc::Error;
-use bembeyaz_store::password::{Decoded, Secret};
 use bembeyaz_store::wifi_credentials::{self, Limits};
 use core::fmt;
+use purestwhite_obfuscation::decoded;
 pub use text::Text;
 
 /// The longest network name Wi-Fi allows.
@@ -42,7 +41,7 @@ pub const PASSWORD_MOST: usize = 64;
 /// How many networks the C++ firmware keeps (`MAX_NETWORKS`).
 pub const NETWORKS_MOST: usize = 8;
 /// The length of the key the passwords are masked (XOR) with: a MAC address.
-pub const KEY_LEN: usize = 6;
+pub use purestwhite_obfuscation::KEY_LEN;
 /// The largest file read: eight networks with the longest names and passwords take about 2 KB, so
 /// this leaves room for hand edits while keeping what is parsed and copied small.
 pub const JSON_MOST: usize = 16 * 1024;
@@ -139,7 +138,7 @@ pub fn read(json: &[u8], key: &[u8; KEY_LEN]) -> Result<Saved, ReadError> {
         networks: NETWORKS_MOST,
         password: PASSWORD_MOST,
     };
-    let kept = wifi_credentials::keep(json, limits, |text, most| decoded(text, most, *key))
+    let kept = wifi_credentials::keep(json, limits, |text, most| decoded(text, most, key))
         .map_err(|error| match error {
             Error::NoMemory => ReadError::Memory,
             _ => ReadError::Json,
@@ -170,29 +169,4 @@ pub fn read(json: &[u8], key: &[u8; KEY_LEN]) -> Result<Saved, ReadError> {
         })
         .flatten();
     Ok(saved)
-}
-
-/// A stored password decoded as `obfuscation::deobfuscateFromBase64` decodes it: empty text does
-/// not decode (text of only spaces or line breaks decodes to an empty password), text that is not
-/// base64 does not, text that decodes to more than `most` bytes is too long, and the rest is
-/// unmasked (XOR) with `key`.
-fn decoded(text: &[u8], most: usize, key: [u8; KEY_LEN]) -> Result<Decoded, Error> {
-    if text.is_empty() {
-        return Ok(Decoded::default());
-    }
-    Ok(match decode::<PASSWORD_MOST>(text) {
-        Ok(mut password) if password.len() <= most => {
-            password.xor(&key);
-            Decoded {
-                text: Secret::copy_of(password.as_bytes())?,
-                ok: true,
-                too_long: false,
-            }
-        }
-        Ok(_) | Err(DecodeError::TooLong) => Decoded {
-            too_long: true,
-            ..Decoded::default()
-        },
-        Err(DecodeError::Invalid) => Decoded::default(),
-    })
 }
