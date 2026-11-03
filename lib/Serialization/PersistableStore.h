@@ -6,6 +6,8 @@
 
 #include <mutex>
 #include <string>
+#include <type_traits>
+#include <utility>
 
 /**
  * @brief Non-template core of PersistableStore.
@@ -53,6 +55,13 @@ class PersistableStoreBase {
   // does not exist (expected on first boot); logs on read/parse failure.
   static bool readDocFromFile(const char* path, JsonDocument& doc);
 
+  // Like writeDocToFile/readDocFromFile, for a store that makes its own JSON
+  // text (one whose JSON is read and written in Rust: see PersistableStore).
+  // writeTextToFile creates /.crosspoint and logs on failure.
+  static bool writeTextToFile(const char* path, const String& json);
+  // False silently when the file does not exist; logs when it is empty.
+  static bool readTextFromFile(const char* path, String& json);
+
  protected:
   /**
    * Helper function for extracting an obfuscated password from a JSON value.
@@ -64,6 +73,21 @@ class PersistableStoreBase {
   static std::string extractPassword(JsonVariantConst doc, bool& needsResave, size_t maxLength, bool& valid);
 };
 
+// Whether a store writes and reads its own JSON text (toJsonText/fromJsonText)
+// or an ArduinoJson document (toJson/fromJson).
+template <typename T, typename = void>
+struct StoresJsonText : std::false_type {};
+template <typename T>
+struct StoresJsonText<T, std::void_t<decltype(std::declval<T&>().fromJsonText(std::declval<const String&>())),
+                                     decltype(std::declval<const T&>().toJsonText(std::declval<String&>()))>>
+    : std::true_type {};
+template <typename T, typename = void>
+struct StoresJsonDoc : std::false_type {};
+template <typename T>
+struct StoresJsonDoc<T, std::void_t<decltype(std::declval<T&>().fromJson(std::declval<JsonVariantConst>())),
+                                    decltype(std::declval<const T&>().toJson(std::declval<JsonDocument&>()))>>
+    : std::true_type {};
+
 /**
  * @brief Base class for persistable singletons using CRTP.
  *
@@ -73,15 +97,22 @@ class PersistableStoreBase {
  * - static const char* getFilePath();
  * - void toJson(JsonDocument& doc) const;
  * - bool fromJson(JsonVariantConst doc);
+ * or, for a store whose JSON is read and written in Rust, in place of the last
+ * two:
+ * - bool toJsonText(String& json) const;   (false when the text could not be
+ *   made: nothing is written then)
+ * - const char* fromJsonText(const String& json);   (nullptr when read, else
+ *   ArduinoJson's name for why not; loadFromFile logs it)
  *
  * Note for implementers: read string values as `const char*` (e.g.
  * `obj["name"] | ""`), never as `| std::string("")` — ArduinoJson's
  * std::string converter drags a per-TU copy of the whole JSON serializer
  * into flash via its serializeJson fallback.
  *
- * Concurrency: saveToFile/loadFromFile lock storeMutex, so toJson/fromJson
- * always run under it. fromJson must signal legacy-shape upgrades with
- * requestResave(), never by calling saveToFile() directly (deadlock).
+ * Concurrency: saveToFile/loadFromFile lock storeMutex, so toJson/fromJson (or
+ * toJsonText/fromJsonText) always run under it. fromJson/fromJsonText must
+ * signal legacy-shape upgrades with requestResave(), never by calling
+ * saveToFile() directly (deadlock).
  */
 template <typename T>
 class PersistableStore : public PersistableStoreBase {
@@ -100,24 +131,52 @@ class PersistableStore : public PersistableStoreBase {
   }
 
   bool saveToFile() const {
+    // Here, not in the class body, where T (which derives from this) is not complete yet.
+    static_assert(StoresJsonText<T>::value != StoresJsonDoc<T>::value,
+                  "a store needs public toJson/fromJson or toJsonText/fromJsonText (exactly one pair)");
     std::lock_guard<std::mutex> lock(storeMutex);
-    JsonDocument doc;
-    static_cast<const T*>(this)->toJson(doc);
-    return writeDocToFile(T::getFilePath(), doc);
+    if constexpr (StoresJsonText<T>::value) {
+      String json;
+      if (!static_cast<const T*>(this)->toJsonText(json)) {
+        LOG_ERR("PERSIST", "Failed to make %s", T::getFilePath());
+        return false;
+      }
+      return writeTextToFile(T::getFilePath(), json);
+    } else {
+      JsonDocument doc;
+      static_cast<const T*>(this)->toJson(doc);
+      return writeDocToFile(T::getFilePath(), doc);
+    }
   }
 
   bool loadFromFile() {
+    // Here, not in the class body, where T (which derives from this) is not complete yet.
+    static_assert(StoresJsonText<T>::value != StoresJsonDoc<T>::value,
+                  "a store needs public toJson/fromJson or toJsonText/fromJsonText (exactly one pair)");
     bool ok;
     bool doResave;
     {
       std::lock_guard<std::mutex> lock(storeMutex);
       resaveRequested = false;
-      JsonDocument doc;
-      if (!readDocFromFile(T::getFilePath(), doc)) {
-        return false;
+      if constexpr (StoresJsonText<T>::value) {
+        String json;
+        if (!readTextFromFile(T::getFilePath(), json)) {
+          return false;
+        }
+        const char* error = static_cast<T*>(this)->fromJsonText(json);
+        if (error) {
+          LOG_ERR("PERSIST", "JSON parse error in %s: %s", T::getFilePath(), error);
+          return false;
+        }
+        ok = true;
+      } else {
+        JsonDocument doc;
+        if (!readDocFromFile(T::getFilePath(), doc)) {
+          return false;
+        }
+        ok = static_cast<T*>(this)->fromJson(doc.as<JsonVariantConst>());
       }
-      ok = static_cast<T*>(this)->fromJson(doc.as<JsonVariantConst>());
-      // Read the flag under the lock that guards the fromJson() that set it.
+      // Read the flag under the lock that guards the fromJson()/fromJsonText() that set it.
       doResave = resaveRequested;
       resaveRequested = false;
     }

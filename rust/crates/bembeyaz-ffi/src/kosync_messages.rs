@@ -3,7 +3,7 @@
 //! so no Rust buffer crosses the boundary.
 
 use bembeyaz_kosync::messages::{
-    Error, Metadata, Position, Received, Update, create_user_body, parse_progress, progress_body,
+    Metadata, Position, Received, Update, create_user_body, parse_progress, progress_body,
 };
 use core::ffi::{c_char, c_int, c_void};
 
@@ -160,18 +160,6 @@ const FIELD_DEVICE: c_int = 1;
 const FIELD_DEVICE_ID: c_int = 2;
 const FIELD_XPATH: c_int = 3;
 
-/// The error names, NUL-terminated for C.
-fn error_name(error: Error) -> *const c_char {
-    let name: &'static [u8] = match error {
-        Error::EmptyInput => b"EmptyInput\0",
-        Error::IncompleteInput => b"IncompleteInput\0",
-        Error::InvalidInput => b"InvalidInput\0",
-        Error::NoMemory => b"NoMemory\0",
-        Error::TooDeep => b"TooDeep\0",
-    };
-    name.as_ptr().cast()
-}
-
 /// # Safety
 /// `body` is NULL or `len` readable bytes; `out` is NULL or writable; `field` takes `context`.
 #[unsafe(no_mangle)]
@@ -187,7 +175,7 @@ pub unsafe extern "C" fn bb_kosync_parse_progress(
     let body = unsafe { Text { data: body, len }.bytes() };
     let received = match parse_progress(body, rich_progress) {
         Ok(received) => received,
-        Err(error) => return error_name(error),
+        Err(error) => return error.c_name().as_ptr(),
     };
     // SAFETY: as documented.
     unsafe { hand_over(&received, out, field, context) };

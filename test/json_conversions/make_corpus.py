@@ -9,21 +9,19 @@ Needs a host C++17 compiler (`c++`) and ArduinoJson's headers (the version the f
 .pio/libdeps after a PlatformIO build). After regenerating, run `cargo test -p bembeyaz-jsondoc`
 in rust/.
 
-Values: every kind the kosync_messages generator makes (integers at every edge, floats, odd
-numbers, strings, odd strings, arrays, objects), numbers written as strings, and the edges of the
-types the settings stores read (u8, u16, u32, int).
+Values: every kind the shared generator (test/json_oracle/oracle.py) makes (integers at every edge,
+floats, odd numbers, strings, odd strings, arrays, objects), numbers written as strings, and the
+edges of the types the settings stores read (u8, u16, u32, int).
 """
 import random
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "kosync_messages"))
-import make_corpus as kosync  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "json_oracle"))
+import oracle  # noqa: E402
 
-ROOT = Path(__file__).resolve().parents[2]
-OUT = ROOT / "rust/crates/bembeyaz-jsondoc/testdata/conversions-corpus.txt"
+OUT = oracle.ROOT / "rust/crates/bembeyaz-jsondoc/testdata/conversions-corpus.txt"
 SEED = 20261104
 EDGES = ["255", "256", "-1", "65535", "65536", "4294967295", "4294967296", "2147483647",
          "2147483648", "-2147483648", "-2147483649", "9223372036854775807", "9223372036854775808",
@@ -39,30 +37,27 @@ EDGES = ["255", "256", "-1", "65535", "65536", "4294967295", "4294967296", "2147
 def member(rng):
     roll = rng.random()
     if roll < 0.15:
-        return '"' + kosync.number(rng) + '"'
+        return '"' + oracle.number(rng) + '"'
     if roll < 0.3:
         return rng.choice(EDGES)
-    return kosync.value(rng, 2)
+    return oracle.value(rng, 2)
 
 
 def steps(count):
     rng = random.Random(SEED)
     docs = ['{"v":' + member(rng) + "}" for _ in range(count)]
     docs += ['{"v":' + e + "}" for e in EDGES] + ["{}", "[1]", "5", '"s"']
-    return "".join(f"v {kosync.h(d)}\n" for d in docs)
+    return "".join(f"v {oracle.h(d)}\n" for d in docs)
 
 
 def main():
     count = int(sys.argv[1]) if len(sys.argv) > 1 else 3000
     with tempfile.TemporaryDirectory() as tmp:
-        driver = Path(tmp) / "driver"
-        subprocess.run(["c++", "-std=c++17", "-O1", "-Wall", "-Wextra", f"-isystem{kosync.JSON}",
-                        str(Path(__file__).with_name("driver.cpp")), "-o", str(driver)], check=True)
-        run = subprocess.run([str(driver)], input=steps(count).encode(), capture_output=True,
-                             check=True)
-    OUT.write_bytes(run.stdout)
+        driver = oracle.build(Path(tmp) / "driver", [Path(__file__).with_name("driver.cpp")], [])
+        transcript = oracle.run(driver, steps(count))
+    OUT.write_bytes(transcript)
     print(f"{count} random steps and the edge steps, {OUT.stat().st_size} bytes: "
-          f"{OUT.relative_to(ROOT)}")
+          f"{OUT.relative_to(oracle.ROOT)}")
 
 
 if __name__ == "__main__":

@@ -30,6 +30,18 @@ impl Error {
             Error::TooDeep => "TooDeep",
         }
     }
+
+    /// The same name NUL-terminated, for C.
+    #[must_use]
+    pub fn c_name(self) -> &'static core::ffi::CStr {
+        match self {
+            Error::EmptyInput => c"EmptyInput",
+            Error::IncompleteInput => c"IncompleteInput",
+            Error::InvalidInput => c"InvalidInput",
+            Error::NoMemory => c"NoMemory",
+            Error::TooDeep => c"TooDeep",
+        }
+    }
 }
 
 /// Containers ArduinoJson opens at most (`ARDUINOJSON_DEFAULT_NESTING_LIMIT`).

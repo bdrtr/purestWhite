@@ -8,9 +8,13 @@
 #include <limits>
 
 bool PersistableStoreBase::writeDocToFile(const char* path, const JsonDocument& doc) {
-  Storage.mkdir("/.crosspoint");
   String json;
   serializeJson(doc, json);
+  return writeTextToFile(path, json);
+}
+
+bool PersistableStoreBase::writeTextToFile(const char* path, const String& json) {
+  Storage.mkdir("/.crosspoint");
   if (!Storage.writeFile(path, json)) {
     LOG_ERR("PERSIST", "Failed to write %s", path);
     return false;
@@ -18,13 +22,21 @@ bool PersistableStoreBase::writeDocToFile(const char* path, const JsonDocument& 
   return true;
 }
 
-bool PersistableStoreBase::readDocFromFile(const char* path, JsonDocument& doc) {
+bool PersistableStoreBase::readTextFromFile(const char* path, String& json) {
   if (!Storage.exists(path)) {
     return false;  // Expected on first boot — not an error.
   }
-  String json = Storage.readFile(path);
+  json = Storage.readFile(path);
   if (json.isEmpty()) {
     LOG_ERR("PERSIST", "Failed to read %s (empty)", path);
+    return false;
+  }
+  return true;
+}
+
+bool PersistableStoreBase::readDocFromFile(const char* path, JsonDocument& doc) {
+  String json;
+  if (!readTextFromFile(path, json)) {
     return false;
   }
   auto error = deserializeJson(doc, json);

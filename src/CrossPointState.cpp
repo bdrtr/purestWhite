@@ -1,94 +1,95 @@
 #include "CrossPointState.h"
 
-#include <algorithm>
+#include <bembeyaz/store_state.h>
+
+#include <cstddef>
 #include <cstring>
 
+// The JSON and the rings are Rust's (bembeyaz_store::state); this file passes the fields to Rust
+// and takes them back.
 namespace {
+static_assert(CrossPointState::SLEEP_RECENT_COUNT == 16, "bb_store_state_ring holds 16 images");
+static_assert(sizeof(bb_store_state_ring) == 34 && offsetof(bb_store_state_ring, pos) == 32,
+              "bb_store_state_ring layout");
+static_assert(sizeof(bb_store_state) == 72 && offsetof(bb_store_state, recent_overlay_sleep) == 34 &&
+                  offsetof(bb_store_state, reader_activity_load_count) == 68 &&
+                  offsetof(bb_store_state, show_boot_screen) == 70,
+              "bb_store_state layout");
 
-bool isRecentIndex(const uint16_t* recentImages, uint8_t recentPos, uint8_t recentFill, uint16_t idx,
-                   uint8_t checkCount) {
-  const uint8_t effectiveCount = std::min(checkCount, recentFill);
-  for (uint8_t i = 0; i < effectiveCount; i++) {
-    const uint8_t slot =
-        (recentPos + CrossPointState::SLEEP_RECENT_COUNT - 1 - i) % CrossPointState::SLEEP_RECENT_COUNT;
-    if (recentImages[slot] == idx) return true;
-  }
-  return false;
+bb_store_state_ring ringOf(const uint16_t* images, const uint8_t pos, const uint8_t fill) {
+  bb_store_state_ring ring{};
+  std::memcpy(ring.images, images, sizeof(ring.images));
+  ring.pos = pos;
+  ring.fill = fill;
+  return ring;
 }
 
-void pushRecentIndex(uint16_t* recentImages, uint8_t& recentPos, uint8_t& recentFill, uint16_t idx) {
-  recentImages[recentPos] = idx;
-  recentPos = (recentPos + 1) % CrossPointState::SLEEP_RECENT_COUNT;
-  if (recentFill < CrossPointState::SLEEP_RECENT_COUNT) recentFill++;
+void takeRing(const bb_store_state_ring& ring, uint16_t* images, uint8_t& pos, uint8_t& fill) {
+  std::memcpy(images, ring.images, sizeof(ring.images));
+  pos = ring.pos;
+  fill = ring.fill;
 }
 
+// The text Rust writes, appended to json; ok turns false when the String cannot grow.
+struct Text {
+  String& json;
+  bool ok;
+};
+
+void appendTo(const char* data, const size_t len, void* context) {
+  auto* text = static_cast<Text*>(context);
+  text->ok = text->ok && text->json.concat(data, static_cast<unsigned int>(len));
+}
+
+void assignTo(const char* data, const size_t len, void* context) {
+  static_cast<std::string*>(context)->assign(data, len);
+}
 }  // namespace
 
 bool CrossPointState::isRecentSleep(uint16_t idx, uint8_t checkCount) const {
-  return isRecentIndex(recentSleepImages, recentSleepPos, recentSleepFill, idx, checkCount);
+  const bb_store_state_ring ring = ringOf(recentSleepImages, recentSleepPos, recentSleepFill);
+  return bb_store_state_is_recent(&ring, idx, checkCount);
 }
 
 bool CrossPointState::isRecentOverlaySleep(uint16_t idx, uint8_t checkCount) const {
-  return isRecentIndex(recentOverlaySleepImages, recentOverlaySleepPos, recentOverlaySleepFill, idx, checkCount);
+  const bb_store_state_ring ring = ringOf(recentOverlaySleepImages, recentOverlaySleepPos, recentOverlaySleepFill);
+  return bb_store_state_is_recent(&ring, idx, checkCount);
 }
 
 void CrossPointState::pushRecentSleep(uint16_t idx) {
-  pushRecentIndex(recentSleepImages, recentSleepPos, recentSleepFill, idx);
+  bb_store_state_ring ring = ringOf(recentSleepImages, recentSleepPos, recentSleepFill);
+  bb_store_state_push_recent(&ring, idx);
+  takeRing(ring, recentSleepImages, recentSleepPos, recentSleepFill);
 }
 
 void CrossPointState::pushRecentOverlaySleep(uint16_t idx) {
-  pushRecentIndex(recentOverlaySleepImages, recentOverlaySleepPos, recentOverlaySleepFill, idx);
+  bb_store_state_ring ring = ringOf(recentOverlaySleepImages, recentOverlaySleepPos, recentOverlaySleepFill);
+  bb_store_state_push_recent(&ring, idx);
+  takeRing(ring, recentOverlaySleepImages, recentOverlaySleepPos, recentOverlaySleepFill);
 }
 
-void CrossPointState::toJson(JsonDocument& doc) const {
-  doc["openEpubPath"] = openEpubPath;
-  JsonArray recentArr = doc["recentSleepImages"].to<JsonArray>();
-  for (int i = 0; i < SLEEP_RECENT_COUNT; i++) recentArr.add(recentSleepImages[i]);
-  doc["recentSleepPos"] = recentSleepPos;
-  doc["recentSleepFill"] = recentSleepFill;
-  JsonArray recentOverlayArr = doc["recentOverlaySleepImages"].to<JsonArray>();
-  for (int i = 0; i < SLEEP_RECENT_COUNT; i++) recentOverlayArr.add(recentOverlaySleepImages[i]);
-  doc["recentOverlaySleepPos"] = recentOverlaySleepPos;
-  doc["recentOverlaySleepFill"] = recentOverlaySleepFill;
-  doc["readerActivityLoadCount"] = readerActivityLoadCount;
-  doc["lastSleepFromReader"] = lastSleepFromReader;
-  doc["showBootScreen"] = showBootScreen;
+bool CrossPointState::toJsonText(String& json) const {
+  bb_store_state state{};
+  state.recent_sleep = ringOf(recentSleepImages, recentSleepPos, recentSleepFill);
+  state.recent_overlay_sleep = ringOf(recentOverlaySleepImages, recentOverlaySleepPos, recentOverlaySleepFill);
+  state.reader_activity_load_count = readerActivityLoadCount;
+  state.last_sleep_from_reader = lastSleepFromReader;
+  state.show_boot_screen = showBootScreen;
+  Text text{json, true};
+  bb_store_state_write(&state, openEpubPath.data(), openEpubPath.size(), appendTo, &text);
+  return text.ok;
 }
 
-bool CrossPointState::fromJson(JsonVariantConst doc) {
-  openEpubPath = doc["openEpubPath"] | "";
-
-  memset(recentSleepImages, 0, sizeof(recentSleepImages));
-  JsonArrayConst recentArr = doc["recentSleepImages"];
-  const int actualCount =
-      recentArr.isNull() ? 0 : std::min(static_cast<int>(recentArr.size()), static_cast<int>(SLEEP_RECENT_COUNT));
-  for (int i = 0; i < actualCount; i++) recentSleepImages[i] = recentArr[i] | static_cast<uint16_t>(0);
-  recentSleepPos = doc["recentSleepPos"] | static_cast<uint8_t>(0);
-  if (recentSleepPos >= SLEEP_RECENT_COUNT) recentSleepPos = actualCount > 0 ? recentSleepPos % SLEEP_RECENT_COUNT : 0;
-  recentSleepFill = doc["recentSleepFill"] | static_cast<uint8_t>(0);
-  recentSleepFill = static_cast<uint8_t>(std::min(static_cast<int>(recentSleepFill), actualCount));
-
-  memset(recentOverlaySleepImages, 0, sizeof(recentOverlaySleepImages));
-  JsonArrayConst recentOverlayArr = doc["recentOverlaySleepImages"];
-  const int actualOverlayCount = recentOverlayArr.isNull() ? 0
-                                                           : std::min(static_cast<int>(recentOverlayArr.size()),
-                                                                      static_cast<int>(SLEEP_RECENT_COUNT));
-  for (int i = 0; i < actualOverlayCount; i++) {
-    recentOverlaySleepImages[i] = recentOverlayArr[i] | static_cast<uint16_t>(0);
-  }
-  recentOverlaySleepPos = doc["recentOverlaySleepPos"] | static_cast<uint8_t>(0);
-  if (recentOverlaySleepPos >= SLEEP_RECENT_COUNT) {
-    recentOverlaySleepPos = actualOverlayCount > 0 ? recentOverlaySleepPos % CrossPointState::SLEEP_RECENT_COUNT : 0;
-  }
-  recentOverlaySleepFill = doc["recentOverlaySleepFill"] | static_cast<uint8_t>(0);
-  recentOverlaySleepFill = static_cast<uint8_t>(std::min(static_cast<int>(recentOverlaySleepFill), actualOverlayCount));
-
-  if (recentSleepFill == 0 && !doc["lastSleepImage"].isNull()) {
-    const uint8_t legacy = doc["lastSleepImage"] | static_cast<uint8_t>(UINT8_MAX);
-    if (legacy != UINT8_MAX) pushRecentSleep(static_cast<uint16_t>(legacy));
-  }
-  readerActivityLoadCount = doc["readerActivityLoadCount"] | static_cast<uint8_t>(0);
-  lastSleepFromReader = doc["lastSleepFromReader"] | false;
-  showBootScreen = doc["showBootScreen"] | true;
-  return true;
+const char* CrossPointState::fromJsonText(const String& json) {
+  bb_store_state state{};
+  std::string path;
+  const char* error = bb_store_state_read(json.c_str(), json.length(), &state, assignTo, &path);
+  if (error) return error;
+  openEpubPath = std::move(path);
+  takeRing(state.recent_sleep, recentSleepImages, recentSleepPos, recentSleepFill);
+  takeRing(state.recent_overlay_sleep, recentOverlaySleepImages, recentOverlaySleepPos, recentOverlaySleepFill);
+  readerActivityLoadCount = state.reader_activity_load_count;
+  lastSleepFromReader = state.last_sleep_from_reader;
+  showBootScreen = state.show_boot_screen;
+  return nullptr;
 }

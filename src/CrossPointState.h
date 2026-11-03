@@ -1,5 +1,4 @@
 #pragma once
-#include <ArduinoJson.h>
 #include <PersistableStore.h>
 
 #include <cstdint>
@@ -25,8 +24,9 @@ class CrossPointState : public PersistableStore<CrossPointState> {
   bool showBootScreen = true;
 
   static const char* getFilePath() { return "/.crosspoint/state.json"; }
-  void toJson(JsonDocument& doc) const;
-  bool fromJson(JsonVariantConst doc);
+  // state.json's text, read and written by Rust (bembeyaz_store::state). See PersistableStore.
+  bool toJsonText(String& json) const;
+  const char* fromJsonText(const String& json);
 
   bool isRecentSleep(uint16_t idx, uint8_t checkCount) const;
   bool isRecentOverlaySleep(uint16_t idx, uint8_t checkCount) const;

@@ -99,6 +99,25 @@ The checks on paths that come from the network are in the `web` module of `bembe
   styled pages into plain text with `HtmlToPlainText` is in the `plain` module of
   `bembeyaz-html`. Allocating the string at the size of the input is in C++.
 
+## Settings files
+
+The stores built on `lib/Serialization/PersistableStore.h` keep their files in `/.crosspoint/` as
+JSON. A store whose JSON is read and written in Rust gives `toJsonText`/`fromJsonText` in place of
+`toJson`/`fromJson` (`fromJsonText` returns nullptr, or ArduinoJson's error name, and may call
+`requestResave()`); `PersistableStore` keeps the file steps, the lock, the parse-error log and the
+resave for both kinds. The stores go to the `bembeyaz-store` crate one by one (a module with
+`read` and `write` each), over `bembeyaz-jsondoc` (its `|` and `is<T>` are pinned by
+`test/json_conversions`). Their C ABIs are `rust/include/bembeyaz/store_*.h`, with the
+`bb_store_write` callback of `store.h`: a store with a fixed set of fields crosses as a `repr(C)`
+struct; a list (recent books, servers) or a large table (`CrossPointSettings`) will cross one
+item or field per callback, as `bb_kosync_field` does. The oracles share `test/json_oracle`.
+
+- **App state ✅**: `CrossPointState` (`state.json`: the open book, the reader's load count, the
+  rings of recent sleep images and their legacy `lastSleepImage`) calls the `state` module of
+  `bembeyaz-store`. `test/crosspoint_state` writes the C++ store's answers on 1,500 seeded steps
+  and 13 edge steps to `rust/crates/bembeyaz-store/testdata/state-corpus.txt`, which the crate's
+  tests replay; its `check_shim.sh` runs the same steps through the C++ shim over Rust.
+
 ## `src/` activities
 
 The activities under `src/` are also part of this stage.

@@ -47,6 +47,7 @@ mod png;
 mod png_cover;
 mod rtc;
 mod section;
+mod store_state;
 mod toc;
 #[cfg(not(target_os = "none"))]
 mod touch;

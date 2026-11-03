@@ -1,17 +1,21 @@
-// Oracle for the Rust port of src/CrossPointState: runs one scenario through the store's
-// fromJson/toJson (ArduinoJson 7.4.2, the firmware's) and its recent-image ring, and prints each
-// answer. make_corpus.py builds it and keeps the transcript as the Rust tests' golden corpus
-// (rust/crates/bembeyaz-store/testdata/state-corpus.txt).
+// Oracle for the Rust port of src/CrossPointState: runs one scenario through the store's reading
+// and writing (fromJson/toJson over ArduinoJson 7.4.2, the firmware's; with -DSHIM,
+// fromJsonText/toJsonText) and its recent-image rings, and prints each answer. make_corpus.py
+// builds it over the C++ store (from git: the one in the tree is the Rust shim) and keeps the
+// transcript as the Rust tests' golden corpus:
+// rust/crates/bembeyaz-store/testdata/state-corpus.txt. check_shim.sh builds it with -DSHIM over
+// the shim.
 //
-//   from <json> <idx> <count> <push>   deserializeJson then fromJson; = err <name> |
-//                                      = <state> | <toJson> | <recent> <overlay recent> | <state>
+//   from <json> <idx> <count> <push>   read the store from <json>; = err <name> |
+//                                      = <state> | <written json> | <recent> <overlay recent> |
+//                                        <state>
 //                                      where recent is isRecent*(idx, count) before push, and the
 //                                      last state is after pushRecent*(push)
-//   to <state>                         the state set directly, then toJson  = <toJson>
+//   to <state>                         the state set directly, then written  = <written json>
 //
 // <state> is: path imgs pos fill overlay_imgs overlay_pos overlay_fill load last_sleep boot,
-// path in hex ("-" when empty), the image lists comma-separated; <toJson> is serializeJson's text
-// (one line: it escapes control characters).
+// path in hex ("-" when empty), the image lists comma-separated; the written JSON is
+// serializeJson's text (one line: it escapes control characters).
 #define ARDUINOJSON_ENABLE_ARDUINO_STRING 0
 #include <ArduinoJson.h>
 
@@ -66,6 +70,20 @@ std::string stateOf(const CrossPointState& s) {
   return out.str();
 }
 
+#ifdef SHIM
+std::string jsonOf(const CrossPointState& s) {
+  String json;
+  s.toJsonText(json);
+  return json.c_str();
+}
+
+// Reads through the store's fromJsonText; false with ArduinoJson's name for why not.
+bool load(CrossPointState& s, const std::string& input, std::string& error) {
+  const char* name = s.fromJsonText(String(input.c_str()));
+  if (name) error = name;
+  return !name;
+}
+#else
 std::string jsonOf(const CrossPointState& s) {
   JsonDocument doc;
   s.toJson(doc);
@@ -74,15 +92,24 @@ std::string jsonOf(const CrossPointState& s) {
   return out;
 }
 
-void from(const std::vector<std::string>& a, CrossPointState& s) {
+bool load(CrossPointState& s, const std::string& input, std::string& error) {
   JsonDocument doc;
-  const std::string input = text(a.at(1));
-  const DeserializationError error = deserializeJson(doc, input.c_str());
-  if (error) {
+  const DeserializationError result = deserializeJson(doc, input.c_str());
+  if (result) {
+    error = result.c_str();
+    return false;
+  }
+  s.fromJson(doc.as<JsonVariantConst>());
+  return true;
+}
+#endif
+
+void from(const std::vector<std::string>& a, CrossPointState& s) {
+  std::string error;
+  if (!load(s, text(a.at(1)), error)) {
     std::printf("  = err %s\n", error.c_str());
     return;
   }
-  s.fromJson(doc.as<JsonVariantConst>());
   const auto idx = static_cast<uint16_t>(std::stoul(a.at(2)));
   const auto count = static_cast<uint8_t>(std::stoul(a.at(3)));
   const auto push = static_cast<uint16_t>(std::stoul(a.at(4)));
