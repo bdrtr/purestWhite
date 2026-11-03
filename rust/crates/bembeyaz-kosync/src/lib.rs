@@ -1,6 +1,7 @@
 //! `KOReader` positions in a chapter's XHTML, as `test/koreader_xpath_resolver` pins them: the path of the Nth paragraph, the path and
 //! text offset of a visible codepoint, and the number of visible codepoints. The `progress` module
-//! decides which of two reading positions is further on.
+//! decides which of two reading positions is further on; `messages` writes and reads the sync
+//! server's JSON.
 //!
 //! Visible text is every codepoint inside `<body>` outside `head`, `style`, `script`, `title` and
 //! `rp` (any case), with HTML entities as the chapter parser shows them: lib/Epub's
@@ -17,12 +18,15 @@
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 extern crate alloc;
+#[cfg(test)]
+extern crate std;
 
 use alloc::vec::Vec;
 use bembeyaz_xml::{Error, Flow, Handler, Parser, StartTag, Str};
 use core::fmt::Write;
 
 pub mod locate;
+pub mod messages;
 pub mod progress;
 
 /// What to look for.
@@ -523,5 +527,7 @@ impl Resolver {
     }
 }
 
+#[cfg(test)]
+mod messages_tests;
 #[cfg(test)]
 mod tests;

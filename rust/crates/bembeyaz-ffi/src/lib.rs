@@ -36,6 +36,7 @@ mod io;
 mod jpeg;
 mod json;
 mod kosync;
+mod kosync_messages;
 mod layout;
 mod library;
 mod opf;

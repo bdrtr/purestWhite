@@ -1,10 +1,17 @@
 // Oracle for the Rust port of lib/KOReaderSync/KOReaderSyncMessages and of the ArduinoJson it
-// uses: runs one scenario through the C++ functions with ArduinoJson 7.4.2 (the firmware's) and
-// prints each answer. make_corpus.py builds it, feeds it scenarios and keeps the transcripts as the
-// Rust tests' golden corpus (rust/crates/bembeyaz-jsondoc/testdata/kosync-corpus.txt).
+// used: runs one scenario through the messages' functions and ArduinoJson 7.4.2 (the firmware's)
+// and prints each answer. make_corpus.py builds it over the ArduinoJson version of the messages
+// (from git) and keeps the transcripts as the Rust tests' golden corpus
+// (rust/crates/bembeyaz-jsondoc/testdata/kosync-corpus.txt); check_shim.sh builds it over the Rust
+// shim and checks the same answers come.
 //
 // Input, one line each; text is hex bytes (- for none), a float is its bits in hex:
 //   json <text>                 deserializeJson, then serializeJson   = ok <text> | err <name>
+//   long <n>                    deserializeJson, then serializeJson of ["a…"], {k…:1} and ["a…
+//                               (unterminated), n of each letter, then serializeJson of a document
+//                               whose "p" was set to n a's
+//                                   = <answer> <answer> <answer> set <length>,
+//                                     each answer ok <length> | err <name>
 //   user <name> <md5>           kosync::createUserBody                = <text>
 //   body <ext> <rich> <document> <progress> <percentage> <meta> <pos>
 //        meta: - | <filename>,<title>,<authors>,<extra>,<isbn>,<asin>,<series>,<seriesIndex|->
@@ -80,6 +87,28 @@ std::string posOf(const KOReaderRichPosition& p) {
          hexOf(p.xpath);
 }
 
+// deserializeJson then serializeJson: ok and the JSON, or err and why.
+std::string roundTrip(const std::string& input) {
+  JsonDocument doc;
+  const DeserializationError error = deserializeJson(doc, input.c_str());
+  if (error) return std::string("err ") + error.c_str();
+  std::string out;
+  serializeJson(doc, out);
+  return "ok " + std::to_string(out.size());
+}
+
+void longs(const std::vector<std::string>& a) {
+  const size_t n = std::strtoul(a.at(1).c_str(), nullptr, 10);
+  const std::string value = roundTrip("[\"" + std::string(n, 'a') + "\"]");
+  const std::string key = roundTrip("{" + std::string(n, 'k') + ":1}");
+  const std::string open = roundTrip("[\"" + std::string(n, 'a'));
+  JsonDocument doc;
+  doc["p"] = std::string(n, 'a');
+  std::string set;
+  serializeJson(doc, set);
+  std::printf("  = %s %s %s set %zu\n", value.c_str(), key.c_str(), open.c_str(), set.size());
+}
+
 void json(const std::vector<std::string>& a) {
   JsonDocument doc;
   const std::string input = text(a.at(1));
@@ -150,6 +179,8 @@ int main() {
     const auto a = split(line, ' ');
     if (a.at(0) == "json") {
       json(a);
+    } else if (a.at(0) == "long") {
+      longs(a);
     } else if (a.at(0) == "user") {
       std::printf("  = %s\n", hexOf(kosync::createUserBody(text(a.at(1)), text(a.at(2)))).c_str());
     } else if (a.at(0) == "body") {

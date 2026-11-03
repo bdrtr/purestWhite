@@ -1,1 +1,1 @@
-doc-valid-idents = ["CrossPoint", "PNGdec", ".."]
+doc-valid-idents = ["CrossPoint", "PNGdec", "ArduinoJson", ".."]

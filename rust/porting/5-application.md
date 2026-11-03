@@ -61,6 +61,14 @@ The checks on paths that come from the network are in the `web` module of `bembe
   call the `progress` module of `bembeyaz-kosync`, which decides which of two reading positions
   is further on: by chapter, then page or text offset when both chapters are trusted, otherwise
   by percentage within 0.001. `test/progress_comparison` pins the old answers.
+- **Sync messages ✅**: `KOReaderSyncMessages` (the account body, the progress update's body and
+  the reading of a progress answer, apart from the HTTP in `KOReaderSyncClient`) calls the
+  `messages` module of `bembeyaz-kosync`, over `bembeyaz-jsondoc`, which reads and writes JSON as
+  ArduinoJson 7.4.2 does (its leniencies, its conversions of a field of another type, its float
+  digits). `test/kosync_messages` writes ArduinoJson's answers on 4,000 seeded steps and 10 edge
+  steps to `rust/crates/bembeyaz-jsondoc/testdata/kosync-corpus.txt`, which both crates' tests
+  replay; its `check_shim.sh` runs the same steps through the C++ shim over Rust. The rest of the
+  firmware's JSON is still ArduinoJson's.
 
 ## ClippingStore
 

@@ -1,20 +1,30 @@
 #!/usr/bin/env python3
-"""Builds lib/KOReaderSync/KOReaderSyncMessages with ArduinoJson 7.4.2 (driver.cpp), runs it on
-seeded random scenarios and writes the transcript as the golden corpus the Rust tests replay:
-rust/crates/bembeyaz-jsondoc/testdata/kosync-corpus.txt.
+"""Builds driver.cpp over the ArduinoJson version of lib/KOReaderSync/KOReaderSyncMessages.cpp
+(taken from git, commit 524380d5: the file in the tree is now the Rust shim) with ArduinoJson
+7.4.2, runs it on seeded random scenarios and edge steps, and writes the transcript as the golden
+corpus the Rust tests replay: rust/crates/bembeyaz-jsondoc/testdata/kosync-corpus.txt.
 
-  test/kosync_messages/make_corpus.py [LINES]    (default 4000; the Rust test wants 3500)
+  test/kosync_messages/make_corpus.py [STEPS]    (default 4000 random steps, and the edge steps;
+                                                  the Rust tests want over 1,500 json steps and
+                                                  over 1,800 message steps)
+  test/kosync_messages/make_corpus.py --check DRIVER
+
+`--check` runs the same steps (the default 4000 and the edge steps) through a driver built
+otherwise (driver.cpp over the Rust shim: see check_shim.sh) and says whether its transcript is
+the corpus, byte for byte.
 
 Needs a host C++17 compiler (`c++`) and ArduinoJson's headers (the version the firmware pins, in
-.pio/libdeps after a PlatformIO build). After regenerating, run `cargo test -p bembeyaz-jsondoc
--p bembeyaz-kosync` in rust/. The corpus only ever holds the C++ behavior: a deliberate change in
-the Rust port goes in a commit of its own, with the cases it changes edited by hand.
+.pio/libdeps after a PlatformIO build), and git. After regenerating, run `cargo test -p
+bembeyaz-jsondoc -p bembeyaz-kosync` in rust/ and check_shim.sh. The corpus only ever holds the
+C++ behavior: a deliberate change in the Rust port goes in a commit of its own, with the cases it
+changes edited by hand.
 
 Scenarios: JSON of every kind (scalars at the root, nesting past ArduinoJson's limit of 10, single
 quotes, unquoted keys, duplicate keys, escapes and surrogates, numbers at every integer and float
 edge), much of it then broken (cut, a byte changed, garbage after it); progress answers with each
 field of any type; progress updates with any strings and float bits, extra metadata JSON and rich
-positions; account bodies.
+positions; account bodies. Then the edges: the longest string and key ArduinoJson keeps and one
+byte more (also unterminated, and set from C++), conversions at the u16, u32 and i64 edges, -1e-400, extra-metadata keys holding a NUL.
 """
 import random
 import struct
@@ -27,6 +37,8 @@ ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "rust/crates/bembeyaz-jsondoc/testdata/kosync-corpus.txt"
 JSON = ROOT / ".pio/libdeps/x4pro/ArduinoJson/src"
 SEED = 20261103
+# The commit whose KOReaderSyncMessages.cpp is ArduinoJson's (before the Rust port).
+ORACLE = "524380d5"
 
 INTS = [0, 1, -1, 7, 255, 256, 65535, 65536, -32768, 2147483647, 2147483648, -2147483648,
         -2147483649, 4294967295, 4294967296, 9223372036854775807, 9223372036854775808,
@@ -37,7 +49,11 @@ FLOATS = ["0.5", "1.5", "-0.0", "0.1", "3.14159", "1e3", "1E-3", "2.5e+10", "1e3
           "123456789.123", "0.000001", "0.0000001", "12345678", "1234567.5", "9999999.99",
           "1e7", "1e-5", "0.30000000000000004", "00012", "1e400", "1e-400", "7e22", "4.94e-324",
           "0.1234567890123456789", "1" * 40, "1" * 70, "0.99999994", "16777217", "2.5", "100.25",
-          "1.17549435e-38", "6.02214076e23", "-273.15", "0.001", "999999.9999", "1e15", "1e16"]
+          "1.17549435e-38", "6.02214076e23", "-273.15", "0.001", "999999.9999", "1e15", "1e16",
+          # A token of 63 and 64 bytes (ArduinoJson reads 63), a mantissa just past float's
+          # (2^23) and below 2^24, fraction digits past double's mantissa, a negative underflow.
+          "1" * 63, "1" * 64, "0.8388609", "0.9999999", "16777.215", "8388.6095",
+          "1234567890123456.7", "4503599627370495.5", "0.12345678901234567", "-1e-400", "-1e-46"]
 # What ArduinoJson reads its own way, or refuses.
 ODD_NUMBERS = [".5", "5.", "+1", "+1.5", "-.5", "1e", "1e+", "1.2.3", "--1", "-", "+", "1-2"]
 WORDS = ["", "a", "progress", "x/y", "çiçek", "日本", "😀", "tab\there", "nl\nx", "q\"x", "b\\s",
@@ -230,20 +246,61 @@ def line(rng):
     return f"user {word(rng)} {word(rng)}"
 
 
+def edges():
+    """Steps at the conversions' edges, too narrow for the random ones to hit."""
+    answers = [
+        '{"percentage":-1e-400,"timestamp":"-1e-400"}',
+        '{"percentage":"-1e-400"}',
+        '{"position":{"spine":65536.0,"page":65535.5,"pages":-0.5,"para":1e10,'
+        '"pctQ":4294967296.0}}',
+        '{"position":{"spine":65535.0,"page":-1,"pages":65535,"para":65536,"pctQ":4294967040.0}}',
+        '{"position":{"pctQ":"4294967296.0","spine":"65536","page":"-0"},"timestamp":9.3e18}',
+        '{"timestamp":9223372036854774784.0,"position":{"pctQ":-0.0}}',
+    ]
+    out = [f"parse 1 - {h(a)}" for a in answers]
+    for extra in ['{"a\\u0000b":1,"title\\u0000x":2,"isbn\\u0000":3}', '{"\\u0000":true}']:
+        meta = ",".join(["66", "74", "61", h(extra), "-", "-", "-", "-"])
+        out.append(f"body 1 0 64 70 3f000000 {meta} -")
+    return out
+
+
+def steps(count):
+    rng = random.Random(SEED)
+    out = "\n".join(line(rng) for _ in range(count)) + "\n"
+    # ArduinoJson's longest string, 65,535 bytes, and one more: as a value, a key, an unterminated
+    # string, and set from C++.
+    out += "long 65535\nlong 65536\n"
+    return out + "\n".join(edges()) + "\n"
+
+
+def check(driver):
+    """Whether `driver` answers every step as the corpus says."""
+    run = subprocess.run([driver], input=steps(4000).encode(), capture_output=True, check=True)
+    same = run.stdout == OUT.read_bytes()
+    print("same as the corpus" if same else "DIFFERENT from the corpus")
+    sys.exit(0 if same else 1)
+
+
 def main():
+    if len(sys.argv) == 3 and sys.argv[1] == "--check":
+        check(sys.argv[2])
     count = int(sys.argv[1]) if len(sys.argv) > 1 else 4000
     with tempfile.TemporaryDirectory() as tmp:
         driver = Path(tmp) / "driver"
+        messages = Path(tmp) / "KOReaderSyncMessages.cpp"
+        source = subprocess.run(["git", "-C", str(ROOT), "show",
+                                 f"{ORACLE}:lib/KOReaderSync/KOReaderSyncMessages.cpp"],
+                                capture_output=True, check=True)
+        messages.write_bytes(source.stdout)
         subprocess.run(["c++", "-std=c++17", "-O1", "-Wall", "-Wextra", f"-isystem{JSON}",
                         f"-I{ROOT}/lib/KOReaderSync", str(Path(__file__).with_name("driver.cpp")),
-                        str(ROOT / "lib/KOReaderSync/KOReaderSyncMessages.cpp"), "-o", str(driver)],
-                       check=True)
-        rng = random.Random(SEED)
-        steps = "\n".join(line(rng) for _ in range(count)) + "\n"
-        run = subprocess.run([str(driver)], input=steps.encode(), capture_output=True, check=True)
+                        str(messages), "-o", str(driver)], check=True)
+        run = subprocess.run([str(driver)], input=steps(count).encode(), capture_output=True,
+                             check=True)
     OUT.parent.mkdir(parents=True, exist_ok=True)
     OUT.write_bytes(run.stdout)
-    print(f"{count} lines, {OUT.stat().st_size} bytes: {OUT.relative_to(ROOT)}")
+    print(f"{count} random steps and the edge steps, {OUT.stat().st_size} bytes: "
+          f"{OUT.relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

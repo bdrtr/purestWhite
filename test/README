@@ -17,4 +17,5 @@ version lives in test/CMakeLists.txt.
 Some directories are not CMake suites: ble_hid_decoder, ble_key_binding and
 kosync_messages hold
 a make_corpus.py that writes a golden corpus for a Rust crate's tests (see the
-script's docstring).
+script's docstring); kosync_messages also has check_shim.sh, which runs the
+corpus's steps through the C++ shim over Rust.

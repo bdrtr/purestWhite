@@ -178,10 +178,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "bembeyaz-jsondoc"
+version = "0.1.0"
+
+[[package]]
 name = "bembeyaz-kosync"
 version = "0.1.0"
 dependencies = [
  "bembeyaz-html",
+ "bembeyaz-jsondoc",
  "bembeyaz-utf8",
  "bembeyaz-xml",
 ]

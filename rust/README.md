@@ -207,7 +207,11 @@ adds its own item.
   god functions; a file that grows past one job is split into submodules. The `bembeyaz-*` crates
   keep clippy's default limit (100) on purpose: they follow the structure of the C++ they replace,
   function for function, so that the two can be read side by side. When that C++ is deleted, the
-  crate is split to the 50-line limit too.
+  crate is split to the 50-line limit too. `bembeyaz-jsondoc` has the 50-line limit already: it
+  replaces ArduinoJson, a library, not C++ of this repository.
+- Two JSON crates, on purpose: `bembeyaz-json` is the SDK's streaming tokenizer (tokens read one
+  by one, in place); `bembeyaz-jsondoc` is a whole document read and written as ArduinoJson 7.4.2
+  does, for C++ that used `JsonDocument` and must keep its answers.
 - A single Rust staticlib is linked into the firmware (`bembeyaz-ffi`). A new module
   does not become a separate staticlib; it is added to `bembeyaz-ffi` as a dependency.
 - The Rust side uses the C++ heap (`device.rs`: `malloc`). A block that needs an alignment wider
@@ -235,8 +239,8 @@ adds its own item.
   `bembeyaz-xtc`, `bembeyaz-kosync`, `bembeyaz-library`, `bembeyaz-bidi`, `bembeyaz-css`,
   `bembeyaz-hyphenation`, `bembeyaz-xml`, `bembeyaz-opf`, `bembeyaz-path`, `bembeyaz-layout`,
   `bembeyaz-section`, `bembeyaz-chapter`, `bembeyaz-book`, `bembeyaz-clippings`, `bembeyaz-io`,
-  `bembeyaz-gfx`, `bembeyaz-image`, `bembeyaz-dict`) forbid `clippy::indexing_slicing`,
-  `unwrap_used` and `panic`; they do not allocate unbounded memory from a size read from a file
+  `bembeyaz-gfx`, `bembeyaz-image`, `bembeyaz-dict`, `bembeyaz-jsondoc`) forbid
+  `clippy::indexing_slicing`, `unwrap_used` and `panic`; they do not allocate unbounded memory from a size read from a file
   (an allocation is capped by a fixed upper limit or by the size of input already in memory).
   Each carries a mini-fuzz test that checks there is no panic on truncation and on single-byte
   corruption. The same three lints are denied in `bembeyaz-html`, `bembeyaz-dither` and every
