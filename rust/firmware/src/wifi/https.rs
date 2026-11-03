@@ -1,8 +1,9 @@
-//! A file fetched over HTTPS, for gate 2: its host looked up (DNS), a TCP connection on port 443
-//! (embassy-net), TLS over it (`purestwhite-tls`, the server's chain checked against the C++
-//! firmware's roots, ESP-IDF's certificate bundle, as the C++ firmware checks it, and its name
-//! against the host), a GET (`purestwhite-http`, HTTP/1.0) and the body hashed as it arrives. TLS
-//! runs over memory buffers; `Wire` moves the bytes between them and the socket.
+//! A request over HTTPS, for gate 2: its host looked up (DNS), a TCP connection (embassy-net), TLS
+//! over it (`purestwhite-tls`, the server's chain checked against the C++ firmware's roots,
+//! ESP-IDF's certificate bundle, as the C++ firmware checks it, and its name against the host), the
+//! request sent, and the answer read as it arrives (`purestwhite-http`): a file fetched with a GET
+//! and hashed (`get`), or any request with its body handed on, or only its status (`exchange`).
+//! TLS runs over memory buffers; `Wire` moves the bytes between them and the socket.
 
 use alloc::string::String;
 use core::fmt::{self, Display, Formatter};
@@ -143,12 +144,11 @@ impl Wire<'_, '_, '_> {
         }
     }
 
-    async fn request(&mut self, host: &str, path: &str) -> Result<(), FetchError> {
-        let mut request = String::new();
-        write_get(&mut request, host, path).map_err(|_| FetchError::Request)?;
+    async fn request(&mut self, request: &[u8]) -> Result<(), FetchError> {
         let mut at = 0;
-        while let Some(rest) = request.as_bytes().get(at..).filter(|r| !r.is_empty()) {
-            let taken = self.tls.write(rest)?;
+        while let Some(rest) = request.get(at..).filter(|r| !r.is_empty()) {
+            // A piece at a time, so TLS's outgoing buffer holds a record at most.
+            let taken = self.tls.write(rest.get(..PIECE).unwrap_or(rest))?;
             at += taken;
             self.flush().await?;
             // TLS wants the server's bytes first (it never should here): wait for them.
@@ -162,30 +162,36 @@ impl Wire<'_, '_, '_> {
         Ok(())
     }
 
-    /// The response, its body into `sha`: until its `Content-Length` when it gives one, else
-    /// until the server ends it.
-    async fn response(&mut self, sha: &mut impl Sha256) -> Result<Response, FetchError> {
+    /// The response, its body handed to `body`: until its `Content-Length` when it gives one, else
+    /// until the server ends it; or, for [`Until::Status`], only until its status line is in.
+    async fn response(
+        &mut self,
+        until: Until,
+        body: &mut impl FnMut(&[u8]),
+    ) -> Result<Answer, FetchError> {
         let mut response = Response::new();
         let mut piece = [0u8; PIECE];
         loop {
             match self.tls.read(&mut piece) {
-                Ok(Some(0)) => return ended(response),
+                Ok(Some(0)) => return ended(&response),
                 Ok(Some(n)) => {
-                    response
-                        .feed(piece.get(..n).unwrap_or_default(), |b| sha.update(b))
-                        .map_err(FetchError::Response)?;
+                    let fed = response.feed(piece.get(..n).unwrap_or_default(), &mut *body);
+                    if let (Until::Status, Some(status)) = (until, response.early_status()) {
+                        return Ok(Answer { status, body: 0 });
+                    }
+                    fed.map_err(FetchError::Response)?;
                     if response.is_complete() {
-                        return Ok(response);
+                        return ended(&response);
                     }
                 }
-                Ok(None) if self.closed => return ended(response),
+                Ok(None) if self.closed => return ended(&response),
                 Ok(None) => {
                     self.flush().await?;
                     self.fill().await?;
                 }
                 // A server may close the connection without TLS's goodbye: the body ends there.
                 Err(TlsError::Wolf(PEER_CLOSED | SOCKET_ERROR)) if self.closed => {
-                    return ended(response);
+                    return ended(&response);
                 }
                 Err(e) => return Err(e.into()),
             }
@@ -197,16 +203,46 @@ impl Wire<'_, '_, '_> {
 const PEER_CLOSED: i32 = -397;
 const SOCKET_ERROR: i32 = -308;
 
+/// What a response came to: its status, and how much body was handed on.
+#[derive(Clone, Copy, Debug)]
+struct Answer {
+    status: u16,
+    body: usize,
+}
+
 /// The response the server ended: whole, unless its head never came or its `Content-Length` says
 /// more was to come.
-fn ended(response: Response) -> Result<Response, FetchError> {
-    if response.status().is_none() {
-        return Err(FetchError::NoResponse);
-    }
+fn ended(response: &Response) -> Result<Answer, FetchError> {
+    let status = response.status().ok_or(FetchError::NoResponse)?;
     if response.content_length().is_some() && !response.is_complete() {
         return Err(FetchError::Cut);
     }
-    Ok(response)
+    Ok(Answer {
+        status,
+        body: response.body_len(),
+    })
+}
+
+/// How much of the answer an exchange reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Until {
+    /// Only its status line: the rest (a long head, a body that never ends) is not waited for.
+    Status,
+    /// The whole answer, its body handed on.
+    End,
+}
+
+/// What an exchange found, and how long each part took, in ms.
+#[derive(Clone, Copy, Debug)]
+pub struct Exchanged {
+    pub status: u16,
+    /// How many bytes of the body were handed on.
+    pub body: usize,
+    pub dns_ms: u64,
+    pub tcp_ms: u64,
+    pub tls_ms: u64,
+    /// From the request sent to the answer read.
+    pub answer_ms: u64,
 }
 
 /// `host`'s first IPv4 address.
@@ -229,6 +265,35 @@ pub async fn get(
     path: &str,
     mut sha: impl Sha256,
 ) -> Result<Fetched, FetchError> {
+    let mut request = String::new();
+    write_get(&mut request, host, path).map_err(|_| FetchError::Request)?;
+    let answer = exchange(stack, (host, 443), request.as_bytes(), Until::End, |b| {
+        sha.update(b);
+    })
+    .await?;
+    Ok(Fetched {
+        status: answer.status,
+        body: answer.body,
+        digest: sha.finish(),
+        dns_ms: answer.dns_ms,
+        tcp_ms: answer.tcp_ms,
+        tls_ms: answer.tls_ms,
+        body_ms: answer.answer_ms,
+    })
+}
+
+/// Sends `request` (a whole request, the connection closed after it) to `host` on `port` over TLS,
+/// as [`get`] does, and reads the answer `until` its status or its end, its body handed to `body`.
+///
+/// # Errors
+/// As [`get`].
+pub async fn exchange(
+    stack: Stack<'_>,
+    (host, port): (&str, u16),
+    request: &[u8],
+    until: Until,
+    mut body: impl FnMut(&[u8]),
+) -> Result<Exchanged, FetchError> {
     let began = Instant::now();
     let ip = resolve(stack, host).await?;
     let dns_ms = began.elapsed().as_millis();
@@ -237,7 +302,7 @@ pub async fn get(
     socket.set_timeout(Some(SILENT_MOST));
     let at = Instant::now();
     socket
-        .connect((ip, 443))
+        .connect((ip, port))
         .await
         .map_err(|_| FetchError::Tcp)?;
     let tcp_ms = at.elapsed().as_millis();
@@ -252,19 +317,18 @@ pub async fn get(
     wire.handshake().await?;
     let tls_ms = at.elapsed().as_millis();
     let at = Instant::now();
-    wire.request(host, path).await?;
-    let response = wire.response(&mut sha).await?;
-    let body_ms = at.elapsed().as_millis();
+    wire.request(request).await?;
+    let answer = wire.response(until, &mut body).await?;
+    let answer_ms = at.elapsed().as_millis();
     // Closed in an orderly way (a dropped socket sends nothing), for a moment at most.
     socket.close();
     let _ = select(socket.flush(), Timer::after(CLOSE_MOST)).await;
-    Ok(Fetched {
-        status: response.status().ok_or(FetchError::NoResponse)?,
-        body: response.body_len(),
-        digest: sha.finish(),
+    Ok(Exchanged {
+        status: answer.status,
+        body: answer.body,
         dns_ms,
         tcp_ms,
         tls_ms,
-        body_ms,
+        answer_ms,
     })
 }

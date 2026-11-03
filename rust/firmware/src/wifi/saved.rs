@@ -1,17 +1,12 @@
-//! The network the C++ firmware saved, read from the card (`/.crosspoint/wifi.json`, decoded by
-//! `purestwhite-wifistore` with the device's key) over the blocking bus, before the scheduler.
+//! The network the C++ firmware saved (`/.crosspoint/wifi.json`, decoded by
+//! `purestwhite-wifistore` with the device's key), read from the card (`crate::card`) before the
+//! scheduler, and the device's key for the C++ firmware's stored secrets.
 
 use crate::board::CardParts;
 use crate::boot::Report;
-use crate::ready;
-use crate::sd;
-use crate::storage::load_whole;
-use allocator_api2::alloc::Global;
+use crate::card::{FileError, read_files};
 use core::fmt::Write as _;
-use esp_hal::gpio::{Level, Output, OutputConfig};
-use esp_hal::peripherals::{GPIO40, GPIO41, GPIO42, SDHOST};
-use esp_hal::sdmmc::{Config as SdConfig, SdHostController};
-use purestwhite_wifistore::{KEY_LEN, Network};
+use purestwhite_wifistore::{JSON_MOST, KEY_LEN, Network, ReadError, Saved};
 
 /// The C++ firmware's saved networks.
 pub const SAVED: &str = "/.crosspoint/wifi.json";
@@ -28,38 +23,39 @@ pub fn device_key() -> [u8; KEY_LEN] {
     key
 }
 
-/// The network the C++ firmware joined last (or its first saved one), the card off again after;
-/// `saved: N networks`, or why there is none (`saved: no card`, `no file`, `broken file`), in
-/// `report`. `feed` runs before each try at the card (a watchdog).
+/// The network the C++ firmware joined last (or its first saved one), read from the card;
+/// `saved: N networks`, or why there is none, in `report`. `feed` runs before each try at the card
+/// (a watchdog).
 pub fn saved_network(report: &mut Report, card: CardParts, feed: impl FnMut()) -> Option<Network> {
-    let mut supply = Output::new(card.supply, Level::High, OutputConfig::default());
-    let pins = (card.clk, card.cmd, card.dat0);
-    let saved = read_saved(&mut supply, card.sdhost, pins, feed);
-    supply.set_high();
-    let _ = match &saved {
-        Ok(saved) => writeln!(report, "saved: {} networks", saved.len()),
-        Err(why) => writeln!(report, "saved: {why}"),
+    let Ok([file]) = read_files(card, [(SAVED, JSON_MOST)], feed) else {
+        note_saved(report, Err("no card"));
+        return None;
     };
-    report.save();
+    note_network(report, file.as_deref().map_err(|e| *e))
+}
+
+/// The network to join from `file` (the saved networks' bytes), and `saved: N networks` or why
+/// there is none in `report`.
+pub fn note_network(report: &mut Report, file: Result<&[u8], FileError>) -> Option<Network> {
+    let saved = file.map_err(FileError::note).and_then(networks);
+    note_saved(report, saved.as_ref().map(Saved::len).map_err(|why| *why));
     saved.ok()?.first_choice().copied()
 }
 
-/// The saved networks, or why they could not be had.
-fn read_saved(
-    supply: &mut Output<'_>,
-    sdhost: SDHOST<'static>,
-    pins: (GPIO41<'static>, GPIO42<'static>, GPIO40<'static>),
-    mut feed: impl FnMut(),
-) -> Result<purestwhite_wifistore::Saved, &'static str> {
-    let controller = SdHostController::new(sdhost, SdConfig::default()).map_err(|_| "no card")?;
-    let mut volume =
-        sd::open_volume(&controller, pins, supply, |_| feed()).map_err(|_| "no card")?;
-    let bytes = ready(load_whole(&mut volume, SAVED, Global))
-        .and_then(Result::ok)
-        .ok_or("no file")?;
-    purestwhite_wifistore::read(&bytes, &device_key()).map_err(|why| match why {
-        purestwhite_wifistore::ReadError::Json => "broken file",
-        purestwhite_wifistore::ReadError::TooLarge => "file too large",
-        purestwhite_wifistore::ReadError::Memory => "no memory",
+/// `saved: N networks`, or why there are none, in `report`.
+pub fn note_saved(report: &mut Report, saved: Result<usize, &'static str>) {
+    let _ = match saved {
+        Ok(count) => writeln!(report, "saved: {count} networks"),
+        Err(why) => writeln!(report, "saved: {why}"),
+    };
+    report.save();
+}
+
+/// The saved networks in `bytes`, or why they could not be had.
+fn networks(bytes: &[u8]) -> Result<Saved, &'static str> {
+    purestwhite_wifistore::read(bytes, &device_key()).map_err(|why| match why {
+        ReadError::Json => "broken file",
+        ReadError::TooLarge => "file too large",
+        ReadError::Memory => "no memory",
     })
 }

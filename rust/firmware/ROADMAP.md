@@ -48,7 +48,9 @@ path unchanged.
    (the C++ firmware's release, built from a submodule into `purestwhite-tls`, over memory
    buffers; the chain, the name and the dates checked) and hashes it; gate 2 also asks to write it
    to the card, which waits for gate 4's card writes. It trusts the C++ firmware's roots: ESP-IDF's
-   certificate bundle (`purestwhite-x509`), checked as the C++ firmware checks it. Left after the
+   certificate bundle (`purestwhite-x509`), checked as the C++ firmware checks it. The fourth,
+   `kosync-check`, reads the C++ firmware's KOReader sync account (`purestwhite-kosync`, on the C++
+   store's own Rust code) and sends its account check as the C++ firmware does. Left after the
    device run: the measurement of the handshake's time and memory.
    Gate 3's first step is written: `ble-check` scans with esp-radio's BLE controller and `TrouBLE`
    0.7.0 (the release on esp-radio's bt-hci 0.9), behind the `ble` feature, and tallies the HID

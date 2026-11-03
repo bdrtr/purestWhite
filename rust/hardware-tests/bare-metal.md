@@ -1230,8 +1230,8 @@ the device only.
   "purestWhite bare-metal Wi-Fi join", "next boot: C++ firmware", "saved: N networks", "wifi:
   joined on channel C, -D dBm, T ms" (the dBm when the radio gives it) with T a few seconds,
   "dhcp: address in T ms" with T under a few seconds, "done". What else it may say:
-  - "saved: no card", "saved: no file", "saved: broken file": the card, the file, or the JSON in
-    it could not be read; "saved: file too large": wifi.json is over 16 KiB (the C++ firmware
+  - "saved: no card", "saved: no file", "saved: unreadable", "saved: broken file": the card, the
+    file, or the JSON in it could not be read; "saved: file too large": wifi.json is over 16 KiB (the C++ firmware
     writes a few KB); "saved: no memory": the heap ran out while reading it; "saved: 0 networks": none the C++ firmware would use.
   - "wifi: joining" as the last line, or "PANIC": it stopped there and reset.
   - "wifi: not joined (...)" names why the router refused: "FourWayHandshakeTimeout" most likely
@@ -1274,6 +1274,39 @@ written to the card; the report holds no network name, password or address. The 
     later failed.
   - Anything else after "https:" (another status than 200, "NoResponse", "response (...)", "tls
     (Roots)" and the like): give me the card all the same.
+
+## KOReader sync, signing in ("firmware: kosync-check, the KOReader sync account signed in")
+
+Gate 2's sync step: the KOReader sync account saved in the C++ firmware, read and checked at its
+server from the bare-metal firmware, as the C++ firmware's "Authenticate" does. The image reads the
+clock, reads the saved Wi-Fi network and the account from the card, joins the network, sends the
+account check over HTTPS, notes the server's answer and resets into the C++ firmware. It writes
+nothing to the card or the server, and the report holds no account name, password, server, network
+name or address. The image is `purestwhite-baremetal-kosync-1.bin` (in the archive, its checksum in
+`SHA256-bare-metal.txt`). On the device only.
+
+- [ ] As in the HTTPS test: the Wi-Fi saved in the C++ firmware, the clock right, no
+  `purestwhite-recovery.bin` on the card. The sync account set up in the C++ firmware (Settings,
+  network section > CrossPoint Sync: "Username" and "Password", and "Sync Server URL" if it is not
+  the default; a URL typed without `https://` is taken as http, which this image does not check),
+  and the C++ firmware's own "Authenticate" passing with it. Install
+  `purestwhite-baremetal-kosync-1.bin` with SD Card Firmware Update; the C++ firmware comes back by
+  itself, within two minutes at the most. Give me the card. Expected: "purestWhite KOSync check",
+  "next boot: C++ firmware", "clock: <today's date and time> UTC", "saved: N networks", "account:
+  https", "wifi: joined on channel C, -D dBm, T ms", "dhcp: address in T ms", "kosync: 200 ok, ms
+  A/B/C/D" (the time DNS, TCP, TLS and the answer took), "done". What else it may say:
+  - "account: no credentials": no username or password saved; "account: no file": no account
+    saved at all; "account: http, not checked": the server URL is http (or has no `https://`);
+    "account: unreadable", "broken file", "bad url ...": give me the card all the same.
+  - "saved: no card", or "saved: no file" and no lines after the account's but "done": nothing to
+    join, so nothing was sent.
+  - "kosync: 401 refused": the server refused the account; check that the C++ firmware's own
+    "Authenticate" passes with it.
+  - "kosync: https: tls (Wolf(-188))" and the like: as in the HTTPS test (the clock, or a chain
+    the bundle does not hold).
+  - "kosync: signing in" as the last line, "kosync: no end in 40 s" or "PANIC": it stopped there.
+  - Anything else after "kosync:" ("request (...)", "https: Dns", "https: Tcp", "https: Wire",
+    "https: response (...)" and the like), or "saved: 0 networks": give me the card all the same.
 
 ## BLE, a scan ("firmware: ble-check, a BLE scan for page-turn remotes")
 

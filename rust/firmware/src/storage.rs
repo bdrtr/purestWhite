@@ -16,6 +16,8 @@ pub enum LoadError<E> {
     Memory,
     /// It could not be read whole.
     Read,
+    /// It is larger than asked for (`load_at_most`): nothing was held.
+    TooLarge,
 }
 
 /// Reads the file at `path` on `volume` whole into memory from `alloc`: PSRAM, for a large file
@@ -30,9 +32,26 @@ pub async fn load_whole<D: BlockDevice, A: Allocator>(
     path: &str,
     alloc: A,
 ) -> Result<Vec<u8, A>, LoadError<D::Error>> {
+    load_at_most(volume, path, usize::MAX, alloc).await
+}
+
+/// [`load_whole`], refusing a file larger than `most` bytes before anything is held.
+///
+/// # Errors
+///
+/// As [`load_whole`], and [`LoadError::TooLarge`].
+pub async fn load_at_most<D: BlockDevice, A: Allocator>(
+    volume: &mut Volume<D>,
+    path: &str,
+    most: usize,
+    alloc: A,
+) -> Result<Vec<u8, A>, LoadError<D::Error>> {
     let entry = volume.find(path).await.map_err(LoadError::File)?;
     let mut file = volume.open(&entry).map_err(LoadError::File)?;
     let size = file.size() as usize;
+    if size > most {
+        return Err(LoadError::TooLarge);
+    }
     let mut bytes = Vec::new_in(alloc);
     bytes
         .try_reserve_exact(size)

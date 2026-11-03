@@ -1935,6 +1935,7 @@ dependencies = [
  "purestwhite-gauge",
  "purestwhite-gt911",
  "purestwhite-http",
+ "purestwhite-kosync",
  "purestwhite-ota",
  "purestwhite-render",
  "purestwhite-rtc",
@@ -1966,6 +1967,16 @@ dependencies = [
 [[package]]
 name = "purestwhite-http"
 version = "0.1.0"
+
+[[package]]
+name = "purestwhite-kosync"
+version = "0.1.0"
+dependencies = [
+ "bembeyaz-jsondoc",
+ "bembeyaz-store",
+ "purestwhite-http",
+ "purestwhite-obfuscation",
+]
 
 [[package]]
 name = "purestwhite-obfuscation"

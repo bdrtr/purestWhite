@@ -1,11 +1,12 @@
 //! The bare-metal firmware's device layers: the X4 Pro's wiring (`board`), the buttons and touch
-//! panel (`input`), deep sleep (`sleep`), and for now the panel (`panel`) and the SD card (`sd`)
-//! through blocking calls. For the Embassy main: the buttons on their interrupts (`keys`), the
-//! PSRAM as a heap of its own (`memory`), the panel as the services' `Screen` (`screen`), the
-//! shared I2C bus (`i2c`) and the fuel gauge on it as their `Gauge` (`gauge`). What every image shares while the C++ firmware is the
-//! known-good one (the watchdog, the next boot handed back to it, the report, the bounded deep
-//! sleep), and the boot counter's record, is in `boot`; what only the test images use is in
-//! `test_image`, out of the real firmware's way.
+//! panel (`input`), deep sleep (`sleep`), and for now the panel (`panel`) and the SD card (`sd`,
+//! and files read off it in one session: `card`) through blocking calls. For the Embassy main: the
+//! buttons on their interrupts (`keys`), the PSRAM as a heap of its own (`memory`), the panel as
+//! the services' `Screen` (`screen`), the shared I2C bus (`i2c`) and the fuel gauge on it as their
+//! `Gauge` (`gauge`). What every image shares while the C++ firmware is the known-good one (the
+//! watchdog, the next boot handed back to it, the report, the bounded deep sleep), and the boot
+//! counter's record, is in `boot`; what only the test images use is in `test_image`, out of the
+//! real firmware's way.
 #![no_std]
 #![warn(clippy::pedantic)]
 
@@ -20,6 +21,7 @@ extern crate alloc;
 pub mod ble;
 pub mod board;
 pub mod boot;
+pub mod card;
 #[cfg(feature = "wifi")]
 pub mod clock;
 pub mod gauge;

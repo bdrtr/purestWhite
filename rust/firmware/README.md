@@ -259,8 +259,8 @@ its scenario in `emu/`.
   passwords with the device's eFuse base MAC address and keeps the networks through
   `bembeyaz_store::wifi_credentials`, the C++ store's own Rust code, on the global heap), joins
   the one it joined last and asks DHCP for an address, then leaves and resets. Its report:
-  `saved: N networks` (or `saved: no card`, `no file`, `broken file`, `file too large` past 16 KiB,
-  `no memory`), `wifi: joining` while it
+  `saved: N networks` (or `saved: no card`, `no file`, `unreadable`, `broken file`, `file too
+  large` past 16 KiB, `no memory`), `wifi: joining` while it
   joins, then `wifi: joined on channel C, -D dBm, T ms` (or `wifi: not joined (why)` with
   esp-radio's reason, `wifi: no answer in 30 s`), `dhcp: address in T ms` (or `dhcp: no address
   in 20 s`), `done`; never a network's name, a password or an address. The watchdog is fed
@@ -274,7 +274,25 @@ its scenario in `emu/`.
   `purestwhite-x509`, checked as the C++ firmware checks it). Its line:
   `https: 200, 10246 B, sha c4e5578c, ms DNS/TCP/TLS/BODY` (or `https: fetching` while it runs,
   `https: tls (Wolf(N))` with wolfSSL's code, `https: Dns`, `Tcp`, `Wire`, `NoResponse`, `Cut`
-  (the body ended before its `Content-Length`), `https: response (...)`, `https: no end in 40 s`). Nothing is written to the card. Needs esp-rtos: device only.
+  (the body ended before its `Content-Length`), `https: response (...)`, `https: no end in 40 s`).
+  Nothing is written to the card. Needs esp-rtos: device only.
+- `kosync-check` (built with `--features wifi`): gate 2's sync step. It reads the clock as
+  `https-check` does. Then it reads the saved network and the C++ firmware's KOReader sync account
+  from the card in one session (`card`; `/.crosspoint/koreader.json` through `purestwhite-kosync`,
+  whose settings come from the C++ store's own Rust code, `bembeyaz_store::koreader_settings`, and
+  whose secrets are decoded by `purestwhite-obfuscation`). It joins the network and sends the
+  account check `KOReaderSyncClient::authenticate` sends: `GET /users/auth` with the account's
+  extra headers, `x-auth-user`, `x-auth-key` (the password's MD5, from the ROM through
+  `esp_hal::rom::md5`) and HTTP Basic, written as the C++ client writes it
+  (`purestwhite_http::request`), over TLS with the C++ firmware's roots. It reads only the answer's
+  status. Its lines: `saved: N networks`; `account: https`, or why the account is not checked
+  (`no file`, `unreadable`, `broken file`, `file too large`, `no memory`, `no credentials`, `http,
+  not checked`, `bad url scheme`, `bad url host`); `kosync: signing in` while it runs; then
+  `kosync: 200 ok, ms DNS/TCP/TLS/ANSWER` (any 2xx is `ok`, 401 is `refused`, another status
+  `error`), `kosync: request (...)`, `kosync: https: tls (Wolf(N))` and the like, or `kosync: no
+  end in 40 s`. With no card it says `saved: no card` and stops. Nothing is written to the card or
+  the server, and the report never holds the account's name, password or server. Needs esp-rtos:
+  device only.
 - `smoke-check`: starts esp-rtos and Embassy, runs the clock, fuel gauge and touch drivers on
   esp-hal's I2C, reads touches for 15 s with the panel black, then paints it white. Needs esp-rtos:
   device only.

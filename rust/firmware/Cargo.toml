@@ -160,11 +160,18 @@ test = false
 bench = false
 required-features = ["wifi"]
 
+[[bin]]
+name = "kosync-check"
+path = "./src/bin/kosync_check.rs"
+test = false
+bench = false
+required-features = ["wifi"]
+
 [features]
 # The PSRAM at 80 MHz without timing tuning, for a test image only (see src/board.rs).
 psram-80mhz = []
 # Wi-Fi through esp-radio, and HTTPS with wolfSSL (`crate::wifi`, `crate::clock`; wifi-check,
-# wifi-join, https-check). A feature of its own: it links esp-radio's binary blobs, esp-rtos's
+# wifi-join, https-check, kosync-check). A feature of its own: it links esp-radio's binary blobs, esp-rtos's
 # scheduler hooks for the radio and wolfSSL into every image built with it, so the other images,
 # the ones the emulator runs among them, are built without it.
 # BLE through esp-radio's controller and TrouBLE's host (`crate::ble`; ble-check, ble-remote),
@@ -187,6 +194,7 @@ wifi = [
     "dep:purestwhite-tls",
     "dep:purestwhite-x509",
     "dep:purestwhite-wifistore",
+    "dep:purestwhite-kosync",
     "esp-rtos/esp-radio",
 ]
 
@@ -258,6 +266,7 @@ purestwhite-tls = { path = "../crates/purestwhite-tls", optional = true }
 # The C++ firmware's roots (ESP-IDF's certificate bundle), for HTTPS.
 purestwhite-x509 = { path = "../crates/purestwhite-x509", optional = true }
 purestwhite-wifistore = { path = "../crates/purestwhite-wifistore", optional = true }
+purestwhite-kosync = { path = "../crates/purestwhite-kosync", optional = true }
 
 [profile.dev]
 opt-level = "s"

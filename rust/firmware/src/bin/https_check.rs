@@ -18,18 +18,16 @@ use embassy_futures::select::{Either, select};
 use embassy_time::{Duration, Timer};
 use esp_backtrace as _;
 use esp_hal::clock::CpuClock;
-use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::peripherals::{SHA, WIFI};
-use esp_hal::rng::Rng;
 use esp_hal::rtc_cntl::Rtc;
 use esp_hal::sha::Sha;
 use esp_hal::timer::systimer::SystemTimer;
 use esp_radio::wifi::{ControllerConfig, WifiController};
-use purestwhite_firmware::board::{Board, I2cParts};
+use purestwhite_firmware::board::Board;
 use purestwhite_firmware::boot::{Report, Started, start};
 use purestwhite_firmware::sha::HwSha;
+use purestwhite_firmware::test_image::tls;
 use purestwhite_firmware::wifi::{https, saved, steps};
-use purestwhite_firmware::{clock, i2c};
 use purestwhite_wifistore::Network;
 
 esp_bootloader_esp_idf::esp_app_desc!();
@@ -55,29 +53,6 @@ const PATH: &str =
 const RADIO_HEAP: usize = 96 * 1024;
 /// How long the fetch may take, within the watchdog's 60 s.
 const FETCH_MOST: Duration = Duration::from_secs(40);
-
-/// Random bytes for TLS from the chip's generator, true random while the radio is on.
-fn random(bytes: &mut [u8]) {
-    Rng::new().read(bytes);
-}
-
-/// The clock's line, and its time given to TLS; the touch panel's supply, on for the bus, kept.
-fn note_clock(report: &mut Report, parts: I2cParts) -> Output<'static> {
-    let supply = Output::new(parts.supply, Level::Low, OutputConfig::default());
-    esp_hal::delay::Delay::new().delay_millis(u32::try_from(i2c::SUPPLY_MS).unwrap_or(50));
-    let read = i2c::open_bus(parts.i2c, parts.sda, parts.scl)
-        .as_mut()
-        .and_then(clock::read);
-    let _ = match &read {
-        Some(read) => writeln!(report, "{read}"),
-        None => writeln!(report, "clock: not set"),
-    };
-    if let Some(seconds) = read.and_then(|r| r.unix_seconds()) {
-        purestwhite_tls::set_time(seconds);
-    }
-    report.save();
-    supply
-}
 
 /// Fetches the file, its line in the report.
 async fn note_fetch(report: &mut Report, rtc: &mut Rtc<'_>, spawner: Spawner, sha: SHA<'static>) {
@@ -132,9 +107,9 @@ async fn main(spawner: Spawner) -> ! {
     } = start("purestWhite HTTPS check", board.boot);
     esp_alloc::heap_allocator!(#[esp_hal::ram(reclaimed)] size: 73744);
     esp_alloc::heap_allocator!(size: RADIO_HEAP);
-    purestwhite_tls::set_random(random);
+    purestwhite_tls::set_random(tls::random);
 
-    let _touch_supply = note_clock(&mut report, board.i2c);
+    let _touch_supply = tls::note_clock(&mut report, board.i2c);
     let network = saved::saved_network(&mut report, board.card, || rtc.rwdt.feed());
     let systimer = SystemTimer::new(board.rtos.systimer);
     // The radio needs the scheduler running before it starts.
