@@ -22,15 +22,15 @@
 //
 // Each step answers = ok|fail <settings> | <written json> | read <layer> | save <layer>, but long:
 // = <load> | <set>, each ok|fail <user length> <url length> <written json's length>. <settings> is
-// user,password,url (hex) type,method,metadata,clippings,behavior (decimal) then the two headers'
-// name,value (hex); <written json> is what the store wrote in the step ("-" for nothing). The read
-// layer ("-" for a step that reads no file) is err <name>, or username,password_obf,password,
-// serverUrl (hex), then cfgVersion, serverType, matchMethod and syncBehavior each as kind:value:byte
-// (kind 0 missing, 1 a u32, 2 another type; byte is as<uint8_t>()), sendMetadata and syncClippings
-// (| false, 0|1), the count of "headers" read (at most 2) and each one's name,value_obf (hex). The
-// save layer ("-" when nothing was written) is username,password_obf,serverUrl (hex),
-// cfgVersion,serverType,matchMethod,sendMetadata,syncClippings,syncBehavior (decimal) and both
-// headers' name,value_obf (hex).
+// user,password,url (hex) type,method,metadata,clippings,behavior (decimal), the two headers'
+// name,value (hex), then getBaseUrl() (hex); <written json> is what the store wrote in the step
+// ("-" for nothing). The read layer ("-" for a step that reads no file) is err <name>, or
+// username,password_obf,password,serverUrl (hex), then cfgVersion, serverType, matchMethod and
+// syncBehavior each as kind:value:byte (kind 0 missing, 1 a u32, 2 another type; byte is
+// as<uint8_t>()), sendMetadata and syncClippings (| false, 0|1), the count of "headers" read (at
+// most 2) and each one's name,value_obf (hex). The save layer ("-" when nothing was written) is
+// username,password_obf,serverUrl (hex), then cfgVersion, serverType, matchMethod, sendMetadata,
+// syncClippings and syncBehavior (decimal, comma-separated) and both headers' name,value_obf (hex).
 #include <ArduinoJson.h>
 #include <ObfuscationUtils.h>
 
@@ -95,7 +95,7 @@ std::string settingsOf(const KOReaderCredentialStore& s) {
                     std::to_string(s.getSendMetadata()) + "," + std::to_string(s.getSyncClippings()) + "," +
                     std::to_string(static_cast<unsigned>(s.getSyncBehavior()));
   for (const HttpHeader& h : s.getCustomHeaders()) out += " " + hexOf(h.name) + "," + hexOf(h.value);
-  return out;
+  return out + " " + hexOf(s.getBaseUrl());
 }
 
 void answer(const bool ok, const KOReaderCredentialStore& s, const std::string& read) {

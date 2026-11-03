@@ -9,3 +9,10 @@ bb_store_text ObfuscatedTexts::add(const std::string& plain) {
   if (!plain.empty() && text.isEmpty()) ok_ = false;
   return storeText(text);
 }
+
+bool decodeStoredSecret(const char* data, const size_t len, const bb_store_write put, void* putContext, void*) {
+  bool ok = false;
+  const std::string plain = obfuscation::deobfuscateFromBase64(storeString({data, len}).c_str(), &ok);
+  if (ok) put(plain.data(), plain.size(), putContext);
+  return ok;
+}

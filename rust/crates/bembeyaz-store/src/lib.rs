@@ -14,6 +14,10 @@
 //!   `test/bookmark_file/make_corpus.py`.
 //! - [`koreader_credentials`]: `KOReaderCredentialStore` (`koreader.json`): the KOReader sync
 //!   account and settings as stored; corpus from `test/koreader_credentials/make_corpus.py`.
+//! - [`koreader_settings`]: what `KOReaderCredentialStore` makes of `koreader.json` (its upgrades,
+//!   checks and resave, and `getBaseUrl`), Rust's alone; checked against the same corpus.
+//! - [`password`]: a stored password or secret read back, the decoder given, and [`password::Secret`],
+//!   a plain secret wiped when dropped.
 //! - [`records`]: the OPDS tokens, the LCP passphrases and the LCP device identity, records of
 //!   texts; corpus from `test/token_stores/make_corpus.py`.
 //! - [`opds_servers`]: `OpdsServerStore` (`opds.json`): the OPDS catalogs, their sign-ins and
@@ -40,9 +44,13 @@ pub mod headers;
 pub mod koreader_credentials;
 #[cfg(test)]
 mod koreader_credentials_tests;
+pub mod koreader_settings;
+#[cfg(test)]
+mod koreader_settings_tests;
 pub mod opds_servers;
 #[cfg(test)]
 mod opds_servers_tests;
+pub mod password;
 pub mod recent_books;
 #[cfg(test)]
 mod recent_books_tests;
@@ -57,3 +65,13 @@ pub mod wifi_credentials;
 mod wifi_credentials_tests;
 
 pub use bembeyaz_jsondoc::Error;
+
+/// `text` copied, or [`Error::NoMemory`] when memory runs out (on the bare-metal firmware's small
+/// heap, an error rather than an abort).
+pub(crate) fn copied(text: &[u8]) -> Result<alloc::vec::Vec<u8>, Error> {
+    let mut copy = alloc::vec::Vec::new();
+    copy.try_reserve_exact(text.len())
+        .map_err(|_| Error::NoMemory)?;
+    copy.extend_from_slice(text);
+    Ok(copy)
+}

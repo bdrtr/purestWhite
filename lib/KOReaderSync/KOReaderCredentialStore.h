@@ -62,9 +62,9 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
   static constexpr size_t MAX_CUSTOM_HEADERS = KOREADER_MAX_CUSTOM_HEADERS;
 
   static const char* getFilePath() { return "/.crosspoint/koreader.json"; }
-  // koreader.json's text, read and written by Rust (bembeyaz_store::koreader_credentials); the
-  // obfuscation, the upgrades of older configs and the checks of each setting stay here. See
-  // PersistableStore.
+  // koreader.json's text, read and written by Rust (bembeyaz_store::koreader_credentials), which
+  // also upgrades an older config and checks each setting (bembeyaz_store::koreader_settings); the
+  // obfuscation stays here. See PersistableStore.
   bool toJsonText(String& json) const;
   const char* fromJsonText(const String& json);
 
@@ -86,7 +86,8 @@ class KOReaderCredentialStore : public PersistableStore<KOReaderCredentialStore>
   void setServerUrl(const std::string& url);
   const std::string& getServerUrl() const { return serverUrl; }
 
-  // Get base URL for API calls (with http:// normalization if no protocol, falls back to default)
+  // Get base URL for API calls (with http:// normalization if no protocol, falls back to default;
+  // Rust's bembeyaz_store::koreader_settings::base_url).
   std::string getBaseUrl() const;
 
   // Server protocol/capability profile.

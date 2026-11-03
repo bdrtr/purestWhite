@@ -1,5 +1,6 @@
 //! The extra request headers a server keeps (OPDS servers, the KOReader sync server): a name and
-//! the value as stored, obfuscated (its obfuscation stays in C++). Stored as an array of
+//! the value as stored, obfuscated with the device's key (decoded by the firmware's own decoder).
+//! Stored as an array of
 //! `{"name", "value_obf"}` objects.
 
 use alloc::vec::Vec;
@@ -47,16 +48,34 @@ impl<S: AsRef<[u8]>> Headers<S> {
 }
 
 /// The first two items of the array `list` (none when it is not one), their fields read as
-/// strings (an item that is not an object, or a field that is not a string, gives empty text).
-pub(crate) fn read(list: Option<&Value>) -> Headers {
+/// strings (an item that is not an object, or a field that is not a string, gives empty text), as
+/// views into the parsed text.
+pub(crate) fn view(list: Option<&Value>) -> Headers<&[u8]> {
     let mut headers = Headers::default();
     for (slot, item) in headers.slots.iter_mut().zip(items(list)) {
-        let field = |key: &[u8]| or_str(item.get(key), b"").to_vec();
         *slot = Header {
-            name: field(b"name"),
-            value_obf: field(b"value_obf"),
+            name: or_str(item.get(b"name"), b""),
+            value_obf: or_str(item.get(b"value_obf"), b""),
         };
         headers.count += 1;
     }
     headers
+}
+
+/// [`view`]'s headers, copied out.
+pub(crate) fn read(list: Option<&Value>) -> Headers {
+    view(list).owned()
+}
+
+impl Headers<&[u8]> {
+    /// These headers, copied out.
+    pub(crate) fn owned(&self) -> Headers {
+        Headers {
+            slots: self.slots.clone().map(|h| Header {
+                name: h.name.to_vec(),
+                value_obf: h.value_obf.to_vec(),
+            }),
+            count: self.count,
+        }
+    }
 }

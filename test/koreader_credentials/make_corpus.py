@@ -20,11 +20,12 @@ name, password and server here is made up.
 Scenarios: koreader.json files from every config version (1 to 3 and past it), with each setting
 missing, in range, out of range or of another type (floats, bools, strings, containers; the shared
 value generator, test/json_oracle/oracle.py), obfuscated passwords that decode, do not decode or are
-empty, legacy plain passwords, the default, the old default, custom and empty server URLs, header
-lists of any length and kind, broken and empty files; every setting set and saved (out of range
-too), credentials cleared; edges: an empty object, roots that are not objects, an empty file, a v1
-config with credentials with and without a server URL, a v3 config with its server type and sync
-behavior, and the longest string ArduinoJson keeps and one byte more.
+empty, legacy plain passwords, the default (also with trailing slashes), the old default, custom,
+empty and odd server URLs (slashes only, "://" inside), header lists of any length and kind, broken
+and empty files; every setting set and saved (out of range too), credentials cleared; edges: an
+empty object, roots that are not objects, an empty file, a v1 config with credentials with and
+without a server URL, a v3 config with its server type and sync behavior, and the longest string
+ArduinoJson keeps and one byte more.
 """
 import random
 import sys
@@ -45,7 +46,9 @@ ORACLE_FILES = ["lib/KOReaderSync/KOReaderCredentialStore.cpp",
 USERS = ["", "okur", "Ayşe", "a\0b", "x" * 40]
 PASSWORDS = ["", "parola", "p@ss wörd", "a\0b"]
 URLS = ["", "https://sync.crosspointreader.com", "https://sync.koreader.rocks:443",
-        "sync.example.org/", "http://192.0.2.1:7200//", "https://kosync.example.net"]
+        "sync.example.org/", "http://192.0.2.1:7200//", "https://kosync.example.net",
+        "https://sync.crosspointreader.com/", "https://sync.crosspointreader.com//", "/", "x://",
+        "host/path://y/"]
 SETTINGS = ["0", "1", "2", "3", "4", "255", "256", "-1", "1.5", "2.9", "-0.5", "300.0", "true",
             "false", '"1"', '"2.5"', '"x"', '""', "null", "[]", "{}", "1e10"]
 HEADER_NAMES = ["", "CF-Access-Client-Id", "X-Token"]

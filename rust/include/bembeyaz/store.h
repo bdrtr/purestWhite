@@ -1,6 +1,7 @@
 // What the settings stores' C ABIs share (rust/include/bembeyaz/store_*.h).
 #pragma once
 
+#include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 
@@ -21,13 +22,10 @@ enum {
   BB_STORE_OTHER = 2,    // anything else (a float, a string, an integer out of range...)
 };
 
-// A number field whose presence and type the C++ store decides on: value is 0 unless kind is
-// BB_STORE_U32; byte is ArduinoJson's as<uint8_t>() of it, whatever its kind (a float, bool or
-// string converted too, 0 when it cannot be), for a field the store reads with as<uint8_t>()
-// (KOReader's serverType).
+// A number field whose presence and type the C++ store decides on (Wi-Fi's password length and
+// CRC-32): value is 0 unless kind is BB_STORE_U32.
 typedef struct {
   uint8_t kind;
-  uint8_t byte;
   uint32_t value;
 } bb_store_number;
 
@@ -44,6 +42,12 @@ typedef struct {
 // Receives len bytes at data (not NUL-terminated). It runs inside Rust: it must return normally
 // (no exception, no longjmp).
 typedef void (*bb_store_write)(const char* data, size_t len, void* context);
+
+// Decodes a stored secret, len bytes at data (obfuscation::deobfuscateFromBase64 with no length
+// limit): false when it does not decode; else true, after handing its plain text to put (with
+// put_context) in one call. It runs inside Rust: it must return normally (no exception, no
+// longjmp).
+typedef bool (*bb_store_decode)(const char* data, size_t len, bb_store_write put, void* put_context, void* context);
 
 #ifdef __cplusplus
 }

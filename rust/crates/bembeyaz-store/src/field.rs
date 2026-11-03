@@ -1,4 +1,4 @@
-//! A stored field whose presence and type the C++ store decides on: what it is, as
+//! A stored field whose presence and type the store decides on (in C++ or in Rust): what it is, as
 //! ArduinoJson's `isNull()` and `is<uint32_t>()` see it, its value when it is a `u32`, and what
 //! `as<uint8_t>()` makes of it whatever it is.
 
@@ -49,6 +49,16 @@ impl Number {
                 value: 0,
                 byte,
             }
+        }
+    }
+
+    /// The field read with `| fallback` for a `u8`: its value when it is an integer
+    /// within `u8`, else `fallback`.
+    #[must_use]
+    pub fn byte_or(self, fallback: u8) -> u8 {
+        match self.kind {
+            Kind::U32 => u8::try_from(self.value).unwrap_or(fallback),
+            _ => fallback,
         }
     }
 }

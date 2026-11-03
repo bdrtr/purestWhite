@@ -10,10 +10,10 @@
 //! A file larger than [`JSON_MOST`] is refused: the C++ firmware writes a few KB at most.
 //!
 //! A password never leaves a `Network` except through [`Network::password`]: no `Debug` or
-//! `Display` shows it, and its decoded copies on the heap are wiped (the file's bytes and the
-//! parsed file, which hold it masked or, in an older file, plain, are not). Reading allocates the
-//! parsed file and the networks kept on the global heap, as the C++ store does; running out of
-//! memory there is an error, not an abort, but for a decoded password's copy (64 bytes at most).
+//! `Display` shows it, and its decoded copies on the heap are wiped when dropped (the file's bytes
+//! and the parsed file, which hold it masked or, in an older file, plain, are not). Reading
+//! allocates the parsed file and the networks kept on the global heap, as the C++ store does;
+//! running out of memory there is an error, not an abort.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -30,7 +30,8 @@ mod text;
 
 use base64::{DecodeError, decode};
 use bembeyaz_jsondoc::Error;
-use bembeyaz_store::wifi_credentials::{self, Decoded, Limits};
+use bembeyaz_store::password::{Decoded, Secret};
+use bembeyaz_store::wifi_credentials::{self, Limits};
 use core::fmt;
 pub use text::Text;
 
@@ -138,7 +139,7 @@ pub fn read(json: &[u8], key: &[u8; KEY_LEN]) -> Result<Saved, ReadError> {
         networks: NETWORKS_MOST,
         password: PASSWORD_MOST,
     };
-    let mut kept = wifi_credentials::keep(json, limits, |text, most| decoded(text, most, *key))
+    let kept = wifi_credentials::keep(json, limits, |text, most| decoded(text, most, *key))
         .map_err(|error| match error {
             Error::NoMemory => ReadError::Memory,
             _ => ReadError::Json,
@@ -160,10 +161,6 @@ pub fn read(json: &[u8], key: &[u8; KEY_LEN]) -> Result<Saved, ReadError> {
             saved.count += 1;
         }
     }
-    // The plain passwords are in `saved` now; the heap's copies are wiped before they are freed.
-    for network in &mut kept.kept {
-        network.password.fill(0);
-    }
     let last = &kept.last_connected_ssid;
     saved.last = (!last.is_empty())
         .then(|| {
@@ -179,15 +176,15 @@ pub fn read(json: &[u8], key: &[u8; KEY_LEN]) -> Result<Saved, ReadError> {
 /// not decode (text of only spaces or line breaks decodes to an empty password), text that is not
 /// base64 does not, text that decodes to more than `most` bytes is too long, and the rest is
 /// unmasked (XOR) with `key`.
-fn decoded(text: &[u8], most: usize, key: [u8; KEY_LEN]) -> Decoded {
+fn decoded(text: &[u8], most: usize, key: [u8; KEY_LEN]) -> Result<Decoded, Error> {
     if text.is_empty() {
-        return Decoded::default();
+        return Ok(Decoded::default());
     }
-    match decode::<PASSWORD_MOST>(text) {
+    Ok(match decode::<PASSWORD_MOST>(text) {
         Ok(mut password) if password.len() <= most => {
             password.xor(&key);
             Decoded {
-                text: password.as_bytes().to_vec(),
+                text: Secret::copy_of(password.as_bytes())?,
                 ok: true,
                 too_long: false,
             }
@@ -197,5 +194,5 @@ fn decoded(text: &[u8], most: usize, key: [u8; KEY_LEN]) -> Decoded {
             ..Decoded::default()
         },
         Err(DecodeError::Invalid) => Decoded::default(),
-    }
+    })
 }

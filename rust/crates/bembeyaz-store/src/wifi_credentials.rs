@@ -8,7 +8,9 @@
 //! (`purestwhite-wifistore`); it is checked against the same corpus, so a change to the C++
 //! checks must be made in `keep` too.
 
+use crate::copied;
 use crate::field::{Kind, Number};
+use crate::password::{self, Decoded, Secret};
 use alloc::vec::Vec;
 use bembeyaz_jsondoc::{Error, Value, Writer, items, or_str, parse};
 use core::ops::ControlFlow;
@@ -133,20 +135,11 @@ pub fn read(text: &[u8]) -> Result<File, Error> {
     Ok(file)
 }
 
-/// What decoding a stored password gave (`obfuscation::deobfuscateFromBase64`): the text, whether
-/// it decoded, and whether it was longer than asked for (then the text is empty).
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Decoded {
-    pub text: Vec<u8>,
-    pub ok: bool,
-    pub too_long: bool,
-}
-
 /// A network kept: its name and plain password.
 #[derive(Clone, PartialEq, Eq)]
 pub struct Kept {
     pub ssid: Vec<u8>,
-    pub password: Vec<u8>,
+    pub password: Secret,
 }
 
 /// The name's length and whether there is a password: never the password, nor the name.
@@ -186,7 +179,7 @@ pub struct Limits {
 pub fn keep(
     text: &[u8],
     limits: Limits,
-    decode: impl Fn(&[u8], usize) -> Decoded,
+    decode: impl Fn(&[u8], usize) -> Result<Decoded, Error>,
 ) -> Result<Networks, Error> {
     let mut last_connected = Ok(Vec::new());
     let mut kept = Vec::new();
@@ -216,7 +209,6 @@ pub fn keep(
         },
     )?;
     if let Some(error) = failed {
-        wipe(&mut kept);
         return Err(error);
     }
     Ok(Networks {
@@ -226,73 +218,33 @@ pub fn keep(
     })
 }
 
-/// `text` copied, or [`Error::NoMemory`].
-fn copied(text: &[u8]) -> Result<Vec<u8>, Error> {
-    let mut copy = Vec::new();
-    copy.try_reserve_exact(text.len())
-        .map_err(|_| Error::NoMemory)?;
-    copy.extend_from_slice(text);
-    Ok(copy)
-}
-
-/// The plain passwords of `kept`, wiped before they are freed.
-fn wipe(kept: &mut [Kept]) {
-    for one in kept {
-        one.password.fill(0);
-    }
-}
-
 /// One network kept, or `None` when the C++ store drops it (which saves the file again).
 fn decide(
     stored: &Stored<&[u8]>,
     most: usize,
-    decode: &impl Fn(&[u8], usize) -> Decoded,
+    decode: &impl Fn(&[u8], usize) -> Result<Decoded, Error>,
     resave: &mut bool,
 ) -> Result<Option<Kept>, Error> {
     let length = &stored.password_len;
     if length.kind == Kind::Other || (length.kind == Kind::U32 && usize_of(length.value) > most) {
         return Ok(None);
     }
-    let Some(mut password) = stored_password(stored, most, decode, resave)? else {
+    let Some(password) =
+        password::stored(stored.password_obf, stored.password, most, decode, resave)?
+    else {
         return Ok(None);
     };
     if !integrity_valid(&password, stored, resave) {
-        password.fill(0); // a plain password, wiped before it is freed
         return Ok(None);
     }
-    match copied(stored.ssid) {
-        Ok(ssid) => Ok(Some(Kept { ssid, password })),
-        Err(error) => {
-            password.fill(0);
-            Err(error)
-        }
-    }
+    Ok(Some(Kept {
+        ssid: copied(stored.ssid)?,
+        password,
+    }))
 }
 
 fn usize_of(n: u32) -> usize {
     usize::try_from(n).unwrap_or(usize::MAX)
-}
-
-/// The password (`obfuscation::readStoredPassword`): `password_obf` decoded, else the legacy plain
-/// one, which asks for the file to be saved again; none when either is longer than `most`.
-fn stored_password(
-    stored: &Stored<&[u8]>,
-    most: usize,
-    decode: &impl Fn(&[u8], usize) -> Decoded,
-    resave: &mut bool,
-) -> Result<Option<Vec<u8>>, Error> {
-    let decoded = decode(stored.password_obf, most);
-    if decoded.too_long {
-        return Ok(None);
-    }
-    if decoded.ok {
-        return Ok(Some(decoded.text));
-    }
-    if stored.password.len() > most {
-        return Ok(None);
-    }
-    *resave |= !stored.password.is_empty();
-    copied(stored.password).map(Some)
 }
 
 /// Whether the password matches its stored length and CRC-32 (`checkIntegrity`); an older file

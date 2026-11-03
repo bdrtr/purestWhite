@@ -74,7 +74,7 @@ class PersistableStoreBase {
   static std::string extractPassword(JsonVariantConst doc, bool& needsResave);
   static std::string extractPassword(JsonVariantConst doc, bool& needsResave, size_t maxLength, bool& valid);
   // (A store whose JSON is read in Rust calls obfuscation::readStoredPassword with the stored
-  // texts instead: StoredPassword.h.)
+  // texts instead, StoredPassword.h, or gives Rust the decoder, decodeStoredSecret in StoreText.h.)
 };
 
 // Whether a store writes and reads its own JSON text (toJsonText/fromJsonText)

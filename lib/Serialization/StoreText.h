@@ -15,9 +15,7 @@
 
 static_assert(sizeof(bb_store_text) == 2 * sizeof(void*) && offsetof(bb_store_text, len) == sizeof(void*),
               "bb_store_text layout");
-static_assert(sizeof(bb_store_number) == 8 && offsetof(bb_store_number, byte) == 1 &&
-                  offsetof(bb_store_number, value) == 4,
-              "bb_store_number layout");
+static_assert(sizeof(bb_store_number) == 8 && offsetof(bb_store_number, value) == 4, "bb_store_number layout");
 
 // The JSON text Rust writes, appended to json; ok turns false when the String cannot grow.
 struct StoreJsonSink {
@@ -30,6 +28,15 @@ inline void appendStoreJson(const char* data, const size_t len, void* context) {
   auto* sink = static_cast<StoreJsonSink*>(context);
   sink->ok = sink->ok && sink->json.concat(data, static_cast<unsigned int>(len));
 }
+
+// A bb_store_write that appends to the std::string at context.
+inline void appendStoreString(const char* data, const size_t len, void* context) {
+  static_cast<std::string*>(context)->append(data, len);
+}
+
+// A bb_store_decode over the device's obfuscation (obfuscation::deobfuscateFromBase64, no length
+// limit); context is unused.
+bool decodeStoredSecret(const char* data, size_t len, bb_store_write put, void* putContext, void* context);
 
 // A view of s, valid while s is not changed.
 inline bb_store_text storeText(const std::string& s) { return bb_store_text{s.data(), s.size()}; }
@@ -63,12 +70,6 @@ inline std::string readStoredPassword(const bb_store_text& passwordObf, const bb
                                       bool& needsResave) {
   return obfuscation::readStoredPassword(storeString(passwordObf).c_str(), storeString(legacyPassword).c_str(),
                                          needsResave);
-}
-
-// A number field read with `| fallback` for a uint8_t: its value when it is an integer within
-// uint8_t, else fallback.
-inline uint8_t storeByteOr(const bb_store_number& n, const uint8_t fallback) {
-  return n.kind == BB_STORE_U32 && n.value <= 0xFF ? static_cast<uint8_t>(n.value) : fallback;
 }
 
 // The entries a store keeps from the records Rust reads (bb_store_records_read): parse makes an

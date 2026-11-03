@@ -1,21 +1,27 @@
 //! `KOReaderCredentialStore`'s JSON (`lib/KOReaderSync/KOReaderCredentialStore.cpp`,
 //! `/.crosspoint/koreader.json`): the KOReader sync account (its password obfuscated with the
-//! device's key), the server, how it is spoken to and the extra request headers. Upgrading an
-//! older config, checking each setting, and deciding whether to save again stay in C++, so this
-//! reads each setting with its kind as stored, and writes what C++ gives.
+//! device's key), the server, how it is spoken to and the extra request headers. This reads each
+//! setting with its kind as stored, and writes what the store gives, stamped with
+//! [`CONFIG_VERSION`]; what the store makes of a file (upgrading an older config, checking each
+//! setting, whether to save again) is [`crate::koreader_settings`].
 
 use crate::field::Number;
 use crate::headers::{self, Headers};
 use alloc::vec::Vec;
 use bembeyaz_jsondoc::{Error, Writer, or_bool, or_str, parse};
 
-/// What a file holds, for C++ to decide on. `password` is a legacy plain password.
+/// The config version every save writes (`CONFIG_VERSION`): bumped when a change to the defaults
+/// would change what an existing config does.
+pub const CONFIG_VERSION: u8 = 3;
+
+/// What a file holds, for the store to decide on. `password` is a legacy plain password. `S` is
+/// the text: views into the parsed file, or owned.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Stored {
-    pub username: Vec<u8>,
-    pub password_obf: Vec<u8>,
-    pub password: Vec<u8>,
-    pub server_url: Vec<u8>,
+pub struct Stored<S = Vec<u8>> {
+    pub username: S,
+    pub password_obf: S,
+    pub password: S,
+    pub server_url: S,
     pub cfg_version: Number,
     pub server_type: Number,
     pub match_method: Number,
@@ -23,13 +29,12 @@ pub struct Stored {
     /// `| false`, as the store reads them.
     pub send_metadata: bool,
     pub sync_clippings: bool,
-    pub headers: Headers,
+    pub headers: Headers<S>,
 }
 
-/// What C++ saves: the password and the header values obfuscated. `S` is the text.
+/// What the store saves: the password and the header values obfuscated. `S` is the text.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Saved<S> {
-    pub cfg_version: u8,
     pub username: S,
     pub password_obf: S,
     pub server_url: S,
@@ -56,7 +61,7 @@ pub fn write<S: AsRef<[u8]>>(saved: &Saved<S>) -> Option<Vec<u8>> {
         w.string(t.as_ref());
     };
     w.object(|w| {
-        byte(w, b"cfgVersion", saved.cfg_version);
+        byte(w, b"cfgVersion", CONFIG_VERSION);
         text(w, b"username", &saved.username);
         text(w, b"password_obf", &saved.password_obf);
         text(w, b"serverUrl", &saved.server_url);
@@ -73,18 +78,37 @@ pub fn write<S: AsRef<[u8]>>(saved: &Saved<S>) -> Option<Vec<u8>> {
     w.finish()
 }
 
+/// [`read_view`]'s settings, copied out (for the tests).
+#[cfg(test)]
+pub(crate) fn read(text: &[u8]) -> Result<Stored, Error> {
+    read_view(text, |s| Stored {
+        username: s.username.to_vec(),
+        password_obf: s.password_obf.to_vec(),
+        password: s.password.to_vec(),
+        server_url: s.server_url.to_vec(),
+        cfg_version: s.cfg_version,
+        server_type: s.server_type,
+        match_method: s.match_method,
+        sync_behavior: s.sync_behavior,
+        send_metadata: s.send_metadata,
+        sync_clippings: s.sync_clippings,
+        headers: s.headers.owned(),
+    })
+}
+
 /// Reads `koreader.json`'s text (`deserializeJson`): every setting as stored, its texts read as
 /// strings, up to a NUL as C++ reads a `const char*` (a field that is not a string gives empty
-/// text), and the first two items of "headers".
+/// text), and the first two items of "headers", handed to `use_it` as views into the parsed text,
+/// valid during the call.
 ///
 /// # Errors
 /// When the text is not JSON, with the error `deserializeJson` gives; the C++ store then keeps its
 /// current settings.
-pub fn read(text: &[u8]) -> Result<Stored, Error> {
+pub fn read_view<R>(text: &[u8], use_it: impl FnOnce(&Stored<&[u8]>) -> R) -> Result<R, Error> {
     let doc = parse(text)?;
-    let field = |key: &[u8]| or_str(doc.get(key), b"").to_vec();
+    let field = |key: &[u8]| or_str(doc.get(key), b"");
     let number = |key: &[u8]| Number::of(doc.get(key));
-    Ok(Stored {
+    Ok(use_it(&Stored {
         username: field(b"username"),
         password_obf: field(b"password_obf"),
         password: field(b"password"),
@@ -95,6 +119,6 @@ pub fn read(text: &[u8]) -> Result<Stored, Error> {
         sync_behavior: number(b"syncBehavior"),
         send_metadata: or_bool(doc.get(b"sendMetadata"), false),
         sync_clippings: or_bool(doc.get(b"syncClippings"), false),
-        headers: headers::read(doc.get(b"headers")),
-    })
+        headers: headers::view(doc.get(b"headers")),
+    }))
 }

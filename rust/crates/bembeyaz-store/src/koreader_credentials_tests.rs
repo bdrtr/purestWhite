@@ -1,14 +1,15 @@
 //! `KOReaderCredentialStore`'s stored-text layers replayed: for every step of
 //! testdata/koreader-credentials-corpus.txt (written by
 //! `test/koreader_credentials/make_corpus.py`), what the file held (`read`) and what the store
-//! wrote (`write`), as the driver worked them out. The C++ store's decisions on them are checked by
+//! wrote (`write`), as the driver worked them out. The store's decisions on them are replayed in
+//! `koreader_settings_tests`, and the C++ store's answers through the shim by
 //! `test/koreader_credentials/check_shim.sh`.
 #![allow(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 use crate::corpus::{bytes, fuzz, hex};
 use crate::field::Number;
 use crate::headers::{HEADERS, Header, Headers};
-use crate::koreader_credentials::{Saved, read, write};
+use crate::koreader_credentials::{CONFIG_VERSION, Saved, read, write};
 use core::fmt::Write as _;
 use std::format;
 use std::string::String;
@@ -49,6 +50,10 @@ fn written(layer: &str) -> String {
     let parts: Vec<&str> = layer.split(' ').collect();
     let texts: Vec<Vec<u8>> = parts[0].split(',').map(bytes).collect();
     let n: Vec<u8> = parts[1].split(',').map(|v| v.parse().unwrap()).collect();
+    assert_eq!(
+        n[0], CONFIG_VERSION,
+        "every save is stamped with the current version"
+    );
     let mut slots: [Header; HEADERS] = Default::default();
     for (slot, part) in slots.iter_mut().zip(&parts[2..]) {
         let f: Vec<&str> = part.split(',').collect();
@@ -58,7 +63,6 @@ fn written(layer: &str) -> String {
         };
     }
     let saved = Saved {
-        cfg_version: n[0],
         username: texts[0].clone(),
         password_obf: texts[1].clone(),
         server_url: texts[2].clone(),

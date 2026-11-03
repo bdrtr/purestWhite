@@ -115,43 +115,46 @@ store giving its limit (`MAX_RECENT_BOOKS`) so it is defined once, when every it
 when the limit counts only the items C++ keeps (Wi-Fi's `MAX_NETWORKS`, and the OPDS token and LCP
 stores'), Rust hands over every item and C++ applies the limit in its callback. The text is written
 by `bembeyaz_jsondoc::Writer` straight into one buffer, and a store's `write` returns `None` when
-memory runs out, so the old file is kept. Passwords and other secrets stay obfuscated in C++
+memory runs out, so the old file is kept. For the stores whose decisions are still C++'s (Wi-Fi,
+OPDS, the token and LCP stores), passwords and other secrets stay obfuscated in C++
 (`ObfuscationUtils`, keyed by the eFuse MAC) and cross as their stored texts; C++ reads a password
-from them with `obfuscation::readStoredPassword` (`StoredPassword.h`) and obfuscates for saving with
-`ObfuscatedTexts` (`StoreText.h`), which also refuses the save when obfuscating fails. A legacy
-shape is upgraded, and resaved, where its inputs are: in C++ when it depends on a decoded value or
-on C++ state (the OPDS plain `password`); only a shape that Rust alone can see would be reported
-back, for example with a `bool* resave` out-parameter. A field whose type or presence the C++ store
-decides on crosses as a `bb_store_number` with its kind (missing, a `u32`, another type;
-`bembeyaz_store::field`), so C++ keeps deciding: the Wi-Fi password's length and CRC-32, KOReader's
-settings; its `byte` is ArduinoJson's `as<uint8_t>()` for a field read with no `is<T>()` check
-(KOReader's `serverType`), and a field read with `| fallback` for a `uint8_t` uses `storeByteOr`
-(`StoreText.h`) on its kind and value. So the rule is: a field read with a plain `| literal` that
-C++ decides nothing on crosses as the value Rust read that way, whatever its type (texts, bools, the
-bookmarks' and CrossPointState's numbers); a field C++ decides on, by its presence, its type, or a
-check of its value against a C++ constant or enum, crosses with its kind (KOReader's `cfgVersion`,
-`matchMethod`, `serverType`, `syncBehavior`), and on the C++ firmware those decisions stay in C++.
-Where the bare-metal firmware needs a store's decisions, they are written in Rust beside its `read`
-(`wifi_credentials::keep`, used by `purestwhite-wifistore`) and checked against the same corpus;
-while C++ keeps its own copy, a change to one must be made in the other. The direction is for Rust
-to own them: a store whose decisions the bare-metal firmware needs next (KOReader's) gets them in
-Rust once, the C++ store calling them, and C++ gives only the obfuscation. ABI types stay in the
-store's `.cpp`, out of its header. Each store's file format (its keys and their order) is Rust's;
-`CrossPointSettings` is the exception: its keys come from C++'s `SettingsList` table, shared with
-the web settings page, so it will read through a parsed document with typed getters instead: `*_new`
-parses the text in Rust's heap and `*_free` frees it, and every view it gives is valid until then. A
-number comes with its kind and `byte`, a text with its kind, and a bool or byte with its `|
-default`; a key's presence can be asked too. It will write through a C ABI over
-`bembeyaz_jsondoc::Writer` or a list of typed key/value entries, and C++ keeps its table and its
-migrations. After it no store reads an ArduinoJson document: `readDocFromFile`/`writeDocToFile`,
-`StoresJsonDoc` and the `JsonVariantConst` `extractPassword` overloads go. ArduinoJson itself stays
-in the firmware for its other users (the web server, clippings sync, LCP, plugins, font download,
-the BLE page turner's settings). `BookmarkFile` (a list of items with a float and optional members,
-and no store class) has a module of its own, `bookmarks`. A nested list with a fixed limit is a
-fixed array and a count inside its item (`bb_store_header`, shared by the OPDS servers and the
-KOReader server). The oracles share `test/json_oracle`; from the Wi-Fi store on, a store's Rust test
-replays `read` and `write` against the stored-text layers the driver prints, and leaves the C++ glue
-to `check_shim.sh` (the OPDS test still mirrors that glue).
+from them with `obfuscation::readStoredPassword` (`StoredPassword.h`). Every store obfuscates for
+saving with `ObfuscatedTexts` (`StoreText.h`), which also refuses the save when obfuscating fails.
+There, a legacy shape is upgraded, and resaved, in C++ when it depends on a decoded value or on C++
+state (the OPDS plain `password`), and a field whose type or presence C++ decides on crosses as a
+`bb_store_number` with its kind (missing, a `u32`, another type; `bembeyaz_store::field`): the Wi-Fi
+password's `password_len` and `password_crc32`. So the rule is: a field read with a plain `|
+literal` that the store decides nothing on crosses as the value Rust read that way, whatever its
+type (texts, bools, the bookmarks' and CrossPointState's numbers); a field C++ decides on crosses
+with its kind.
+
+The direction is for Rust to own a store's decisions, and the C++ store to give only the
+obfuscation. KOReader's are Rust's alone, in a module of their own beside the file format's
+(`bembeyaz_store::koreader_settings`): Rust reads the file, decodes each secret through a
+`bb_store_decode` callback (`store.h`; on the C++ side `decodeStoredSecret` in `StoreText.h`; Rust's
+side is `bembeyaz_store::password`, whose `Secret` wipes a plain secret when dropped), makes the
+decisions (`Number`'s `byte` is `as<uint8_t>()`, and `byte_or` a `| fallback` for a `u8`), and hands
+C++ the settings in one callback, with the resave and what a check changed, for its log. The
+bare-metal firmware can use the same functions with its own decoder. Wi-Fi's decisions are still in
+both languages (`wifi_credentials::keep`, used by `purestwhite-wifistore`), so a change to one must
+be made in the other, until `keep` reports why it drops a network, for the C++ store's log, and C++
+calls it. ABI types stay in the store's `.cpp`, out of its header. Each store's file format (its
+keys and their order) is Rust's; `CrossPointSettings` is the exception: its keys come from C++'s
+`SettingsList` table, shared with the web settings page, so it will read through a parsed document
+with typed getters instead: `*_new` parses the text in Rust's heap and `*_free` frees it, and every
+view it gives is valid until then. A number comes with its kind and `byte`, a text with its kind,
+and a bool or byte with its `| default`; a key's presence can be asked too. It will write through a
+C ABI over `bembeyaz_jsondoc::Writer` or a list of typed key/value entries, and C++ keeps its table
+and its migrations. After it no store reads an ArduinoJson document:
+`readDocFromFile`/`writeDocToFile`, `StoresJsonDoc` and the `JsonVariantConst` `extractPassword`
+overloads go. ArduinoJson itself stays in the firmware for its other users (the web server,
+clippings sync, LCP, plugins, font download, the BLE page turner's settings). `BookmarkFile` (a list
+of items with a float and optional members, and no store class) has a module of its own,
+`bookmarks`. A nested list with a fixed limit is a fixed array and a count inside its item
+(`bb_store_header`, shared by the OPDS servers and the KOReader server). The oracles share
+`test/json_oracle`; from the Wi-Fi store on, a store's Rust test replays `read` and `write` against
+the stored-text layers the driver prints, and leaves the C++ glue to `check_shim.sh` (the OPDS test
+still mirrors that glue).
 
 - **App state ✅**: `CrossPointState` (`state.json`: the open book, the reader's load count, the
   rings of recent sleep images and their legacy `lastSleepImage`) calls the `state` module of
@@ -185,20 +188,25 @@ to `check_shim.sh` (the OPDS test still mirrors that glue).
   checks the C++ store's answers through the shim. Its keep-or-drop decisions are also in Rust,
   `wifi_credentials::keep` (the password decoder given), checked against the same corpus's answers
   with the host stand-in; the bare-metal firmware's `purestwhite-wifistore` keeps its networks
-  through `keep`, so it makes the C++ firmware's decisions, with its own limits on top: it leaves out
-  a name longer than Wi-Fi's 32 bytes, refuses a file over 16 KiB, and reports running out of memory.
+  through `keep`, so it makes the C++ firmware's decisions, with its own limits on top: it leaves
+  out a name longer than Wi-Fi's 32 bytes, refuses a file over 16 KiB, and reports running out of
+  memory.
 - **KOReader sync account ✅**: `KOReaderCredentialStore` reads and writes its JSON (`koreader.json`:
   the sync account, its password obfuscated, the server, its type, the document match method, the
   sync behavior, two flags and two extra headers) through the `koreader_credentials` module of
-  `bembeyaz-store`. Rust hands over the file's settings as stored, each number with its kind and its
-  `as<uint8_t>()` (`bb_store_number`'s `byte`, for `serverType`); C++ copies them out of the
-  callback and then decides as before: the upgrades of a pre-v2 config (the old default server
-  pinned) and of a pre-v3 one (the server type from the URL), the check of each setting, and the
-  resave. Header slots the file does not have keep what they held, as before.
-  `test/koreader_credentials` goes through `loadFromFile`, the setters with `saveToFile`, and
-  `clearCredentials`: 1,000 seeded steps and 10 edge steps, in
-  `rust/crates/bembeyaz-store/testdata/koreader-credentials-corpus.txt`; the Rust tests replay its
-  stored-text layers, and `check_shim.sh` the C++ store's answers through the shim.
+  `bembeyaz-store`, and decides on it in Rust (`koreader_settings`, `store_koreader_credentials.h`'s
+  `bb_store_koreader_credentials_settle`): the password and header values decoded through C++'s
+  obfuscation (a `bb_store_decode` callback), the upgrades of a pre-v2 config (the old default
+  server pinned) and of a pre-v3 one (the server type from the URL), the check of each setting
+  (`as<uint8_t>()` for `serverType`), the resave, and the config version every save writes. C++
+  applies the settings through its setters and logs what a check changed; header slots the file
+  does not have keep what they held, as before. `getBaseUrl` is Rust's too (`base_url_parts`,
+  `bb_store_koreader_base_url`), so the bare-metal firmware can use it. `test/koreader_credentials`
+  goes through `loadFromFile`, the setters with `saveToFile`, and `clearCredentials`: 1,000 seeded
+  steps and 10 edge steps, in `rust/crates/bembeyaz-store/testdata/koreader-credentials-corpus.txt`,
+  each answer but `long`'s with `getBaseUrl()`; the Rust tests replay its stored-text layers, every
+  successful load's settings and resave, and every base URL, and `check_shim.sh` the C++ store's
+  answers through the shim.
 - **OPDS tokens, LCP passphrases and LCP device ✅**: `OpdsTokenStore` (`opds_tokens.json`),
   `LcpPassphraseStore` (`lcp_passphrases.json`) and `LcpDeviceStore` (`lcp_device.json`, moved out
   of `LcpDevice.cpp` into its own files) are lists of records of texts, or one record, and share the

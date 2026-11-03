@@ -6,7 +6,8 @@
 
 use crate::corpus::{bytes, deobfuscate, fuzz, hex};
 use crate::field::Number;
-use crate::wifi_credentials::{Decoded, Limits, Saved, crc32, keep, read, write};
+use crate::password::{Decoded, Secret};
+use crate::wifi_credentials::{Limits, Saved, crc32, keep, read, write};
 use core::fmt::Write as _;
 use std::format;
 use std::string::String;
@@ -94,19 +95,20 @@ fn broken_wifi_files_are_read_without_a_fault() {
 
 /// The host stand-in's decoding (`test/json_oracle/stubs/ObfuscationFake.cpp`): `~` and the text
 /// in hex.
-fn fake_decode(text: &[u8], most: usize) -> Decoded {
-    match deobfuscate(text) {
+#[allow(clippy::unnecessary_wraps, reason = "a decoder's shape")]
+fn fake_decode(text: &[u8], most: usize) -> Result<Decoded, crate::Error> {
+    Ok(match deobfuscate(text) {
         None => Decoded::default(),
         Some(text) if text.len() > most => Decoded {
             too_long: true,
             ..Decoded::default()
         },
         Some(text) => Decoded {
-            text,
+            text: Secret::new(text),
             ok: true,
             too_long: false,
         },
-    }
+    })
 }
 
 #[test]
