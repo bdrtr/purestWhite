@@ -51,9 +51,12 @@ path unchanged.
    the handshake's time and memory, and more roots (the C++ firmware trusts ESP-IDF's bundle).
    Gate 3's first step is written: `ble-check` scans with esp-radio's BLE controller and `TrouBLE`
    0.7.0 (the release on esp-radio's bt-hci 0.9), behind the `ble` feature, and tallies the HID
-   remotes as the C++ firmware's SDK judges them (`purestwhite-ble`). Next: connecting to a
-   remote, pairing (TrouBLE's `security`, and `legacy-pairing` for the remotes that need it),
-   the HID service's reports, and the C++ firmware's key bindings (`BleKeyBinding`).
+   remotes as the C++ firmware's SDK judges them (`purestwhite-ble`). Decoding the HID reports (the
+   SDK's key and raw button paths) and the C++ firmware's button bindings (`BleKeyBinding`, with
+   the SDK's remote profiles) are in `purestwhite-ble` too, each checked against a corpus the C++
+   code wrote (`test/ble_hid_decoder`, `test/ble_key_binding`). Next: connecting to a remote,
+   pairing (TrouBLE's `security`, and `legacy-pairing` for the remotes that need it), the HID
+   service's reports fed to the decoder, and the table picked per link (the C++ `Router`).
 5. Only then the user interface and the rest of the features.
 
 ## The repository
