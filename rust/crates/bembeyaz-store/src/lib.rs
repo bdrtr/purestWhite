@@ -10,6 +10,8 @@
 //!   `test/recent_books/make_corpus.py`.
 //! - [`koreader_credentials`]: `KOReaderCredentialStore` (`koreader.json`): the KOReader sync
 //!   account and settings as stored; corpus from `test/koreader_credentials/make_corpus.py`.
+//! - [`records`]: the OPDS tokens, the LCP passphrases and the LCP device identity, records of
+//!   texts; corpus from `test/token_stores/make_corpus.py`.
 //! - [`opds_servers`]: `OpdsServerStore` (`opds.json`): the OPDS catalogs, their sign-ins and
 //!   headers as stored; corpus from `test/opds_servers/make_corpus.py`.
 //! - [`wifi_credentials`]: `WifiCredentialStore` (`wifi.json`): the saved Wi-Fi networks, their
@@ -37,6 +39,9 @@ mod opds_servers_tests;
 pub mod recent_books;
 #[cfg(test)]
 mod recent_books_tests;
+pub mod records;
+#[cfg(test)]
+mod records_tests;
 pub mod state;
 #[cfg(test)]
 mod state_tests;

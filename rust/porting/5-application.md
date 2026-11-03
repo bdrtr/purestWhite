@@ -130,13 +130,15 @@ settings; its `byte` is ArduinoJson's `as<uint8_t>()` for a field read with no `
 ""`, `| false`, `| true`) crosses as the value Rust read that way, and so does a number whose
 default and checks moved to Rust with the store (CrossPointState's); a number whose default or
 checks the C++ store decides on crosses with its kind, and those stay in C++. ABI types stay in the
-store's `.cpp`, out of its header. `CrossPointSettings`, whose keys come from C++'s `SettingsList`
-table, will read through a parsed document with typed getters instead (`*_new`/`*_free`), so C++
-keeps its table and its migrations. A nested list with a fixed limit is a fixed array and a count
-inside its item (`bb_store_header`, shared by the OPDS servers and the KOReader server). The oracles
-share `test/json_oracle`; from the Wi-Fi store on, a store's Rust test replays `read` and `write`
-against the stored-text layers the driver prints, and leaves the C++ glue to `check_shim.sh` (the
-OPDS test still mirrors that glue).
+store's `.cpp`, out of its header. Each store's file format (its keys and their order) is Rust's;
+`CrossPointSettings` is the exception: its keys come from C++'s `SettingsList` table, shared with
+the web settings page, so it will read through a parsed document with typed getters instead
+(`*_new`/`*_free`), and C++ keeps its table and its migrations. `BookmarkFile` (a list of items with
+a float and optional members, and no store class) will have a module of its own. A nested list with
+a fixed limit is a fixed array and a count inside its item (`bb_store_header`, shared by the OPDS
+servers and the KOReader server). The oracles share `test/json_oracle`; from the Wi-Fi store on, a
+store's Rust test replays `read` and `write` against the stored-text layers the driver prints, and
+leaves the C++ glue to `check_shim.sh` (the OPDS test still mirrors that glue).
 
 - **App state ✅**: `CrossPointState` (`state.json`: the open book, the reader's load count, the
   rings of recent sleep images and their legacy `lastSleepImage`) calls the `state` module of
@@ -180,6 +182,16 @@ OPDS test still mirrors that glue).
   `clearCredentials`: 1,000 seeded steps and 10 edge steps, in
   `rust/crates/bembeyaz-store/testdata/koreader-credentials-corpus.txt`; the Rust tests replay its
   stored-text layers, and `check_shim.sh` the C++ store's answers through the shim.
+- **OPDS tokens, LCP passphrases and LCP device ✅**: `OpdsTokenStore` (`opds_tokens.json`),
+  `LcpPassphraseStore` (`lcp_passphrases.json`) and `LcpDeviceStore` (`lcp_device.json`, moved out
+  of `LcpDevice.cpp` into its own files) are lists of records of texts, or one record, and share the
+  `records` module of `bembeyaz-store` (`store_records.h`): each store's list and fields are Rust's
+  (`records::Store`; C++ names the store and indexes the fields by the header's numbers), Rust reads
+  every record's fields with `| ""` and writes the ones C++ gives. Which records are kept (an empty
+  URL or provider, a passphrase that does not decode, at most 8 kept; `KeptRecords`, `StoreText.h`)
+  and the obfuscation stay in C++. `test/token_stores` drives all three: 700 seeded steps and 23
+  edge steps, in `rust/crates/bembeyaz-store/testdata/token-stores-corpus.txt`; the Rust tests
+  replay its record layers, and `check_shim.sh` the C++ stores' answers through the shims.
 
 ## `src/` activities
 

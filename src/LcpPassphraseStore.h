@@ -1,5 +1,4 @@
 #pragma once
-#include <ArduinoJson.h>
 #include <PersistableStore.h>
 
 #include <string>
@@ -14,11 +13,14 @@
  * key, so it is never written in the clear.
  */
 class LcpPassphraseStore : public PersistableStore<LcpPassphraseStore> {
- private:
+ public:
+  // One entry as kept; plain data.
   struct Entry {
     std::string provider;
     std::string userKeyHex;
   };
+
+ private:
   std::vector<Entry> entries;
   static constexpr size_t MAX_PROVIDERS = 8;
 
@@ -27,8 +29,10 @@ class LcpPassphraseStore : public PersistableStore<LcpPassphraseStore> {
 
  public:
   static const char* getFilePath() { return "/.crosspoint/lcp_passphrases.json"; }
-  void toJson(JsonDocument& doc) const;
-  bool fromJson(JsonVariantConst doc);
+  // lcp_passphrases.json's text, read and written by Rust (bembeyaz_store::records); the hashes'
+  // obfuscation, and which entries are kept, stay here. See PersistableStore.
+  bool toJsonText(String& json) const;
+  const char* fromJsonText(const String& json);
 
   // The stored hash for a provider (empty when none).
   std::string get(const std::string& provider) const;

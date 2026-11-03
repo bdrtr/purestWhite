@@ -51,6 +51,7 @@ mod store;
 mod store_koreader_credentials;
 mod store_opds_servers;
 mod store_recent_books;
+mod store_records;
 mod store_state;
 mod store_wifi_credentials;
 mod toc;

@@ -22,15 +22,17 @@
 //   pass put <provider> <key>                   put
 //   device load <json>                          LcpDeviceStore loadFromFile, then saveToFile
 //   device set <id> <priv>                      the two fields set, then saveToFile
-//   tokens long <n>, device long <n>            load a file whose first url (device_id) is n letters,
-//                                               then saveToFile  = <answer> <written json's length>
-// (every text in hex). Each step answers = ok|fail <answer> | <written json> | read <layer> | save
-// <layer>, where <answer> is what loadFromFile, put or saveToFile gave (load: both, as l,s),
-// <written json> is what the store wrote last in the step ("-" for nothing), and each layer is
-// "-" (no file read, nothing written), err <name>, or the records: their count, then one
-// space-separated entry per record, its fields (OpdsTokenStore: url, access_obf, refresh_obf,
-// refresh_url; LcpPassphraseStore: provider, key_obf; LcpDeviceStore: device_id, priv_obf) read
-// with `| ""` (in the save layer, whole, NULs and all), in hex, comma-separated.
+//   tokens long <n>, device long <n>            load a file whose first url (for device: whose
+//                                               device_id) is n letters, then saveToFile
+//                                               = ok|fail (loadFromFile's) <written json's length>
+// (every text in hex). Each step but long answers = <answer> | <written json> | read <layer> | save
+// <layer>, where <answer> is ok|fail for what put or saveToFile gave (load: loadFromFile's and
+// saveToFile's, as l,s), <written json> is what the store wrote last in the step ("-" for nothing),
+// and each layer is "-" (no file read, nothing written), err <name>, or the records: their count,
+// then one space-separated entry per record, its fields (OpdsTokenStore: url, access_obf,
+// refresh_obf, refresh_url; LcpPassphraseStore: provider, key_obf; LcpDeviceStore: device_id,
+// priv_obf) read with `| ""` (in the save layer, the whole string, including any NUL), in hex,
+// comma-separated.
 #include <ArduinoJson.h>
 
 #include <cstdio>
@@ -56,7 +58,8 @@ const Shape kTokens{"tokens", {"url", "access_obf", "refresh_obf", "refresh_url"
 const Shape kPassphrases{"passphrases", {"provider", "key_obf"}};
 const Shape kDevice{nullptr, {"device_id", "priv_obf"}};
 
-// A field as the store reads it (`| ""`, up to a NUL), or (whole) as written, NULs and all.
+// A field as the store reads it (`| ""`, up to a NUL), or (whole) the whole string as written,
+// including any NUL.
 std::string fieldOf(const JsonVariantConst field, const bool whole) {
   if (!whole) return field | "";
   const JsonString s = field.as<JsonString>();

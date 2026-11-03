@@ -21,10 +21,10 @@ Scenarios: each store's file with lists of any length (past the stores' 8, which
 they keep), items that are not objects, entries without a URL or provider (skipped), fields of any
 type (the shared value generator, test/json_oracle/oracle.py), obfuscated texts that decode, do not
 decode, are empty or decode past the stores' limits (2048 token characters, 64 hash and key
-characters), a missing or wrong-typed list, broken and empty files; tokens and passphrases put
-(new, changed, unchanged, removed, past the limit so the oldest is evicted), the device identity
-set; edges: roots that are not objects, an empty file, and the longest string ArduinoJson keeps and
-one byte more.
+characters), a missing or wrong-typed list, broken and empty files; tokens and passphrases put (new,
+changed, unchanged, removed, past the limit so the oldest is evicted), the device identity set;
+edges: an empty object, roots that are not objects, an empty file, and the longest string
+ArduinoJson keeps and one byte more (each store emptied again after it).
 """
 import random
 import sys

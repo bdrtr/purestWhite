@@ -2,40 +2,54 @@
 
 #include <Logging.h>
 #include <ObfuscationUtils.h>
+#include <StoreText.h>
+#include <bembeyaz/store_records.h>
 
 #include <algorithm>
 
 namespace {
 // A hex sha256 is exactly 64 chars; anything longer is a malformed file.
 constexpr size_t MAX_HASH_CHARS = 64;
+
+// The JSON is Rust's (bembeyaz_store::records); this file obfuscates the hashes and decides which
+// entries to keep, as the ArduinoJson version did.
+
+// An entry of a record with a provider and a hash that decodes.
+bool parseEntry(const bb_store_text* fields, LcpPassphraseStore::Entry& entry) {
+  entry.provider = storeString(fields[BB_STORE_LCP_PASSPHRASE_PROVIDER]);
+  if (entry.provider.empty()) return false;
+  bool ok = false;
+  bool tooLong = false;
+  entry.userKeyHex = obfuscation::deobfuscateFromBase64(storeString(fields[BB_STORE_LCP_PASSPHRASE_KEY_OBF]).c_str(),
+                                                        MAX_HASH_CHARS, &ok, &tooLong);
+  return !entry.userKeyHex.empty();
+}
 }  // namespace
 
-void LcpPassphraseStore::toJson(JsonDocument& doc) const {
-  JsonArray arr = doc["passphrases"].to<JsonArray>();
-  for (const auto& entry : entries) {
-    JsonObject obj = arr.add<JsonObject>();
-    obj["provider"] = entry.provider;
-    obj["key_obf"] = obfuscation::obfuscateToBase64(entry.userKeyHex);
+bool LcpPassphraseStore::toJsonText(String& json) const {
+  ObfuscatedTexts obfuscated;
+  std::vector<bb_store_text> fields(entries.size() * BB_STORE_LCP_PASSPHRASE_FIELDS);
+  for (size_t i = 0; i < entries.size(); i++) {
+    bb_store_text* record = &fields[i * BB_STORE_LCP_PASSPHRASE_FIELDS];
+    record[BB_STORE_LCP_PASSPHRASE_PROVIDER] = storeText(entries[i].provider);
+    record[BB_STORE_LCP_PASSPHRASE_KEY_OBF] = obfuscated.add(entries[i].userKeyHex);
   }
+  if (!obfuscated.ok()) return false;
+  StoreJsonSink sink{json, true};
+  return bb_store_records_write(BB_STORE_RECORDS_LCP_PASSPHRASES, fields.data(), entries.size(), appendStoreJson,
+                                &sink) &&
+         sink.ok;
 }
 
-bool LcpPassphraseStore::fromJson(JsonVariantConst doc) {
-  entries.clear();
-  JsonArrayConst arr = doc["passphrases"].as<JsonArrayConst>();
-  entries.reserve(std::min(arr.size(), MAX_PROVIDERS));
-  for (JsonObjectConst obj : arr) {
-    if (entries.size() >= MAX_PROVIDERS) break;
-    Entry entry;
-    entry.provider = obj["provider"] | "";
-    if (entry.provider.empty()) continue;
-    bool ok = false;
-    bool tooLong = false;
-    entry.userKeyHex = obfuscation::deobfuscateFromBase64(obj["key_obf"] | "", MAX_HASH_CHARS, &ok, &tooLong);
-    if (entry.userKeyHex.empty()) continue;
-    entries.push_back(std::move(entry));
-  }
+const char* LcpPassphraseStore::fromJsonText(const String& json) {
+  std::vector<Entry> read;
+  KeptRecords<Entry> kept{read, MAX_PROVIDERS, parseEntry};
+  const char* error =
+      bb_store_records_read(json.c_str(), json.length(), BB_STORE_RECORDS_LCP_PASSPHRASES, keepRecord<Entry>, &kept);
+  if (error) return error;
+  entries = std::move(read);
   LOG_DBG("LCPPASS", "Loaded %zu LCP passphrase entries", entries.size());
-  return true;
+  return nullptr;
 }
 
 std::string LcpPassphraseStore::get(const std::string& provider) const {

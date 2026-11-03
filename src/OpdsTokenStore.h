@@ -1,5 +1,4 @@
 #pragma once
-#include <ArduinoJson.h>
 #include <PersistableStore.h>
 
 #include <string>
@@ -26,11 +25,14 @@ struct OpdsTokens {
  * access token using its refresh token.
  */
 class OpdsTokenStore : public PersistableStore<OpdsTokenStore> {
- private:
+ public:
+  // One entry as kept; plain data.
   struct Entry {
     std::string url;
     OpdsTokens tokens;
   };
+
+ private:
   std::vector<Entry> entries;
   static constexpr size_t MAX_SERVERS = 8;
 
@@ -39,8 +41,10 @@ class OpdsTokenStore : public PersistableStore<OpdsTokenStore> {
 
  public:
   static const char* getFilePath() { return "/.crosspoint/opds_tokens.json"; }
-  void toJson(JsonDocument& doc) const;
-  bool fromJson(JsonVariantConst doc);
+  // opds_tokens.json's text, read and written by Rust (bembeyaz_store::records); the tokens'
+  // obfuscation, and which entries are kept, stay here. See PersistableStore.
+  bool toJsonText(String& json) const;
+  const char* fromJsonText(const String& json);
 
   // Returns the stored tokens for a server URL (empty when none).
   OpdsTokens get(const std::string& url) const;

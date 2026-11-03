@@ -4,10 +4,12 @@
 #include <StoredPassword.h>
 #include <bembeyaz/store.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <string>
+#include <vector>
 
 // What the stores whose JSON is Rust's share at the C ABI (rust/include/bembeyaz/store.h).
 
@@ -67,4 +69,23 @@ inline std::string readStoredPassword(const bb_store_text& passwordObf, const bb
 // uint8_t, else fallback.
 inline uint8_t storeByteOr(const bb_store_number& n, const uint8_t fallback) {
   return n.kind == BB_STORE_U32 && n.value <= 0xFF ? static_cast<uint8_t>(n.value) : fallback;
+}
+
+// The entries a store keeps from the records Rust reads (bb_store_records_read): parse makes an
+// entry of a record's fields, or refuses it; at most `most` are kept, as the stores count them.
+template <typename Entry>
+struct KeptRecords {
+  std::vector<Entry>& entries;
+  size_t most;
+  bool (*parse)(const bb_store_text* fields, Entry& entry);
+};
+
+// A bb_store_record_read for a KeptRecords<Entry>.
+template <typename Entry>
+void keepRecord(const bb_store_text* fields, const size_t count, void* context) {
+  auto& kept = *static_cast<KeptRecords<Entry>*>(context);
+  if (kept.entries.empty()) kept.entries.reserve(std::min(count, kept.most));
+  if (kept.entries.size() >= kept.most) return;
+  Entry entry;
+  if (kept.parse(fields, entry)) kept.entries.push_back(std::move(entry));
 }

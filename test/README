@@ -19,8 +19,8 @@ crosspoint_state, json_conversions, koreader_credentials, kosync_messages,
 opds_servers, recent_books, token_stores and wifi_credentials hold a
 make_corpus.py that writes a golden corpus for a Rust crate's tests (see the
 script's docstring); kosync_messages, crosspoint_state, koreader_credentials,
-opds_servers, recent_books and wifi_credentials also have a check_shim.sh,
-which runs the corpus's steps through the C++ shim over Rust. json_oracle
-holds what they share (oracle.py: the JSON value generator, the build over C++
-from git, --check; check_shim.sh: the build over a shim; driver_util.h and
-stubs/: the drivers' hex helpers and host stubs).
+opds_servers, recent_books, token_stores and wifi_credentials also have a
+check_shim.sh, which runs the corpus's steps through the C++ shim over Rust.
+json_oracle holds what they share (oracle.py: the JSON value generator, the
+build over C++ from git, --check; check_shim.sh: the build over a shim;
+driver_util.h and stubs/: the drivers' hex helpers and host stubs).

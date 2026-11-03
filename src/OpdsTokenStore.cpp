@@ -2,6 +2,8 @@
 
 #include <Logging.h>
 #include <ObfuscationUtils.h>
+#include <StoreText.h>
+#include <bembeyaz/store_records.h>
 
 #include <algorithm>
 
@@ -9,39 +11,51 @@ namespace {
 // Access/refresh tokens (JWTs) run long; cap the decode to avoid a malformed
 // file ballooning the heap.
 constexpr size_t MAX_TOKEN_CHARS = 2048;
-}  // namespace
 
-void OpdsTokenStore::toJson(JsonDocument& doc) const {
-  JsonArray arr = doc["tokens"].to<JsonArray>();
-  for (const auto& entry : entries) {
-    JsonObject obj = arr.add<JsonObject>();
-    obj["url"] = entry.url;
-    obj["access_obf"] = obfuscation::obfuscateToBase64(entry.tokens.accessToken);
-    obj["refresh_obf"] = obfuscation::obfuscateToBase64(entry.tokens.refreshToken);
-    obj["refresh_url"] = entry.tokens.refreshUrl;
-  }
+// The JSON is Rust's (bembeyaz_store::records); this file obfuscates the tokens and decides which
+// entries to keep, as the ArduinoJson version did.
+std::string decoded(const bb_store_text& obfuscated) {
+  bool ok = false;
+  bool tooLong = false;
+  return obfuscation::deobfuscateFromBase64(storeString(obfuscated).c_str(), MAX_TOKEN_CHARS, &ok, &tooLong);
 }
 
-bool OpdsTokenStore::fromJson(JsonVariantConst doc) {
-  entries.clear();
-  JsonArrayConst arr = doc["tokens"].as<JsonArrayConst>();
-  entries.reserve(std::min(arr.size(), MAX_SERVERS));
-  for (JsonObjectConst obj : arr) {
-    if (entries.size() >= MAX_SERVERS) break;
-    Entry entry;
-    entry.url = obj["url"] | "";
-    if (entry.url.empty()) continue;
-    bool ok = false;
-    bool tooLong = false;
-    entry.tokens.accessToken =
-        obfuscation::deobfuscateFromBase64(obj["access_obf"] | "", MAX_TOKEN_CHARS, &ok, &tooLong);
-    entry.tokens.refreshToken =
-        obfuscation::deobfuscateFromBase64(obj["refresh_obf"] | "", MAX_TOKEN_CHARS, &ok, &tooLong);
-    entry.tokens.refreshUrl = obj["refresh_url"] | "";
-    entries.push_back(std::move(entry));
-  }
-  LOG_DBG("OPDSTOK", "Loaded %zu OPDS token entries", entries.size());
+// An entry of a record with a URL; its tokens empty when they do not decode.
+bool parseEntry(const bb_store_text* fields, OpdsTokenStore::Entry& entry) {
+  entry.url = storeString(fields[BB_STORE_OPDS_TOKEN_URL]);
+  if (entry.url.empty()) return false;
+  entry.tokens.accessToken = decoded(fields[BB_STORE_OPDS_TOKEN_ACCESS_OBF]);
+  entry.tokens.refreshToken = decoded(fields[BB_STORE_OPDS_TOKEN_REFRESH_OBF]);
+  entry.tokens.refreshUrl = storeString(fields[BB_STORE_OPDS_TOKEN_REFRESH_URL]);
   return true;
+}
+}  // namespace
+
+bool OpdsTokenStore::toJsonText(String& json) const {
+  ObfuscatedTexts obfuscated;
+  std::vector<bb_store_text> fields(entries.size() * BB_STORE_OPDS_TOKEN_FIELDS);
+  for (size_t i = 0; i < entries.size(); i++) {
+    bb_store_text* record = &fields[i * BB_STORE_OPDS_TOKEN_FIELDS];
+    record[BB_STORE_OPDS_TOKEN_URL] = storeText(entries[i].url);
+    record[BB_STORE_OPDS_TOKEN_ACCESS_OBF] = obfuscated.add(entries[i].tokens.accessToken);
+    record[BB_STORE_OPDS_TOKEN_REFRESH_OBF] = obfuscated.add(entries[i].tokens.refreshToken);
+    record[BB_STORE_OPDS_TOKEN_REFRESH_URL] = storeText(entries[i].tokens.refreshUrl);
+  }
+  if (!obfuscated.ok()) return false;
+  StoreJsonSink sink{json, true};
+  return bb_store_records_write(BB_STORE_RECORDS_OPDS_TOKENS, fields.data(), entries.size(), appendStoreJson, &sink) &&
+         sink.ok;
+}
+
+const char* OpdsTokenStore::fromJsonText(const String& json) {
+  std::vector<Entry> read;
+  KeptRecords<Entry> kept{read, MAX_SERVERS, parseEntry};
+  const char* error =
+      bb_store_records_read(json.c_str(), json.length(), BB_STORE_RECORDS_OPDS_TOKENS, keepRecord<Entry>, &kept);
+  if (error) return error;
+  entries = std::move(read);
+  LOG_DBG("OPDSTOK", "Loaded %zu OPDS token entries", entries.size());
+  return nullptr;
 }
 
 OpdsTokens OpdsTokenStore::get(const std::string& url) const {
