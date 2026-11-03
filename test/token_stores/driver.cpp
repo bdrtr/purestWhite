@@ -30,7 +30,7 @@
 // "-" (no file read, nothing written), err <name>, or the records: their count, then one
 // space-separated entry per record, its fields (OpdsTokenStore: url, access_obf, refresh_obf,
 // refresh_url; LcpPassphraseStore: provider, key_obf; LcpDeviceStore: device_id, priv_obf) read
-// with `| ""`, in hex, comma-separated.
+// with `| ""` (in the save layer, whole, NULs and all), in hex, comma-separated.
 #include <ArduinoJson.h>
 
 #include <cstdio>
@@ -56,26 +56,33 @@ const Shape kTokens{"tokens", {"url", "access_obf", "refresh_obf", "refresh_url"
 const Shape kPassphrases{"passphrases", {"provider", "key_obf"}};
 const Shape kDevice{nullptr, {"device_id", "priv_obf"}};
 
-std::string record(const JsonVariantConst item, const Shape& shape) {
+// A field as the store reads it (`| ""`, up to a NUL), or (whole) as written, NULs and all.
+std::string fieldOf(const JsonVariantConst field, const bool whole) {
+  if (!whole) return field | "";
+  const JsonString s = field.as<JsonString>();
+  return s.c_str() ? std::string(s.c_str(), s.size()) : std::string();
+}
+
+std::string record(const JsonVariantConst item, const Shape& shape, const bool whole) {
   std::string out;
-  for (const char* key : shape.keys) out += (out.empty() ? "" : ",") + hexOf(item[key] | "");
+  for (const char* key : shape.keys) out += (out.empty() ? "" : ",") + hexOf(fieldOf(item[key], whole));
   return out;
 }
 
-// The records a JSON text holds, as the store reads them.
-std::string layer(const std::string& text, const Shape& shape) {
+// The records a JSON text holds: as the store reads them, or (whole) as they were written.
+std::string layer(const std::string& text, const Shape& shape, const bool whole = false) {
   JsonDocument doc;
   const DeserializationError error = deserializeJson(doc, text.c_str());
   if (error) return std::string("err ") + error.c_str();
-  if (!shape.list) return "1 " + record(doc.as<JsonVariantConst>(), shape);
+  if (!shape.list) return "1 " + record(doc.as<JsonVariantConst>(), shape, whole);
   const JsonArrayConst items = doc[shape.list].as<JsonArrayConst>();
   std::string out = std::to_string(items.size());
-  for (const JsonVariantConst item : items) out += " " + record(item, shape);
+  for (const JsonVariantConst item : items) out += " " + record(item, shape, whole);
   return out;
 }
 
 void answer(const std::string& result, const std::string& read, const Shape& shape) {
-  const std::string save = storageWritten.empty() ? "-" : layer(storageWritten, shape);
+  const std::string save = storageWritten.empty() ? "-" : layer(storageWritten, shape, true);
   std::printf("  = %s | %s | read %s | save %s\n", result.c_str(),
               storageWritten.empty() ? "-" : storageWritten.c_str(), read.c_str(), save.c_str());
 }
