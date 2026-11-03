@@ -1,6 +1,5 @@
 #include "KOReaderSyncClient.h"
 
-#include <ArduinoJson.h>
 #include <HalMemory.h>
 #include <I18n.h>
 #include <Logging.h>
@@ -10,14 +9,11 @@
 #include <string>
 
 #include "KOReaderCredentialStore.h"
+#include "KOReaderSyncMessages.h"
 
 int KOReaderSyncClient::lastHttpCode = 0;
 
 namespace {
-// Device identifier for CrossPoint reader
-constexpr char DEVICE_NAME[] = "CrossPoint";
-constexpr char DEVICE_ID[] = "crosspoint-reader";
-
 // wolfSSL uses the default allocator, which can use PSRAM on supported builds.
 // Keep a free-space floor and room for a full TLS record when the server does
 // not negotiate our smaller record limit. These are preflight margins, not a
@@ -107,11 +103,7 @@ KOReaderSyncClient::Error KOReaderSyncClient::createUser() {
   LOG_DBG("KOSync", "Creating account: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
   if (insufficientHeap()) return LOW_MEMORY;
 
-  JsonDocument doc;
-  doc["username"] = KOREADER_STORE.getUsername();
-  doc["password"] = KOREADER_STORE.getMd5Password();
-  std::string body;
-  serializeJson(doc, body);
+  const std::string body = kosync::createUserBody(KOREADER_STORE.getUsername(), KOREADER_STORE.getMd5Password());
 
   freeink::SecureHttpClient http;
   if (!http.begin(url)) {
@@ -179,39 +171,20 @@ KOReaderSyncClient::Error KOReaderSyncClient::getProgress(const std::string& doc
   }
 
   if (httpCode >= 200 && httpCode < 300) {
-    JsonDocument doc;
-    const DeserializationError error = deserializeJson(doc, http.getString().c_str());
+    const std::string answer = http.getString();
     release();
+    const char* error =
+        kosync::parseProgress(answer.c_str(), documentHash, KOREADER_STORE.supportsRichProgress(), outProgress);
 
     if (error) {
-      LOG_ERR("KOSync", "JSON parse failed: %s", error.c_str());
+      LOG_ERR("KOSync", "JSON parse failed: %s", error);
       return JSON_ERROR;
     }
 
-    outProgress.document = documentHash;
-    outProgress.progress = doc["progress"].as<std::string>();
-    outProgress.percentage = doc["percentage"].as<float>();
-    outProgress.device = doc["device"].as<std::string>();
-    outProgress.deviceId = doc["device_id"].as<std::string>();
-    outProgress.timestamp = doc["timestamp"].as<int64_t>();
-
-    outProgress.position.reset();
-    if (KOREADER_STORE.supportsRichProgress()) {
-      const JsonObjectConst pos = doc["position"].as<JsonObjectConst>();
-      if (!pos.isNull()) {
-        KOReaderRichPosition rich;
-        rich.pctQ = pos["pctQ"].as<uint32_t>();
-        rich.spineIndex = pos["spine"].as<uint16_t>();
-        rich.pageNumber = pos["page"].as<uint16_t>();
-        const uint16_t pages = pos["pages"].as<uint16_t>();
-        rich.totalPages = pages > 0 ? pages : 1;
-        const uint16_t para = pos["para"].as<uint16_t>();
-        if (para > 0) rich.paragraphIndex = para;
-        rich.xpath = pos["xpath"].as<const char*>() ? pos["xpath"].as<const char*>() : "";
-        LOG_DBG("KOSync", "Got rich position: spine=%u page=%u/%u para=%u", rich.spineIndex, rich.pageNumber,
-                rich.totalPages, para);
-        outProgress.position = std::move(rich);
-      }
+    if (outProgress.position.has_value()) {
+      const KOReaderRichPosition& rich = *outProgress.position;
+      LOG_DBG("KOSync", "Got rich position: spine=%u page=%u/%u para=%u", rich.spineIndex, rich.pageNumber,
+              rich.totalPages, rich.paragraphIndex.value_or(0));
     }
 
     LOG_DBG("KOSync", "Got progress: %.2f%% at %s", outProgress.percentage * 100, outProgress.progress.c_str());
@@ -236,53 +209,8 @@ KOReaderSyncClient::Error KOReaderSyncClient::updateProgress(const KOReaderProgr
   LOG_DBG("KOSync", "Updating progress: %s (heap: %u)", url.c_str(), (unsigned)ESP.getFreeHeap());
   if (insufficientHeap()) return LOW_MEMORY;
 
-  // Build JSON body
-  JsonDocument doc;
-  doc["document"] = progress.document;
-  if (progress.metadata.has_value()) {
-    auto meta = doc["metadata"].to<JsonObject>();
-    meta["filename"] = progress.metadata->filename;
-    meta["title"] = progress.metadata->title;
-    meta["authors"] = progress.metadata->authors;
-    if (KOREADER_STORE.supportsExtendedMetadata()) {
-      if (!progress.metadata->isbn.empty()) meta["isbn"] = progress.metadata->isbn;
-      if (!progress.metadata->asin.empty()) meta["asin"] = progress.metadata->asin;
-      if (!progress.metadata->series.empty()) meta["series"] = progress.metadata->series;
-      if (progress.metadata->seriesIndex.has_value()) meta["series_index"] = *progress.metadata->seriesIndex;
-    }
-
-    JsonDocument extra;
-    if (!progress.metadata->extraJson.empty() &&
-        deserializeJson(extra, progress.metadata->extraJson) == DeserializationError::Ok) {
-      for (JsonPairConst kv : extra.as<JsonObjectConst>()) {
-        // Flat strings, numbers, and booleans keep their JSON type; null and
-        // nested values are skipped, and the reserved keys above always win.
-        const JsonVariantConst value = kv.value();
-        if (!(value.is<const char*>() || value.is<bool>() || value.is<long long>() || value.is<double>())) continue;
-        if (!meta[kv.key().c_str()].isNull()) continue;
-        meta[kv.key().c_str()] = value;
-      }
-    }
-  }
-  doc["progress"] = progress.progress;
-  doc["percentage"] = progress.percentage;
-  doc["device"] = DEVICE_NAME;
-  doc["device_id"] = DEVICE_ID;
-  if (progress.position.has_value() && KOREADER_STORE.supportsRichProgress()) {
-    // Enhanced position is opt-in by server type; strict KOSync never receives it.
-    const auto& p = *progress.position;
-    auto pos = doc["position"].to<JsonObject>();
-    pos["pctQ"] = p.pctQ;
-    pos["spine"] = p.spineIndex;
-    pos["page"] = p.pageNumber;
-    pos["pages"] = p.totalPages;
-    if (p.paragraphIndex.has_value()) pos["para"] = *p.paragraphIndex;
-    // Server rejects the whole position object if xpath exceeds 120 bytes.
-    if (!p.xpath.empty() && p.xpath.size() <= 120) pos["xpath"] = p.xpath;
-  }
-
-  std::string body;
-  serializeJson(doc, body);
+  const std::string body =
+      kosync::progressBody(progress, KOREADER_STORE.supportsExtendedMetadata(), KOREADER_STORE.supportsRichProgress());
 
   LOG_DBG("KOSync", "Request body: %s", body.c_str());
 
