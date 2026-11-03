@@ -15,7 +15,7 @@ Google Test is fetched via CMake FetchContent on first configure; the pinned
 version lives in test/CMakeLists.txt.
 
 Some directories are not CMake suites: ble_hid_decoder, ble_key_binding,
-crosspoint_state, json_conversions and kosync_messages hold
+crosspoint_state, json_conversions, kosync_messages and recent_books hold
 a make_corpus.py that writes a golden corpus for a Rust crate's tests (see the
 script's docstring); kosync_messages and crosspoint_state also have a
 check_shim.sh, which runs the corpus's steps through the C++ shim over Rust.
