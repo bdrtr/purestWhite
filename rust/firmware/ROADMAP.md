@@ -47,18 +47,20 @@ path unchanged.
    embassy-net 0.9.1. The third, `https-check`, downloads a file over HTTPS with wolfSSL 5.7.2
    (the C++ firmware's release, built from a submodule into `purestwhite-tls`, over memory
    buffers; the chain, the name and the dates checked) and hashes it; gate 2 also asks to write it
-   to the card, which waits for gate 4's card writes. Left after the device run: the measurement of
-   the handshake's time and memory, and more roots (the C++ firmware trusts ESP-IDF's bundle).
+   to the card, which waits for gate 4's card writes. It trusts the C++ firmware's roots: ESP-IDF's
+   certificate bundle (`purestwhite-x509`), checked as the C++ firmware checks it. Left after the
+   device run: the measurement of the handshake's time and memory.
    Gate 3's first step is written: `ble-check` scans with esp-radio's BLE controller and `TrouBLE`
    0.7.0 (the release on esp-radio's bt-hci 0.9), behind the `ble` feature, and tallies the HID
    remotes as the C++ firmware's SDK judges them (`purestwhite-ble`). Decoding the HID reports (the
-   SDK's key and raw button paths) and the C++ firmware's button bindings (`BleKeyBinding`, with
-   the SDK's remote profiles) are in `purestwhite-ble` too, each checked against a corpus the C++
-   code wrote (`test/ble_hid_decoder`, `test/ble_key_binding`). The link is written but not yet tried on the device: `ble-remote`
-   connects to the strongest remote, pairs (TrouBLE's `security` with `legacy-pairing`), sets its
-   HID service up as the SDK does and reads its reports as page turns (the C++ runtime's routing,
-   `Router`). Left after the device run: keeping the bond (on the card, so a paired remote comes
-   back without pairing mode), reconnecting, and the remote's turns driving the reader.
+   SDK's key and raw button paths) and the C++ firmware's button bindings (`BleKeyBinding`, with the
+   SDK's remote profiles) are in `purestwhite-ble` too, each checked against a corpus the C++ code
+   wrote (`test/ble_hid_decoder`, `test/ble_key_binding`). The link is written but not yet tried on
+   the device: `ble-remote` connects to the strongest remote, pairs (TrouBLE's `security` with
+   `legacy-pairing`), sets its HID service up as the SDK does and reads its reports as page turns
+   (the C++ runtime's routing, `Router`). Left after the device run: keeping the bond (on the card,
+   so a paired remote comes back without pairing mode), reconnecting, and the remote's turns driving
+   the reader.
 5. Only then the user interface and the rest of the features.
 
 ## The repository

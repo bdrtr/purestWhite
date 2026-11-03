@@ -1,7 +1,8 @@
 //! A file fetched over HTTPS, for gate 2: its host looked up (DNS), a TCP connection on port 443
-//! (embassy-net), TLS over it (`purestwhite-tls`, the server's chain and name checked against the
-//! roots given), a GET (`purestwhite-http`, HTTP/1.0) and the body hashed as it arrives. TLS runs
-//! over memory buffers; `Wire` moves the bytes between them and the socket.
+//! (embassy-net), TLS over it (`purestwhite-tls`, the server's chain checked against the C++
+//! firmware's roots, ESP-IDF's certificate bundle, as the C++ firmware checks it, and its name
+//! against the host), a GET (`purestwhite-http`, HTTP/1.0) and the body hashed as it arrives. TLS
+//! runs over memory buffers; `Wire` moves the bytes between them and the socket.
 
 use alloc::string::String;
 use core::fmt::{self, Display, Formatter};
@@ -217,7 +218,8 @@ async fn resolve(stack: Stack<'_>, host: &str) -> Result<IpAddress, FetchError> 
         .ok_or(FetchError::Dns)
 }
 
-/// Fetches `path` from `host` over HTTPS, trusting `roots` (PEM), its body hashed into `sha`.
+/// Fetches `path` from `host` over HTTPS, trusting the C++ firmware's roots
+/// (`purestwhite_x509::ESP_IDF_BUNDLE`), its body hashed into `sha`.
 ///
 /// # Errors
 /// A step failed: DNS, TCP, TLS (a certificate that does not verify, say), or HTTP.
@@ -225,7 +227,6 @@ pub async fn get(
     stack: Stack<'_>,
     host: &str,
     path: &str,
-    roots: &[u8],
     mut sha: impl Sha256,
 ) -> Result<Fetched, FetchError> {
     let began = Instant::now();
@@ -240,7 +241,7 @@ pub async fn get(
         .await
         .map_err(|_| FetchError::Tcp)?;
     let tcp_ms = at.elapsed().as_millis();
-    let context = Context::new(roots)?;
+    let context = Context::bundle(purestwhite_x509::ESP_IDF_BUNDLE)?;
     let mut tls = Connection::new(&context, host)?;
     let mut wire = Wire {
         socket: &mut socket,

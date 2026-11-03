@@ -11,8 +11,12 @@ links = "wolfssl"
 # wolfSSL's server too: for the host tests only, which shake hands with it.
 test-server = []
 
+[dependencies]
+purestwhite-x509 = { path = "../purestwhite-x509" }
+
 [build-dependencies]
 cc = "=1.10.0"
 
 [dev-dependencies]
 purestwhite-tls = { path = ".", features = ["test-server"] }
+purestwhite-x509 = { path = "../purestwhite-x509", features = ["testing"] }

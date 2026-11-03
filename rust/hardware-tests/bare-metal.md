@@ -1245,26 +1245,29 @@ the device only.
 
 Gate 2's download: the image reads the battery-backed clock, joins the network the C++ firmware
 saved (as wifi-join), and downloads a file that never changes (this repository's ROADMAP.md at an
-old commit, 10,246 bytes) from GitHub over HTTPS, with wolfSSL checking GitHub's certificate chain,
-its name and its dates. It notes the result and resets into the C++ firmware. Nothing is written to
-the card; the report holds no network name, password or address. The image is
-`purestwhite-baremetal-https-1.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`). On
-the device only.
+old commit, 10,246 bytes) from GitHub over HTTPS, with wolfSSL checking GitHub's certificate chain
+against the C++ firmware's roots (ESP-IDF's certificate bundle, checked as the C++ firmware checks
+it), its name and its dates. It notes the result and resets into the C++ firmware. Nothing is
+written to the card; the report holds no network name, password or address. The image is
+`purestwhite-baremetal-https-2.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`;
+`https-1` trusted two roots only and is not needed any more). On the device only.
 
 - [ ] As in the wifi-join test: the Wi-Fi saved in the C++ firmware, no `purestwhite-recovery.bin`
   on the card, the router near. Check that the time the C++ firmware shows is right; if it is not,
   Settings > System > Clock > Sync clock now (the C++ firmware sets the clock by itself only the
-  first time it joins Wi-Fi). Install `purestwhite-baremetal-https-1.bin` with
+  first time it joins Wi-Fi). Install `purestwhite-baremetal-https-2.bin` with
   SD Card Firmware Update; the C++ firmware comes back by itself within about a minute. Give me
   the card. Expected: "purestWhite HTTPS check", "next boot: C++ firmware", "clock: <today's date
   and time> UTC", "saved: N networks", "wifi: joined on channel C, -D dBm, T ms", "dhcp: address
   in T ms", "https: 200, 10246 B, sha c4e5578c, ms A/B/C/D" (the time DNS, TCP, TLS and the body
   took), "done". The size and "sha c4e5578c" prove the file came whole and unchanged. What else it
   may say:
-  - "clock: not set": the clock lost its time; TLS then refuses the certificate's dates
-    ("https: tls (Wolf(-150))" or "(Wolf(-151))").
-  - "https: tls (Wolf(-188))": the chain does not lead to the roots trusted (GitHub may have
-    changed its certificate's issuer); "(Wolf(-322))": the name does not match.
+  - "clock: not set": the clock lost its time; TLS then refuses the certificates' dates ("https:
+    tls (Wolf(-188))").
+  - "https: tls (Wolf(-188))": the chain does not lead to a root of the bundle, or the clock is
+    wrong (a certificate above GitHub's is out of its dates); "(Wolf(-150))" or "(Wolf(-151))":
+    the clock is wrong for GitHub's own certificate; "(Wolf(-322))": the name does not match;
+    "https: tls (Memory)": too little memory for TLS (its session, or a signature check).
   - "https: fetching" as the last line, "https: no end in 40 s" or "PANIC": it stopped there.
   - "https: Dns", "https: Tcp", "https: Wire": the name lookup, the connection, or the connection
     later failed.
@@ -1311,14 +1314,14 @@ This image runs longer than the others: the C++ firmware comes back by itself, u
 minute, at most two. Do not turn the device off meanwhile; if it has not come back after two
 minutes, stop and tell me.
 
-- [ ] Put `purestwhite-baremetal-ble-remote-1.bin` in the card's root (no
-  `purestwhite-recovery.bin` there). Switch other Bluetooth keyboards, mice and remotes off or move
-  them away. Open Settings > System > SD Card Firmware Update and choose the file. Then put the
-  remote in pairing mode (on most, hold a key until the light blinks), keep it near the device, and
-  press Confirm. Do not press the remote's buttons yet. Wait about 20 s after Confirm (the remote's
-  light usually stops blinking a few seconds before). Then, for about 20 s, press each button a few times, and hold one for
-  a second (a hold counts as one press). Then stop, and count the presses of each button. Give me
-  the card, and tell me the remote's model and what you pressed.
+- [ ] Put `purestwhite-baremetal-ble-remote-1.bin` in the card's root (no `purestwhite-recovery.bin`
+  there). Switch other Bluetooth keyboards, mice and remotes off or move them away. Open Settings >
+  System > SD Card Firmware Update and choose the file. Then put the remote in pairing mode (on
+  most, hold a key until the light blinks), keep it near the device, and press Confirm. Do not press
+  the remote's buttons yet. Wait about 20 s after Confirm (the remote's light usually stops blinking
+  a few seconds before). Then, for about 20 s, press each button a few times, and hold one for a
+  second (a hold counts as one press). Then stop, and count the presses of each button. Give me the
+  card, and tell me the remote's model and what you pressed.
 
   Expected: "purestWhite BLE remote", "next boot: C++ firmware", the scan's line ("ble: N devices,
   H hid, best hid -D dBm"), "link C ms, pair P ms, enc" (or "auth"), "hid N in, map M B, kbd K cons

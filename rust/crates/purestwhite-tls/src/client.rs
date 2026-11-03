@@ -1,64 +1,57 @@
-//! A TLS client over memory buffers: a `Context` holds the roots trusted, a `Connection` one
-//! session with a server, its certificate chain and name checked against them.
+//! A TLS session over memory buffers, its server's certificate chain and name checked against
+//! what its `Context` trusts.
 
+use crate::Error;
+use crate::bundle::{self, Check};
+use crate::context::{Context, Trust, client_ctx};
 use crate::ffi::{self, Wolf, WolfCtx};
 use crate::pipe::{self, Pipe};
-use crate::{Error, init};
 use alloc::boxed::Box;
 use alloc::vec::Vec;
-use core::ffi::{c_int, c_long, c_void};
+use core::ffi::{c_int, c_void};
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 
-/// The certificates trusted to sign servers'.
-pub struct Context {
+/// A bundle connection's own wolfSSL context and the check its verify callback reads, both freed
+/// with it (after its session).
+struct Own {
     ctx: NonNull<WolfCtx>,
+    /// From `Box::leak`, reached only through this pointer (wolfSSL holds it too).
+    check: NonNull<Check>,
 }
 
-impl Context {
-    /// A client context trusting `roots` (PEM, one or more certificates), checking each server's
-    /// chain against them, and its dates against the time (`set_time`). A root out of its own
-    /// dates is loaded all the same, so that one stale root does not take the others with it, and
-    /// still anchors chains (wolfSSL does not check a trusted root's dates, as is usual).
-    ///
-    /// # Errors
-    /// wolfSSL cannot start, or the roots cannot be read.
-    pub fn new(roots: &[u8]) -> Result<Self, Error> {
-        init()?;
-        // SAFETY: wolfSSL_CTX_new takes the method (and frees it if it fails); the context it makes
-        // is owned here.
-        let ctx = NonNull::new(unsafe { ffi::wolfSSL_CTX_new(ffi::wolfSSLv23_client_method()) })
-            .ok_or(Error::Memory)?;
-        let context = Context { ctx };
-        let size = c_long::try_from(roots.len()).map_err(|_| Error::Roots)?;
-        // SAFETY: `roots` holds `size` bytes, read during the call only.
-        let loaded = unsafe {
-            ffi::wolfSSL_CTX_load_verify_buffer_ex(
+impl Own {
+    /// A wolfSSL context checking servers against `bundle`.
+    fn new(bundle: purestwhite_x509::Bundle<'static>) -> Result<Own, Error> {
+        let ctx = client_ctx()?;
+        let check = NonNull::from(Box::leak(Box::new(Check::new(bundle))));
+        // SAFETY: a valid context; the check outlives it (freed after it, in `drop`), and the
+        // callback only reads it (its flag is a `Cell`).
+        unsafe {
+            ffi::wolfSSL_CTX_set_verify(
                 ctx.as_ptr(),
-                roots.as_ptr(),
-                size,
-                ffi::FILETYPE_PEM,
-                0,
-                ffi::LOAD_FLAG_DATE_ERR_OKAY,
-            )
-        };
-        if loaded != ffi::SUCCESS {
-            return Err(Error::Roots);
+                ffi::VERIFY_PEER,
+                Some(bundle::pw_tls_verify),
+            );
+            ffi::wolfSSL_CTX_SetCertCbCtx(ctx.as_ptr(), check.as_ptr().cast());
         }
-        // SAFETY: a valid context; no callback.
-        unsafe { ffi::wolfSSL_CTX_set_verify(ctx.as_ptr(), ffi::VERIFY_PEER, None) };
-        Ok(context)
+        Ok(Own { ctx, check })
     }
 
-    pub(crate) fn as_ptr(&self) -> *mut WolfCtx {
-        self.ctx.as_ptr()
+    fn check(&self) -> &Check {
+        // SAFETY: the check lives as long as `self`; nothing takes `&mut` of it.
+        unsafe { self.check.as_ref() }
     }
 }
 
-impl Drop for Context {
+impl Drop for Own {
     fn drop(&mut self) {
-        // SAFETY: the context is owned here; every connection borrows it, so none outlives it.
-        unsafe { ffi::wolfSSL_CTX_free(self.ctx.as_ptr()) };
+        // SAFETY: owned here; the session made from the context is freed before (`Connection`'s
+        // `drop` runs before its fields'), then nothing holds the check.
+        unsafe {
+            ffi::wolfSSL_CTX_free(self.ctx.as_ptr());
+            drop(Box::from_raw(self.check.as_ptr()));
+        }
     }
 }
 
@@ -70,6 +63,8 @@ pub struct Connection<'c> {
     /// both reach it through this one pointer, never through a `Box` (whose moves and uses would
     /// invalidate the pointer wolfSSL holds). Freed in `drop`, after the session.
     pipe: NonNull<Pipe>,
+    /// For a bundle context: the connection's own wolfSSL context and check.
+    own: Option<Own>,
     _context: PhantomData<&'c Context>,
 }
 
@@ -80,13 +75,21 @@ impl<'c> Connection<'c> {
     /// # Errors
     /// No memory, or a name wolfSSL refuses.
     pub fn new(context: &'c Context, host: &str) -> Result<Self, Error> {
-        // SAFETY: a valid context, which outlives the session (`'c`).
-        let ssl =
-            NonNull::new(unsafe { ffi::wolfSSL_new(context.as_ptr()) }).ok_or(Error::Memory)?;
+        let (ctx, own) = match &context.trust {
+            Trust::Roots(ctx) => (*ctx, None),
+            Trust::Bundle(bundle) => {
+                let own = Own::new(*bundle)?;
+                (own.ctx, Some(own))
+            }
+        };
+        // SAFETY: a valid context, which outlives the session: the shared one lives `'c`, a
+        // connection's own is freed after the session.
+        let ssl = NonNull::new(unsafe { ffi::wolfSSL_new(ctx.as_ptr()) }).ok_or(Error::Memory)?;
         let pipe = NonNull::from(Box::leak(Box::<Pipe>::default()));
         let mut connection = Connection {
             ssl,
             pipe,
+            own,
             _context: PhantomData,
         };
         connection.wire();
@@ -215,8 +218,14 @@ impl<'c> Connection<'c> {
         }
         // SAFETY: a valid session.
         let code = unsafe { ffi::wolfSSL_get_error(self.ssl.as_ptr(), ret) };
+        let short = self
+            .own
+            .as_ref()
+            .is_some_and(|own| own.check().short_of_memory());
         match code {
             ffi::ERROR_WANT_READ | ffi::ERROR_WANT_WRITE => Ok(None),
+            // The bundle check ran out of memory: not a chain it refused.
+            bundle::NO_SIGNER if short => Err(Error::Memory),
             code => Err(Error::Wolf(code)),
         }
     }
@@ -225,7 +234,8 @@ impl<'c> Connection<'c> {
 impl Drop for Connection<'_> {
     fn drop(&mut self) {
         // SAFETY: the session is owned here and freed first; then nothing holds the pipe, which
-        // came from `Box::leak` in `new`.
+        // came from `Box::leak` in `new` (a bundle connection's own context and check go after,
+        // with `own`).
         unsafe {
             ffi::wolfSSL_free(self.ssl.as_ptr());
             drop(Box::from_raw(self.pipe.as_ptr()));

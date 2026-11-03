@@ -35,7 +35,7 @@ pub const LOAD_FLAG_DATE_ERR_OKAY: u32 = 0x2;
 /// `WOLFSSL_SNI_HOST_NAME`.
 pub const SNI_HOST_NAME: c_uchar = 0;
 
-/// `VerifyCallback`: never set here (wolfSSL's own checks decide).
+/// `VerifyCallback`: set only for a context trusting a bundle (`crate::bundle`).
 pub type VerifyCallback = unsafe extern "C" fn(c_int, *mut c_void) -> c_int;
 
 /// `CallbackIORecv` and `CallbackIOSend`.
@@ -56,6 +56,7 @@ unsafe extern "C" {
     ) -> c_int;
     pub fn wolfSSL_CTX_set_verify(ctx: *mut WolfCtx, mode: c_int, callback: Option<VerifyCallback>);
     pub fn wolfSSL_new(ctx: *mut WolfCtx) -> *mut Wolf;
+    pub fn wolfSSL_CTX_SetCertCbCtx(ctx: *mut WolfCtx, user: *mut c_void);
     pub fn wolfSSL_free(ssl: *mut Wolf);
     pub fn wolfSSL_UseSNI(ssl: *mut Wolf, kind: c_uchar, data: *const c_void, size: u16) -> c_int;
     pub fn wolfSSL_check_domain_name(ssl: *mut Wolf, name: *const c_char) -> c_int;
@@ -73,11 +74,11 @@ unsafe extern "C" {
 unsafe extern "C" {
     pub fn wolfSSLv23_server_method() -> *mut WolfMethod;
     pub fn wolfTLSv1_2_server_method() -> *mut WolfMethod;
-    pub fn wolfSSL_CTX_use_certificate_buffer(
+    /// The server's certificate and the chain after it, PEM.
+    pub fn wolfSSL_CTX_use_certificate_chain_buffer(
         ctx: *mut WolfCtx,
         input: *const c_uchar,
         size: c_long,
-        format: c_int,
     ) -> c_int;
     pub fn wolfSSL_CTX_use_PrivateKey_buffer(
         ctx: *mut WolfCtx,

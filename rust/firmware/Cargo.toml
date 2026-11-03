@@ -185,6 +185,7 @@ wifi = [
     "dep:embassy-net",
     "dep:purestwhite-http",
     "dep:purestwhite-tls",
+    "dep:purestwhite-x509",
     "dep:purestwhite-wifistore",
     "esp-rtos/esp-radio",
 ]
@@ -254,6 +255,8 @@ purestwhite-updater = { path = "../crates/purestwhite-updater" }
 purestwhite-ble = { path = "../crates/purestwhite-ble", optional = true }
 purestwhite-http = { path = "../crates/purestwhite-http", optional = true }
 purestwhite-tls = { path = "../crates/purestwhite-tls", optional = true }
+# The C++ firmware's roots (ESP-IDF's certificate bundle), for HTTPS.
+purestwhite-x509 = { path = "../crates/purestwhite-x509", optional = true }
 purestwhite-wifistore = { path = "../crates/purestwhite-wifistore", optional = true }
 
 [profile.dev]

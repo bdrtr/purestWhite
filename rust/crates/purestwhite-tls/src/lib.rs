@@ -6,8 +6,9 @@
 //! system would give wolfSSL comes from Rust: memory from the global allocator, the time
 //! (`set_time`, which certificates' dates are checked against) and random bytes (`set_random`).
 //!
-//! The server's chain is checked against the roots a `Context` trusts, and its name against the
-//! host the `Connection` was made for.
+//! The server's chain is checked against the roots a `Context` trusts (PEM roots loaded into
+//! wolfSSL, or ESP-IDF's certificate bundle as the C++ firmware checks it: `Context::bundle`), and
+//! its name against the host the `Connection` was made for.
 //!
 //! wolfSSL is built `SINGLE_THREADED`: its globals have no locks, so it is to be used from one
 //! thread (one core) at a time. The types are neither `Send` nor `Sync`, which keeps a session on
@@ -25,7 +26,11 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+mod bundle;
+#[cfg(test)]
+mod bundle_tests;
 mod client;
+mod context;
 mod ffi;
 mod hooks;
 mod pipe;
@@ -37,7 +42,8 @@ mod tests;
 
 use core::sync::atomic::{AtomicBool, Ordering};
 
-pub use client::{Connection, Context};
+pub use client::Connection;
+pub use context::Context;
 pub use hooks::{Random, set_random, set_time};
 
 /// Why a TLS step failed.
@@ -45,9 +51,9 @@ pub use hooks::{Random, set_random, set_time};
 pub enum Error {
     /// wolfSSL could not start.
     Init,
-    /// No memory for a context or a session.
+    /// No memory for a context or a session, or for the bundle check's signature check.
     Memory,
-    /// The trusted roots could not be read.
+    /// The trusted roots (or the bundle) could not be read.
     Roots,
     /// The server's name is empty, too long, or holds a NUL.
     Name,
@@ -60,7 +66,7 @@ pub enum Error {
 /// Whether wolfSSL started.
 static STARTED: AtomicBool = AtomicBool::new(false);
 
-/// Starts wolfSSL, once (`Context::new` calls it).
+/// Starts wolfSSL, once (`Context::new` and `Context::bundle` call it).
 ///
 /// # Errors
 /// wolfSSL could not start.

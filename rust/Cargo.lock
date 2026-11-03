@@ -754,6 +754,7 @@ version = "0.1.0"
 dependencies = [
  "cc",
  "purestwhite-tls",
+ "purestwhite-x509",
 ]
 
 [[package]]
@@ -779,6 +780,10 @@ version = "0.1.0"
 dependencies = [
  "bembeyaz-json",
 ]
+
+[[package]]
+name = "purestwhite-x509"
+version = "0.1.0"
 
 [[package]]
 name = "quote"

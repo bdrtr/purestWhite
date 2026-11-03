@@ -36,13 +36,17 @@
 #define HAVE_HKDF
 #define HAVE_AEAD
 #define WC_RSA_PSS
-#define WOLFSSL_ALT_CERT_CHAINS
+/* No WOLFSSL_ALT_CERT_CHAINS (the C++ firmware's build has none): it clears an intermediate's
+   no-signer error before the verify callback and never adds it as a CA, so the bundle check
+   (src/bundle.rs) would not run and the rest of the chain could not be checked. Without it, PEM
+   roots too must sign the topmost certificate a server sends. */
 /* TLS 1.2 with AEAD suites only (no CBC, MAC-then-encrypt), its extended master secret, and RSA
  * keys of 2048 bits at least. */
 #define WOLFSSL_AEAD_ONLY
 #define HAVE_EXTENDED_MASTER
 #define WOLFSSL_MIN_RSA_BITS 2048
-/* Roots and the tests' certificates come as PEM, which wolfSSL reads without files only so. */
+/* PEM roots (`Context::new`) and the tests' certificates come as PEM, which wolfSSL reads
+   without files only so. */
 #define WOLFSSL_PEM_TO_DER
 
 /* Math: sp_int for RSA, single precision for P-256 and P-384, as the C++ firmware has it. */

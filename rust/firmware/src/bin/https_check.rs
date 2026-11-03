@@ -3,8 +3,9 @@
 //! first), reads the battery-backed clock (`clock`, the time TLS checks certificates' dates
 //! against), reads the network the C++ firmware saved (`wifi::saved`), joins it and gets an address
 //! (`wifi::steps`), fetches `PATH` from `HOST` over TLS with wolfSSL (`wifi::https`, the chain
-//! checked against ISRG's roots, certs/isrg-roots.pem), notes its status, size, SHA-256 and the
-//! time each part took, leaves the network and resets into the C++ firmware. Nothing is written
+//! checked against the C++ firmware's roots, ESP-IDF's certificate bundle), notes its status,
+//! size, SHA-256 and the time each part took, leaves the network and resets into the C++
+//! firmware. Nothing is written
 //! to the card; the report holds no network name, password or address. On the device only. Built
 //! with `--features wifi`.
 #![no_std]
@@ -45,12 +46,10 @@ pub fn custom_halt() -> ! {
 }
 
 /// A file that never changes: this repository's roadmap at a pushed commit (10,246 bytes, SHA-256
-/// c4e5578c...), behind a Let's Encrypt chain to ISRG Root X1.
+/// c4e5578c...), behind a Let's Encrypt chain (YR1, Root YR) to ISRG Root X1.
 const HOST: &str = "raw.githubusercontent.com";
 const PATH: &str =
     "/bdrtr/purestWhite/6afcf3085effd63c2831f43e964f70f8829a1b06/rust/firmware/ROADMAP.md";
-/// The roots trusted: ISRG Root X1 and X2.
-const ROOTS: &[u8] = include_bytes!("../../certs/isrg-roots.pem");
 /// A second region of the global heap, beside the 73,744 bytes of reclaimed RAM: Wi-Fi, the
 /// network stack and wolfSSL take their memory from the global heap (internal RAM).
 const RADIO_HEAP: usize = 96 * 1024;
@@ -90,7 +89,7 @@ async fn note_fetch(report: &mut Report, rtc: &mut Rtc<'_>, spawner: Spawner, sh
     report.save();
     rtc.rwdt.feed();
     let mut sha = Sha::new(sha);
-    let fetch = https::get(stack, HOST, PATH, ROOTS, HwSha::new(&mut sha));
+    let fetch = https::get(stack, HOST, PATH, HwSha::new(&mut sha));
     let fetched = select(fetch, Timer::after(FETCH_MOST)).await;
     report.truncate(before);
     let _ = match fetched {

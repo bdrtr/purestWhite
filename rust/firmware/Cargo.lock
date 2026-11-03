@@ -1939,6 +1939,7 @@ dependencies = [
  "purestwhite-touch",
  "purestwhite-updater",
  "purestwhite-wifistore",
+ "purestwhite-x509",
  "sdio",
  "trouble-host",
 ]
@@ -2004,6 +2005,7 @@ name = "purestwhite-tls"
 version = "0.1.0"
 dependencies = [
  "cc",
+ "purestwhite-x509",
 ]
 
 [[package]]
@@ -2029,6 +2031,10 @@ version = "0.1.0"
 dependencies = [
  "bembeyaz-json",
 ]
+
+[[package]]
+name = "purestwhite-x509"
+version = "0.1.0"
 
 [[package]]
 name = "quote"

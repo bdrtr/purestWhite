@@ -1,0 +1,13 @@
+[package]
+name = "purestwhite-x509"
+version = "0.1.0"
+edition.workspace = true
+# The code is MIT; the roots it embeds (roots/, testdata/) are Mozilla's, MPL-2.0.
+license = "MIT AND MPL-2.0"
+publish.workspace = true
+
+[features]
+# Test helpers for the crates that use this one (`testing`).
+testing = []
+
+[dependencies]

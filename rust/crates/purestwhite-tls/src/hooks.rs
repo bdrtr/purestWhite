@@ -103,6 +103,11 @@ pub fn set_time(unix_seconds: u32) {
     NOW.store(unix_seconds, Ordering::Relaxed);
 }
 
+/// The time certificates are checked against (0 until it is set).
+pub(crate) fn now() -> u32 {
+    NOW.load(Ordering::Relaxed)
+}
+
 /// # Safety
 /// `now` is null or points to a `time_t` (64 bits, checked by c/shim.c).
 #[unsafe(no_mangle)]

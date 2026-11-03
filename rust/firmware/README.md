@@ -61,9 +61,10 @@ the emulator, so an image without one drives their async calls over blocking bus
   Personal with its password, open without one); `net::station_stack` is embassy-net on the
   station interface, asking DHCP for an address; `steps` the join and DHCP steps the Wi-Fi images
   share, each with its report line; `https::get` a file over HTTPS: DNS, TCP on port 443, TLS
-  with wolfSSL (`purestwhite-tls`: wolfSSL 5.7.2 over memory buffers, the server's chain and name
-  checked against the roots given, its dates against the clock), a GET (`purestwhite-http`,
-  HTTP/1.0), the body hashed as it arrives.
+  with wolfSSL (`purestwhite-tls`: wolfSSL 5.7.2 over memory buffers, the server's chain checked
+  against the C++ firmware's roots (ESP-IDF's certificate bundle, `purestwhite-x509`), its name
+  against the host and its dates against the clock), a GET (`purestwhite-http`, HTTP/1.0), the
+  body hashed as it arrives.
 - `images`: an OTA app slot's image identified through the partition table
   (`identify_partition`: the slot's own flash region, then `purestwhite-updater`'s
   `identify_slot`).
@@ -267,7 +268,8 @@ its scenario in `emu/`.
   UTC`, or `clock: not set`: then certificates' dates cannot be checked and TLS fails), joins the
   saved network as `wifi-join` does, and fetches a file that never changes (this repository's
   ROADMAP.md at commit 6afcf308, 10,246 bytes, SHA-256 `c4e5578c...`) from
-  raw.githubusercontent.com, trusting ISRG Root X1 and X2 (`certs/isrg-roots.pem`). Its line:
+  raw.githubusercontent.com, trusting the C++ firmware's roots (ESP-IDF's certificate bundle,
+  `purestwhite-x509`, checked as the C++ firmware checks it). Its line:
   `https: 200, 10246 B, sha c4e5578c, ms DNS/TCP/TLS/BODY` (or `https: fetching` while it runs,
   `https: tls (Wolf(N))` with wolfSSL's code, `https: Dns`, `Tcp`, `Wire`, `NoResponse`, `Cut`
   (the body ended before its `Content-Length`), `https: response (...)`, `https: no end in 40 s`). Nothing is written to the card. Needs esp-rtos: device only.

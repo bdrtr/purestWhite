@@ -10,14 +10,14 @@ use std::sync::Mutex;
 use std::vec::Vec;
 
 /// 2025-01-01, inside the test certificates' dates; 2027-01-01, after them.
-const INSIDE: u32 = 1_735_689_600;
+pub(crate) const INSIDE: u32 = 1_735_689_600;
 const AFTER: u32 = 1_798_761_600;
 
 /// The clock is one for the whole process: the tests take turns.
 static CLOCK: Mutex<()> = Mutex::new(());
 
 /// The clock's turn; a test that failed holding it does not fail the others.
-fn clock() -> std::sync::MutexGuard<'static, ()> {
+pub(crate) fn clock() -> std::sync::MutexGuard<'static, ()> {
     CLOCK
         .lock()
         .unwrap_or_else(std::sync::PoisonError::into_inner)
@@ -31,7 +31,7 @@ fn cert(name: &str) -> Vec<u8> {
     std::fs::read(path).unwrap()
 }
 
-fn urandom(bytes: &mut [u8]) {
+pub(crate) fn urandom(bytes: &mut [u8]) {
     std::fs::File::open("/dev/urandom")
         .unwrap()
         .read_exact(bytes)
@@ -39,7 +39,7 @@ fn urandom(bytes: &mut [u8]) {
 }
 
 /// Moves the bytes between `client` and `server` until the client's handshake is done or fails.
-fn shake(client: &mut Connection<'_>, server: &mut Server) -> Result<(), Error> {
+pub(crate) fn shake(client: &mut Connection<'_>, server: &mut Server) -> Result<(), Error> {
     for _ in 0..50 {
         let done = client.handshake()?;
         let out = client.to_send().to_vec();

@@ -44,7 +44,7 @@ impl Server {
         let len = |b: &[u8]| c_long::try_from(b.len()).unwrap_or(c_long::MAX);
         // SAFETY: the buffers are read during the calls only.
         let loaded = unsafe {
-            ffi::wolfSSL_CTX_use_certificate_buffer(ctx.as_ptr(), chain.as_ptr(), len(chain), 1)
+            ffi::wolfSSL_CTX_use_certificate_chain_buffer(ctx.as_ptr(), chain.as_ptr(), len(chain))
                 == ffi::SUCCESS
                 && ffi::wolfSSL_CTX_use_PrivateKey_buffer(ctx.as_ptr(), key.as_ptr(), len(key), 1)
                     == ffi::SUCCESS

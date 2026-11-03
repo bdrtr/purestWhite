@@ -242,7 +242,8 @@ adds its own item.
   corruption. The same three lints are denied in `bembeyaz-html`, `bembeyaz-dither` and every
   `purestwhite-*` crate; of those, `purestwhite-fat` reads untrusted data (the SD card) and is
   tested on damaged volume images instead, and `purestwhite-ble` reads radio data from any nearby
-  device (adverts, HID reports) and is tested on random frames in its HID corpus.
+  device (adverts, HID reports) and is tested on random frames in its HID corpus;
+  `purestwhite-x509` reads servers' certificates and has the mini-fuzz test.
 - A large value (e.g. the ~4.5 KB inflate state) must be built in place: Rust does not
   guarantee this, and the value may first be built on the stack and then copied.
   `scripts/build_rust.py` measures the stack frames of the Rust functions in every firmware
