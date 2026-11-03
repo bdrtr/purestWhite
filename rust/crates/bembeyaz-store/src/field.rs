@@ -1,20 +1,19 @@
-//! A stored field whose presence and type the store decides on (in C++ or in Rust): what it is, as
+//! A stored field whose presence and type the store decides on: what it is, as
 //! ArduinoJson's `isNull()` and `is<uint32_t>()` see it, its value when it is a `u32`, and what
 //! `as<uint8_t>()` makes of it whatever it is.
 
 use bembeyaz_jsondoc::{Value, as_number, is_integer, or_integer};
 
-/// What a number field holds; its value is store.h's code for it.
+/// What a number field holds.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-#[repr(u8)]
 pub enum Kind {
     /// Missing, or `null`.
     #[default]
-    Missing = 0,
+    Missing,
     /// An integer within `u32`.
-    U32 = 1,
+    U32,
     /// Anything else: a float, a string, a bool, a container, an integer out of range.
-    Other = 2,
+    Other,
 }
 
 /// A number field: its kind, its value when the kind is [`Kind::U32`] (else 0), and

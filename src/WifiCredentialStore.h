@@ -31,6 +31,7 @@ class WifiCredentialStore : public PersistableStore<WifiCredentialStore> {
   // I/O; saveToFile() snapshots under this mutex from toJson().
   mutable std::mutex credentialMutex;
 
+  // Rust's limits (BB_STORE_WIFI_MOST_*), checked in the .cpp.
   static constexpr size_t MAX_NETWORKS = 8;
   static constexpr size_t MAX_PASSWORD_LENGTH = 64;
 
@@ -41,8 +42,8 @@ class WifiCredentialStore : public PersistableStore<WifiCredentialStore> {
 
  public:
   static const char* getFilePath() { return "/.crosspoint/wifi.json"; }
-  // wifi.json's text, read and written by Rust (bembeyaz_store::wifi_credentials); the passwords'
-  // obfuscation and the checks of their length and CRC-32 stay here. See PersistableStore.
+  // wifi.json's text, read, checked (each password's length and CRC-32) and written by Rust
+  // (bembeyaz_store::wifi_credentials); the passwords' obfuscation stays here. See PersistableStore.
   bool toJsonText(String& json) const;
   const char* fromJsonText(const String& json);
 

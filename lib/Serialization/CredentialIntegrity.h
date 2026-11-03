@@ -8,7 +8,9 @@ namespace credential_integrity {
 
 // IEEE CRC-32. This detects accidental credential corruption; it is not an
 // authentication mechanism and does not make the existing XOR obfuscation
-// cryptographically secure.
+// cryptographically secure. The firmware's WifiCredentialStore now leaves it to
+// Rust (bembeyaz_store::wifi_credentials::crc32); test/wifi_credentials's
+// oracle (the C++ store before the port) and its own test still use this.
 constexpr uint32_t crc32(const std::string_view data) {
   uint32_t crc = 0xFFFFFFFFU;
   for (const char value : data) {

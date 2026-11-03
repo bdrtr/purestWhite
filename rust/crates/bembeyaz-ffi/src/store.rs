@@ -2,7 +2,6 @@
 
 use alloc::vec::Vec;
 use bembeyaz_store::Error;
-use bembeyaz_store::field::{Kind, Number};
 use bembeyaz_store::headers::{HEADERS, Header, Headers};
 use bembeyaz_store::password::{Decoded, Secret};
 use core::ffi::{c_char, c_void};
@@ -34,36 +33,21 @@ impl Text {
         }
     }
 
+    /// Its bytes' start: NULL for empty text.
+    pub(crate) fn data(self) -> *const c_char {
+        self.data
+    }
+
+    /// How many bytes it has.
+    pub(crate) fn len(self) -> usize {
+        self.len
+    }
+
     /// # Safety
     /// `data` is NULL or `len` readable bytes that outlive `'a`.
     pub(crate) unsafe fn bytes<'a>(self) -> &'a [u8] {
         // SAFETY: as documented.
         unsafe { crate::view(self.data.cast(), self.len) }
-    }
-}
-
-// store.h's BB_STORE_MISSING, BB_STORE_U32 and BB_STORE_OTHER.
-const _: () = assert!(Kind::Missing as u8 == 0 && Kind::U32 as u8 == 1 && Kind::Other as u8 == 2);
-
-/// store.h's `bb_store_number`.
-#[repr(C)]
-pub(crate) struct BbNumber {
-    kind: u8,
-    value: u32,
-}
-
-const _: () = {
-    use core::mem::offset_of;
-    assert!(size_of::<BbNumber>() == 8 && offset_of!(BbNumber, value) == 4);
-};
-
-impl BbNumber {
-    /// store.h's form of `number`.
-    pub(crate) fn of(number: Number) -> BbNumber {
-        BbNumber {
-            kind: number.kind as u8,
-            value: number.value,
-        }
     }
 }
 
@@ -128,8 +112,15 @@ pub(crate) unsafe fn hand_over(
 }
 
 /// store.h's `bb_store_decode`.
-pub(crate) type Decode =
-    unsafe extern "C" fn(*const c_char, usize, Option<Write>, *mut c_void, *mut c_void) -> bool;
+pub(crate) type Decode = unsafe extern "C" fn(
+    *const c_char,
+    usize,
+    usize,
+    Option<Write>,
+    *mut c_void,
+    *mut bool,
+    *mut c_void,
+) -> bool;
 
 /// The plain text a decode callback hands over, and whether memory ran out holding it.
 #[derive(Default)]
@@ -159,8 +150,9 @@ unsafe extern "C" fn append(data: *const c_char, len: usize, context: *mut c_voi
 }
 
 /// Wraps `decode` as a `bembeyaz_store::password` decoder: ok with the plain text it hands over,
-/// too long past `most`, [`Error::NoMemory`] when holding the text ran out of memory; with no
-/// `decode`, nothing decodes. The text is a [`Secret`] from the start, so it is wiped however it
+/// too long when it says so (it is given `most`) or past `most`, [`Error::NoMemory`] when holding
+/// the text ran out of memory; with no `decode`, nothing decodes. The text is a [`Secret`] from
+/// the start, so it is wiped however it
 /// ends.
 ///
 /// # Safety
@@ -174,14 +166,17 @@ pub(crate) unsafe fn decoder(
             return Ok(Decoded::default());
         };
         let mut plain = Plain::default();
-        // SAFETY: `text` is readable for the call and `plain` is only appended to; the caller
-        // vouches for decode and context.
+        let mut too_long = false;
+        // SAFETY: `text` is readable for the call, `plain` is only appended to, `too_long` is
+        // writable; the caller vouches for decode and context.
         let ok = unsafe {
             decode(
                 text.as_ptr().cast(),
                 text.len(),
+                most,
                 Some(append),
                 (&raw mut plain).cast(),
+                &raw mut too_long,
                 context,
             )
         };
@@ -189,17 +184,18 @@ pub(crate) unsafe fn decoder(
         if plain.no_memory {
             return Err(Error::NoMemory);
         }
-        Ok(match (ok, secret.len() > most) {
+        // Past `most` is too long, whatever the callback said.
+        Ok(match (ok, too_long || secret.len() > most) {
             (true, false) => Decoded {
                 text: secret,
                 ok: true,
                 too_long: false,
             },
-            (true, true) => Decoded {
+            (_, true) => Decoded {
                 too_long: true,
                 ..Decoded::default()
             },
-            (false, _) => Decoded::default(),
+            (false, false) => Decoded::default(),
         })
     }
 }

@@ -5,8 +5,10 @@
 // The file is test/json_oracle/stubs/HalStorage.h's; the obfuscation is its ObfuscationFake.cpp's.
 //
 // Each answer also holds the stored-text layers the Rust port deals in, worked out here from the
-// same inputs with ArduinoJson: what a file holds for the store to decide on (read), and what the
-// store gives to be written (save). The Rust tests replay those; check_shim.sh checks the rest.
+// same inputs with ArduinoJson: what a file holds (read), and what is written (save). The Rust
+// tests replay those, and every load's networks; check_shim.sh checks the rest. Built with
+// -DSTORE_LOG_ERRORS, the store's LOG_ERR lines (the networks it drops and why) come before each
+// answer, so the Rust tests and the shim are checked against the C++ store's logs too.
 //
 // make_corpus.py builds it over the C++ store, PersistableStore and StoredPassword from git (the
 // store in the tree is now the Rust shim) and keeps the transcript as the Rust tests' golden corpus:

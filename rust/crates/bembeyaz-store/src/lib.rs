@@ -2,9 +2,9 @@
 //! `lib/Serialization/PersistableStore.h`) read and written as the C++ stores did with
 //! ArduinoJson: the same JSON out, the same values from any file, a field of the wrong type
 //! falling back to its default. One module per store, each with `read` and `write`; each one's
-//! golden corpus is that store's C++ answers. Where the bare-metal firmware needs a store's
-//! decisions too (which items it keeps, whether it saves again), they are here beside its `read`,
-//! checked against the same corpus: [`wifi_credentials::keep`].
+//! golden corpus is that store's C++ answers. A store's decisions (which items it keeps, whether it
+//! saves again) are here too where they moved to Rust, for both firmwares, checked against the same
+//! corpus: [`wifi_credentials::keep`], [`koreader_settings`].
 //!
 //! - [`state`]: `CrossPointState` (`state.json`): the open book, the recent sleep images; corpus
 //!   from `test/crosspoint_state/make_corpus.py`.
@@ -23,7 +23,8 @@
 //! - [`opds_servers`]: `OpdsServerStore` (`opds.json`): the OPDS catalogs, their sign-ins and
 //!   headers as stored; corpus from `test/opds_servers/make_corpus.py`.
 //! - [`wifi_credentials`]: `WifiCredentialStore` (`wifi.json`): the saved Wi-Fi networks, their
-//!   passwords as stored; corpus from `test/wifi_credentials/make_corpus.py`.
+//!   passwords as stored, and which of them the store keeps; corpus from
+//!   `test/wifi_credentials/make_corpus.py`.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]

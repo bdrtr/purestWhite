@@ -82,3 +82,22 @@ pub(crate) fn deobfuscate(text: &[u8]) -> Option<Vec<u8>> {
         .map(|i| u8::from_str_radix(&digits[2 * i..2 * i + 2], 16).ok())
         .collect()
 }
+
+/// Every step of `corpus` (a step line, the log lines before its answer, each `  ! ` and the
+/// line in hex, then `  = <answer>`): the line, its log lines (decoded), and its answer.
+pub(crate) fn steps(corpus: &str) -> Vec<(&str, Vec<Vec<u8>>, &str)> {
+    let mut lines = corpus.lines();
+    let mut out = Vec::new();
+    while let Some(line) = lines.next() {
+        let mut logs = Vec::new();
+        let answer = loop {
+            let next = lines.next().unwrap();
+            match next.strip_prefix("  ! ") {
+                Some(log) => logs.push(bytes(log)),
+                None => break next.strip_prefix("  = ").unwrap(),
+            }
+        };
+        out.push((line, logs, answer));
+    }
+    out
+}

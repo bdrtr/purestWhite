@@ -4,8 +4,8 @@
 //! factory MAC address (its eFuse base MAC, 6 bytes) and base64-encoded (`password_obf`), with its
 //! length (`password_len`) and CRC-32 (`password_crc32`); older files hold it plain (`password`).
 //! The file is read by the C++ store's own Rust reader (`bembeyaz_store::wifi_credentials`), and
-//! its networks are kept by `keep`, the C++ store's decisions in Rust, checked against its corpus;
-//! so a network is kept as `WifiCredentialStore` keeps it, at most eight. This decodes the
+//! its networks are kept by `keep`, the store's decisions, which the C++ firmware calls too; so a
+//! network is kept as `WifiCredentialStore` keeps it, at most eight. This decodes the
 //! passwords as the C++ firmware does (`purestwhite-obfuscation`), and leaves out a network whose
 //! name is longer than Wi-Fi's 32 bytes.
 //! A file larger than [`JSON_MOST`] is refused: the C++ firmware writes a few KB at most.
@@ -36,10 +36,10 @@ pub use text::Text;
 
 /// The longest network name Wi-Fi allows.
 pub const SSID_MOST: usize = 32;
-/// The longest password the C++ firmware keeps (`MAX_PASSWORD_LENGTH`).
-pub const PASSWORD_MOST: usize = 64;
-/// How many networks the C++ firmware keeps (`MAX_NETWORKS`).
-pub const NETWORKS_MOST: usize = 8;
+/// The longest password the store keeps (`MAX_PASSWORD_LENGTH`).
+pub const PASSWORD_MOST: usize = wifi_credentials::MOST_PASSWORD;
+/// How many networks the store keeps (`MAX_NETWORKS`).
+pub const NETWORKS_MOST: usize = wifi_credentials::MOST_NETWORKS;
 /// The length of the key the passwords are masked (XOR) with: a MAC address.
 pub use purestwhite_obfuscation::KEY_LEN;
 /// The largest file read: eight networks with the longest names and passwords take about 2 KB, so
@@ -138,7 +138,7 @@ pub fn read(json: &[u8], key: &[u8; KEY_LEN]) -> Result<Saved, ReadError> {
         networks: NETWORKS_MOST,
         password: PASSWORD_MOST,
     };
-    let kept = wifi_credentials::keep(json, limits, |text, most| decoded(text, most, key))
+    let kept = wifi_credentials::keep(json, limits, |text, most| decoded(text, most, key), |_| {})
         .map_err(|error| match error {
             Error::NoMemory => ReadError::Memory,
             _ => ReadError::Json,

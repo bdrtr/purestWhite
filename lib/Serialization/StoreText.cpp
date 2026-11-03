@@ -10,9 +10,15 @@ bb_store_text ObfuscatedTexts::add(const std::string& plain) {
   return storeText(text);
 }
 
-bool decodeStoredSecret(const char* data, const size_t len, const bb_store_write put, void* putContext, void*) {
+bool decodeStoredSecret(const char* data, const size_t len, const size_t most, const bb_store_write put,
+                        void* putContext, bool* tooLong, void*) {
   bool ok = false;
-  const std::string plain = obfuscation::deobfuscateFromBase64(storeString({data, len}).c_str(), &ok);
+  bool longer = false;
+  std::string plain = obfuscation::deobfuscateFromBase64(storeString({data, len}).c_str(), most, &ok, &longer);
   if (ok) put(plain.data(), plain.size(), putContext);
+  // Wiped through a volatile pointer, so the compiler keeps the stores before the string is freed.
+  volatile char* bytes = plain.data();
+  for (size_t i = 0; i < plain.size(); i++) bytes[i] = '\0';
+  if (tooLong) *tooLong = longer;
   return ok;
 }

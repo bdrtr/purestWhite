@@ -106,39 +106,41 @@ JSON. A store whose JSON is read and written in Rust gives `toJsonText`/`fromJso
 `toJson`/`fromJson` (`fromJsonText` returns nullptr, or ArduinoJson's error name, and may call
 `requestResave()`); `PersistableStore` keeps the file steps, the lock, the parse-error log and the
 resave for both kinds. The stores go to the `bembeyaz-store` crate one by one (a module with `read`
-and `write` each), over `bembeyaz-jsondoc` (its `|` and `is<T>` are pinned by
-`test/json_conversions`). Their C ABIs are `rust/include/bembeyaz/store_*.h`, with the
-`bb_store_write` callback and `bb_store_text` of `store.h` (on the C++ side,
-`lib/Serialization/StoreText.h`): a store with a fixed set of fields crosses as a `repr(C)` struct;
-a list crosses as an array of item structs when written and one item per callback when read, the C++
-store giving its limit (`MAX_RECENT_BOOKS`) so it is defined once, when every item read is kept;
-when the limit counts only the items C++ keeps (Wi-Fi's `MAX_NETWORKS`, and the OPDS token and LCP
+and `write` each; `read` only for the tests where Rust decides), over `bembeyaz-jsondoc` (its `|`
+and `is<T>` are pinned by `test/json_conversions`). Their C ABIs are
+`rust/include/bembeyaz/store_*.h`, with the `bb_store_write` callback and `bb_store_text` of
+`store.h` (on the C++ side, `lib/Serialization/StoreText.h`): a store with a fixed set of fields
+crosses as a `repr(C)` struct; a list crosses as an array of item structs when written and one item
+per callback when read, the C++ store giving its limit (`MAX_RECENT_BOOKS`) so it is defined once,
+when every item read is kept; when the limit counts only the items C++ keeps (the OPDS token and LCP
 stores'), Rust hands over every item and C++ applies the limit in its callback. The text is written
 by `bembeyaz_jsondoc::Writer` straight into one buffer, and a store's `write` returns `None` when
-memory runs out, so the old file is kept. For the stores whose decisions are still C++'s (Wi-Fi,
-OPDS, the token and LCP stores), passwords and other secrets stay obfuscated in C++
-(`ObfuscationUtils`, keyed by the eFuse MAC) and cross as their stored texts; C++ reads a password
-from them with `obfuscation::readStoredPassword` (`StoredPassword.h`). Every store obfuscates for
-saving with `ObfuscatedTexts` (`StoreText.h`), which also refuses the save when obfuscating fails.
-There, a legacy shape is upgraded, and resaved, in C++ when it depends on a decoded value or on C++
-state (the OPDS plain `password`), and a field whose type or presence C++ decides on crosses as a
-`bb_store_number` with its kind (missing, a `u32`, another type; `bembeyaz_store::field`): the Wi-Fi
-password's `password_len` and `password_crc32`. So the rule is: a field read with a plain `|
-literal` that the store decides nothing on crosses as the value Rust read that way, whatever its
-type (texts, bools, the bookmarks' and CrossPointState's numbers); a field C++ decides on crosses
-with its kind.
+memory runs out, so the old file is kept. For the stores whose decisions are still C++'s (OPDS, the
+token and LCP stores), passwords and other secrets stay obfuscated in C++ (`ObfuscationUtils`, keyed
+by the eFuse MAC) and cross as their stored texts; C++ reads a password from them with
+`obfuscation::readStoredPassword` (`StoredPassword.h`). Every store obfuscates for saving with
+`ObfuscatedTexts` (`StoreText.h`), which also refuses the save when obfuscating fails. There, a
+legacy shape is upgraded, and resaved, in C++ when it depends on a decoded value or on C++ state
+(the OPDS plain `password`). So the rule is: a field read with a plain `| literal` that the store
+decides nothing on crosses as the value Rust read that way, whatever its type (texts, bools, the
+bookmarks' and CrossPointState's numbers); for a store whose decisions moved to Rust, a field it
+decides on, by its presence, its type, or a check of its value, is decided on there
+(`bembeyaz_store::field`'s `Number`, with its kind), and crosses no more.
 
 The direction is for Rust to own a store's decisions, and the C++ store to give only the
-obfuscation. KOReader's are Rust's alone, in a module of their own beside the file format's
-(`bembeyaz_store::koreader_settings`): Rust reads the file, decodes each secret through a
-`bb_store_decode` callback (`store.h`; on the C++ side `decodeStoredSecret` in `StoreText.h`; Rust's
-side is `bembeyaz_store::password`, whose `Secret` wipes a plain secret when dropped), makes the
-decisions (`Number`'s `byte` is `as<uint8_t>()`, and `byte_or` a `| fallback` for a `u8`), and hands
-C++ the settings in one callback, with the resave and what a check changed, for its log. The
-bare-metal firmware can use the same functions with its own decoder. Wi-Fi's decisions are still in
-both languages (`wifi_credentials::keep`, used by `purestwhite-wifistore`), so a change to one must
-be made in the other, until `keep` reports why it drops a network, for the C++ store's log, and C++
-calls it. ABI types stay in the store's `.cpp`, out of its header. Each store's file format (its
+obfuscation. KOReader's and Wi-Fi's are Rust's alone: KOReader's in a module of their own beside the
+file format's (`bembeyaz_store::koreader_settings`), Wi-Fi's beside its `read`
+(`wifi_credentials::keep`). Rust reads the file, decodes each secret through a `bb_store_decode`
+callback (`store.h`; on the C++ side `decodeStoredSecret` in `StoreText.h`; Rust's side is
+`bembeyaz_store::password`, whose `Secret` wipes a plain secret when dropped), makes the decisions
+(`Number`'s `byte` is `as<uint8_t>()`, and `byte_or` a `| fallback` for a `u8`), and hands C++ what
+it keeps in callbacks, with the resave (in KOReader's settings, as a `bool*` for Wi-Fi) and what a
+check changed, for its log: KOReader's settings reset, and each Wi-Fi network dropped and why, as it
+is judged, so the logs come in the order they did. The callbacks go in a struct of their own when
+there are more than two (`bb_store_wifi_keep_calls`), and a store's limits are Rust's, the C
+header's copy (`BB_STORE_WIFI_MOST_*`) checked against them and against the C++ store's own
+(`MAX_NETWORKS`, `MAX_PASSWORD_LENGTH`). The bare-metal firmware uses the same functions with its
+own decoder. ABI types stay in the store's `.cpp`, out of its header. Each store's file format (its
 keys and their order) is Rust's; `CrossPointSettings` is the exception: its keys come from C++'s
 `SettingsList` table, shared with the web settings page, so it will read through a parsed document
 with typed getters instead: `*_new` parses the text in Rust's heap and `*_free` frees it, and every
@@ -177,20 +179,24 @@ still mirrors that glue).
   its `check_shim.sh` runs them through the C++ shim over Rust.
 - **Wi-Fi networks ✅**: `WifiCredentialStore` reads and writes its JSON (`wifi.json`: the saved
   networks, each password obfuscated with its length and CRC-32, and the network connected last)
-  through the `wifi_credentials` module of `bembeyaz-store`. Rust hands over every item of the file
-  with its texts as stored and each number with its kind (`bb_store_number`,
-  `bembeyaz_store::field`); C++ decodes the password and decides which networks to keep (the length
-  and checksum checks, at most 8 kept) and whether to save again, as before. `test/wifi_credentials`
-  goes through the store's `loadFromFile`, `addCredential`, `setLastConnectedSsid` and
-  `removeCredential` over the host stand-ins of `test/json_oracle`: 1,000 seeded steps and 11 edge
-  steps, in `rust/crates/bembeyaz-store/testdata/wifi-credentials-corpus.txt`. The Rust tests replay
-  the stored-text layers the driver prints (what a file holds, what a save writes); `check_shim.sh`
-  checks the C++ store's answers through the shim. Its keep-or-drop decisions are also in Rust,
-  `wifi_credentials::keep` (the password decoder given), checked against the same corpus's answers
-  with the host stand-in; the bare-metal firmware's `purestwhite-wifistore` keeps its networks
-  through `keep`, so it makes the C++ firmware's decisions, with its own limits on top: it leaves
-  out a name longer than Wi-Fi's 32 bytes, refuses a file over 16 KiB, and reports running out of
-  memory.
+  through the `wifi_credentials` module of `bembeyaz-store`, and decides on it in Rust
+  (`wifi_credentials::keep`, `store_wifi_credentials.h`'s `bb_store_wifi_credentials_keep`): each
+  password decoded through C++'s obfuscation (a `bb_store_decode` callback), its length and
+  checksum checked, at most 8 networks kept, and whether to save again. C++ takes the networks
+  kept and logs each one dropped with why, as before; Rust also works out the length and CRC-32
+  saved with each password (C++ hands the plain password with the obfuscated one).
+  `test/wifi_credentials` goes through the store's `loadFromFile`, `addCredential`,
+  `setLastConnectedSsid` and `removeCredential` over the host stand-ins of `test/json_oracle`:
+  1,000 seeded steps and 11 edge steps, in
+  `rust/crates/bembeyaz-store/testdata/wifi-credentials-corpus.txt`. The driver is built with
+  `-DSTORE_LOG_ERRORS`, so the corpus holds the store's log lines too (a length past `uint32_t` is
+  left out of it: the host's `size_t` is 64 bits, the device's 32). The Rust tests replay the
+  stored-text layers the driver prints (what a file holds, what a save writes, its lengths and
+  CRC-32s too) and every load's networks, resave and log lines, with the host stand-in;
+  `check_shim.sh` checks the C++ store's answers through the shim. The bare-metal firmware's
+  `purestwhite-wifistore` keeps its networks through the same `keep`, with its own limits on top:
+  it leaves out a name longer than Wi-Fi's 32 bytes, refuses a file over 16 KiB, and reports
+  running out of memory.
 - **KOReader sync account ✅**: `KOReaderCredentialStore` reads and writes its JSON (`koreader.json`:
   the sync account, its password obfuscated, the server, its type, the document match method, the
   sync behavior, two flags and two extra headers) through the `koreader_credentials` module of

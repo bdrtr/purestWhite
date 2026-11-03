@@ -15,20 +15,6 @@ typedef struct {
   size_t len;
 } bb_store_text;
 
-// What a stored number field holds, as ArduinoJson's isNull() and is<uint32_t>() see it.
-enum {
-  BB_STORE_MISSING = 0,  // missing, or null
-  BB_STORE_U32 = 1,      // an integer within uint32_t: value holds it
-  BB_STORE_OTHER = 2,    // anything else (a float, a string, an integer out of range...)
-};
-
-// A number field whose presence and type the C++ store decides on (Wi-Fi's password length and
-// CRC-32): value is 0 unless kind is BB_STORE_U32.
-typedef struct {
-  uint8_t kind;
-  uint32_t value;
-} bb_store_number;
-
 // The extra request headers a server keeps (OpdsServer::MAX_CUSTOM_HEADERS and
 // KOREADER_MAX_CUSTOM_HEADERS).
 #define BB_STORE_HEADERS 2
@@ -43,11 +29,13 @@ typedef struct {
 // (no exception, no longjmp).
 typedef void (*bb_store_write)(const char* data, size_t len, void* context);
 
-// Decodes a stored secret, len bytes at data (obfuscation::deobfuscateFromBase64 with no length
-// limit): false when it does not decode; else true, after handing its plain text to put (with
-// put_context) in one call. It runs inside Rust: it must return normally (no exception, no
-// longjmp).
-typedef bool (*bb_store_decode)(const char* data, size_t len, bb_store_write put, void* put_context, void* context);
+// Decodes a stored secret, len bytes at data, of at most most bytes
+// (obfuscation::deobfuscateFromBase64, the length checked before anything is held): true after
+// handing its plain text to put (with put_context) in one call; false when it does not decode, or
+// is too long, which sets *too_long. It runs inside Rust: it must return normally (no exception,
+// no longjmp).
+typedef bool (*bb_store_decode)(const char* data, size_t len, size_t most, bb_store_write put, void* put_context,
+                                bool* too_long, void* context);
 
 #ifdef __cplusplus
 }

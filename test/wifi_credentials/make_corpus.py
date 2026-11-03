@@ -56,15 +56,17 @@ def crc(text):
     return zlib.crc32(text.encode())
 
 
-def number(rng, right):
+def number(rng, right, wide=True):
     """A password_len or password_crc32 value: mostly `right`, else off, of another type, out of
-    range or null."""
+    range or null. Without `wide`, no integer past uint32_t: the store reads password_len as a
+    size_t, 64 bits on the host this runs on but 32 on the device, so the two would judge such a
+    length differently (the networks kept are the same, the log line is not)."""
     roll = rng.random()
     if roll < 0.6:
         return str(right)
-    return rng.choice([str(right + 1), "-1", "0", "65", "4294967295", "4294967296",
-                       "18446744073709551615", "1.5", f"{right}.0", f'"{right}"', "true", "null",
-                       "[]", "{}"])
+    wide_ones = ["4294967296", "18446744073709551615"] if wide else []
+    return rng.choice([str(right + 1), "-1", "0", "65", "4294967295"] + wide_ones +
+                      ["1.5", f"{right}.0", f'"{right}"', "true", "null", "[]", "{}"])
 
 
 def credential(rng):
@@ -83,7 +85,7 @@ def credential(rng):
     else:
         fields["password_obf"] = oracle.value(rng, 1)
     if rng.random() < 0.85:
-        fields["password_len"] = number(rng, len(password.encode()))
+        fields["password_len"] = number(rng, len(password.encode()), wide=False)
     if rng.random() < 0.8:
         fields["password_crc32"] = number(rng, crc(password))
     names = [n for n in fields if rng.random() < 0.95]
@@ -140,7 +142,7 @@ def steps(count):
 
 
 def flags(store_dir):
-    return ["-DARDUINOJSON_ENABLE_ARDUINO_STRING=1", f"-I{store_dir}",
+    return ["-DARDUINOJSON_ENABLE_ARDUINO_STRING=1", "-DSTORE_LOG_ERRORS", f"-I{store_dir}",
             f"-I{oracle.ROOT / 'lib/Serialization'}", f"-I{oracle.ROOT / 'src'}"]
 
 
