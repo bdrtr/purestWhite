@@ -22,7 +22,8 @@ namespace {
 std::string text(const std::string& hex) {
   std::string out;
   if (hex == "-") return out;
-  for (size_t i = 0; i + 1 < hex.size(); i += 2) out.push_back(static_cast<char>(std::stoi(hex.substr(i, 2), nullptr, 16)));
+  for (size_t i = 0; i + 1 < hex.size(); i += 2)
+    out.push_back(static_cast<char>(std::stoi(hex.substr(i, 2), nullptr, 16)));
   return out;
 }
 
