@@ -13,6 +13,9 @@
 // allocator-api2), which needs one even where nothing allocates.
 use esp_alloc as _;
 
+#[cfg(feature = "wifi")]
+extern crate alloc;
+
 pub mod board;
 pub mod boot;
 pub mod gauge;

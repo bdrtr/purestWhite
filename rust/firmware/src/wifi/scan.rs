@@ -1,6 +1,4 @@
-//! Wi-Fi through esp-radio (the `wifi` feature), for gate 2 (ROADMAP.md): for now a scan of the
-//! networks around, for the report. The radio needs the scheduler started first (`esp_rtos`) and
-//! takes its memory from the global heap (internal RAM).
+//! A scan of the networks around, for the report.
 
 use core::fmt::{self, Display, Formatter};
 use esp_hal::peripherals::WIFI;

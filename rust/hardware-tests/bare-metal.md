@@ -1210,3 +1210,33 @@ sends nothing. The image is `purestwhite-baremetal-wifi-1.bin` (in the archive, 
   Start(...)" or "wifi: Scan(...)" names the radio's error; "wifi: no answer in 20 s" means the
   scan never ended; a report that stops at "wifi: scanning", or "PANIC", means it stopped there
   and reset.
+
+## Wi-Fi, joining the saved network ("firmware: wifi-join, the saved network joined and DHCP")
+
+Gate 2's second step: the image reads the networks the C++ firmware saved on the card
+(`/.crosspoint/wifi.json`; it decodes the passwords with the device's own MAC address, as the C++
+firmware does), joins the one the C++ firmware joined last, asks the router for an address
+(DHCP), leaves the network and resets into the C++ firmware. It sends nothing but what joining and
+DHCP need, and the report holds no network name, password or address. The image is
+`purestwhite-baremetal-join-1.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`). On
+the device only.
+
+- [ ] First save your Wi-Fi in the C++ firmware: File Transfer > Join a Network, pick your network,
+  enter the password and answer Yes to "Save password for next time?" (with No, the network is
+  not saved, and the image finds none). Then put `purestwhite-baremetal-join-1.bin` in the card's
+  root (with no `purestwhite-recovery.bin` there); Settings > System > SD Card Firmware Update >
+  choose it > Confirm. Stay near the router. The screen stays on the update page for up to about a
+  minute, then the C++ firmware comes back by itself. Give me the card. Expected:
+  "purestWhite bare-metal Wi-Fi join", "next boot: C++ firmware", "saved: N networks", "wifi:
+  joined on channel C, -D dBm, T ms" (the dBm when the radio gives it) with T a few seconds,
+  "dhcp: address in T ms" with T under a few seconds, "done". What else it may say:
+  - "saved: no card", "saved: no file", "saved: broken file": the card, the file, or the JSON in
+    it could not be read; "saved: 0 networks": none the C++ firmware would use.
+  - "wifi: joining" as the last line, or "PANIC": it stopped there and reset.
+  - "wifi: not joined (...)" names why the router refused: "FourWayHandshakeTimeout" most likely
+    a wrong password; "NoAccessPointFound" no such network around;
+    "NoAccessPointFoundWithCompatibleSecurity" a WPA3-only network (this esp-radio has no WPA3; a
+    WPA2/WPA3 network should join over WPA2: worth noting which kind yours is).
+  - "wifi: no answer in 30 s", "dhcp: no address in 20 s": a step that never ended.
+  - "wifi: not started", "wifi: not set up (...)", "wifi: radio error (...)", "wifi: saved network
+    does not fit", "dhcp: no interface": the radio or the stack could not be had.

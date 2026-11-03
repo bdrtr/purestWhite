@@ -39,8 +39,10 @@ path unchanged.
 3. The battery measurement (gate 1): the cheapest check and the one that decides most.
 4. Wi-Fi and HTTPS (gate 2), then BLE (gate 3), then writing to the card (gate 4). Gate 2's
    first step is written: `wifi-check` scans with esp-radio 1.0.0-beta.1 (the release that
-   matches esp-hal 1.2 and esp-rtos 0.4), behind the `wifi` feature. Next: joining a network the
-   owner gives (station mode, DHCP through embassy-net), then a download over HTTPS.
+   matches esp-hal 1.2 and esp-rtos 0.4), behind the `wifi` feature. The second, `wifi-join`,
+   joins the network the C++ firmware saved (owner's choice, 2026-11-03: the firmware reads the
+   C++ firmware's `wifi.json`, no file of its own) and gets an address from DHCP through
+   embassy-net 0.9.1. Next: a download over HTTPS (DNS, TCP, wolfSSL through FFI).
 5. Only then the user interface and the rest of the features.
 
 ## The repository

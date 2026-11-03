@@ -40,8 +40,13 @@ the emulator, so an image without one drives their async calls over blocking bus
 - `i2c`: the shared I2C bus (touch panel, clock, fuel gauge) at 400 kHz over the async driver
   (`open_bus`), once the touch panel's supply has been on for `SUPPLY_MS`; `gauge`: the CW2017 as
   the services' `Gauge` (charge and voltage read apart).
-- `wifi` (the `wifi` feature only): Wi-Fi through esp-radio; `scan` starts it in station mode,
+- `wifi` (the `wifi` feature only): Wi-Fi through esp-radio. `scan` starts it in station mode,
   scans once and stops it: how many networks, the strongest signal and its channel, no names.
+  `saved::saved_network` reads the network the C++ firmware saved from the card (decoded by
+  `purestwhite-wifistore` with `saved::device_key`, the eFuse base MAC address), over the
+  blocking bus before the scheduler; `join::join` joins it (WPA2
+  Personal with its password, open without one); `net::station_stack` is embassy-net on the
+  station interface, asking DHCP for an address (its runner runs in a task of the image's).
 - `images`: an OTA app slot's image identified through the partition table
   (`identify_partition`: the slot's own flash region, then `purestwhite-updater`'s
   `identify_slot`).
@@ -220,6 +225,16 @@ its scenario in `emu/`.
   resets. `wifi: scanning` stands while it scans, so a run cut short shows where it stopped;
   `wifi: no answer in 20 s` when the driver never ends the scan. It joins no network and sends
   nothing. Needs esp-rtos: device only.
+- `wifi-join` (built with `--features wifi`): gate 2's second step. Reads the C++ firmware's
+  saved networks from the card (`/.crosspoint/wifi.json`: `purestwhite-wifistore` decodes the
+  passwords with the device's eFuse base MAC address, as `WifiCredentialStore` keeps them), joins
+  the one it joined last and asks DHCP for an address, then leaves and resets. Its report:
+  `saved: N networks` (or `saved: no card`, `no file`, `broken file`), `wifi: joining` while it
+  joins, then `wifi: joined on channel C, -D dBm, T ms` (or `wifi: not joined (why)` with
+  esp-radio's reason, `wifi: no answer in 30 s`), `dhcp: address in T ms` (or `dhcp: no address
+  in 20 s`), `done`; never a network's name, a password or an address. The watchdog is fed
+  between the steps. esp-radio 1.0.0-beta.1 has no WPA3: a WPA2/WPA3 network joins over WPA2, a
+  WPA3-only one not at all. Needs esp-rtos: device only.
 - `smoke-check`: starts esp-rtos and Embassy, runs the clock, fuel gauge and touch drivers on
   esp-hal's I2C, reads touches for 15 s with the panel black, then paints it white. Needs esp-rtos:
   device only.
@@ -309,7 +324,8 @@ cargo build --release
 ```
 
 This builds every image into `rust/firmware/target/xtensa-esp32s3-none-elf/release/<image>`,
-except `wifi-check`: build it alone with `cargo build --release --features wifi --bin wifi-check`.
+except `wifi-check` and `wifi-join`: build each alone with
+`cargo build --release --features wifi --bin wifi-check` (or `--bin wifi-join`).
 A build with the feature links esp-radio into every image it builds, so build the others, and the
 ones the emulator runs, without it. To
 make a `.bin` the device can flash, from the repository root:

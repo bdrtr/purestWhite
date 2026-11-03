@@ -742,6 +742,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "purestwhite-wifistore"
+version = "0.1.0"
+dependencies = [
+ "bembeyaz-json",
+]
+
+[[package]]
 name = "quote"
 version = "1.0.47"
 source = "registry+https://github.com/rust-lang/crates.io-index"
