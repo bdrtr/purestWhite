@@ -10,6 +10,8 @@
 //!   `test/recent_books/make_corpus.py`.
 //! - [`opds_servers`]: `OpdsServerStore` (`opds.json`): the OPDS catalogs, their sign-ins and
 //!   headers as stored; corpus from `test/opds_servers/make_corpus.py`.
+//! - [`wifi_credentials`]: `WifiCredentialStore` (`wifi.json`): the saved Wi-Fi networks, their
+//!   passwords as stored; corpus from `test/wifi_credentials/make_corpus.py`.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -22,6 +24,7 @@ extern crate std;
 #[cfg(test)]
 mod corpus;
 
+pub mod field;
 pub mod headers;
 pub mod opds_servers;
 #[cfg(test)]
@@ -32,5 +35,8 @@ mod recent_books_tests;
 pub mod state;
 #[cfg(test)]
 mod state_tests;
+pub mod wifi_credentials;
+#[cfg(test)]
+mod wifi_credentials_tests;
 
 pub use bembeyaz_jsondoc::Error;

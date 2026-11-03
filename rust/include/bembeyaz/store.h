@@ -2,6 +2,7 @@
 #pragma once
 
 #include <stddef.h>
+#include <stdint.h>
 
 #ifdef __cplusplus
 extern "C" {
@@ -12,6 +13,22 @@ typedef struct {
   const char* data;
   size_t len;
 } bb_store_text;
+
+// What a stored number field holds, as ArduinoJson's isNull() and is<uint32_t>() see it.
+enum {
+  BB_STORE_MISSING = 0,  // missing, or null
+  BB_STORE_U32 = 1,      // an integer within uint32_t: value holds it
+  BB_STORE_OTHER = 2,    // anything else (a float, a string, an integer out of range...)
+};
+
+// A number field whose presence and type the C++ store decides on; value is 0 unless kind is
+// BB_STORE_U32. A field the store reads with as<T>() and no is<T>() check (KOReader's serverType)
+// also needs the number ArduinoJson converts from the other kinds; that field will need more than
+// this struct.
+typedef struct {
+  uint8_t kind;
+  uint32_t value;
+} bb_store_number;
 
 // The extra request headers a server keeps (OpdsServer::MAX_CUSTOM_HEADERS and
 // KOREADER_MAX_CUSTOM_HEADERS).

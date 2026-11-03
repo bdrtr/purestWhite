@@ -14,20 +14,22 @@
 // shim; the driver is the same for both.
 //
 //   load <json>              loadFromFile with <json> as the file
-//   add <ssid> <password>    addCredential (both in hex)
+//   add <ssid> <password>    addCredential
 //   last <ssid>              setLastConnectedSsid
 //   remove <ssid>            removeCredential
 //   long <n>                 load {"lastConnectedSsid":"<n s's>"}, then add a network named n s's
+// (every argument in hex, but n).
 //
-// Each answers = ok|fail <networks> | <written json> | read <layer> | save <layer>, but long:
+// Each step answers = ok|fail <networks> | <written json> | read <layer> | save <layer>, but long:
 // = <load> | <add>, each ok|fail <last connected length> <count> <written json's length>.
 // <networks> is the last connected SSID, the count, then one space-separated item per network
 // (ssid,password in hex, "-" when empty); <written json> is what the store wrote in the step ("-"
 // for nothing). The read layer ("-" for a step that reads no file) is err <name>, or the last
-// connected SSID, the count of "credentials" items, then one item per item:
+// connected SSID, the count of "credentials" items, then one space-separated entry per item:
 // ssid,password_obf,password,<password_len>,<password_crc32>, each number as kind:value (kind 0
 // missing, 1 a u32, 2 another type). The save layer ("-" when nothing was written) is the last
-// connected SSID and one item per network: ssid,password_obf,password_len,password_crc32.
+// connected SSID and one entry per network: ssid,password_obf,password_len,password_crc32 (texts in
+// hex, numbers in decimal).
 #include <ArduinoJson.h>
 #include <CredentialIntegrity.h>
 #include <ObfuscationUtils.h>

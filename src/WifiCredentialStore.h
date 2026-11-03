@@ -1,5 +1,4 @@
 #pragma once
-#include <ArduinoJson.h>
 #include <PersistableStore.h>
 
 #include <optional>
@@ -42,8 +41,10 @@ class WifiCredentialStore : public PersistableStore<WifiCredentialStore> {
 
  public:
   static const char* getFilePath() { return "/.crosspoint/wifi.json"; }
-  void toJson(JsonDocument& doc) const;
-  bool fromJson(JsonVariantConst doc);
+  // wifi.json's text, read and written by Rust (bembeyaz_store::wifi_credentials); the passwords'
+  // obfuscation and the checks of their length and CRC-32 stay here. See PersistableStore.
+  bool toJsonText(String& json) const;
+  const char* fromJsonText(const String& json);
 
   // Credential management
   bool addCredential(const std::string& ssid, const std::string& password);

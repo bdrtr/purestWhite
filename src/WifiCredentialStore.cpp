@@ -2,111 +2,140 @@
 
 #include <CredentialIntegrity.h>
 #include <Logging.h>
-#include <ObfuscationUtils.h>
+#include <StoreText.h>
+#include <bembeyaz/store_wifi_credentials.h>
 
 #include <algorithm>
+#include <cstddef>
 
-void WifiCredentialStore::toJson(JsonDocument& doc) const {
+// The JSON is Rust's (bembeyaz_store::wifi_credentials); this file obfuscates the passwords, checks
+// what a file holds and decides which networks to keep, as the ArduinoJson version did.
+namespace {
+static_assert(sizeof(bb_store_number) == 8 && offsetof(bb_store_number, value) == 4, "bb_store_number layout");
+static_assert(sizeof(bb_store_wifi_stored) == 3 * sizeof(bb_store_text) + 16 &&
+                  offsetof(bb_store_wifi_stored, password_len) == 3 * sizeof(bb_store_text) &&
+                  offsetof(bb_store_wifi_stored, password_crc32) == 3 * sizeof(bb_store_text) + 8,
+              "bb_store_wifi_stored layout");
+static_assert(sizeof(bb_store_wifi_saved) == 2 * sizeof(bb_store_text) + 16 &&
+                  offsetof(bb_store_wifi_saved, password_len) == 2 * sizeof(bb_store_text) &&
+                  offsetof(bb_store_wifi_saved, password_crc32) == 2 * sizeof(bb_store_text) + 8,
+              "bb_store_wifi_saved layout");
+
+// The networks read, the one connected last, the store's limits, and whether to save again.
+struct Read {
+  std::vector<WifiCredential>& credentials;
+  std::string& lastConnectedSsid;
+  size_t mostNetworks;
+  size_t mostPasswordLength;
+  bool needsResave;
+};
+
+void setLastConnected(const char* data, const size_t len, void* context) {
+  static_cast<Read*>(context)->lastConnectedSsid.assign(data, len);
+}
+
+// Whether the password matches its stored length and CRC-32; an older file without them is kept,
+// and needsResave set so it is saved again with them.
+bool checkIntegrity(const WifiCredential& cred, const bb_store_wifi_stored& stored, bool& needsResave) {
+  bool valid = true;
+  if (stored.password_len.kind != BB_STORE_MISSING) {
+    if (cred.password.size() != stored.password_len.value) {
+      LOG_ERR("WCS", "Discarding corrupted password for %s (expected %zu bytes, decoded %zu)", cred.ssid.c_str(),
+              static_cast<size_t>(stored.password_len.value), cred.password.size());
+      valid = false;
+    }
+  } else {
+    // Upgrade existing JSON after it has loaded successfully.
+    needsResave = true;
+  }
+  if (stored.password_crc32.kind == BB_STORE_U32) {
+    if (credential_integrity::crc32(cred.password) != stored.password_crc32.value) {
+      LOG_ERR("WCS", "Discarding corrupted password for %s (checksum mismatch)", cred.ssid.c_str());
+      valid = false;
+    }
+  } else if (stored.password_crc32.kind == BB_STORE_MISSING) {
+    // password_crc32 was added after password_len; accept and upgrade files
+    // written by older firmware.
+    needsResave = true;
+  } else {
+    LOG_ERR("WCS", "Discarding corrupted password for %s (invalid checksum)", cred.ssid.c_str());
+    valid = false;
+  }
+  return valid;
+}
+
+void addRead(const bb_store_wifi_stored* stored, const size_t count, void* context) {
+  auto& read = *static_cast<Read*>(context);
+  if (read.credentials.empty()) read.credentials.reserve(std::min(count, read.mostNetworks));
+  if (read.credentials.size() >= read.mostNetworks) return;
+  WifiCredential cred;
+  cred.ssid = storeString(stored->ssid);
+  // A length of another type, or one over mostPasswordLength, drops the network (and the file is
+  // saved again without it).
+  if (stored->password_len.kind == BB_STORE_OTHER) {
+    LOG_ERR("WCS", "Discarding corrupted password for %s (invalid length)", cred.ssid.c_str());
+    read.needsResave = true;
+    return;
+  }
+  if (stored->password_len.kind == BB_STORE_U32 && stored->password_len.value > read.mostPasswordLength) {
+    LOG_ERR("WCS", "Discarding oversized password for %s (%zu bytes)", cred.ssid.c_str(),
+            static_cast<size_t>(stored->password_len.value));
+    read.needsResave = true;
+    return;
+  }
+  bool passwordValid = false;
+  cred.password = readStoredPassword(stored->password_obf, stored->password, read.mostPasswordLength, read.needsResave,
+                                     passwordValid);
+  if (!passwordValid) {
+    LOG_ERR("WCS", "Discarding oversized password for %s", cred.ssid.c_str());
+    read.needsResave = true;
+    return;
+  }
+  if (!checkIntegrity(cred, *stored, read.needsResave)) {
+    read.needsResave = true;
+    return;
+  }
+  read.credentials.push_back(std::move(cred));
+}
+}  // namespace
+
+bool WifiCredentialStore::toJsonText(String& json) const {
   std::lock_guard<std::mutex> lock(credentialMutex);
-  doc["lastConnectedSsid"] = lastConnectedSsid;
-
-  JsonArray arr = doc["credentials"].to<JsonArray>();
-  for (const auto& cred : credentials) {
-    JsonObject obj = arr.add<JsonObject>();
-    obj["ssid"] = cred.ssid;
-    obj["password_obf"] = obfuscation::obfuscateToBase64(cred.password);
+  ObfuscatedTexts obfuscated;
+  std::vector<bb_store_wifi_saved> saved(credentials.size());
+  for (size_t i = 0; i < credentials.size(); i++) {
+    const WifiCredential& cred = credentials[i];
+    saved[i].ssid = storeText(cred.ssid);
+    saved[i].password_obf = obfuscated.add(cred.password);
     // XOR and base64 must round-trip to exactly this many bytes. Keeping the
     // original length lets the loader reject a decodable-but-corrupted value
     // instead of silently trying a different password.
-    obj["password_len"] = cred.password.size();
-    obj["password_crc32"] = credential_integrity::crc32(cred.password);
+    saved[i].password_len = cred.password.size();
+    saved[i].password_crc32 = credential_integrity::crc32(cred.password);
   }
+  if (!obfuscated.ok()) return false;
+  StoreJsonSink sink{json, true};
+  return bb_store_wifi_credentials_write(storeText(lastConnectedSsid), saved.data(), saved.size(), appendStoreJson,
+                                         &sink) &&
+         sink.ok;
 }
 
-bool WifiCredentialStore::fromJson(JsonVariantConst doc) {
+const char* WifiCredentialStore::fromJsonText(const String& json) {
   std::lock_guard<std::mutex> lock(credentialMutex);
-  lastConnectedSsid = doc["lastConnectedSsid"] | "";
-
-  // Tolerate a missing/invalid 'credentials' key (treat as empty list); only
-  // a JSON parse error is fatal. A null JsonArray iterates zero times.
-  credentials.clear();
-  JsonArrayConst arr = doc["credentials"].as<JsonArrayConst>();
-  credentials.reserve(std::min(arr.size(), MAX_NETWORKS));
-  bool needsResave = false;
-
-  for (JsonObjectConst obj : arr) {
-    if (credentials.size() >= MAX_NETWORKS) break;
-    WifiCredential cred;
-    cred.ssid = obj["ssid"] | "";
-
-    const JsonVariantConst passwordLength = obj["password_len"];
-    const bool hasPasswordLength = !passwordLength.isNull();
-    size_t expectedLength = 0;
-    if (hasPasswordLength) {
-      if (!passwordLength.is<size_t>()) {
-        LOG_ERR("WCS", "Discarding corrupted password for %s (invalid length)", cred.ssid.c_str());
-        needsResave = true;
-        continue;
-      }
-      expectedLength = passwordLength.as<size_t>();
-      if (expectedLength > MAX_PASSWORD_LENGTH) {
-        LOG_ERR("WCS", "Discarding oversized password for %s (%zu bytes)", cred.ssid.c_str(), expectedLength);
-        needsResave = true;
-        continue;
-      }
-    }
-
-    bool passwordValid = false;
-    cred.password = extractPassword(obj, needsResave, MAX_PASSWORD_LENGTH, passwordValid);
-    if (!passwordValid) {
-      LOG_ERR("WCS", "Discarding oversized password for %s", cred.ssid.c_str());
-      needsResave = true;
-      continue;
-    }
-
-    bool integrityValid = true;
-    if (hasPasswordLength) {
-      if (cred.password.size() != expectedLength) {
-        LOG_ERR("WCS", "Discarding corrupted password for %s (expected %zu bytes, decoded %zu)", cred.ssid.c_str(),
-                expectedLength, cred.password.size());
-        integrityValid = false;
-      }
-    } else {
-      // Upgrade existing JSON after it has loaded successfully.
-      needsResave = true;
-    }
-
-    const JsonVariantConst checksum = obj["password_crc32"];
-    if (checksum.is<uint32_t>()) {
-      const uint32_t expectedCrc32 = checksum.as<uint32_t>();
-      if (credential_integrity::crc32(cred.password) != expectedCrc32) {
-        LOG_ERR("WCS", "Discarding corrupted password for %s (checksum mismatch)", cred.ssid.c_str());
-        integrityValid = false;
-      }
-    } else if (checksum.isNull()) {
-      // password_crc32 was added after password_len; accept and upgrade files
-      // written by older firmware.
-      needsResave = true;
-    } else {
-      LOG_ERR("WCS", "Discarding corrupted password for %s (invalid checksum)", cred.ssid.c_str());
-      integrityValid = false;
-    }
-
-    if (!integrityValid) {
-      needsResave = true;
-      continue;
-    }
-    credentials.push_back(cred);
-  }
-
+  // A missing or invalid 'credentials' key reads as an empty list; only a JSON parse error is fatal.
+  std::vector<WifiCredential> read;
+  std::string last;
+  Read context{read, last, MAX_NETWORKS, MAX_PASSWORD_LENGTH, false};
+  const char* error = bb_store_wifi_credentials_read(json.c_str(), json.length(), setLastConnected, addRead, &context);
+  if (error) return error;
+  credentials = std::move(read);
+  lastConnectedSsid = std::move(last);
   LOG_DBG("WCS", "Loaded %zu WiFi credentials from file", credentials.size());
-
-  if (needsResave) {
+  if (context.needsResave) {
     LOG_DBG("WCS", "Resaving JSON with obfuscated passwords");
     requestResave();
   }
-
-  return true;
+  return nullptr;
 }
 
 bool WifiCredentialStore::addCredential(const std::string& ssid, const std::string& password) {

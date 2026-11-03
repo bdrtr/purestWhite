@@ -17,14 +17,15 @@ build) and git. After regenerating, run `cargo test -p bembeyaz-store` in rust/ 
 test/wifi_credentials/check_shim.sh. The corpus only ever holds the C++ behavior. Every SSID and
 password here is made up.
 
-Scenarios: wifi.json files with credential lists of any length (past the store's 8, which counts
-the networks it keeps), items that are not objects, fields of any type (the shared value
-generator, test/json_oracle/oracle.py), obfuscated passwords that decode, do not decode or are
-empty, legacy plain passwords, lengths and CRC-32s that match, do not match, are missing, are of
-another type or out of range, a missing or wrong-typed "credentials", broken and empty files;
-networks added (past 8, and passwords past the 64 bytes the store reads back), the last connected
-network set, networks removed; edges: roots that are not objects, and the longest string
-ArduinoJson keeps and one byte more.
+Scenarios: wifi.json files with credential lists of any length (past the store's 8, which counts the
+networks it keeps), items that are not objects, fields of any type (the shared value generator,
+test/json_oracle/oracle.py), obfuscated passwords that decode, do not decode or are empty, legacy
+plain passwords, lengths and CRC-32s that match, do not match, are missing, are of another type or
+out of range, a missing or wrong-typed "credentials", broken and empty files; networks added (past
+8, and passwords longer than the 64 bytes the store accepts when it reads a file), the last
+connected network set, networks removed; edges: roots that are not objects, a "credentials" that is
+not an array, an empty file, a legacy plain password alone, an empty password with a zero length and
+CRC-32, and the longest string ArduinoJson keeps and one byte more.
 """
 import random
 import sys

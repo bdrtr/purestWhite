@@ -111,7 +111,9 @@ and `write` each), over `bembeyaz-jsondoc` (its `|` and `is<T>` are pinned by
 `bb_store_write` callback and `bb_store_text` of `store.h` (on the C++ side,
 `lib/Serialization/StoreText.h`): a store with a fixed set of fields crosses as a `repr(C)` struct;
 a list crosses as an array of item structs when written and one item per callback when read, the C++
-store giving its limit (`MAX_RECENT_BOOKS`) so it is defined once; a large table
+store giving its limit (`MAX_RECENT_BOOKS`) so it is defined once, when every item read is kept;
+when the limit counts only the items C++ keeps (Wi-Fi's `MAX_NETWORKS`, and the OPDS token and LCP
+stores'), Rust hands over every item and C++ applies the limit in its callback; a large table
 (`CrossPointSettings`) will cross one field per callback. The text is written by
 `bembeyaz_jsondoc::Writer` straight into one buffer, and a store's `write` returns `None` when
 memory runs out, so the old file is kept. Passwords and other secrets stay obfuscated in C++
@@ -121,12 +123,14 @@ from them with `obfuscation::readStoredPassword` (`StoredPassword.h`) and obfusc
 shape is upgraded, and resaved, where its inputs are: in C++ when it depends on a decoded value or
 on C++ state (the OPDS plain `password`); only a shape that Rust alone can see would be reported
 back, for example with a `bool* resave` out-parameter. A field whose type or presence the C++ store
-decides on (the Wi-Fi password's length and CRC-32, KOReader's `cfgVersion`) will cross as a typed
-field with its kind (missing, the expected type, another type), so C++ keeps deciding. A nested list
-with a fixed limit is a fixed array and a count inside its item (`bb_store_header`, shared by the
-OPDS servers and the KOReader server). The oracles share `test/json_oracle`; from the next store on,
-a store's Rust test replays `read` and `write` against what the driver prints of the stored texts
-and leaves the C++ glue to `check_shim.sh` (the OPDS test still mirrors that glue).
+decides on crosses as a `bb_store_number` with its kind (missing, a `u32`, another type;
+`bembeyaz_store::field`), so C++ keeps deciding: the Wi-Fi password's length and CRC-32 now;
+KOReader's fields next, where one read with `as<uint8_t>()` will also need ArduinoJson's conversion
+of the other kinds. A nested list with a fixed limit is a fixed array and a count inside its item
+(`bb_store_header`, shared by the OPDS servers and the KOReader server). The oracles share
+`test/json_oracle`; from the Wi-Fi store on, a store's Rust test replays `read` and `write` against
+the stored-text layers the driver prints, and leaves the C++ glue to `check_shim.sh` (the OPDS test
+still mirrors that glue).
 
 - **App state ✅**: `CrossPointState` (`state.json`: the open book, the reader's load count, the
   rings of recent sleep images and their legacy `lastSleepImage`) calls the `state` module of
@@ -147,6 +151,17 @@ and leaves the C++ glue to `check_shim.sh` (the OPDS test still mirrors that glu
   for the obfuscation, so PersistableStore's file steps and the resave are in its answers too: 1,000
   seeded steps and 12 edge steps, in `rust/crates/bembeyaz-store/testdata/opds-servers-corpus.txt`;
   its `check_shim.sh` runs them through the C++ shim over Rust.
+- **Wi-Fi networks ✅**: `WifiCredentialStore` reads and writes its JSON (`wifi.json`: the saved
+  networks, each password obfuscated with its length and CRC-32, and the network connected last)
+  through the `wifi_credentials` module of `bembeyaz-store`. Rust hands over every item of the file
+  with its texts as stored and each number with its kind (`bb_store_number`,
+  `bembeyaz_store::field`); C++ decodes the password and decides which networks to keep (the length
+  and checksum checks, at most 8 kept) and whether to save again, as before. `test/wifi_credentials`
+  goes through the store's `loadFromFile`, `addCredential`, `setLastConnectedSsid` and
+  `removeCredential` over the host stand-ins of `test/json_oracle`: 1,000 seeded steps and 11 edge
+  steps, in `rust/crates/bembeyaz-store/testdata/wifi-credentials-corpus.txt`. The Rust tests replay
+  the stored-text layers the driver prints (what a file holds, what a save writes); `check_shim.sh`
+  checks the C++ store's answers through the shim.
 
 ## `src/` activities
 

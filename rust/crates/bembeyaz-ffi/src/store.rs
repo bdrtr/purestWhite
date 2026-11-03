@@ -1,5 +1,6 @@
 //! What the settings stores' exports share (`rust/include/bembeyaz/store.h`).
 
+use bembeyaz_store::field::{Kind, Number};
 use bembeyaz_store::headers::{HEADERS, Header, Headers};
 use core::ffi::{c_char, c_void};
 
@@ -35,6 +36,30 @@ impl Text {
     pub(crate) unsafe fn bytes<'a>(self) -> &'a [u8] {
         // SAFETY: as documented.
         unsafe { crate::view(self.data.cast(), self.len) }
+    }
+}
+
+// store.h's BB_STORE_MISSING, BB_STORE_U32 and BB_STORE_OTHER.
+const _: () = assert!(Kind::Missing as u8 == 0 && Kind::U32 as u8 == 1 && Kind::Other as u8 == 2);
+
+/// store.h's `bb_store_number`.
+#[repr(C)]
+pub(crate) struct BbNumber {
+    kind: u8,
+    value: u32,
+}
+
+const _: () = {
+    assert!(size_of::<BbNumber>() == 8 && core::mem::offset_of!(BbNumber, value) == 4);
+};
+
+impl BbNumber {
+    /// store.h's form of `number`.
+    pub(crate) fn of(number: Number) -> BbNumber {
+        BbNumber {
+            kind: number.kind as u8,
+            value: number.value,
+        }
     }
 }
 

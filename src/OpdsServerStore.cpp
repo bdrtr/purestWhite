@@ -3,7 +3,6 @@
 #include <Logging.h>
 #include <ObfuscationUtils.h>
 #include <StoreText.h>
-#include <StoredPassword.h>
 #include <bembeyaz/store_opds_servers.h>
 
 #include <algorithm>
@@ -37,8 +36,7 @@ void addRead(const bb_store_opds_server* stored, const size_t count, void* conte
   server.name = storeString(stored->name);
   server.url = storeString(stored->url);
   server.username = storeString(stored->username);
-  server.password = obfuscation::readStoredPassword(storeString(stored->password_obf).c_str(),
-                                                    storeString(stored->password).c_str(), read->needsResave);
+  server.password = readStoredPassword(stored->password_obf, stored->password, read->needsResave);
   for (size_t i = 0; i < stored->header_count && i < OpdsServer::MAX_CUSTOM_HEADERS; i++) {
     server.customHeaders[i].name = storeString(stored->headers[i].name);
     server.customHeaders[i].value =
