@@ -9,11 +9,13 @@
 //!   approximate decimal conversion).
 //! - [`Value::to_json`]: `serializeJson`, floats written with up to 6 decimal places (a value
 //!   stored as `float`) or 9 (as `double`) by ArduinoJson's own decomposition.
-//! - The `as_*` and `is_*` functions (on a value or a missing member) and [`Value::is_null`]:
-//!   ArduinoJson's `as<T>()`, `is<T>()` and `isNull()`.
+//! - The `as_*`, `is_*` and `or_*` functions (on a value or a missing member) and
+//!   [`Value::is_null`]: ArduinoJson's `as<T>()`, `is<T>()`, `variant | fallback` and `isNull()`;
+//!   [`items`] and [`members`]: a `JsonArrayConst` or `JsonObjectConst` of a value.
 //!
-//! The golden corpus (testdata/kosync-corpus.txt) is ArduinoJson's own output on seeded scenarios
-//! (`test/kosync_messages/make_corpus.py`).
+//! The golden corpora are ArduinoJson's own output on seeded scenarios: testdata/kosync-corpus.txt
+//! (`test/kosync_messages/make_corpus.py`) and testdata/conversions-corpus.txt
+//! (`test/json_conversions/make_corpus.py`, the conversions and `|` the settings stores use).
 //!
 //! The input is untrusted (a sync server's answer, a book's sidecar metadata): reading never panics, and an allocation that
 //! fails is [`Error::NoMemory`], as in ArduinoJson, not an abort. Writing allocates as `Vec` does.
@@ -26,6 +28,8 @@ extern crate alloc;
 #[cfg(test)]
 extern crate std;
 
+#[cfg(test)]
+mod conversions_tests;
 mod convert;
 mod float;
 mod number;
@@ -39,7 +43,10 @@ use alloc::vec::Vec;
 /// The longest string or key ArduinoJson keeps (`ARDUINOJSON_STRING_LENGTH_SIZE` 2).
 pub(crate) const STRING_MOST: usize = 65_535;
 
-pub use convert::{Target, as_number, as_str, as_string, is_i64, is_number};
+pub use convert::{
+    Integer, Target, as_number, as_str, as_string, is_i64, is_integer, is_number, items, members,
+    or_bool, or_f32, or_integer, or_str,
+};
 pub use parse::{Error, parse};
 
 /// A value as ArduinoJson stores it: integers in 32 bits when they fit, floats as `float` when

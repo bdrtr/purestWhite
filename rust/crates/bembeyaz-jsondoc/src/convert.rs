@@ -18,6 +18,33 @@ pub trait Target: Sized + Default {
 }
 
 #[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
+impl Target for u8 {
+    fn from_unsigned(value: u64) -> u8 {
+        u8::try_from(value).unwrap_or(0)
+    }
+    fn from_signed(value: i64) -> u8 {
+        u8::try_from(value).unwrap_or(0)
+    }
+    fn from_f32(value: f32) -> u8 {
+        if (0.0..=255.0).contains(&value) {
+            value as u8
+        } else {
+            0
+        }
+    }
+    fn from_f64(value: f64) -> u8 {
+        if (0.0..=255.0).contains(&value) {
+            value as u8
+        } else {
+            0
+        }
+    }
+    fn from_bool(value: bool) -> u8 {
+        u8::from(value)
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_sign_loss)]
 impl Target for u16 {
     fn from_unsigned(value: u64) -> u16 {
         u16::try_from(value).unwrap_or(0)
@@ -70,6 +97,35 @@ impl Target for u32 {
     }
     fn from_bool(value: bool) -> u32 {
         u32::from(value)
+    }
+}
+
+#[allow(clippy::cast_possible_truncation, clippy::cast_precision_loss)]
+impl Target for i32 {
+    fn from_unsigned(value: u64) -> i32 {
+        i32::try_from(value).unwrap_or(0)
+    }
+    fn from_signed(value: i64) -> i32 {
+        i32::try_from(value).unwrap_or(0)
+    }
+    fn from_f32(value: f32) -> i32 {
+        // The largest float below 2^31 (`highest_for<int32_t>`).
+        let highest = f32::from_bits(0x4EFF_FFFF);
+        if value >= i32::MIN as f32 && value <= highest {
+            value as i32
+        } else {
+            0
+        }
+    }
+    fn from_f64(value: f64) -> i32 {
+        if (f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&value) {
+            value as i32
+        } else {
+            0
+        }
+    }
+    fn from_bool(value: bool) -> i32 {
+        i32::from(value)
     }
 }
 
@@ -186,4 +242,81 @@ pub fn is_number(value: Option<&Value>) -> bool {
                 | Value::F64(_)
         )
     )
+}
+
+/// An integer type `is<T>()` checks: an integer value within its range.
+pub trait Integer: Target + TryFrom<u64> + TryFrom<i64> {}
+impl Integer for u8 {}
+impl Integer for u16 {}
+impl Integer for u32 {}
+impl Integer for i32 {}
+impl Integer for i64 {}
+
+/// `value.is<T>()` for an integer type: an integer (not a float, a bool or a string) within `T`.
+#[must_use]
+pub fn is_integer<T: Integer>(value: Option<&Value>) -> bool {
+    match value {
+        Some(Value::U32(n)) => T::try_from(u64::from(*n)).is_ok(),
+        Some(Value::U64(n)) => T::try_from(*n).is_ok(),
+        Some(Value::I32(n)) => T::try_from(i64::from(*n)).is_ok(),
+        Some(Value::I64(n)) => T::try_from(*n).is_ok(),
+        _ => false,
+    }
+}
+
+/// `value | fallback` for an integer type: the value when it is an integer within `T`.
+#[must_use]
+pub fn or_integer<T: Integer>(value: Option<&Value>, fallback: T) -> T {
+    if is_integer::<T>(value) {
+        as_number(value)
+    } else {
+        fallback
+    }
+}
+
+/// `value | fallback` for a `float`: the value when it is any number.
+#[must_use]
+pub fn or_f32(value: Option<&Value>, fallback: f32) -> f32 {
+    if is_number(value) {
+        as_number(value)
+    } else {
+        fallback
+    }
+}
+
+/// `value | fallback` for a `bool`: the value when it is a boolean.
+#[must_use]
+pub fn or_bool(value: Option<&Value>, fallback: bool) -> bool {
+    match value {
+        Some(Value::Bool(b)) => *b,
+        _ => fallback,
+    }
+}
+
+/// `value | fallback` for a `const char*`: a string's bytes up to its first NUL (as C++ reads
+/// the pointer), else `fallback`.
+#[must_use]
+pub fn or_str<'a>(value: Option<&'a Value>, fallback: &'a [u8]) -> &'a [u8] {
+    match value {
+        Some(Value::Str(s)) => s.split(|b| *b == 0).next().unwrap_or_default(),
+        _ => fallback,
+    }
+}
+
+/// A `JsonArrayConst` of the value: its items, none for anything else.
+#[must_use]
+pub fn items(value: Option<&Value>) -> &[Value] {
+    match value {
+        Some(Value::Array(items)) => items,
+        _ => &[],
+    }
+}
+
+/// A `JsonObjectConst` of the value: its members, none for anything else.
+#[must_use]
+pub fn members(value: Option<&Value>) -> &[(Vec<u8>, Value)] {
+    match value {
+        Some(Value::Object(members)) => members,
+        _ => &[],
+    }
 }

@@ -10,7 +10,7 @@ use std::vec::Vec;
 
 const CORPUS: &str = include_str!("../testdata/kosync-corpus.txt");
 
-fn bytes(hex: &str) -> Vec<u8> {
+pub(crate) fn bytes(hex: &str) -> Vec<u8> {
     if hex == "-" {
         return Vec::new();
     }
@@ -19,7 +19,7 @@ fn bytes(hex: &str) -> Vec<u8> {
         .collect()
 }
 
-fn hex(bytes: &[u8]) -> String {
+pub(crate) fn hex(bytes: &[u8]) -> String {
     if bytes.is_empty() {
         return String::from("-");
     }
