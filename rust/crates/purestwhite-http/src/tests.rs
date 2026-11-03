@@ -2,6 +2,7 @@
 #![allow(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 use super::{HEAD_MOST, Response, ResponseError, write_get};
+use std::format;
 use std::string::String;
 use std::vec::Vec;
 
@@ -130,4 +131,116 @@ fn the_content_length_tells_when_the_body_is_whole() {
             "without a length, only the close ends the body"
         );
     }
+}
+
+#[test]
+fn a_url_is_split_as_the_cpp_client_splits_it() {
+    use super::url::{Server, UrlError, split};
+    let server = |tls, host, port, path: &'static str| Server {
+        tls,
+        host,
+        port,
+        path: path.as_bytes(),
+    };
+    let cases: [(&str, Result<Server<'_>, UrlError>); 15] = [
+        ("https://h", Ok(server(true, "h", 443, ""))),
+        ("http://h:8080/p/q", Ok(server(false, "h", 8080, "/p/q"))),
+        ("HTTPS://H:443", Ok(server(true, "H", 443, ""))),
+        ("http://h:abc", Ok(server(false, "h", 0, ""))),
+        ("http://h:", Ok(server(false, "h", 0, ""))),
+        ("http://h:70000", Ok(server(false, "h", 4464, ""))),
+        ("http://h:-1", Ok(server(false, "h", 65535, ""))),
+        ("http://h: +80", Ok(server(false, "h", 80, ""))),
+        ("https://u:p@h/", Ok(server(true, "u", 0, "/"))),
+        ("https://[::1]:8080", Ok(server(true, "[::1]", 8080, ""))),
+        ("https://h/a?b=1", Ok(server(true, "h", 443, "/a?b=1"))),
+        ("ftp://h", Err(UrlError::Scheme)),
+        ("h/p", Err(UrlError::Scheme)),
+        ("https://", Err(UrlError::Host)),
+        ("https://a b/", Err(UrlError::Host)),
+    ];
+    for (url, want) in cases {
+        assert_eq!(split(url.as_bytes()), want, "{url}");
+    }
+}
+
+#[test]
+fn a_request_is_written_as_the_cpp_client_writes_it() {
+    use super::request::{Header, Request, len, write};
+    use super::url::split;
+    let text = |url: &str, path: &str, headers: &[Header<'_>], body: Option<&[u8]>| {
+        let server = split(url.as_bytes()).unwrap();
+        let request = Request {
+            method: "PUT",
+            server: &server,
+            path: path.as_bytes(),
+            headers,
+            body,
+        };
+        let mut out = Vec::new();
+        write(&mut |p| out.extend_from_slice(p), &request).unwrap();
+        assert_eq!(len(&request), Ok(out.len()));
+        String::from_utf8(out).unwrap()
+    };
+    let h = [Header {
+        name: b"X-A",
+        value: b"",
+    }];
+    assert_eq!(
+        text("http://h:8081/base", "/x", &h, Some(b"{}")),
+        "PUT /base/x HTTP/1.1\r\nHost: h:8081\r\nUser-Agent: FreeInk-ESP32\r\nConnection: close\r\n\
+         X-A: \r\nContent-Length: 2\r\n\r\n{}"
+    );
+    assert!(text("https://h:443", "/x", &[], None).contains("Host: h\r\n"));
+    assert!(text("http://h:abc", "/x", &[], None).contains("Host: h\r\n"));
+    assert!(text("https://h", "", &[], None).starts_with("PUT / HTTP/1.1\r\n"));
+}
+
+#[test]
+fn a_request_that_would_break_is_not_written() {
+    use super::request::{Header, Request, Unsafe, write};
+    use super::url::split;
+    let server = split(b"https://h").unwrap();
+    let spaced = split(b"https://h/a b").unwrap();
+    let header = |name: &'static [u8], value: &'static [u8]| [Header { name, value }];
+    let cases: [(&str, &super::url::Server<'_>, &[u8], [Header<'_>; 1]); 6] = [
+        ("PUT", &server, b"/x", header(b"X", b"a\r\nEvil: 1")),
+        ("PUT", &server, b"/x", header(b"X Y", b"1")),
+        ("PUT", &server, b"/x", header(b"X:Y", b"1")),
+        ("PUT", &server, b"/x y", header(b"X", b"1")),
+        ("PUT", &spaced, b"/x", header(b"X", b"1")),
+        ("put", &server, b"/x", header(b"X", b"1")),
+    ];
+    for (method, server, path, headers) in cases {
+        let mut written = 0;
+        let request = Request {
+            method,
+            server,
+            path,
+            headers: &headers,
+            body: None,
+        };
+        assert_eq!(write(&mut |p| written += p.len(), &request), Err(Unsafe));
+        assert_eq!(written, 0);
+    }
+}
+
+#[test]
+fn the_early_status_needs_only_the_status_line() {
+    let mut response = Response::new();
+    let _ = response.feed(b"HTTP/1.1 401 Unauthorized\r\nSet-Cookie: ", |_| {});
+    assert_eq!(
+        (response.status(), response.early_status()),
+        (None, Some(401))
+    );
+    let mut long = Response::new();
+    let head = format!("HTTP/1.1 200 OK\r\nX: {}", "a".repeat(HEAD_MOST));
+    assert_eq!(
+        long.feed(head.as_bytes(), |_| {}),
+        Err(ResponseError::HeadTooLong)
+    );
+    assert_eq!(long.early_status(), Some(200));
+    let mut partial = Response::new();
+    let _ = partial.feed(b"HTTP/1.1 20", |_| {});
+    assert_eq!(partial.early_status(), None);
 }

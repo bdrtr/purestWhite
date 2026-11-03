@@ -1,8 +1,10 @@
-//! A small HTTP/1.0 client's two halves, over whatever carries the bytes (TLS, in the firmware):
-//! the GET request (`write_get`), and the response read as it arrives (`Response`): its status
-//! line and headers kept until they end, then the body handed on piece by piece, as long as its
-//! `Content-Length` says when one is given. HTTP/1.0 keeps it simple: no chunked body, and the
-//! server ends the body by closing the connection. Nothing here allocates or panics.
+//! A small HTTP client's parts, over whatever carries the bytes (TLS, in the firmware): a URL split
+//! as the C++ firmware's client splits it (`url`), a plain HTTP/1.0 GET (`write_get`), a request
+//! written as the C++ client writes it (`request`), and the response read as it arrives
+//! (`Response`): its status line and headers kept until they end, then the body handed on piece by
+//! piece, as long as its `Content-Length` says when one is given. The connection is closed after
+//! each request, so the server ends the body by closing it; a chunked body is not read (a caller
+//! that needs only the status takes [`Response::early_status`]). Nothing here allocates or panics.
 #![no_std]
 #![warn(clippy::pedantic)]
 #![deny(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
@@ -10,8 +12,15 @@
 
 #[cfg(test)]
 extern crate std;
+pub mod request;
 #[cfg(test)]
 mod tests;
+pub mod url;
+
+/// Whether `text` may stand as a word of a request (a host, a path): no space or control byte.
+pub(crate) fn word(text: &[u8]) -> bool {
+    text.iter().all(|&b| b > b' ' && b != 0x7F)
+}
 
 use core::fmt;
 
@@ -24,7 +33,7 @@ pub const HEAD_MOST: usize = 4096;
 /// `out` fails, or `host` or `path` is empty or holds a byte that would break the request (a space
 /// or a control byte), or `path` does not start with `/`.
 pub fn write_get(out: &mut impl fmt::Write, host: &str, path: &str) -> fmt::Result {
-    let clean = |text: &str| !text.is_empty() && !text.bytes().any(|b| b <= b' ' || b == 0x7F);
+    let clean = |text: &str| !text.is_empty() && word(text.as_bytes());
     if !clean(host) || !clean(path) || !path.starts_with('/') {
         return Err(fmt::Error);
     }
@@ -83,6 +92,18 @@ impl Response {
     #[must_use]
     pub fn status(&self) -> Option<u16> {
         self.status
+    }
+
+    /// The status code as soon as the status line is in, whatever follows (a head too long for its
+    /// room, a body that never ends): for a caller that needs only the status.
+    #[must_use]
+    pub fn early_status(&self) -> Option<u16> {
+        if self.status.is_some() {
+            return self.status;
+        }
+        let kept = self.head.get(..self.head_len).unwrap_or_default();
+        let line = kept.get(..find(kept, b"\r\n")?)?;
+        status(line).ok()
     }
 
     /// How many bytes of the body were handed on.
