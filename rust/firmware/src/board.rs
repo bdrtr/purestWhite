@@ -6,7 +6,7 @@
 use esp_bootloader_esp_idf::partitions::FlashStorage;
 use esp_hal::gpio::{Level, Output, OutputConfig};
 use esp_hal::peripherals::{
-    CPU_CTRL, FLASH, FROM_CPU_INTR0, GPIO0, GPIO1, GPIO2, GPIO3, GPIO4, GPIO5, GPIO6, GPIO7,
+    BT, CPU_CTRL, FLASH, FROM_CPU_INTR0, GPIO0, GPIO1, GPIO2, GPIO3, GPIO4, GPIO5, GPIO6, GPIO7,
     GPIO10, GPIO11, GPIO12, GPIO13, GPIO14, GPIO18, GPIO38, GPIO39, GPIO40, GPIO41, GPIO42, I2C0,
     LPWR, PSRAM, Peripherals, RTC_TIMER, SDHOST, SHA, SPI1, SPI2, SYSTIMER, WIFI,
 };
@@ -89,6 +89,8 @@ pub struct Board {
     pub sha: SHA<'static>,
     /// The radio's Wi-Fi side.
     pub wifi: WIFI<'static>,
+    /// The radio's Bluetooth side.
+    pub bt: BT<'static>,
 }
 
 impl Board {
@@ -141,6 +143,7 @@ impl Board {
             },
             sha: p.SHA,
             wifi: p.WIFI,
+            bt: p.BT,
         }
     }
 }

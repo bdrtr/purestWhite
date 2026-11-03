@@ -1270,3 +1270,24 @@ the device only.
     later failed.
   - Anything else after "https:" (another status than 200, "NoResponse", "response (...)", "tls
     (Roots)" and the like): give me the card all the same.
+
+## BLE, a scan ("firmware: ble-check, a BLE scan for page-turn remotes")
+
+Gate 3's first step: esp-radio's BLE controller and the `TrouBLE` host on the device. The image
+starts BLE, listens for 10 s, notes how many BLE devices it heard, how many of them are page-turn
+remotes (HID, as the C++ firmware judges them) and the strongest remote's signal (no names or
+addresses), and resets into the C++ firmware. It connects to nothing. The image is
+`purestwhite-baremetal-ble-1.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`). On the
+device only.
+
+- [ ] If you have a BLE page-turn remote, put it in pairing mode (on most, hold a key until the
+  light blinks) and keep it near the device. A remote already paired with the C++ firmware calls
+  only the C++ firmware's address when it wakes, which this image does not hear: with such a remote,
+  "no hid" is not a failure; tell me which mode it was in. Put `purestwhite-baremetal-ble-1.bin` in
+  the card's root (no `purestwhite-recovery.bin` there); Settings > System > SD Card Firmware
+  Update > choose it > Confirm. The C++ firmware comes back by itself within about half a minute.
+  Give me the card. Expected: "purestWhite bare-metal BLE check", "next boot: C++ firmware", "ble:
+  N devices, H hid, best hid -D dBm, T ms" (with the remote in pairing mode, H at least 1; without
+  one, "ble: N devices, no hid, T ms" with N the phones, watches and the like around), "done".
+  "ble: Start", "ble: Host" or "ble: Scan" name the step that failed; "ble: no end in 25 s", or
+  "ble: scanning" as the last line, or "PANIC", mean it stopped there.

@@ -33,13 +33,18 @@ the emulator, so an image without one drives their async calls over blocking bus
   low), `I2cParts` (I2C0: SDA 39, SCL 38; the touch panel's supply GPIO2, active low), `TouchParts`
   (GT911: RST 4, INT 10), `ButtonParts` (Left GPIO0, Right GPIO7, Power GPIO3), the PSRAM, the RTC's
   low-power control, `RtosParts` (what esp-rtos runs on), the SHA accelerator and the radio's
-  Wi-Fi side. Also
+  Wi-Fi and Bluetooth sides. Also
   `hold_power_latch`, `psram_config`, `PSRAM_MHZ` (40), and `flash_storage`, which makes SPI1
   select the flash alone (`select_flash_alone`; its second chip select is the PSRAM's, and
   eink-qemu 0.9.2's cold boot leaves both selected) before it makes esp-storage's storage.
 - `i2c`: the shared I2C bus (touch panel, clock, fuel gauge) at 400 kHz over the async driver
   (`open_bus`), once the touch panel's supply has been on for `SUPPLY_MS`; `gauge`: the CW2017 as
   the services' `Gauge` (charge and voltage read apart).
+- `ble` (the `ble` feature only): BLE through esp-radio's controller and `TrouBLE`'s host
+  (0.7.0, the release on esp-radio's bt-hci 0.9). `scan` scans actively and tallies the
+  advertisers with `purestwhite-ble`: how many, how many are HID remotes (the HID service 0x1812 or
+  the keyboard appearance 0x03C1, as the C++ firmware's SDK judges them), the strongest remote's
+  signal; no names or addresses.
 - `clock` (the `wifi` feature only): the battery-backed clock (BM8563 on the shared bus) read as
   the time TLS checks certificates' dates against.
 - `wifi` (the `wifi` feature only): Wi-Fi through esp-radio. `scan` starts it in station mode,
@@ -225,6 +230,11 @@ its scenario in `emu/`.
   bootloader rolls back on its own (`bootloader state: N`) and resets. Scenarios:
   `emu/baremetal-handback.txt`, and `emu/baremetal-handback-slot1.txt` with the C++ firmware in the
   second slot.
+- `ble-check` (built with `--features ble`): the first step of gate 3. Starts BLE, scans for
+  10 s and notes `ble: N devices, H hid, best hid -D dBm, T ms` (or `ble: N devices, no hid, T
+  ms`; `64+` past the most it tells apart, where a remote takes the place of an advertiser that
+  is not one; `ble: no end in 25 s` when it never ends), then resets. It connects to nothing. Needs esp-rtos:
+  device only.
 - `wifi-check` (built with `--features wifi`, below): the first step of gate 2. Starts Wi-Fi in
   station mode, scans once and notes `wifi: N networks, best -48 dBm on channel 6, T ms` (each
   access point counted, `64+` at the most it copies out) or `wifi: no networks, T ms`, then
@@ -338,12 +348,12 @@ cargo build --release
 ```
 
 This builds every image into `rust/firmware/target/xtensa-esp32s3-none-elf/release/<image>`,
-except `wifi-check`, `wifi-join` and `https-check`: build each alone with
+except `wifi-check`, `wifi-join`, `https-check` and `ble-check`: build each alone with
 `cargo build --release --features wifi --bin wifi-check` (or `--bin wifi-join`,
 `--bin https-check`; the last builds wolfSSL from the `rust/third_party/wolfssl` submodule with
-Espressif's GCC).
-A build with the feature links esp-radio into every image it builds, so build the others, and the
-ones the emulator runs, without it. To
+Espressif's GCC), and `cargo build --release --features ble --bin ble-check`.
+A build with either feature links esp-radio into every image it builds, so build the others, and
+the ones the emulator runs, without them. To
 make a `.bin` the device can flash, from the repository root:
 
 ```sh

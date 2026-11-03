@@ -9,7 +9,8 @@ Phase 2 of the [platform plan](../porting/6-platform.md): a separate firmware in
 slot. On the device so far: the panel (UC8279, UC8179 with its gray passes), touch, the buttons,
 deep sleep, the PSRAM (at 40 MHz), reading the SD card, Embassy tasks, text from the card's font.
 Written, for the device test: Wi-Fi (a scan, the saved network joined, DHCP) and a download over
-HTTPS with wolfSSL (gate 2). Not started: BLE, the web server (file transfer, WebDAV), update over
+HTTPS with wolfSSL (gate 2), and a BLE scan for page-turn remotes (gate 3's first step). Not
+started: a BLE remote's key presses, the web server (file transfer, WebDAV), update over
 Wi-Fi, the network side of KOSync and OPDS, writing to the card on the device, and the whole user
 interface (menus, settings, themes, languages, the reader): about 41,000 lines of C++ in `src/`.
 
@@ -48,6 +49,11 @@ path unchanged.
    buffers; the chain, the name and the dates checked) and hashes it; gate 2 also asks to write it
    to the card, which waits for gate 4's card writes. Left after the device run: the measurement of
    the handshake's time and memory, and more roots (the C++ firmware trusts ESP-IDF's bundle).
+   Gate 3's first step is written: `ble-check` scans with esp-radio's BLE controller and `TrouBLE`
+   0.7.0 (the release on esp-radio's bt-hci 0.9), behind the `ble` feature, and tallies the HID
+   remotes as the C++ firmware's SDK judges them (`purestwhite-ble`). Next: connecting to a
+   remote, pairing (TrouBLE's `security`, and `legacy-pairing` for the remotes that need it),
+   the HID service's reports, and the C++ firmware's key bindings (`BleKeyBinding`).
 5. Only then the user interface and the rest of the features.
 
 ## The repository

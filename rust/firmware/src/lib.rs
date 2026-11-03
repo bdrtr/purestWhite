@@ -16,6 +16,8 @@ use esp_alloc as _;
 #[cfg(feature = "wifi")]
 extern crate alloc;
 
+#[cfg(feature = "ble")]
+pub mod ble;
 pub mod board;
 pub mod boot;
 #[cfg(feature = "wifi")]
