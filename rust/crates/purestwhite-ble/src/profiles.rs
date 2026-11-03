@@ -66,3 +66,9 @@ pub fn profile_index(name: &[u8]) -> Option<usize> {
         .iter()
         .position(|p| name.starts_with(p.name_prefix.as_bytes()))
 }
+
+/// The profile of a remote called `name`, as `profile_index` finds it.
+#[must_use]
+pub fn profile_for(name: &[u8]) -> Option<&'static Profile> {
+    PROFILES.get(profile_index(name)?)
+}

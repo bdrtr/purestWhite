@@ -1,7 +1,8 @@
 //! A scan's tally: each advertiser once (by address), whether it is a HID remote, and the
 //! strongest remote's signal. When it is full, a remote takes the place of an advertiser that is
-//! not one, as the C++ firmware's SDK keeps the remotes in a crowded scan. No names or addresses
-//! leave it: the report goes on the card.
+//! not one, as the C++ firmware's SDK keeps the remotes in a crowded scan. No names are kept. One
+//! address leaves it, the remote to connect to (`best_remote_addr`); it never goes in the report,
+//! which goes on the card.
 
 use crate::Advert;
 use core::fmt::{self, Display, Formatter};
@@ -87,6 +88,19 @@ impl Seen {
             .filter(|e| e.advert.is_hid())
             .filter_map(|e| e.rssi)
             .max()
+    }
+
+    /// The address (kind and bytes) of the remote to connect to: the strongest one, the first
+    /// heard among equals; one with no signal reading only when none has one. Never reported.
+    #[must_use]
+    pub fn best_remote_addr(&self) -> Option<(u8, [u8; 6])> {
+        self.entries()
+            .filter(|e| e.advert.is_hid())
+            .fold(None, |best: Option<&Entry>, e| match best {
+                Some(b) if b.rssi >= e.rssi => Some(b),
+                _ => Some(e),
+            })
+            .map(|e| e.addr)
     }
 
     fn entries(&self) -> impl Iterator<Item = &Entry> {

@@ -1291,3 +1291,45 @@ device only.
   one, "ble: N devices, no hid, T ms" with N the phones, watches and the like around), "done".
   "ble: Start", "ble: Host" or "ble: Scan" name the step that failed; "ble: no end in 25 s", or
   "ble: scanning" as the last line, or "PANIC", mean it stopped there.
+
+## BLE, a remote linked ("firmware: ble-remote, a page-turn remote linked and read")
+
+Gate 3's link: the image connects to the strongest page-turn remote it hears, pairs with it much as
+the C++ firmware does, subscribes to its HID reports and reads them for 30 s as page turns (the C++
+firmware's decoder and built-in button tables, ported to Rust). It keeps no bond and writes nothing
+to the card (the C++ firmware saves its report there). It uses only the built-in keys and tables,
+not the mappings saved in the C++ firmware. The image is `purestwhite-baremetal-ble-remote-1.bin`
+(in the archive, its checksum in `SHA256-bare-metal.txt`). On the device only.
+
+This image pairs with the remote under its own address, so the remote may forget its pairing with
+the C++ firmware. If the remote does not work in the C++ firmware after the test: Settings >
+Connectivity > Bluetooth Page Turner > Paired Remotes > choose it > Forget; then put the remote in
+pairing mode and use Scan for Remotes. Forgetting it also clears its button mapping (Map Buttons):
+map it again after.
+
+This image runs longer than the others: the C++ firmware comes back by itself, usually within a
+minute, at most two. Do not turn the device off meanwhile; if it has not come back after two
+minutes, stop and tell me.
+
+- [ ] Put `purestwhite-baremetal-ble-remote-1.bin` in the card's root (no
+  `purestwhite-recovery.bin` there). Switch other Bluetooth keyboards, mice and remotes off or move
+  them away. Open Settings > System > SD Card Firmware Update and choose the file. Then put the
+  remote in pairing mode (on most, hold a key until the light blinks), keep it near the device, and
+  press Confirm. Do not press the remote's buttons yet. Wait about 20 s after Confirm (the remote's
+  light usually stops blinking a few seconds before). Then, for about 20 s, press each button a few times, and hold one for
+  a second (a hold counts as one press). Then stop, and count the presses of each button. Give me
+  the card, and tell me the remote's model and what you pressed.
+
+  Expected: "purestWhite BLE remote", "next boot: C++ firmware", the scan's line ("ble: N devices,
+  H hid, best hid -D dBm"), "link C ms, pair P ms, enc" (or "auth"), "hid N in, map M B, kbd K cons
+  C, <profile>" ("hid 0 in boot, ..." when it fell back to the boot keyboard report; a profile name
+  only for a Free3 or a BOOX Keypage, else "no profile"), "turns F fr, K k, R r, next N prev P
+  other O" (F reports, K key presses, R button presses and releases; next and prev about the
+  presses of those buttons; if they stay 0 but K is not 0, the remote sends keys the built-in set
+  does not turn pages with: tell me), "done". A "~" at the end means the report was cut.
+
+  "failed: <step>" names the step that stopped it: Start, Host or Scan: the radio or the BLE stack;
+  NoRemote: no remote in pairing mode was heard; Connect or ConnectTimeout: the connection (the
+  remote may have left pairing mode); Pair or PairTimeout: the pairing; NoHid, NoInput, Gatt or
+  SetupTimeout: the HID service; Dropped: the link dropped. "ble: linking" as the last line, or
+  "PANIC", mean it stopped there.

@@ -464,3 +464,57 @@ fn a_held_button_waits_and_a_tapped_one_acts_now() {
     );
     assert_eq!(edge(&mut wait, 0x03_0002, false, 700), Action::None);
 }
+
+#[test]
+fn a_remote_with_a_table_goes_by_raw_edges_and_one_without_by_keys() {
+    use super::Router;
+    use crate::decoder::{KeyEvent, RawButton};
+    let keys = PageKeys {
+        enabled: true,
+        ..PageKeys::default()
+    };
+    let raw = |code, pressed, keycode, at_ms| RawButton {
+        code,
+        pressed,
+        keycode,
+        at_ms,
+        ..RawButton::default()
+    };
+    let right = KeyEvent {
+        keycode: usage::RIGHT,
+        ..KeyEvent::default()
+    };
+    // Keypage's default table: its buttons by raw edge, its keys ignored.
+    let mut keypage = Router::new(default_table(b"BOOX Keypage"), keys);
+    assert!(keypage.via_table());
+    assert_eq!(keypage.raw(&raw(0x03_0002, true, 0, 0)), Action::NextPage);
+    assert_eq!(keypage.key(&right), Action::None, "the raw edge decided");
+    // A button the table does not name turns by the key read from its frame.
+    let other = raw(0x03_0040, true, usage::LEFT, 10);
+    assert_eq!(keypage.raw(&other), Action::PrevPage);
+    // A held slot waits, and the hold acts on the pass after HOLD_MS.
+    let mut t = RemoteTable::default();
+    assert!(t.learn(Action::NextChapter, 0x03_0002, true));
+    let mut held = Router::new(Some(&t), keys);
+    assert_eq!(held.raw(&raw(0x03_0002, true, 0, 100)), Action::None);
+    assert_eq!(held.hold(799), Action::None);
+    assert_eq!(held.hold(800), Action::NextChapter);
+    // No table (or an empty one): the keys decide, the raw edges do nothing.
+    for table in [None, Some(&RemoteTable::default())] {
+        let mut plain = Router::new(table, keys);
+        assert!(!plain.via_table());
+        assert_eq!(
+            plain.raw(&raw(0x03_0002, true, usage::RIGHT, 0)),
+            Action::None
+        );
+        assert_eq!(plain.hold(10_000), Action::None);
+        assert_eq!(plain.key(&right), Action::NextPage);
+    }
+}
+
+#[test]
+fn an_address_reads_as_the_c_firmware_writes_it() {
+    let bytes = [0x01, 0x23, 0x45, 0x67, 0x89, 0xAB];
+    assert_eq!(&super::address_text(bytes), b"ab:89:67:45:23:01");
+    assert_eq!(&super::address_text([0; 6]), b"00:00:00:00:00:00");
+}

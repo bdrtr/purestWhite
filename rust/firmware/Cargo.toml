@@ -147,6 +147,13 @@ bench = false
 required-features = ["ble"]
 
 [[bin]]
+name = "ble-remote"
+path = "./src/bin/ble_remote.rs"
+test = false
+bench = false
+required-features = ["ble"]
+
+[[bin]]
 name = "https-check"
 path = "./src/bin/https_check.rs"
 test = false
@@ -160,9 +167,9 @@ psram-80mhz = []
 # wifi-join, https-check). A feature of its own: it links esp-radio's binary blobs, esp-rtos's
 # scheduler hooks for the radio and wolfSSL into every image built with it, so the other images,
 # the ones the emulator runs among them, are built without it.
-# BLE through esp-radio's controller and TrouBLE's host (`crate::ble`; ble-check), for gate 3. A
-# feature of its own, as `wifi`. esp-radio's `ble` is unstable API: its build refuses `ble`
-# without `unstable`.
+# BLE through esp-radio's controller and TrouBLE's host (`crate::ble`; ble-check, ble-remote),
+# for gate 3. A feature of its own, as `wifi`. esp-radio's `ble` is unstable API: its build
+# refuses `ble` without `unstable`.
 ble = [
     "dep:bt-hci",
     "dep:esp-radio",
@@ -191,7 +198,19 @@ esp-alloc = "=0.11.0"
 esp-radio = { version = "=1.0.0-beta.1", optional = true, features = ["esp-alloc", "esp32s3", "log-04"] }
 # The BLE host over esp-radio's controller (gate 3): the release that takes bt-hci 0.9, as
 # esp-radio 1.0.0-beta.1 does.
-trouble-host = { version = "=0.7.0", optional = true, default-features = false, features = ["central", "default-packet-pool", "log", "scan"] }
+# `gatt` and `security` (with `legacy-pairing`: the SDK pairs the legacy way) for the remote's
+# link; 8 notifications queued, so a press and its release in one connection event both come.
+# They come with the RustCrypto crates TrouBLE's pairing needs (p256, aes, cmac, rand_chacha).
+trouble-host = { version = "=0.7.0", optional = true, default-features = false, features = [
+    "central",
+    "default-packet-pool",
+    "gatt",
+    "gatt-client-notification-queue-size-8",
+    "legacy-pairing",
+    "log",
+    "scan",
+    "security",
+] }
 bt-hci = { version = "=0.9.0", optional = true }
 # The network stack over esp-radio's interface: an address from DHCP (gate 2).
 embassy-net = { version = "=0.9.1", optional = true, features = ["dhcpv4", "dns", "log", "medium-ethernet", "proto-ipv4", "tcp", "udp"] }

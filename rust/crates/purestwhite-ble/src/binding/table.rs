@@ -6,6 +6,22 @@ use crate::profiles::{PROFILES, Profile, RemoteKey, profile_index};
 /// The longest address kept: "AA:BB:CC:DD:EE:FF". A longer one is cut to this.
 pub const ADDR_MOST: usize = 17;
 
+/// A remote's address as the C++ firmware writes it, and so keys its saved table (NimBLE's
+/// `NimBLEAddress::toString`): lowercase hex, most significant byte first, colons between.
+/// `bytes` are as the radio gives them, least significant first.
+#[must_use]
+pub fn address_text(bytes: [u8; 6]) -> [u8; ADDR_MOST] {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+    let mut text = [b':'; ADDR_MOST];
+    for (pair, byte) in text.chunks_mut(3).zip(bytes.iter().rev()) {
+        if let [high, low, ..] = pair {
+            *high = HEX.get(usize::from(byte >> 4)).copied().unwrap_or(b'0');
+            *low = HEX.get(usize::from(byte & 0xF)).copied().unwrap_or(b'0');
+        }
+    }
+    text
+}
+
 /// One remote's slots, by its address.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct RemoteTable {

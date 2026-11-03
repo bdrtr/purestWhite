@@ -44,7 +44,13 @@ the emulator, so an image without one drives their async calls over blocking bus
   (0.7.0, the release on esp-radio's bt-hci 0.9). `scan` scans actively and tallies the
   advertisers with `purestwhite-ble`: how many, how many are HID remotes (the HID service 0x1812 or
   the keyboard appearance 0x03C1, as the C++ firmware's SDK judges them), the strongest remote's
-  signal; no names or addresses.
+  signal; no names or addresses. `remote` links to the strongest remote as the SDK does: connects
+  with the SDK's parameters (15-30 ms interval, 8 s supervision timeout), answers the remote's
+  GATT requests from a GAP/GATT server of its own, pairs with bonding (the host a display only,
+  legacy pairing allowed; the bond is not kept), sets the HID service up (Report Protocol, the
+  Report Map's hints, every input Report subscribed to), and reads its reports through
+  `purestwhite-ble`'s decoder and router as the C++ runtime routes them; a parameter update is
+  refused, as the SDK refuses it.
 - `clock` (the `wifi` feature only): the battery-backed clock (BM8563 on the shared bus) read as
   the time TLS checks certificates' dates against.
 - `wifi` (the `wifi` feature only): Wi-Fi through esp-radio. `scan` starts it in station mode,
@@ -235,6 +241,12 @@ its scenario in `emu/`.
   ms`; `64+` past the most it tells apart, where a remote takes the place of an advertiser that
   is not one; `ble: no end in 25 s` when it never ends), then resets. It connects to nothing. Needs esp-rtos:
   device only.
+- `ble-remote` (built with `--features ble`): gate 3's link. Scans for 8 s, links to the
+  strongest HID remote (`ble::remote`), reads its reports for 30 s and notes each step: the
+  scan's line, `link C ms, pair P ms, enc` (`auth` when authenticated), `hid N in, map M B, kbd K
+  cons C, <built-in profile or no profile>`, `turns F fr, K k, R r, next N prev P other O`, or
+  `failed: <step>` where it stopped (`ble: linking` as the last line: it stopped before an
+  outcome); then resets. The remote must be in pairing mode. Device only.
 - `wifi-check` (built with `--features wifi`, below): the first step of gate 2. Starts Wi-Fi in
   station mode, scans once and notes `wifi: N networks, best -48 dBm on channel 6, T ms` (each
   access point counted, `64+` at the most it copies out) or `wifi: no networks, T ms`, then
@@ -348,10 +360,11 @@ cargo build --release
 ```
 
 This builds every image into `rust/firmware/target/xtensa-esp32s3-none-elf/release/<image>`,
-except `wifi-check`, `wifi-join`, `https-check` and `ble-check`: build each alone with
+except `wifi-check`, `wifi-join`, `https-check`, `ble-check` and `ble-remote`: build each alone with
 `cargo build --release --features wifi --bin wifi-check` (or `--bin wifi-join`,
 `--bin https-check`; the last builds wolfSSL from the `rust/third_party/wolfssl` submodule with
-Espressif's GCC), and `cargo build --release --features ble --bin ble-check`.
+Espressif's GCC), and `cargo build --release --features ble --bin ble-check` (or
+`--bin ble-remote`).
 A build with either feature links esp-radio into every image it builds, so build the others, and
 the ones the emulator runs, without them. To
 make a `.bin` the device can flash, from the repository root:

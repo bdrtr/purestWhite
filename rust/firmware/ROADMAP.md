@@ -9,8 +9,8 @@ Phase 2 of the [platform plan](../porting/6-platform.md): a separate firmware in
 slot. On the device so far: the panel (UC8279, UC8179 with its gray passes), touch, the buttons,
 deep sleep, the PSRAM (at 40 MHz), reading the SD card, Embassy tasks, text from the card's font.
 Written, for the device test: Wi-Fi (a scan, the saved network joined, DHCP) and a download over
-HTTPS with wolfSSL (gate 2), and a BLE scan for page-turn remotes (gate 3's first step). Not
-started: a BLE remote's key presses, the web server (file transfer, WebDAV), update over
+HTTPS with wolfSSL (gate 2), a BLE scan for page-turn remotes and a link to one, its reports read
+as page turns (gate 3). Not started: the web server (file transfer, WebDAV), update over
 Wi-Fi, the network side of KOSync and OPDS, writing to the card on the device, and the whole user
 interface (menus, settings, themes, languages, the reader): about 41,000 lines of C++ in `src/`.
 
@@ -54,9 +54,11 @@ path unchanged.
    remotes as the C++ firmware's SDK judges them (`purestwhite-ble`). Decoding the HID reports (the
    SDK's key and raw button paths) and the C++ firmware's button bindings (`BleKeyBinding`, with
    the SDK's remote profiles) are in `purestwhite-ble` too, each checked against a corpus the C++
-   code wrote (`test/ble_hid_decoder`, `test/ble_key_binding`). Next: connecting to a remote,
-   pairing (TrouBLE's `security`, and `legacy-pairing` for the remotes that need it), the HID
-   service's reports fed to the decoder, and the table picked per link (the C++ `Router`).
+   code wrote (`test/ble_hid_decoder`, `test/ble_key_binding`). The link is written but not yet tried on the device: `ble-remote`
+   connects to the strongest remote, pairs (TrouBLE's `security` with `legacy-pairing`), sets its
+   HID service up as the SDK does and reads its reports as page turns (the C++ runtime's routing,
+   `Router`). Left after the device run: keeping the bond (on the card, so a paired remote comes
+   back without pairing mode), reconnecting, and the remote's turns driving the reader.
 5. Only then the user interface and the rest of the features.
 
 ## The repository

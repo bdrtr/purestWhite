@@ -8,6 +8,7 @@
 
 mod hold;
 mod keys;
+mod router;
 mod table;
 #[cfg(test)]
 mod tests;
@@ -16,7 +17,8 @@ use core::fmt::{self, Display, Formatter};
 
 pub use hold::HoldWait;
 pub use keys::{PageKeys, usage};
-pub use table::{ADDR_MOST, RemoteTable, Remotes, default_table};
+pub use router::Router;
+pub use table::{ADDR_MOST, RemoteTable, Remotes, address_text, default_table};
 
 /// One wait for a button to learn lasts at most this long, as the screen tells the user.
 pub const WAIT_MS: u32 = 15_000;

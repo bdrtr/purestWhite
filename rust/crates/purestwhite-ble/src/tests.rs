@@ -117,3 +117,46 @@ fn a_remote_in_a_crowded_scan_takes_a_place_and_a_missing_signal_does_not_count(
         std::format!("ble: {SEEN_MOST}+ devices, 1 hid, best hid -66 dBm")
     );
 }
+
+#[test]
+fn the_remote_to_connect_to_is_the_strongest_the_first_among_equals() {
+    let hid = ad(&[(0x03, &HID_SERVICE.to_le_bytes())]);
+    let mut seen = Seen::new();
+    assert_eq!(seen.best_remote_addr(), None);
+    seen.report((0, [1; 6]), &ad(&[FLAGS]), -30);
+    seen.report((1, [2; 6]), &hid, 127);
+    assert_eq!(
+        seen.best_remote_addr(),
+        Some((1, [2; 6])),
+        "one without a signal"
+    );
+    seen.report((1, [3; 6]), &hid, -70);
+    seen.report((0, [4; 6]), &hid, -50);
+    seen.report((1, [5; 6]), &hid, -50);
+    assert_eq!(seen.best_remote_addr(), Some((0, [4; 6])));
+}
+
+#[test]
+fn a_report_reference_gives_the_id_of_an_input_report_as_the_sdk_reads_it() {
+    use crate::gatt::{Inputs, input_report_id};
+    assert_eq!(
+        input_report_id(None),
+        Some(0),
+        "no descriptor: an input, id 0"
+    );
+    assert_eq!(input_report_id(Some(&[])), Some(0));
+    assert_eq!(input_report_id(Some(&[3])), Some(3), "no type: an input");
+    assert_eq!(input_report_id(Some(&[2, 1])), Some(2));
+    assert_eq!(input_report_id(Some(&[2, 1, 9])), Some(2));
+    assert_eq!(input_report_id(Some(&[2, 2])), None, "an output report");
+    assert_eq!(input_report_id(Some(&[2, 3])), None, "a feature report");
+
+    let mut inputs = Inputs::default();
+    for (handle, id) in [(10, 1), (14, 2), (18, 3), (22, 4), (26, 5)] {
+        inputs.add(handle, id);
+    }
+    assert_eq!(inputs.len(), 4);
+    assert_eq!(inputs.report_id(14), 2);
+    assert_eq!(inputs.report_id(26), 0, "past the four kept");
+    assert_eq!(inputs.report_id(99), 0);
+}
