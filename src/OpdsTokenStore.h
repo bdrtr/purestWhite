@@ -34,6 +34,7 @@ class OpdsTokenStore : public PersistableStore<OpdsTokenStore> {
 
  private:
   std::vector<Entry> entries;
+  // Rust's limit (BB_STORE_RECORDS_MOST_OPDS_TOKENS), checked in the .cpp.
   static constexpr size_t MAX_SERVERS = 8;
 
   OpdsTokenStore() = default;
@@ -41,8 +42,8 @@ class OpdsTokenStore : public PersistableStore<OpdsTokenStore> {
 
  public:
   static const char* getFilePath() { return "/.crosspoint/opds_tokens.json"; }
-  // opds_tokens.json's text, read and written by Rust (bembeyaz_store::records); the tokens'
-  // obfuscation, and which entries are kept, stay here. See PersistableStore.
+  // opds_tokens.json's text, read and written by Rust, which also decides which entries are kept
+  // (bembeyaz_store::records); the tokens' obfuscation stays here. See PersistableStore.
   bool toJsonText(String& json) const;
   const char* fromJsonText(const String& json);
 

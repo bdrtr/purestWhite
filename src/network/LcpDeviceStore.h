@@ -17,8 +17,8 @@ class LcpDeviceStore : public PersistableStore<LcpDeviceStore> {
   std::string privHex;  // 64 hex chars
 
   static const char* getFilePath() { return "/.crosspoint/lcp_device.json"; }
-  // lcp_device.json's text, read and written by Rust (bembeyaz_store::records); the key's
-  // obfuscation stays here. See PersistableStore.
+  // lcp_device.json's text, read (its key decoded) and written by Rust (bembeyaz_store::records);
+  // the key's obfuscation stays here. See PersistableStore.
   bool toJsonText(String& json) const;
   const char* fromJsonText(const String& json);
   bool valid() const { return !deviceId.empty() && privHex.size() == 64; }

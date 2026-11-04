@@ -5,7 +5,8 @@
 //! or `load` where the store's decisions are Rust's too); each one's golden corpus is that store's
 //! C++ answers. A store's decisions (which items it keeps, whether it
 //! saves again) are here too where they moved to Rust, for both firmwares, checked against the same
-//! corpus: [`wifi_credentials::keep`], [`koreader_settings`], [`opds_servers::load`].
+//! corpus: [`wifi_credentials::keep`], [`koreader_settings`], [`opds_servers::load`],
+//! [`records::load`].
 //!
 //! - [`state`]: `CrossPointState` (`state.json`): the open book, the recent sleep images; corpus
 //!   from `test/crosspoint_state/make_corpus.py`.
@@ -20,7 +21,7 @@
 //! - [`password`]: a stored password or secret read back, the decoder given, and [`password::Secret`],
 //!   a plain secret wiped when dropped.
 //! - [`records`]: the OPDS tokens, the LCP passphrases and the LCP device identity, records of
-//!   texts; corpus from `test/token_stores/make_corpus.py`.
+//!   texts, and the ones each store keeps (`load`); corpus from `test/token_stores/make_corpus.py`.
 //! - [`opds_servers`]: `OpdsServerStore` (`opds.json`): the OPDS catalogs, their sign-ins and
 //!   headers, and what the store makes of them (`load`); corpus from
 //!   `test/opds_servers/make_corpus.py`.

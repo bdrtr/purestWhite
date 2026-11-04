@@ -1,33 +1,20 @@
 #include "OpdsTokenStore.h"
 
 #include <Logging.h>
-#include <ObfuscationUtils.h>
 #include <StoreText.h>
 #include <bembeyaz/store_records.h>
 
 #include <algorithm>
 
 namespace {
-// Access/refresh tokens (JWTs) run long; cap the decode to avoid a malformed
-// file ballooning the heap.
-constexpr size_t MAX_TOKEN_CHARS = 2048;
-
-// The JSON is Rust's (bembeyaz_store::records); this file obfuscates the tokens and decides which
-// entries to keep, as the ArduinoJson version did.
-std::string decoded(const bb_store_text& obfuscated) {
-  bool ok = false;
-  bool tooLong = false;
-  return obfuscation::deobfuscateFromBase64(storeString(obfuscated).c_str(), MAX_TOKEN_CHARS, &ok, &tooLong);
-}
-
-// An entry of a record with a URL; its tokens empty when they do not decode.
-bool parseEntry(const bb_store_text* fields, OpdsTokenStore::Entry& entry) {
+// The JSON is Rust's (bembeyaz_store::records), and so is which entries are kept (an entry needs its
+// URL; the tokens decoded, at most BB_STORE_RECORDS_MOST_TOKEN bytes; at most MAX_SERVERS); this
+// file obfuscates the tokens for saving.
+void copyEntry(const bb_store_text* fields, OpdsTokenStore::Entry& entry) {
   entry.url = storeString(fields[BB_STORE_OPDS_TOKEN_URL]);
-  if (entry.url.empty()) return false;
-  entry.tokens.accessToken = decoded(fields[BB_STORE_OPDS_TOKEN_ACCESS_OBF]);
-  entry.tokens.refreshToken = decoded(fields[BB_STORE_OPDS_TOKEN_REFRESH_OBF]);
+  entry.tokens.accessToken = storeString(fields[BB_STORE_OPDS_TOKEN_ACCESS]);
+  entry.tokens.refreshToken = storeString(fields[BB_STORE_OPDS_TOKEN_REFRESH]);
   entry.tokens.refreshUrl = storeString(fields[BB_STORE_OPDS_TOKEN_REFRESH_URL]);
-  return true;
 }
 }  // namespace
 
@@ -48,10 +35,11 @@ bool OpdsTokenStore::toJsonText(String& json) const {
 }
 
 const char* OpdsTokenStore::fromJsonText(const String& json) {
+  static_assert(MAX_SERVERS == BB_STORE_RECORDS_MOST_OPDS_TOKENS, "the store's limit is Rust's");
   std::vector<Entry> read;
-  KeptRecords<Entry> kept{read, MAX_SERVERS, parseEntry};
-  const char* error =
-      bb_store_records_read(json.c_str(), json.length(), BB_STORE_RECORDS_OPDS_TOKENS, keepRecord<Entry>, &kept);
+  LoadedRecords<Entry> loaded{read, copyEntry};
+  const char* error = bb_store_records_load(json.c_str(), json.length(), BB_STORE_RECORDS_OPDS_TOKENS,
+                                            decodeStoredSecret, addRecord<Entry>, &loaded);
   if (error) return error;
   entries = std::move(read);
   LOG_DBG("OPDSTOK", "Loaded %zu OPDS token entries", entries.size());

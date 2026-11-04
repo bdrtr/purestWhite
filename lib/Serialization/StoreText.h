@@ -57,21 +57,20 @@ class ObfuscatedTexts {
 // A copy of t's bytes.
 inline std::string storeString(const bb_store_text& t) { return t.len ? std::string(t.data, t.len) : std::string(); }
 
-// The entries a store keeps from the records Rust reads (bb_store_records_read): parse makes an
-// entry of a record's fields, or refuses it; at most `most` are kept, as the stores count them.
+// The entries a store keeps, as Rust loads them (bb_store_records_load): copy makes an entry of a
+// record's fields (the secret ones plain).
 template <typename Entry>
-struct KeptRecords {
+struct LoadedRecords {
   std::vector<Entry>& entries;
-  size_t most;
-  bool (*parse)(const bb_store_text* fields, Entry& entry);
+  void (*copy)(const bb_store_text* fields, Entry& entry);
 };
 
-// A bb_store_record_read for a KeptRecords<Entry>.
+// A bb_store_record_read for a LoadedRecords<Entry>.
 template <typename Entry>
-void keepRecord(const bb_store_text* fields, const size_t count, void* context) {
-  auto& kept = *static_cast<KeptRecords<Entry>*>(context);
-  if (kept.entries.empty()) kept.entries.reserve(std::min(count, kept.most));
-  if (kept.entries.size() >= kept.most) return;
+void addRecord(const bb_store_text* fields, const size_t count, void* context) {
+  auto& loaded = *static_cast<LoadedRecords<Entry>*>(context);
+  if (loaded.entries.empty()) loaded.entries.reserve(count);
   Entry entry;
-  if (kept.parse(fields, entry)) kept.entries.push_back(std::move(entry));
+  loaded.copy(fields, entry);
+  loaded.entries.push_back(std::move(entry));
 }

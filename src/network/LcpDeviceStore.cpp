@@ -1,13 +1,16 @@
 #include "LcpDeviceStore.h"
 
-#include <ObfuscationUtils.h>
 #include <StoreText.h>
 #include <bembeyaz/store_records.h>
 
 namespace lcpdevice {
 
+// valid()'s key length (LcpDeviceStore.h) is the longest key Rust decodes.
+static_assert(BB_STORE_RECORDS_MOST_HASH == 64, "the device key is a hex SHA-256");
+
 namespace {
-// The JSON is Rust's (bembeyaz_store::records): one record, the root object.
+// The JSON is Rust's (bembeyaz_store::records): one record, the root object, its key decoded there
+// (at most BB_STORE_RECORDS_MOST_HASH bytes, empty when it does not decode).
 
 // The fields of the record read.
 void copyRecord(const bb_store_text* fields, size_t, void* context) {
@@ -28,12 +31,11 @@ bool LcpDeviceStore::toJsonText(String& json) const {
 
 const char* LcpDeviceStore::fromJsonText(const String& json) {
   std::string read[BB_STORE_LCP_DEVICE_FIELDS];
-  const char* error = bb_store_records_read(json.c_str(), json.length(), BB_STORE_RECORDS_LCP_DEVICE, copyRecord, read);
+  const char* error = bb_store_records_load(json.c_str(), json.length(), BB_STORE_RECORDS_LCP_DEVICE,
+                                            decodeStoredSecret, copyRecord, read);
   if (error) return error;
   deviceId = std::move(read[BB_STORE_LCP_DEVICE_ID]);
-  bool ok = false;
-  bool tooLong = false;
-  privHex = obfuscation::deobfuscateFromBase64(read[BB_STORE_LCP_DEVICE_PRIV_OBF].c_str(), 64, &ok, &tooLong);
+  privHex = std::move(read[BB_STORE_LCP_DEVICE_PRIV]);
   return nullptr;
 }
 

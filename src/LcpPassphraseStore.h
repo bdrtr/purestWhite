@@ -22,6 +22,7 @@ class LcpPassphraseStore : public PersistableStore<LcpPassphraseStore> {
 
  private:
   std::vector<Entry> entries;
+  // Rust's limit (BB_STORE_RECORDS_MOST_LCP_PASSPHRASES), checked in the .cpp.
   static constexpr size_t MAX_PROVIDERS = 8;
 
   LcpPassphraseStore() = default;
@@ -29,8 +30,8 @@ class LcpPassphraseStore : public PersistableStore<LcpPassphraseStore> {
 
  public:
   static const char* getFilePath() { return "/.crosspoint/lcp_passphrases.json"; }
-  // lcp_passphrases.json's text, read and written by Rust (bembeyaz_store::records); the hashes'
-  // obfuscation, and which entries are kept, stay here. See PersistableStore.
+  // lcp_passphrases.json's text, read and written by Rust, which also decides which entries are kept
+  // (bembeyaz_store::records); the hashes' obfuscation stays here. See PersistableStore.
   bool toJsonText(String& json) const;
   const char* fromJsonText(const String& json);
 
