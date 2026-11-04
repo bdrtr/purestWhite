@@ -1179,7 +1179,7 @@ shows) or while waking the device.
   usual and give me the card. Expected: "runs: 0 unfinished", "psram 8192 KB, frames ok", "panel
   UC8179", "card: try 1", "healthy: 30 s", the panel line, "sleep: deep, power ...". Right does
   nothing new here (no pages on the card).
-- [ ] The measurement, about 65 minutes. Charge the device first (not full: the gauge's charge
+- [x] The measurement, about 65 minutes. Charge the device first (not full: the gauge's charge
   should be able to fall), then unplug USB. Copy the folder `purestwhite-pages` from the archive
   (120 pages, made by `pw-pages`) to the card's root. Install `purestwhite-baremetal-main-5.bin`
   as above; on the white screen press Right once, within a minute: the first page shows with a
@@ -1190,6 +1190,13 @@ shows) or while waking the device.
   give), "panel: N ok, 0 failed, 0 given up, ..., asleep" with N about 124 (the home screen and
   its battery update, 120 pages, the crescent and the panel's sleep), "sleep: deep, hour ...". If it
   shows "sleep: deep, time up", the backstop ended the loop (75 minutes after the start).
+  - Result (2026-11-04, device, on battery; the step without pages was skipped, this run covers
+    it): "runs: 0 unfinished", "battery: 84% 4026 4018 4010 4003 3995 3989 3983 3977 3971 3965
+    3958 3952 3938 78%, 120 pages", "panel: 124 ok, 0 failed, 0 given up, longest 1906 ms,
+    asleep", "sleep: deep, hour i28000 p10000880 a r s", "wake: button". The bare-metal half of
+    gate 1: 6% and 88 mV in the hour, about 7 mV every 5 minutes. The report is in
+    `firmware-arsiv/cihaz-raporlari/2026-11-04-main-5-battery.txt`. Left: the same hour on the
+    C++ firmware, from about the same charge.
 
 ## Wi-Fi, a scan ("firmware: wifi-check, esp-radio's Wi-Fi scan")
 
