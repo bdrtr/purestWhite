@@ -1280,24 +1280,25 @@ written to the card; the report holds no network name, password or address. The 
 Gate 2's sync step: the KOReader sync account saved in the C++ firmware, read and checked at its
 server from the bare-metal firmware, as the C++ firmware's "Authenticate" does. The image reads the
 clock, reads the saved Wi-Fi network and the account from the card, joins the network, sends the
-account check over HTTPS, notes the server's answer and resets into the C++ firmware. It writes
-nothing to the card or the server, and the report holds no account name, password, server, network
-name or address. The image is `purestwhite-baremetal-kosync-1.bin` (in the archive, its checksum in
-`SHA256-bare-metal.txt`). On the device only.
+account check over HTTPS (or plain HTTP, for an http server, as the C++ firmware does), notes the
+server's answer and resets into the C++ firmware. It writes nothing to the card or the server, and
+the report holds no account name, password, server, network name or address. The image is
+`purestwhite-baremetal-kosync-2.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`). On
+the device only.
 
 - [ ] As in the HTTPS test: the Wi-Fi saved in the C++ firmware, the clock right, no
   `purestwhite-recovery.bin` on the card. The sync account set up in the C++ firmware (Settings,
   network section > CrossPoint Sync: "Username" and "Password", and "Sync Server URL" if it is not
-  the default; a URL typed without `https://` is taken as http, which this image does not check),
-  and the C++ firmware's own "Authenticate" passing with it. Install
-  `purestwhite-baremetal-kosync-1.bin` with SD Card Firmware Update; the C++ firmware comes back by
-  itself, within two minutes at the most. Give me the card. Expected: "purestWhite KOSync check",
-  "next boot: C++ firmware", "clock: <today's date and time> UTC", "saved: N networks", "account:
-  https", "wifi: joined on channel C, -D dBm, T ms", "dhcp: address in T ms", "kosync: 200 ok, ms
-  A/B/C/D" (the time DNS, TCP, TLS and the answer took), "done". What else it may say:
+  the default; a URL typed without `https://` is taken as http), and the C++ firmware's own
+  "Authenticate" passing with it. Install `purestwhite-baremetal-kosync-2.bin` with SD Card
+  Firmware Update; the C++ firmware comes back by itself, within two minutes at the most. Give me
+  the card. Expected: "purestWhite KOSync check", "next boot: C++ firmware", "clock: <today's date
+  and time> UTC", "saved: N networks", "account: https" (or "account: http" for an http server,
+  then the TLS time is 0), "wifi: joined on channel C, -D dBm, T ms", "dhcp: address in T ms",
+  "kosync: 200 ok, ms A/B/C/D" (the time DNS, TCP, TLS and the answer took), "done". What else it
+  may say:
   - "account: no credentials": no username or password saved; "account: no file": no account
-    saved at all; "account: http, not checked": the server URL is http (or has no `https://`);
-    "account: unreadable", "broken file", "bad url ...": give me the card all the same.
+    saved at all; "account: unreadable", "broken file", "bad url ...": give me the card all the same.
   - "saved: no card", or "saved: no file" and no lines after the account's but "done": nothing to
     join, so nothing was sent.
   - "kosync: 401 refused": the server refused the account; check that the C++ firmware's own

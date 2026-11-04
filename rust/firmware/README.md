@@ -284,15 +284,15 @@ its scenario in `emu/`.
   account check `KOReaderSyncClient::authenticate` sends: `GET /users/auth` with the account's
   extra headers, `x-auth-user`, `x-auth-key` (the password's MD5, from the ROM through
   `esp_hal::rom::md5`) and HTTP Basic, written as the C++ client writes it
-  (`purestwhite_http::request`), over TLS with the C++ firmware's roots. It reads only the answer's
-  status. Its lines: `saved: N networks`; `account: https`, or why the account is not checked
-  (`no file`, `unreadable`, `broken file`, `file too large`, `no memory`, `no credentials`, `http,
-  not checked`, `bad url scheme`, `bad url host`); `kosync: signing in` while it runs; then
-  `kosync: 200 ok, ms DNS/TCP/TLS/ANSWER` (any 2xx is `ok`, 401 is `refused`, another status
-  `error`), `kosync: request (...)`, `kosync: https: tls (Wolf(N))` and the like, or `kosync: no
-  end in 40 s`. With no card it says `saved: no card` and stops. Nothing is written to the card or
-  the server, and the report never holds the account's name, password or server. Needs esp-rtos:
-  device only.
+  (`purestwhite_http::request`), over TLS with the C++ firmware's roots, or over plain TCP for an
+  `http` server, as the C++ firmware does. It reads only the answer's status. Its lines: `saved: N
+  networks`; `account: https` or `account: http`, or why the account is not checked (`no file`,
+  `unreadable`, `broken file`, `file too large`, `no memory`, `no credentials`, `bad url scheme`,
+  `bad url host`); `kosync: signing in` while it runs; then `kosync: 200 ok, ms
+  DNS/TCP/TLS/ANSWER` (any 2xx is `ok`, 401 is `refused`, another status `error`), `kosync:
+  request (...)`, `kosync: https: tls (Wolf(N))` and the like, or `kosync: no end in 40 s`. With
+  no card it says `saved: no card` and stops. Nothing is written to the card or the server, and
+  the report never holds the account's name, password or server. Needs esp-rtos: device only.
 - `smoke-check`: starts esp-rtos and Embassy, runs the clock, fuel gauge and touch drivers on
   esp-hal's I2C, reads touches for 15 s with the panel black, then paints it white. Needs esp-rtos:
   device only.

@@ -1,10 +1,11 @@
 //! The `KOReader` sync account the C++ firmware saved, checked against its server (gate 2's sync
 //! step): the account read from the card's bytes (`purestwhite-kosync`, its secrets decoded with
 //! the device's key), and the account check `KOReaderSyncClient::authenticate` sends, over HTTPS
-//! (`https::exchange`, its status only), its MD5 from the ROM (`esp_hal::rom::md5`). The report
-//! holds the status and the times, never the account's name, password or server.
+//! or, for an `http` server, plain TCP, as the C++ firmware does (`https::exchange`, its status
+//! only), its MD5 from the ROM (`esp_hal::rom::md5`). The report holds the status and the times,
+//! never the account's name, password or server.
 
-use super::https::{self, Exchanged, FetchError, Until};
+use super::https::{self, Exchanged, FetchError, Target, Until};
 use super::saved::device_key;
 use crate::boot::Report;
 use crate::card::FileError;
@@ -15,18 +16,20 @@ use purestwhite_http::url::{UrlError, split};
 use purestwhite_kosync::auth::{Answer, RequestError, answer, auth_request};
 use purestwhite_kosync::{Account, ReadError, read};
 
-/// An account that can be checked, and its server's base URL.
+/// An account that can be checked, its server's base URL, and whether it is reached over TLS.
 pub struct Checkable {
     pub account: Account,
     url: Vec<u8>,
+    tls: bool,
 }
 
 /// The account in `file` (its bytes, or why there are none) if it can be checked: `account: https`
-/// in `report`, or why not (`no file`, `broken file`, `no credentials`, `http, not checked`...).
+/// or `account: http` in `report`, or why not (`no file`, `broken file`, `no credentials`...).
 pub fn note_account(report: &mut Report, file: Result<&[u8], FileError>) -> Option<Checkable> {
     let checkable = file.map_err(FileError::note).and_then(checkable);
     let _ = match &checkable {
-        Ok(_) => writeln!(report, "account: https"),
+        Ok(c) if c.tls => writeln!(report, "account: https"),
+        Ok(_) => writeln!(report, "account: http"),
         Err(why) => writeln!(report, "account: {why}"),
     };
     report.save();
@@ -44,13 +47,12 @@ fn checkable(bytes: &[u8]) -> Result<Checkable, &'static str> {
         return Err("no credentials");
     }
     let url = account.base_url().map_err(|_| "no memory")?;
-    match split(&url) {
-        Ok(server) if server.tls => {}
-        Ok(_) => return Err("http, not checked"),
+    let tls = match split(&url) {
+        Ok(server) => server.tls,
         Err(UrlError::Scheme) => return Err("bad url scheme"),
         Err(UrlError::Host) => return Err("bad url host"),
-    }
-    Ok(Checkable { account, url })
+    };
+    Ok(Checkable { account, url, tls })
 }
 
 /// What signing in came to.
@@ -94,15 +96,12 @@ pub async fn check(stack: Stack<'_>, checkable: &Checkable) -> Checked {
         Ok(text) => text,
         Err(why) => return Checked::Request(why),
     };
-    match https::exchange(
-        stack,
-        (server.host, server.port),
-        &text,
-        Until::Status,
-        |_| {},
-    )
-    .await
-    {
+    let target = Target {
+        host: server.host,
+        port: server.port,
+        tls: server.tls,
+    };
+    match https::exchange(stack, target, &text, Until::Status, |_| {}).await {
         Ok(x) => Checked::Answered(x),
         Err(why) => Checked::Fetch(why),
     }

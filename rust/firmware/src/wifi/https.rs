@@ -1,9 +1,10 @@
-//! A request over HTTPS, for gate 2: its host looked up (DNS), a TCP connection (embassy-net), TLS
-//! over it (`purestwhite-tls`, the server's chain checked against the C++ firmware's roots,
-//! ESP-IDF's certificate bundle, as the C++ firmware checks it, and its name against the host), the
-//! request sent, and the answer read as it arrives (`purestwhite-http`): a file fetched with a GET
-//! and hashed (`get`), or any request with its body handed on, or only its status (`exchange`).
-//! TLS runs over memory buffers; `Wire` moves the bytes between them and the socket.
+//! A request over HTTPS (or plain TCP), for gate 2: its host looked up (DNS), a TCP connection
+//! (embassy-net), TLS over it (`purestwhite-tls`, the server's chain checked against the C++
+//! firmware's roots, ESP-IDF's certificate bundle, as the C++ firmware checks it, and its name
+//! against the host), the request sent, and the answer read as it arrives (`purestwhite-http`): a
+//! file fetched with a GET and hashed (`get`), or any request with its body handed on, or only its
+//! status (`exchange`). TLS runs over memory buffers; `Wire` moves the bytes between them and the
+//! socket.
 
 use alloc::string::String;
 use core::fmt::{self, Display, Formatter};
@@ -267,7 +268,12 @@ pub async fn get(
 ) -> Result<Fetched, FetchError> {
     let mut request = String::new();
     write_get(&mut request, host, path).map_err(|_| FetchError::Request)?;
-    let answer = exchange(stack, (host, 443), request.as_bytes(), Until::End, |b| {
+    let target = Target {
+        host,
+        port: 443,
+        tls: true,
+    };
+    let answer = exchange(stack, target, request.as_bytes(), Until::End, |b| {
         sha.update(b);
     })
     .await?;
@@ -282,44 +288,46 @@ pub async fn get(
     })
 }
 
-/// Sends `request` (a whole request, the connection closed after it) to `host` on `port` over TLS,
-/// as [`get`] does, and reads the answer `until` its status or its end, its body handed to `body`.
+/// Where an exchange goes: the host, the port, and whether over TLS.
+#[derive(Clone, Copy, Debug)]
+pub struct Target<'a> {
+    pub host: &'a str,
+    pub port: u16,
+    pub tls: bool,
+}
+
+/// Sends `request` (a whole request, the connection closed after it) to `target`, over TLS as
+/// [`get`] does or over plain TCP, and reads the answer `until` its status or its end, its body
+/// handed to `body`.
 ///
 /// # Errors
-/// As [`get`].
+/// As [`get`] (no TLS errors over plain TCP).
 pub async fn exchange(
     stack: Stack<'_>,
-    (host, port): (&str, u16),
+    target: Target<'_>,
     request: &[u8],
     until: Until,
     mut body: impl FnMut(&[u8]),
 ) -> Result<Exchanged, FetchError> {
     let began = Instant::now();
-    let ip = resolve(stack, host).await?;
+    let ip = resolve(stack, target.host).await?;
     let dns_ms = began.elapsed().as_millis();
     let (mut rx, mut tx) = ([0u8; RX], [0u8; TX]);
     let mut socket = TcpSocket::new(stack, &mut rx, &mut tx);
     socket.set_timeout(Some(SILENT_MOST));
     let at = Instant::now();
     socket
-        .connect((ip, port))
+        .connect((ip, target.port))
         .await
         .map_err(|_| FetchError::Tcp)?;
     let tcp_ms = at.elapsed().as_millis();
-    let context = Context::bundle(purestwhite_x509::ESP_IDF_BUNDLE)?;
-    let mut tls = Connection::new(&context, host)?;
-    let mut wire = Wire {
-        socket: &mut socket,
-        tls: &mut tls,
-        closed: false,
+    let (answer, tls_ms, answer_ms) = if target.tls {
+        over_tls(&mut socket, target.host, request, until, &mut body).await?
+    } else {
+        let at = Instant::now();
+        let answer = plain(&mut socket, request, until, &mut body).await?;
+        (answer, 0, at.elapsed().as_millis())
     };
-    let at = Instant::now();
-    wire.handshake().await?;
-    let tls_ms = at.elapsed().as_millis();
-    let at = Instant::now();
-    wire.request(request).await?;
-    let answer = wire.response(until, &mut body).await?;
-    let answer_ms = at.elapsed().as_millis();
     // Closed in an orderly way (a dropped socket sends nothing), for a moment at most.
     socket.close();
     let _ = select(socket.flush(), Timer::after(CLOSE_MOST)).await;
@@ -331,4 +339,62 @@ pub async fn exchange(
         tls_ms,
         answer_ms,
     })
+}
+
+/// The TLS handshake, then `request` sent and the answer read, over `socket`; with the time the
+/// handshake and the answer took.
+async fn over_tls(
+    socket: &mut TcpSocket<'_>,
+    host: &str,
+    request: &[u8],
+    until: Until,
+    body: &mut impl FnMut(&[u8]),
+) -> Result<(Answer, u64, u64), FetchError> {
+    let context = Context::bundle(purestwhite_x509::ESP_IDF_BUNDLE)?;
+    let mut tls = Connection::new(&context, host)?;
+    let mut wire = Wire {
+        socket,
+        tls: &mut tls,
+        closed: false,
+    };
+    let at = Instant::now();
+    wire.handshake().await?;
+    let tls_ms = at.elapsed().as_millis();
+    let at = Instant::now();
+    wire.request(request).await?;
+    let answer = wire.response(until, body).await?;
+    Ok((answer, tls_ms, at.elapsed().as_millis()))
+}
+
+/// `request` sent and the answer read over `socket` as it is (no TLS), as [`Wire`] does.
+async fn plain(
+    socket: &mut TcpSocket<'_>,
+    request: &[u8],
+    until: Until,
+    body: &mut impl FnMut(&[u8]),
+) -> Result<Answer, FetchError> {
+    let mut at = 0;
+    while let Some(rest) = request.get(at..).filter(|r| !r.is_empty()) {
+        at += socket.write(rest).await.map_err(|_| FetchError::Wire)?;
+    }
+    socket.flush().await.map_err(|_| FetchError::Wire)?;
+    let mut response = Response::new();
+    let mut piece = [0u8; PIECE];
+    loop {
+        let n = socket
+            .read(&mut piece)
+            .await
+            .map_err(|_| FetchError::Wire)?;
+        if n == 0 {
+            return ended(&response);
+        }
+        let fed = response.feed(piece.get(..n).unwrap_or_default(), &mut *body);
+        if let (Until::Status, Some(status)) = (until, response.early_status()) {
+            return Ok(Answer { status, body: 0 });
+        }
+        fed.map_err(FetchError::Response)?;
+        if response.is_complete() {
+            return ended(&response);
+        }
+    }
 }
