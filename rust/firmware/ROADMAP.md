@@ -22,7 +22,11 @@ four things are measured on the device:
 
 1. **Battery.** The same reading session (for example one hour, a page every 30 s) on the C++
    firmware and on the bare-metal one, measured with our fuel gauge driver: the bare-metal one
-   must not use more.
+   must not use more. Closed by the owner (2026-11-04) on the bare-metal half alone: the hour's
+   loop used 6% (84% to 78%, 88 mV), about 16 hours of reading, against the 15 to 20 hours the
+   owner gets from the C++ firmware in daily reading, and before automatic light sleep. The C++
+   image viewer's automatic page mode, and a new C++ release for it, are not made. The loop can
+   be run again once light sleep is in, to see what it saves.
 2. **Wi-Fi and HTTPS.** Download a file over HTTPS on the bare-metal firmware and write it to the
    card (wolfSSL through FFI, as planned).
 3. **BLE.** A page-turn remote works on the bare-metal firmware.
@@ -39,7 +43,7 @@ path unchanged.
    buffers and anything used while the flash is written stay in internal RAM), async panel waits,
    the shared I2C bus behind a mutex.
 2. The update gate (below), in the main from its first version.
-3. The battery measurement (gate 1): the cheapest check and the one that decides most.
+3. The battery measurement (gate 1): closed on the bare-metal half (above).
 4. Wi-Fi and HTTPS (gate 2), then BLE (gate 3), then writing to the card (gate 4). Gate 2's
    first step is written: `wifi-check` scans with esp-radio 1.0.0-beta.1 (the release that
    matches esp-hal 1.2 and esp-rtos 0.4), behind the `wifi` feature. The second, `wifi-join`,

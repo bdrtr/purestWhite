@@ -292,7 +292,8 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
 
 ## Battery measurement (gate 1)
 
-- Both firmwares show the same pre-rendered pages: full-frame images on the card, shown by the
+- The plan (the C++ half was not made, see the end of this section). Both firmwares show the
+  same pre-rendered pages: full-frame images on the card, shown by the
   Rust page loop and by the C++ firmware's image viewer (BMP), every 30 s, for one hour each. The
   app refreshes fast with a half refresh every 15th; the C++ image viewer refreshes differently
   (mostly half refreshes, `BmpViewerActivity.cpp`), so step 4 makes both use the same refreshes
@@ -353,8 +354,8 @@ Minimal: board, card, FAT, flash, otadata and a line of text; no fonts, books or
   must stay the release the SD updater knows, so new code goes after the old, and
   `pio run -e x4pro` must still give digest c746bebf (it does after this wiring, which leaves those
   crates as they were).
-- Open: the C++ firmware's image viewer needs its automatic page mode for the other half of the
-  comparison (a new C++ release). The SDMMC pins (40-42) would keep the slot's pull-ups through the
+- Not made: the C++ image viewer's automatic page mode; the owner closed gate 1 on the
+  bare-metal half (ROADMAP.md). Open: the SDMMC pins (40-42) would keep the slot's pull-ups through the
   deep sleep and feed the card's supply, as the C++ firmware found for its own
   (`SDCardManager::shutdown`): the card task leaves them as inputs without pull-ups once it rests,
   as the C++ firmware does. That covers the time before the sleep; the deep sleep powers the pads'
@@ -434,7 +435,8 @@ hand-back).
    card and the gauge before the sleep (each ends between two jobs or readings; the card hands its
    supply back), and the report's measurement shape, kept by the power task, which owns the report;
    the backstop now asks for the sleep after 75 minutes (the idle sleep, an hour's loop and
-   margin). Left: the C++ image viewer's automatic mode, and the measurement on both firmwares.
+   margin). Measured on the device (2026-11-04); the owner closed gate 1 on this half, so the C++
+   image viewer's automatic mode is not made.
 
 Each step: host tests, sim scenarios, `cargo clippy` with the 50-line limit, the emulator's
 hand-back scenarios, and the reviews the project's rules ask for (memory, build and flash

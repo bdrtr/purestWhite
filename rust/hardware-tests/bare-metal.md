@@ -1195,8 +1195,9 @@ shows) or while waking the device.
     3958 3952 3938 78%, 120 pages", "panel: 124 ok, 0 failed, 0 given up, longest 1906 ms,
     asleep", "sleep: deep, hour i28000 p10000880 a r s", "wake: button". The bare-metal half of
     gate 1: 6% and 88 mV in the hour, about 7 mV every 5 minutes. The report is in
-    `firmware-arsiv/cihaz-raporlari/2026-11-04-main-5-battery.txt`. Left: the same hour on the
-    C++ firmware, from about the same charge.
+    `firmware-arsiv/cihaz-raporlari/2026-11-04-main-5-battery.txt`. The owner closed gate 1 on
+    this half alone: the C++ firmware gives 15 to 20 hours in daily reading, and this hour points
+    to about 16 (rust/firmware/ROADMAP.md).
 
 ## Wi-Fi, a scan ("firmware: wifi-check, esp-radio's Wi-Fi scan")
 
