@@ -55,16 +55,20 @@ the emulator, so an image without one drives their async calls over blocking bus
   the time TLS checks certificates' dates against.
 - `wifi` (the `wifi` feature only): Wi-Fi through esp-radio. `scan` starts it in station mode,
   scans once and stops it: how many networks, the strongest signal and its channel, no names.
-  `saved::saved_network` reads the network the C++ firmware saved from the card (decoded by
-  `purestwhite-wifistore` with `saved::device_key`, the eFuse base MAC address), over the
-  blocking bus before the scheduler; `join::join` joins it (WPA2
-  Personal with its password, open without one); `net::station_stack` is embassy-net on the
-  station interface, asking DHCP for an address; `steps` the join and DHCP steps the Wi-Fi images
-  share, each with its report line; `https::get` a file over HTTPS: DNS, TCP on port 443, TLS
-  with wolfSSL (`purestwhite-tls`: wolfSSL 5.7.2 over memory buffers, the server's chain checked
-  against the C++ firmware's roots (ESP-IDF's certificate bundle, `purestwhite-x509`), its name
-  against the host and its dates against the clock), a GET (`purestwhite-http`, HTTP/1.0), the
-  body hashed as it arrives.
+  `saved::saved_network` reads the network the C++ firmware saved from the card
+  (`card::read_files`, over the blocking bus before the scheduler; decoded by
+  `purestwhite-wifistore` with `saved::device_key`, the eFuse base MAC address); `join::join`
+  joins it (WPA2 Personal with its password, open without one); `net::station_stack` is
+  embassy-net on the station interface, asking DHCP for an address; `steps` the join and DHCP
+  steps the Wi-Fi images share, each with its report line; `https::exchange` a request to a
+  server: DNS, TCP, then TLS with wolfSSL (`purestwhite-tls`: wolfSSL 5.7.2 over memory buffers,
+  the server's chain checked against the C++ firmware's roots (ESP-IDF's certificate bundle,
+  `purestwhite-x509`), its name against the host and its dates against the clock) or, for a plain
+  `http` server, none; the answer read with `purestwhite-http`, to its status or its end;
+  `https::get` a file fetched that way and hashed as it arrives; `kosync` the C++ firmware's
+  KOReader sync account (`purestwhite-kosync`) checked at its server.
+- `card`: files read off the SD card in one session over the blocking bus, each refused past its
+  limit before anything is held (`storage::load_at_most`).
 - `images`: an OTA app slot's image identified through the partition table
   (`identify_partition`: the slot's own flash region, then `purestwhite-updater`'s
   `identify_slot`).

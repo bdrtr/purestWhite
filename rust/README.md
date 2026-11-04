@@ -274,5 +274,5 @@ By dependencies (leaves first):
 | 2 — compression/data | ZipFile, InflateStream, Serialization: [2-data.md](porting/2-data.md) | Borrowing the framebuffer and the inflate call are in C++ (`InflateStream`). ContentProtection (SDK) uses its own C copy of miniz |
 | 3 — EPUB core | Epub (book metadata cache, TOC, CSS, OPF), the chapter parser, Section: [3-epub.md](porting/3-epub.md) | The largest part (~19k lines); submodule by submodule |
 | 4 — images/fonts | PNG, JPEG and BMP decoders, dithering, fonts, GfxRenderer: [4-images-fonts.md](porting/4-images-fonts.md) | Framebuffer boundary |
-| 5 — application | Web paths, LibraryIndex, Txt, Xtc, KOReaderSync, ClippingStore, Dictionary: [5-application.md](porting/5-application.md) | UI |
+| 5 — application | Web paths, LibraryIndex, Txt, Xtc, KOReaderSync, ClippingStore, Dictionary, the settings stores (all but `CrossPointSettings`): [5-application.md](porting/5-application.md) | UI |
 | 6 — platform | HAL, FreeInk SDK drivers, `main` → bare-metal Rust (esp-hal + Embassy): [6-platform.md](porting/6-platform.md) | Arduino goes away |
