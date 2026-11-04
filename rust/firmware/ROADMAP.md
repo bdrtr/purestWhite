@@ -7,9 +7,10 @@ behind. Agreed with the owner on 2026-10-29.
 
 Phase 2 of the [platform plan](../porting/6-platform.md): a separate firmware in the second OTA
 slot. On the device so far: the panel (UC8279, UC8179 with its gray passes), touch, the buttons,
-deep sleep, the PSRAM (at 40 MHz), reading the SD card, Embassy tasks, text from the card's font.
-Written, for the device test: Wi-Fi (a scan, the saved network joined, DHCP) and a download over
-HTTPS with wolfSSL (gate 2), a BLE scan for page-turn remotes and a link to one, its reports read
+deep sleep, the PSRAM (at 40 MHz), reading the SD card, Embassy tasks, text from the card's font,
+and the KOReader sync account signed in at its server (`kosync-check`: the saved network joined,
+DHCP, HTTPS with wolfSSL; 2026-11-04). Written, for the device test: a Wi-Fi scan and a download
+over HTTPS (gate 2), a BLE scan for page-turn remotes and a link to one, its reports read
 as page turns (gate 3). Not started: the web server (file transfer, WebDAV), update over
 Wi-Fi, the network side of KOSync and OPDS, writing to the card on the device, and the whole user
 interface (menus, settings, themes, languages, the reader): about 41,000 lines of C++ in `src/`.
@@ -50,8 +51,8 @@ path unchanged.
    to the card, which waits for gate 4's card writes. It trusts the C++ firmware's roots: ESP-IDF's
    certificate bundle (`purestwhite-x509`), checked as the C++ firmware checks it. The fourth,
    `kosync-check`, reads the C++ firmware's KOReader sync account (`purestwhite-kosync`, on the C++
-   store's own Rust code) and sends its account check as the C++ firmware does. Left after the
-   device run: the measurement of the handshake's time and memory.
+   store's own Rust code) and sends its account check as the C++ firmware does; it passed on the
+   device (2026-11-04, TLS handshake 2.1 s). Left: the measurement of the handshake's memory.
    Gate 3's first step is written: `ble-check` scans with esp-radio's BLE controller and `TrouBLE`
    0.7.0 (the release on esp-radio's bt-hci 0.9), behind the `ble` feature, and tallies the HID
    remotes as the C++ firmware's SDK judges them (`purestwhite-ble`). Decoding the HID reports (the

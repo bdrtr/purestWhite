@@ -1286,7 +1286,7 @@ the report holds no account name, password, server, network name or address. The
 `purestwhite-baremetal-kosync-3.bin` (in the archive, its checksum in `SHA256-bare-metal.txt`). On
 the device only.
 
-- [ ] As in the HTTPS test: the Wi-Fi saved in the C++ firmware, the clock right, no
+- [x] As in the HTTPS test: the Wi-Fi saved in the C++ firmware, the clock right, no
   `purestwhite-recovery.bin` on the card. The sync account set up in the C++ firmware (Settings,
   network section > CrossPoint Sync: "Username" and "Password", and "Sync Server URL" if it is not
   the default; a URL typed without `https://` is taken as http), and the C++ firmware's own
@@ -1306,7 +1306,15 @@ the device only.
   - "saved: no card", or "saved: no file" and no lines after the account's but "done": nothing to
     join, so nothing was sent.
   - "kosync: 401 refused": the server refused the account; check that the C++ firmware's own
-    "Authenticate" passes with it.
+    "Authenticate" passes with it, after a restart (so with the saved password). The password
+    keyboard keeps a new password only when it is closed with its Enter key; Back drops it.
+
+Passed on the device (2026-11-04): "kosync: 200 ok, ms 87/72/2140/129" on the default server over
+HTTPS. The run was made with a diagnostic build of this image (`kosync-5`, which also noted the
+account's name and password lengths; not committed). The first runs failed: "clock: not set" (the
+clock had lost its time; set again in the C++ firmware), then "401 refused": the card held an old
+password, because the new one had been typed and the keyboard closed with Back. Typed again and
+closed with Enter, it passed.
   - "kosync: https: tls (Wolf(-188))" and the like: as in the HTTPS test (the clock, or a chain
     the bundle does not hold).
   - "kosync: signing in" as the last line, "kosync: no end in 40 s" or "PANIC": it stopped there.
