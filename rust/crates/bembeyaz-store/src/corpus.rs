@@ -71,16 +71,33 @@ pub(crate) fn fuzz(corpus: &str, every: usize, mut read: impl FnMut(&[u8])) {
 }
 
 /// The drivers' stand-in for the device's obfuscation (`test/json_oracle`'s `ObfuscationFake.cpp`):
-/// `~` and the bytes in hex; anything else does not decode.
+/// `~` and the bytes in hex, each pair read as its `strtol(pair, &end, 16)` reads it (a space
+/// before the digit, or a sign, taken too); anything else does not decode.
 pub(crate) fn deobfuscate(text: &[u8]) -> Option<Vec<u8>> {
     let digits = text.strip_prefix(b"~")?;
     if digits.len() % 2 != 0 {
         return None;
     }
-    let digits = core::str::from_utf8(digits).ok()?;
-    (0..digits.len() / 2)
-        .map(|i| u8::from_str_radix(&digits[2 * i..2 * i + 2], 16).ok())
+    digits
+        .chunks(2)
+        .map(|pair| strtol_pair(pair[0], pair[1]))
         .collect()
+}
+
+/// A two-character `strtol(..., 16)` that must read both characters, cast to a byte.
+fn strtol_pair(first: u8, second: u8) -> Option<u8> {
+    let hex = |c: u8| {
+        char::from(c)
+            .to_digit(16)
+            .and_then(|d| u8::try_from(d).ok())
+    };
+    let space = |c: u8| matches!(c, b' ' | b'\t' | b'\n' | 0x0B | 0x0C | b'\r');
+    match (first, hex(first), hex(second)) {
+        (_, Some(high), Some(low)) => Some(high * 16 + low),
+        (c, None, Some(low)) if space(c) || c == b'+' => Some(low),
+        (b'-', None, Some(low)) => Some(0u8.wrapping_sub(low)),
+        _ => None,
+    }
 }
 
 /// Every step of `corpus` (a step line, the log lines before its answer, each `  ! ` and the
@@ -100,4 +117,20 @@ pub(crate) fn steps(corpus: &str) -> Vec<(&str, Vec<Vec<u8>>, &str)> {
         out.push((line, logs, answer));
     }
     out
+}
+
+#[test]
+fn the_stand_in_reads_each_pair_as_strtol_does() {
+    let cases: [(&[u8], Option<&[u8]>); 7] = [
+        (b"~6162", Some(b"ab")),
+        (b"~ 1\t2", Some(b"\x01\x02")),
+        (b"~+f", Some(b"\x0f")),
+        (b"~-1", Some(b"\xff")),
+        (b"~0x", None),
+        (b"~1 ", None),
+        (b"~616", None),
+    ];
+    for (text, want) in cases {
+        assert_eq!(deobfuscate(text).as_deref(), want, "{text:?}");
+    }
 }
