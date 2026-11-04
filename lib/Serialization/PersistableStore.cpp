@@ -2,9 +2,6 @@
 
 #include <HalStorage.h>
 #include <Logging.h>
-#include <StoredPassword.h>
-
-#include <limits>
 
 bool PersistableStoreBase::writeDocToFile(const char* path, const JsonDocument& doc) {
   String json;
@@ -48,14 +45,4 @@ bool PersistableStoreBase::readDocFromFile(const char* path, JsonDocument& doc) 
     return false;
   }
   return true;
-}
-
-std::string PersistableStoreBase::extractPassword(JsonVariantConst doc, bool& needsResave) {
-  bool valid = false;
-  return extractPassword(doc, needsResave, std::numeric_limits<size_t>::max(), valid);
-}
-
-std::string PersistableStoreBase::extractPassword(JsonVariantConst doc, bool& needsResave, const size_t maxLength,
-                                                  bool& valid) {
-  return obfuscation::readStoredPassword(doc["password_obf"] | "", doc["password"] | "", maxLength, needsResave, valid);
 }

@@ -20,22 +20,16 @@ extern "C" {
 #define BB_STORE_KOREADER_SYNC_ASK_EVERY_TIME 0
 #define BB_STORE_KOREADER_SYNC_SMART 1
 
-// An extra request header with its plain value.
-typedef struct {
-  bb_store_text name;
-  bb_store_text value;
-} bb_store_koreader_header;
-
 // What the store makes of a koreader.json file (bembeyaz_store::koreader_settings): its settings,
 // the password and header values decoded; the file's first header_count headers (the slots past
-// them keep what they held); whether to save it again; and, for the debug log, whether the old
-// default server was pinned, and each setting reset because the value read (kept here) was out of
-// range (0 when it was not reset).
+// them are empty here; the store keeps what its own held); whether to save it again; and, for the
+// debug log, whether the old default server was pinned, and each setting reset because the value
+// read (kept here) was out of range (0 when it was not reset).
 typedef struct {
   bb_store_text username;
   bb_store_text password;
   bb_store_text server_url;
-  bb_store_koreader_header headers[BB_STORE_HEADERS];
+  bb_store_plain_header headers[BB_STORE_HEADERS];
   size_t header_count;
   uint8_t server_type;
   uint8_t match_method;

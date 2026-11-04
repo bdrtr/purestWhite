@@ -1,7 +1,6 @@
 #pragma once
 
 #include <Arduino.h>
-#include <StoredPassword.h>
 #include <bembeyaz/store.h>
 
 #include <algorithm>
@@ -57,13 +56,6 @@ class ObfuscatedTexts {
 
 // A copy of t's bytes.
 inline std::string storeString(const bb_store_text& t) { return t.len ? std::string(t.data, t.len) : std::string(); }
-
-// obfuscation::readStoredPassword (no length limit) over the stored texts Rust hands over.
-inline std::string readStoredPassword(const bb_store_text& passwordObf, const bb_store_text& legacyPassword,
-                                      bool& needsResave) {
-  return obfuscation::readStoredPassword(storeString(passwordObf).c_str(), storeString(legacyPassword).c_str(),
-                                         needsResave);
-}
 
 // The entries a store keeps from the records Rust reads (bb_store_records_read): parse makes an
 // entry of a record's fields, or refuses it; at most `most` are kept, as the stores count them.

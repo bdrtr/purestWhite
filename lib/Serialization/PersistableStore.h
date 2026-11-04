@@ -63,18 +63,6 @@ class PersistableStoreBase {
   static bool readTextFromFile(const char* path, String& json);
   // Logs that path's text is not JSON (error: ArduinoJson's name for why).
   static void logParseError(const char* path, const char* error);
-
- protected:
-  /**
-   * Helper function for extracting an obfuscated password from a JSON value.
-   * Accepts JsonVariantConst so callers can pass either a whole JsonDocument
-   * or a JsonObject element (e.g. inside an array iteration).
-   * If the decoded password requires a resave (e.g. from plaintext fallback), `needsResave` is set to true.
-   */
-  static std::string extractPassword(JsonVariantConst doc, bool& needsResave);
-  static std::string extractPassword(JsonVariantConst doc, bool& needsResave, size_t maxLength, bool& valid);
-  // (A store whose JSON is read in Rust calls obfuscation::readStoredPassword with the stored
-  // texts instead, StoredPassword.h, or gives Rust the decoder, decodeStoredSecret in StoreText.h.)
 };
 
 // Whether a store writes and reads its own JSON text (toJsonText/fromJsonText)

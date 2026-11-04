@@ -5,7 +5,7 @@
 //! settings reach the caller in one callback call, and text through a `bb_store_write` callback,
 //! so no Rust buffer outlives a call.
 
-use crate::store::{BbHeader, Decode, Text, Write, decoder, hand_over};
+use crate::store::{BbHeader, BbPlainHeader, Decode, Text, Write, decoder, hand_over};
 use bembeyaz_store::headers::HEADERS;
 use bembeyaz_store::koreader_credentials::{Saved, write};
 use bembeyaz_store::koreader_settings::{
@@ -19,13 +19,6 @@ const _: () = {
     assert!(match_method::FILENAME == 0 && match_method::BINARY == 1);
     assert!(sync_behavior::ASK_EVERY_TIME == 0 && sync_behavior::SMART == 1);
 };
-
-/// store_koreader_credentials.h's `bb_store_koreader_header`.
-#[repr(C)]
-struct BbPlainHeader {
-    name: Text,
-    value: Text,
-}
 
 /// store_koreader_credentials.h's `bb_store_koreader_settings`.
 #[repr(C)]
@@ -66,7 +59,6 @@ pub struct BbSaved {
 const _: () = {
     use core::mem::offset_of;
     let (text, word) = (size_of::<Text>(), size_of::<usize>());
-    assert!(size_of::<BbPlainHeader>() == 2 * text && offset_of!(BbPlainHeader, value) == text);
     assert!(offset_of!(BbSettings, headers) == 3 * text);
     assert!(offset_of!(BbSettings, header_count) == 7 * text);
     assert!(offset_of!(BbSettings, server_type) == 7 * text + word);
@@ -154,23 +146,11 @@ pub unsafe extern "C" fn bb_store_koreader_credentials_settle(
 impl BbSettings {
     /// A view of `s`, valid while it is.
     fn of(s: &Settings) -> BbSettings {
-        let header = |slot: usize| {
-            s.headers.get(slot).map_or(
-                BbPlainHeader {
-                    name: Text::of(&[]),
-                    value: Text::of(&[]),
-                },
-                |h| BbPlainHeader {
-                    name: Text::of(&h.name),
-                    value: Text::of(&h.value),
-                },
-            )
-        };
         BbSettings {
             username: Text::of(&s.username),
             password: Text::of(&s.password),
             server_url: Text::of(&s.server_url),
-            headers: core::array::from_fn(header),
+            headers: BbPlainHeader::of(&s.headers),
             header_count: s.headers.len(),
             server_type: s.server_type,
             match_method: s.match_method,

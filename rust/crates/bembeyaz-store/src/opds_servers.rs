@@ -1,23 +1,27 @@
 //! `OpdsServerStore`'s JSON (`src/OpdsServerStore.cpp`, `/.crosspoint/opds.json`): the OPDS
 //! catalogs set up, each with its sign-in and up to two extra request headers. The passwords and
-//! header values are kept obfuscated with the device's key; that, and turning a legacy plain
-//! password into an obfuscated one, stays in C++, so this reads and writes their stored texts as
-//! they are. Adding, changing and removing servers stays in C++ too, which also keeps how many
-//! servers the list holds (`MAX_SERVERS`).
+//! header values are kept obfuscated with the device's key (the obfuscation is the firmware's).
+//! [`load`] makes what the store holds of a file: at most [`MOST_SERVERS`] servers, each password
+//! decoded (else a legacy plain one, which asks for the file to be saved again) and each header
+//! value decoded;
+//! [`write`] writes what the store gives. Adding, changing and removing servers stays in C++.
 
+use crate::copied;
 use crate::headers::{self, Headers};
+use crate::password::{self, Decoded, Secret};
 use alloc::vec::Vec;
 use bembeyaz_jsondoc::{Error, Value, Writer, items, or_str, parse};
 
-/// A server as stored. `password` is a legacy plain password: read when a file still has one,
-/// never written. `S` is the text: owned when read, borrowed (or owned) when written.
+/// How many servers the store keeps (`OpdsServerStore::MAX_SERVERS`).
+pub const MOST_SERVERS: usize = 8;
+
+/// A server to save: its password and header values obfuscated. `S` is the text.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Server<S = Vec<u8>> {
     pub name: S,
     pub url: S,
     pub username: S,
     pub password_obf: S,
-    pub password: S,
     pub headers: Headers<S>,
 }
 
@@ -54,34 +58,70 @@ fn write_server<S: AsRef<[u8]>>(w: &mut Writer, server: &Server<S>) {
     });
 }
 
-/// Reads `opds.json`'s text (`deserializeJson`, then `fromJson`): the first `most` items of its
-/// "servers" array (none when it has no such array), and of each the first two items of its
-/// "headers" array; every field read as a string, up to a NUL as C++ reads a `const char*` (an
-/// item that is not an object, or a field that is not a string, gives empty text).
+/// A server as the store holds it: its password and header values plain, wiped when dropped.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Plain {
+    pub name: Vec<u8>,
+    pub url: Vec<u8>,
+    pub username: Vec<u8>,
+    pub password: Secret,
+    /// The file's headers, at most two.
+    pub headers: Vec<headers::Plain>,
+}
+
+/// The servers a file gives, and whether the store saves it again (a legacy plain password).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Loaded {
+    pub servers: Vec<Plain>,
+    pub resave: bool,
+}
+
+/// What `OpdsServerStore::fromJsonText` makes of `opds.json`'s text, as the C++ store made it
+/// before it called this (`addRead`, last in `src/OpdsServerStore.cpp` at c3a2704b): the first
+/// [`MOST_SERVERS`] servers, each password read as `obfuscation::readStoredPassword` read it and
+/// each header value decoded, `decode(text, most)` decoding (`deobfuscateFromBase64`).
 ///
 /// # Errors
-/// When the text is not JSON, with the error `deserializeJson` gives; the C++ store then keeps its
-/// current servers.
-pub fn read(text: &[u8], most: usize) -> Result<Vec<Server>, Error> {
+/// When the text is not JSON, with the error `deserializeJson` gives (the store then keeps its
+/// servers); [`Error::NoMemory`] when the decoder or a copy runs out of memory.
+pub fn load(
+    text: &[u8],
+    decode: impl Fn(&[u8], usize) -> Result<Decoded, Error>,
+) -> Result<Loaded, Error> {
     let doc = parse(text)?;
-    Ok(items(doc.get(b"servers"))
-        .iter()
-        .take(most)
-        .map(read_server)
-        .collect())
-}
-
-fn field(item: &Value, key: &[u8]) -> Vec<u8> {
-    or_str(item.get(key), b"").to_vec()
-}
-
-fn read_server(item: &Value) -> Server {
-    Server {
-        name: field(item, b"name"),
-        url: field(item, b"url"),
-        username: field(item, b"username"),
-        password_obf: field(item, b"password_obf"),
-        password: field(item, b"password"),
-        headers: headers::read(item.get(b"headers")),
+    let list = items(doc.get(b"servers"));
+    let mut loaded = Loaded::default();
+    loaded
+        .servers
+        .try_reserve_exact(list.len().min(MOST_SERVERS))
+        .map_err(|_| Error::NoMemory)?;
+    for item in list.iter().take(MOST_SERVERS) {
+        let server = plain(item, &decode, &mut loaded.resave)?;
+        loaded.servers.push(server);
     }
+    Ok(loaded)
+}
+
+/// One server as the store holds it.
+fn plain(
+    item: &Value,
+    decode: &impl Fn(&[u8], usize) -> Result<Decoded, Error>,
+    resave: &mut bool,
+) -> Result<Plain, Error> {
+    let field = |key: &[u8]| or_str(item.get(key), b"");
+    let password = password::stored(
+        field(b"password_obf"),
+        field(b"password"),
+        usize::MAX,
+        decode,
+        resave,
+    )?
+    .unwrap_or_default();
+    Ok(Plain {
+        name: copied(field(b"name"))?,
+        url: copied(field(b"url"))?,
+        username: copied(field(b"username"))?,
+        password,
+        headers: headers::plain(&headers::view(item.get(b"headers")), decode)?,
+    })
 }

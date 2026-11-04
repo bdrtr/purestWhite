@@ -1,10 +1,11 @@
 //! The extra request headers a server keeps (OPDS servers, the KOReader sync server): a name and
-//! the value as stored, obfuscated with the device's key (decoded by the firmware's own decoder).
-//! Stored as an array of
-//! `{"name", "value_obf"}` objects.
+//! the value as stored, obfuscated with the device's key, stored as an array of
+//! `{"name", "value_obf"}` objects. [`Plain`] is a header with its value decoded.
 
+use crate::copied;
+use crate::password::{self, Decoded, Secret};
 use alloc::vec::Vec;
-use bembeyaz_jsondoc::{Value, Writer, items, or_str};
+use bembeyaz_jsondoc::{Error, Value, Writer, items, or_str};
 
 /// The headers a server keeps (`MAX_CUSTOM_HEADERS`; the C ABI's array).
 pub const HEADERS: usize = 2;
@@ -62,13 +63,9 @@ pub(crate) fn view(list: Option<&Value>) -> Headers<&[u8]> {
     headers
 }
 
-/// [`view`]'s headers, copied out.
-pub(crate) fn read(list: Option<&Value>) -> Headers {
-    view(list).owned()
-}
-
+#[cfg(test)]
 impl Headers<&[u8]> {
-    /// These headers, copied out.
+    /// These headers, copied out (for the tests).
     pub(crate) fn owned(&self) -> Headers {
         Headers {
             slots: self.slots.clone().map(|h| Header {
@@ -78,4 +75,31 @@ impl Headers<&[u8]> {
             count: self.count,
         }
     }
+}
+
+/// A header as the store holds it: its value plain, wiped when dropped.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Plain {
+    pub name: Vec<u8>,
+    pub value: Secret,
+}
+
+/// The first `count` of `stored`, their values decoded (empty when one does not decode).
+///
+/// # Errors
+/// [`Error::NoMemory`] when the decoder or a copy runs out of memory.
+pub(crate) fn plain<S: AsRef<[u8]>>(
+    stored: &Headers<S>,
+    decode: &impl Fn(&[u8], usize) -> Result<Decoded, Error>,
+) -> Result<Vec<Plain>, Error> {
+    let mut out = Vec::new();
+    out.try_reserve_exact(HEADERS)
+        .map_err(|_| Error::NoMemory)?;
+    for header in stored.slots.iter().take(stored.count) {
+        out.push(Plain {
+            name: copied(header.name.as_ref())?,
+            value: password::decoded(header.value_obf.as_ref(), decode)?,
+        });
+    }
+    Ok(out)
 }

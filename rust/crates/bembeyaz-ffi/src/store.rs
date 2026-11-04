@@ -2,7 +2,7 @@
 
 use alloc::vec::Vec;
 use bembeyaz_store::Error;
-use bembeyaz_store::headers::{HEADERS, Header, Headers};
+use bembeyaz_store::headers::{self, HEADERS, Header, Headers};
 use bembeyaz_store::password::{Decoded, Secret};
 use core::ffi::{c_char, c_void};
 
@@ -51,6 +51,38 @@ impl Text {
     }
 }
 
+/// store.h's `bb_store_plain_header`.
+#[repr(C)]
+pub(crate) struct BbPlainHeader {
+    name: Text,
+    value: Text,
+}
+
+const _: () = {
+    let text = size_of::<Text>();
+    assert!(size_of::<BbPlainHeader>() == 2 * text);
+    assert!(core::mem::offset_of!(BbPlainHeader, value) == text);
+};
+
+impl BbPlainHeader {
+    /// The `HEADERS` slots for `headers` (the file's), views valid while they are; the slots past
+    /// them empty.
+    pub(crate) fn of(headers: &[headers::Plain]) -> [BbPlainHeader; HEADERS] {
+        core::array::from_fn(|slot| {
+            headers.get(slot).map_or(
+                BbPlainHeader {
+                    name: Text::of(&[]),
+                    value: Text::of(&[]),
+                },
+                |h| BbPlainHeader {
+                    name: Text::of(&h.name),
+                    value: Text::of(&h.value),
+                },
+            )
+        })
+    }
+}
+
 /// store.h's `bb_store_header`.
 #[repr(C)]
 pub(crate) struct BbHeader {
@@ -64,14 +96,6 @@ const _: () = {
 };
 
 impl BbHeader {
-    /// Views of `headers`' slots, valid while they are.
-    pub(crate) fn of(headers: &Headers) -> [BbHeader; HEADERS] {
-        headers.slots.each_ref().map(|h| BbHeader {
-            name: Text::of(&h.name),
-            value_obf: Text::of(&h.value_obf),
-        })
-    }
-
     /// The first `count` of `slots` (at most all of them).
     ///
     /// # Safety

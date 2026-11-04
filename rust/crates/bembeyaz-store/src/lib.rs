@@ -1,10 +1,11 @@
 //! The firmware's settings files (`/.crosspoint/*.json`, written by the stores built on
 //! `lib/Serialization/PersistableStore.h`) read and written as the C++ stores did with
 //! ArduinoJson: the same JSON out, the same values from any file, a field of the wrong type
-//! falling back to its default. One module per store, each with `read` and `write`; each one's
-//! golden corpus is that store's C++ answers. A store's decisions (which items it keeps, whether it
+//! falling back to its default. One module per store, each with its reading and `write` (`read`,
+//! or `load` where the store's decisions are Rust's too); each one's golden corpus is that store's
+//! C++ answers. A store's decisions (which items it keeps, whether it
 //! saves again) are here too where they moved to Rust, for both firmwares, checked against the same
-//! corpus: [`wifi_credentials::keep`], [`koreader_settings`].
+//! corpus: [`wifi_credentials::keep`], [`koreader_settings`], [`opds_servers::load`].
 //!
 //! - [`state`]: `CrossPointState` (`state.json`): the open book, the recent sleep images; corpus
 //!   from `test/crosspoint_state/make_corpus.py`.
@@ -21,7 +22,8 @@
 //! - [`records`]: the OPDS tokens, the LCP passphrases and the LCP device identity, records of
 //!   texts; corpus from `test/token_stores/make_corpus.py`.
 //! - [`opds_servers`]: `OpdsServerStore` (`opds.json`): the OPDS catalogs, their sign-ins and
-//!   headers as stored; corpus from `test/opds_servers/make_corpus.py`.
+//!   headers, and what the store makes of them (`load`); corpus from
+//!   `test/opds_servers/make_corpus.py`.
 //! - [`wifi_credentials`]: `WifiCredentialStore` (`wifi.json`): the saved Wi-Fi networks, their
 //!   passwords as stored, and which of them the store keeps; corpus from
 //!   `test/wifi_credentials/make_corpus.py`.

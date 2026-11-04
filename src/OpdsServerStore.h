@@ -33,6 +33,7 @@ class OpdsServerStore : public PersistableStore<OpdsServerStore> {
  private:
   std::vector<OpdsServer> servers;
 
+  // Rust's limit (BB_STORE_OPDS_MOST_SERVERS), checked in the .cpp.
   static constexpr size_t MAX_SERVERS = 8;
 
   OpdsServerStore() = default;
@@ -41,8 +42,10 @@ class OpdsServerStore : public PersistableStore<OpdsServerStore> {
 
  public:
   static const char* getFilePath() { return "/.crosspoint/opds.json"; }
-  // opds.json's text, read and written by Rust (bembeyaz_store::opds_servers); the obfuscation of
-  // passwords and header values stays here. See PersistableStore.
+  // opds.json's text, read and written by Rust, which also makes the servers of it (the passwords
+  // and header values decoded, a legacy plain password resaved, the limit; bembeyaz_store::
+  // opds_servers::load); the obfuscation of passwords and header values stays here. See
+  // PersistableStore.
   bool toJsonText(String& json) const;
   const char* fromJsonText(const String& json);
 

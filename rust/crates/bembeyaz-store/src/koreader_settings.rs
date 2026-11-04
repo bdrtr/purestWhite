@@ -7,7 +7,7 @@
 
 use crate::copied;
 use crate::field::Kind;
-use crate::headers::HEADERS;
+use crate::headers;
 use crate::koreader_credentials::{CONFIG_VERSION, Stored, read_view};
 use crate::password::{self, Decoded, Secret};
 use alloc::vec::Vec;
@@ -45,13 +45,6 @@ pub mod sync_behavior {
     pub const SMART: u8 = 1;
 }
 
-/// An extra request header with its plain value.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct Header {
-    pub name: Vec<u8>,
-    pub value: Secret,
-}
-
 /// What a setting's check changed, for the C++ store's debug log: the old default server pinned,
 /// and each setting reset because the value read (kept here, never 0) was out of range.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -74,7 +67,7 @@ pub struct Settings {
     pub sync_behavior: u8,
     pub send_metadata: bool,
     pub sync_clippings: bool,
-    pub headers: Vec<Header>,
+    pub headers: Vec<headers::Plain>,
     pub resave: bool,
     pub notes: Notes,
 }
@@ -123,7 +116,7 @@ pub fn settle<S: AsRef<[u8]>>(
         server_url: copied(stored.server_url.as_ref())?,
         send_metadata: stored.send_metadata,
         sync_clippings: stored.sync_clippings,
-        headers: headers_of(stored, &decode)?,
+        headers: headers::plain(&stored.headers, &decode)?,
         ..Settings::default()
     };
     settings.match_method = match_method_of(stored, &mut settings.notes);
@@ -190,24 +183,6 @@ fn sync_behavior_of<S>(stored: &Stored<S>, notes: &mut Notes, resave: &mut bool)
     notes.sync_behavior_reset = Some(behavior);
     *resave = true;
     sync_behavior::ASK_EVERY_TIME
-}
-
-/// The file's headers, their values decoded (empty when one does not decode).
-fn headers_of<S: AsRef<[u8]>>(
-    stored: &Stored<S>,
-    decode: &impl Fn(&[u8], usize) -> Result<Decoded, Error>,
-) -> Result<Vec<Header>, Error> {
-    let mut headers = Vec::new();
-    headers
-        .try_reserve_exact(HEADERS)
-        .map_err(|_| Error::NoMemory)?;
-    for header in stored.headers.slots.iter().take(stored.headers.count) {
-        headers.push(Header {
-            name: copied(header.name.as_ref())?,
-            value: password::decoded(header.value_obf.as_ref(), decode)?,
-        });
-    }
-    Ok(headers)
 }
 
 /// The base URL the API paths go after (`getBaseUrl`), as the two pieces it is made of, nothing

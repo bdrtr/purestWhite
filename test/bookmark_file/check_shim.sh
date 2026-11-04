@@ -9,4 +9,4 @@ root="$(cd "$(dirname "$0")/../.." && pwd)"
 exec "$root/test/json_oracle/check_shim.sh" "$root/test/bookmark_file" -DARDUINOJSON_ENABLE_ARDUINO_STRING=1 \
   -I"$root/lib/Serialization" -I"$root/src" -I"$root/src/util" "$root/test/json_oracle/stubs/ObfuscationFake.cpp" \
   "$root/src/util/BookmarkFile.cpp" "$root/src/util/BookmarkUtil.cpp" "$root/lib/Serialization/PersistableStore.cpp" \
-  "$root/lib/Serialization/StoredPassword.cpp" "$root/lib/Serialization/StoreText.cpp"
+  "$root/lib/Serialization/StoreText.cpp"

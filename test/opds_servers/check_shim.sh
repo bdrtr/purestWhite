@@ -10,5 +10,5 @@ exec "$root/test/json_oracle/check_shim.sh" "$root/test/opds_servers" -DARDUINOJ
   -I"$root/lib/Serialization" -I"$root/lib/HttpHeader" \
   -I"$root/src" \
   "$root/test/json_oracle/stubs/ObfuscationFake.cpp" "$root/src/OpdsServerStore.cpp" \
-  "$root/lib/Serialization/PersistableStore.cpp" "$root/lib/Serialization/StoredPassword.cpp" \
+  "$root/lib/Serialization/PersistableStore.cpp" \
   "$root/lib/Serialization/StoreText.cpp"

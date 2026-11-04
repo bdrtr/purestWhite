@@ -74,10 +74,10 @@ bool bb_store_wifi_credentials_write(bb_store_text last_connected_ssid, const bb
 // Reads wifi.json's text (len bytes, read up to a NUL as a C string) and decides on it as the store
 // does (bembeyaz_store::wifi_credentials::keep, within BB_STORE_WIFI_MOST_*): calls' dropped hears
 // of each network dropped as it is judged, then last_connected of the network connected last and
-// kept of each network kept, in the file's order; *resave is set (resave may be NULL). NULL when it
-// was read, else ArduinoJson's name for why not (a static string; "NoMemory" when memory ran out,
-// decoding included; "InvalidInput" when calls is NULL), and only decode and dropped may have been
-// called. The plain passwords are wiped after the calls.
+// kept of each network kept, in the file's order; *resave is set on success (resave may be NULL).
+// NULL when it was read, else ArduinoJson's name for why not (a static string; "NoMemory" when
+// memory ran out, decoding included; "InvalidInput" when calls is NULL), and only decode and
+// dropped may have been called. The plain passwords are wiped after the calls.
 const char* bb_store_wifi_credentials_keep(const char* text, size_t len, const bb_store_wifi_keep_calls* calls,
                                            void* context, bool* resave);
 

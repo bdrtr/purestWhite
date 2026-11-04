@@ -25,6 +25,12 @@ typedef struct {
   bb_store_text value_obf;
 } bb_store_header;
 
+// An extra request header with its plain value (as the store holds it).
+typedef struct {
+  bb_store_text name;
+  bb_store_text value;
+} bb_store_plain_header;
+
 // Receives len bytes at data (not NUL-terminated). It runs inside Rust: it must return normally
 // (no exception, no longjmp).
 typedef void (*bb_store_write)(const char* data, size_t len, void* context);

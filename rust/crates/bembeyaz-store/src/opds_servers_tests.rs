@@ -1,20 +1,33 @@
 //! `OpdsServerStore`'s own answers replayed: every step of testdata/opds-servers-corpus.txt
-//! (written by `test/opds_servers/make_corpus.py`). What stays in C++ is mirrored here as the
-//! driver runs it: the host stand-in for the obfuscation (`~` and the text in hex), the legacy
-//! password fallback and resave (`obfuscation::readStoredPassword`), the 8-server limit, and the
-//! file steps (`loadFromFile`, `saveToFile`).
+//! (written by `test/opds_servers/make_corpus.py`), its loads made by [`load`] with the host
+//! stand-in for the obfuscation (`~` and the text in hex). What stays in C++ is mirrored here as
+//! the driver runs it: adding servers within the limit, and the file steps (`loadFromFile`,
+//! `saveToFile`).
 #![allow(clippy::indexing_slicing, clippy::panic, clippy::unwrap_used)]
 
 use crate::corpus::{bytes, deobfuscate, fuzz, hex, replay};
 use crate::headers::{HEADERS, Header, Headers};
-use crate::opds_servers::{Server, read, write};
+use crate::opds_servers::{self, MOST_SERVERS, Server, load, write};
+use crate::password::{Decoded, Secret};
 use std::format;
 use std::string::String;
 use std::vec::Vec;
 
 const CORPUS: &str = include_str!("../testdata/opds-servers-corpus.txt");
 /// The C++ store's `MAX_SERVERS`.
-const MOST: usize = 8;
+const MOST: usize = MOST_SERVERS;
+
+/// The drivers' stand-in for the obfuscation, as a decoder.
+#[allow(clippy::unnecessary_wraps, reason = "a decoder's shape")]
+fn stand_in(text: &[u8], _: usize) -> Result<Decoded, crate::Error> {
+    Ok(
+        deobfuscate(text).map_or_else(Decoded::default, |text| Decoded {
+            text: Secret::new(text),
+            ok: true,
+            too_long: false,
+        }),
+    )
+}
 
 /// A server as the C++ store holds it: plain password and header values.
 #[derive(Clone, Default)]
@@ -37,26 +50,19 @@ fn obfuscate(plain: &[u8]) -> Vec<u8> {
 }
 
 impl Store {
-    fn plain(server: &Server, resave: &mut bool) -> Plain {
-        let password = deobfuscate(&server.password_obf).unwrap_or_else(|| {
-            *resave |= !server.password.is_empty();
-            server.password.clone()
-        });
+    /// A server `load` made, as the driver prints it.
+    fn plain(server: &opds_servers::Plain) -> Plain {
         let mut plain = Plain {
             fields: [
                 server.name.clone(),
                 server.url.clone(),
                 server.username.clone(),
-                password,
+                server.password.to_vec(),
             ],
             ..Plain::default()
         };
-        let stored = &server.headers.slots[..server.headers.count];
-        for (slot, h) in plain.headers.iter_mut().zip(stored) {
-            *slot = (
-                h.name.clone(),
-                deobfuscate(&h.value_obf).unwrap_or_default(),
-            );
+        for (slot, h) in plain.headers.iter_mut().zip(&server.headers) {
+            *slot = (h.name.clone(), h.value.to_vec());
         }
         plain
     }
@@ -70,7 +76,6 @@ impl Store {
                 url: p.fields[1].clone(),
                 username: p.fields[2].clone(),
                 password_obf: obfuscate(&p.fields[3]),
-                password: Vec::new(),
                 headers: Headers {
                     slots: p.headers.clone().map(|(name, value)| Header {
                         name,
@@ -89,14 +94,11 @@ impl Store {
         if text.is_empty() {
             return false;
         }
-        let Ok(stored) = read(text, MOST) else {
+        let Ok(loaded) = load(text, stand_in) else {
             return false;
         };
-        let mut resave = false;
-        self.servers = stored
-            .iter()
-            .map(|s| Store::plain(s, &mut resave))
-            .collect();
+        self.servers = loaded.servers.iter().map(Store::plain).collect();
+        let resave = loaded.resave;
         if resave {
             self.save();
         }
@@ -180,6 +182,40 @@ fn every_step_of_the_corpus_is_the_stores() {
 #[test]
 fn broken_opds_files_are_read_without_a_fault() {
     fuzz(CORPUS, 20, |input| {
-        let _ = read(input, MOST);
+        let _ = load(input, stand_in);
     });
+}
+
+#[test]
+fn a_decoder_out_of_memory_is_an_error_not_an_empty_password() {
+    let failing = |_: &[u8], _: usize| Err(crate::Error::NoMemory);
+    let password = br#"{"servers":[{"name":"a","password_obf":"~61"}]}"#;
+    assert_eq!(load(password, failing), Err(crate::Error::NoMemory));
+    let header = br#"{"servers":[{"name":"a","headers":[{"name":"X","value_obf":"~61"}]}]}"#;
+    let calls = core::cell::Cell::new(0);
+    let fails_second = |text: &[u8], most: usize| {
+        calls.set(calls.get() + 1);
+        if calls.get() < 2 {
+            stand_in(text, most)
+        } else {
+            Err(crate::Error::NoMemory)
+        }
+    };
+    assert_eq!(load(header, fails_second), Err(crate::Error::NoMemory));
+}
+
+#[test]
+fn only_the_first_eight_servers_are_decoded() {
+    let servers: Vec<String> = (0..11)
+        .map(|i| format!(r#"{{"name":"s{i}","password_obf":"~61"}}"#))
+        .collect();
+    let file = format!(r#"{{"servers":[{}]}}"#, servers.join(","));
+    let decoded = core::cell::Cell::new(0);
+    let counting = |text: &[u8], most: usize| {
+        decoded.set(decoded.get() + 1);
+        stand_in(text, most)
+    };
+    let loaded = load(file.as_bytes(), counting).unwrap();
+    assert_eq!(loaded.servers.len(), MOST_SERVERS);
+    assert_eq!(decoded.get(), MOST_SERVERS);
 }
