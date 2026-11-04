@@ -271,7 +271,8 @@ its scenario in `emu/`.
   between the steps. esp-radio 1.0.0-beta.1 has no WPA3: a WPA2/WPA3 network joins over WPA2, a
   WPA3-only one not at all. Needs esp-rtos: device only.
 - `https-check` (built with `--features wifi`): gate 2's download. Reads the clock (`clock: ...
-  UTC`, or `clock: not set`: then certificates' dates cannot be checked and TLS fails), joins the
+  UTC`, or `clock: no answer`, `read failed`, `stopped, holds ... UTC`: then certificates' dates
+  cannot be checked and TLS fails), joins the
   saved network as `wifi-join` does, and fetches a file that never changes (this repository's
   ROADMAP.md at commit 6afcf308, 10,246 bytes, SHA-256 `c4e5578c...`) from
   raw.githubusercontent.com, trusting the C++ firmware's roots (ESP-IDF's certificate bundle,

@@ -4,7 +4,7 @@
 use core::fmt::{self, Display, Formatter};
 use embedded_hal::i2c::I2c;
 use esp_hal::delay::Delay;
-use purestwhite_rtc::{DateTime, begin, epoch_from_utc, now};
+use purestwhite_rtc::{DateTime, Fault, begin, epoch_from_utc, read_time};
 
 /// The BM8563's address on the bus.
 pub const ADDR: u8 = 0x51;
@@ -21,23 +21,59 @@ impl Read {
     }
 }
 
+/// `2026-11-03 06:12 UTC`.
+fn write_time(out: &mut Formatter<'_>, t: &DateTime) -> fmt::Result {
+    write!(
+        out,
+        "{:04}-{:02}-{:02} {:02}:{:02} UTC",
+        t.year, t.month, t.day, t.hour, t.minute
+    )
+}
+
 /// `clock: 2026-11-03 06:12 UTC`.
 impl Display for Read {
     fn fmt(&self, out: &mut Formatter<'_>) -> fmt::Result {
-        let t = &self.0;
-        write!(
-            out,
-            "clock: {:04}-{:02}-{:02} {:02}:{:02} UTC",
-            t.year, t.month, t.day, t.hour, t.minute
-        )
+        write!(out, "clock: ")?;
+        write_time(out, &self.0)
     }
 }
 
-/// The clock's time; `None` when it does not answer, or says its time is not to be trusted (it
-/// lost power).
-pub fn read(bus: &mut impl I2c) -> Option<Read> {
-    if !begin(bus, &mut Delay::new(), ADDR) {
-        return None;
+/// Why the clock's time could not be had.
+#[derive(Clone, Copy, Debug)]
+pub enum Unread {
+    /// It did not answer on the bus.
+    NoAnswer,
+    /// It answered, then the read failed.
+    ReadFailed,
+    /// Its oscillator stopped at some point (never set, or it lost power); the time it holds.
+    Stopped(DateTime),
+}
+
+/// `clock: no answer`, `clock: read failed`, or `clock: stopped, holds 2026-11-03 06:12 UTC`.
+impl Display for Unread {
+    fn fmt(&self, out: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Unread::NoAnswer => write!(out, "clock: no answer"),
+            Unread::ReadFailed => write!(out, "clock: read failed"),
+            Unread::Stopped(t) => {
+                write!(out, "clock: stopped, holds ")?;
+                write_time(out, t)
+            }
+        }
     }
-    now(bus, ADDR).map(Read)
+}
+
+/// The clock's time, or why it could not be had: it does not answer, or says its time is not to
+/// be trusted (it lost power).
+///
+/// # Errors
+/// [`Unread`].
+pub fn read(bus: &mut impl I2c) -> Result<Read, Unread> {
+    if !begin(bus, &mut Delay::new(), ADDR) {
+        return Err(Unread::NoAnswer);
+    }
+    read_time(bus, ADDR).map(Read).map_err(|fault| match fault {
+        Fault::Bus => Unread::ReadFailed,
+        Fault::Stopped(time) => Unread::Stopped(time),
+    })
 }

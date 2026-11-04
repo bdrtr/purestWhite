@@ -151,6 +151,27 @@ fn a_stopped_oscillator_gives_no_time() {
 }
 
 #[test]
+fn a_read_says_why_there_is_no_time() {
+    let mut bus = FakeBus::default();
+    bus.regs[2..9].copy_from_slice(&[VOLTAGE_LOW | 0x56, 0x34, 0x12, 0x25, 0x00, 0x10, 0x26]);
+    let held = DateTime {
+        year: 2026,
+        month: 10,
+        day: 25,
+        hour: 12,
+        minute: 34,
+        second: 56,
+        weekday: 0,
+    };
+    assert_eq!(read_time(&mut bus, 0x51), Err(Fault::Stopped(held)));
+    let mut failing = FakeBus {
+        fail: &[1],
+        ..FakeBus::default()
+    };
+    assert_eq!(read_time(&mut failing, 0x51), Err(Fault::Bus));
+}
+
+#[test]
 fn set_writes_the_time_registers() {
     let mut bus = FakeBus::default();
     let time = DateTime {

@@ -70,16 +70,32 @@ pub fn begin(bus: &mut impl I2c, delay: &mut impl DelayNs, addr: u8) -> bool {
     false
 }
 
+/// Why the time could not be had.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Fault {
+    /// The read failed on the bus.
+    Bus,
+    /// The oscillator stopped at some point (the time was never set, or the clock lost power):
+    /// the time it holds, which is then not to be trusted.
+    Stopped(DateTime),
+}
+
 /// The time; `None` when the read fails or the oscillator stopped (the time is then unreliable).
 pub fn now(bus: &mut impl I2c, addr: u8) -> Option<DateTime> {
+    read_time(bus, addr).ok()
+}
+
+/// The time, or why it could not be had.
+///
+/// # Errors
+/// [`Fault::Bus`] or [`Fault::Stopped`].
+pub fn read_time(bus: &mut impl I2c, addr: u8) -> Result<DateTime, Fault> {
     let mut raw = [0; 7];
-    bus.write_read(addr, &[TIME], &mut raw).ok()?;
+    bus.write_read(addr, &[TIME], &mut raw)
+        .map_err(|_| Fault::Bus)?;
     let [second, minute, hour, day, weekday, month, year] = raw;
-    if second & VOLTAGE_LOW != 0 {
-        return None;
-    }
     let century = if month & CENTURY != 0 { 1900 } else { 2000 };
-    Some(DateTime {
+    let time = DateTime {
         year: century + u16::from(from_bcd(year)),
         month: from_bcd(month & 0x1F),
         day: from_bcd(day & 0x3F),
@@ -87,7 +103,11 @@ pub fn now(bus: &mut impl I2c, addr: u8) -> Option<DateTime> {
         minute: from_bcd(minute & 0x7F),
         second: from_bcd(second & 0x7F),
         weekday: from_bcd(weekday & 0x07),
-    })
+    };
+    if second & VOLTAGE_LOW != 0 {
+        return Err(Fault::Stopped(time));
+    }
+    Ok(time)
 }
 
 /// Sets the time, which also clears the voltage-low flag; false when the write fails.
